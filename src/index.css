@@ -1,0 +1,398 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes agenda-flash {
+  0%   { box-shadow: 0 0 0 0 hsl(var(--primary) / 0); background-color: hsl(var(--primary) / 0.10); }
+  40%  { box-shadow: 0 0 0 6px hsl(var(--primary) / 0.25); background-color: hsl(var(--primary) / 0.14); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0); background-color: transparent; }
+}
+.agenda-flash {
+  animation: agenda-flash 1.6s ease-out;
+  border-radius: 12px;
+  scroll-margin-top: 80px;
+}
+
+@layer base {
+  :root {
+    /* Public site horizontal gutters — mirrored by <SiteContainer />.
+       Header, footer, and landing sections all share these values. */
+    --site-max-w: 72rem;        /* matches Tailwind max-w-6xl */
+    --site-gutter-x: 1rem;       /* px-4 */
+    --site-gutter-x-sm: 1.5rem;  /* sm:px-6 */
+
+    /* Bright, clean canvas */
+    --background: 0 0% 100%;
+    --foreground: 222 25% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 25% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 25% 10%;
+
+    --primary: 222 25% 10%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 25% 10%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    /* Bright primary accent (vivid blue) */
+    --accent: 220 95% 56%;
+    --accent-foreground: 0 0% 100%;
+    --success: 142 72% 42%;
+
+    /* Bright, basic primary palette */
+    --brand-red: 0 90% 58%;
+    --brand-pink: 330 88% 60%;
+    --brand-purple: 265 85% 60%;
+    --brand-blue: 220 95% 56%;
+    --brand-cyan: 190 92% 48%;
+    --brand-green: 142 72% 42%;
+    --brand-yellow: 48 100% 52%;
+    --brand-amber: 38 96% 52%;
+    --brand-orange: 22 95% 56%;
+
+    --destructive: 0 90% 58%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 220 95% 56%;
+
+    --radius: 0.75rem;
+
+    --chart-1: 220 95% 56%;
+    --chart-2: 142 72% 42%;
+    --chart-3: 38 96% 52%;
+    --chart-4: 265 85% 60%;
+    --chart-5: 330 88% 60%;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 220 9% 35%;
+    --sidebar-primary: 222 25% 10%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 96%;
+    --sidebar-accent-foreground: 222 25% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 220 95% 56%;
+  }
+
+  .dark {
+    /* Deep neutral canvas, bright accents preserved */
+    --background: 224 16% 7%;
+    --foreground: 0 0% 98%;
+
+    --card: 224 14% 10%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 224 14% 10%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 0 0% 98%;
+    --primary-foreground: 224 16% 7%;
+
+    --secondary: 224 12% 14%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 224 12% 14%;
+    --muted-foreground: 220 8% 62%;
+
+    --accent: 220 95% 62%;
+    --accent-foreground: 0 0% 100%;
+    --success: 142 70% 50%;
+
+    /* Brighter brand tones for legibility on dark */
+    --brand-red: 0 92% 64%;
+    --brand-pink: 330 90% 66%;
+    --brand-purple: 265 88% 68%;
+    --brand-blue: 220 95% 62%;
+    --brand-cyan: 190 92% 56%;
+    --brand-green: 142 70% 50%;
+    --brand-yellow: 48 100% 58%;
+    --brand-amber: 38 96% 58%;
+    --brand-orange: 22 95% 62%;
+
+    --destructive: 0 80% 58%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 224 10% 18%;
+    --input: 224 10% 18%;
+    --ring: 220 95% 62%;
+
+    --chart-1: 220 95% 62%;
+    --chart-2: 142 70% 50%;
+    --chart-3: 38 96% 58%;
+    --chart-4: 265 88% 68%;
+    --chart-5: 330 90% 66%;
+
+    --sidebar-background: 224 16% 8%;
+    --sidebar-foreground: 220 8% 65%;
+    --sidebar-primary: 0 0% 98%;
+    --sidebar-primary-foreground: 224 16% 7%;
+    --sidebar-accent: 224 12% 13%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 224 10% 16%;
+    --sidebar-ring: 220 95% 62%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Poppins', system-ui, -apple-system, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Force Poppins everywhere — modals, toasts, tables, markdown, form controls,
+     code/pre blocks, and any element that would otherwise fall back to the
+     browser default (form controls in particular reset font-family). */
+  *,
+  *::before,
+  *::after,
+  input,
+  textarea,
+  select,
+  button,
+  optgroup,
+  code,
+  kbd,
+  samp,
+  pre,
+  tt,
+  var {
+    font-family: 'Poppins', system-ui, -apple-system, sans-serif !important;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Poppins', system-ui, sans-serif;
+    letter-spacing: -0.025em;
+    font-weight: 700;
+    color: hsl(var(--foreground));
+  }
+
+  /* Default semantic heading sizes — overrideable in markup */
+  h1 { font-size: 2.25rem; line-height: 1.1; letter-spacing: -0.03em; }
+  h2 { font-size: 1.875rem; line-height: 1.15; letter-spacing: -0.028em; }
+  h3 { font-size: 1.5rem; line-height: 1.2; letter-spacing: -0.025em; }
+  h4 { font-size: 1.25rem; line-height: 1.25; letter-spacing: -0.02em; }
+  h5 { font-size: 1.05rem; line-height: 1.3; letter-spacing: -0.015em; font-weight: 600; }
+  h6 { font-size: 0.95rem; line-height: 1.35; letter-spacing: -0.01em; font-weight: 600; }
+}
+
+@layer utilities {
+  /* Editorial heading scale used by landing + dashboard for consistency */
+  /* Headings use Poppins which has taller vertical metrics than Inter — keep
+     line-heights slightly looser to avoid descender clipping / overlap. */
+  .h-display { font-family: 'Poppins', system-ui, sans-serif; font-weight: 800; letter-spacing: -0.035em; line-height: 1.1; }
+  .h-section { font-family: 'Poppins', system-ui, sans-serif; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; }
+  .h-page    { font-family: 'Poppins', system-ui, sans-serif; font-weight: 700; letter-spacing: -0.025em; line-height: 1.2; }
+  .h-card    { font-family: 'Poppins', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.02em; line-height: 1.3; }
+  .eyebrow   { font-family: 'Poppins', system-ui, sans-serif; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; font-size: 0.75rem; }
+
+  /* Display class — same family, tighter tracking + heavier weight */
+  .font-display {
+    font-family: 'Poppins', system-ui, sans-serif;
+    letter-spacing: -0.035em;
+    font-weight: 700;
+  }
+
+  /* Flat clean utilities */
+  .backstage-hero {
+    background: hsl(var(--background));
+  }
+  .backstage-hero-org {
+    background: hsl(var(--background));
+  }
+  .backstage-eyebrow { color: hsl(var(--brand-blue)); }
+  .backstage-accent  { color: hsl(var(--brand-orange)); }
+  .backstage-cta {
+    background: hsl(var(--foreground));
+    color: hsl(var(--background));
+  }
+  .backstage-cta:hover { background: hsl(var(--foreground) / 0.88); }
+  .backstage-grain { background: transparent; }
+
+  /* Solid CTA used across landing + dashboard */
+  .playful-cta {
+    background: hsl(var(--foreground));
+    color: hsl(var(--background));
+  }
+  .playful-cta:hover {
+    background: hsl(var(--foreground) / 0.88);
+  }
+  .playful-section-bg {
+    background: hsl(var(--background));
+  }
+  .playful-app-bg {
+    background: hsl(var(--background));
+  }
+  .playful-brand-mark {
+    background: hsl(var(--foreground));
+  }
+  .playful-active-pill {
+    background: hsl(var(--secondary));
+    color: hsl(var(--foreground));
+    font-weight: 600;
+  }
+  .playful-soft-card {
+    background: hsl(var(--card));
+    border-radius: var(--radius);
+    border: 1px solid hsl(var(--border));
+  }
+  .playful-stat-card {
+    background: hsl(var(--card));
+    border-radius: var(--radius);
+    border: 1px solid hsl(var(--border));
+    transition: border-color 0.15s;
+  }
+  .playful-stat-card:hover { border-color: hsl(var(--foreground) / 0.2); }
+  .playful-gradient-text { color: inherit; }
+
+  .card-shadow {
+    box-shadow: 0 1px 2px 0 hsl(var(--foreground) / 0.04), 0 1px 3px -1px hsl(var(--foreground) / 0.04);
+  }
+
+  .card-shadow-hover {
+    box-shadow: 0 6px 20px -6px hsl(var(--foreground) / 0.12), 0 2px 6px -2px hsl(var(--foreground) / 0.06);
+  }
+
+  .glass {
+    background: hsl(var(--background) / 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .mono {
+    /* Kept as a utility for tabular/numeric emphasis but uses the global
+       Poppins family so typography stays consistent app-wide. */
+    font-family: 'Poppins', system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Override Tailwind's default font-mono / font-sans / font-serif utilities
+     so any component using them still renders in Poppins. */
+  .font-mono,
+  .font-sans,
+  .font-serif {
+    font-family: 'Poppins', system-ui, -apple-system, sans-serif !important;
+  }
+
+  /* Poppins descenders clip when line-height is exactly 1. Soften
+     `leading-none` slightly so stacked text in shadcn primitives, badges,
+     and chips never visually overlaps. */
+  .leading-none {
+    line-height: 1.1 !important;
+  }
+}
+
+/* ---------- LiveKit webinar overrides ---------- */
+
+/* Speaker name labels — auto-scale with tile size via container queries */
+.lk-participant-tile {
+  container-type: inline-size;
+}
+.lk-participant-metadata,
+.lk-participant-metadata-item,
+.lk-participant-name {
+  font-size: clamp(12px, 4cqi, 22px) !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+.lk-participant-metadata {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  padding: 4px 6px !important;
+  bottom: 8px !important;
+  left: 8px !important;
+  max-width: calc(100% - 16px);
+}
+
+/* Responsive ControlBar — icon-only, wraps cleanly on small screens */
+.lk-control-bar {
+  flex-wrap: wrap !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  padding: 10px !important;
+}
+.lk-control-bar .lk-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+@media (max-width: 640px) {
+  .lk-control-bar {
+    gap: 8px !important;
+    padding: 10px !important;
+  }
+  .lk-control-bar .lk-button {
+    padding: 10px !important;
+    min-width: 48px;
+    min-height: 48px;
+  }
+}
+
+/* ===== Recharts focus outline suppression =====
+   Recharts paints a default browser focus ring around its <svg> surface and
+   interactive sectors/bars when clicked, which renders as a stray rectangle
+   around the chart. Hide mouse-induced outlines globally while preserving a
+   visible focus ring for true keyboard navigation via :focus-visible. */
+.recharts-focus-safe,
+.recharts-wrapper,
+.recharts-surface {
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.recharts-wrapper:focus:not(:focus-visible),
+.recharts-surface:focus:not(:focus-visible),
+.recharts-wrapper *:focus:not(:focus-visible),
+.recharts-surface *:focus:not(:focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.recharts-wrapper:focus-visible,
+.recharts-surface:focus-visible {
+  outline: 2px solid hsl(var(--ring)) !important;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.recharts-sector:focus,
+.recharts-rectangle:focus,
+.recharts-bar-rectangle:focus,
+.recharts-pie-sector:focus,
+.recharts-active-shape:focus,
+.recharts-dot:focus,
+.recharts-layer:focus,
+.recharts-sector:focus-visible,
+.recharts-rectangle:focus-visible,
+.recharts-pie-sector:focus-visible,
+.recharts-bar-rectangle:focus-visible,
+.recharts-active-shape:focus-visible,
+.recharts-dot:focus-visible,
+.recharts-layer:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.recharts-sector:focus-visible path,
+.recharts-pie-sector:focus-visible path,
+.recharts-bar-rectangle:focus-visible path,
+.recharts-rectangle:focus-visible,
+.recharts-dot:focus-visible {
+  stroke: hsl(var(--ring)) !important;
+  stroke-width: 2px !important;
+}

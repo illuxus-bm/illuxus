@@ -1,0 +1,221 @@
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { useSiteContent } from "@/hooks/useSiteContent";
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { useTheme } from "@/contexts/ThemeContext";
+import { SiteContainer } from "@/components/layout/SiteContainer";
+import { CalendarDays, ChevronDown, Compass, LogOut, Settings as SettingsIcon, Ticket } from "lucide-react";
+
+/**
+ * Centralized site header used across every public segment
+ * (marketing site, discover, attendee, org/event pages).
+ *
+ * Intentionally minimal: just the Illuxus logo on the left and an
+ * auth control on the right. No primary navigation menu.
+ *
+ * Org / event pages can pass `theme` to inherit the page's tokens so
+ * the header blends with the branded canvas.
+ */
+export interface SiteHeaderTheme {
+  backgroundColor?: string;
+  textColor?: string;
+  accentColor?: string;
+  fontFamily?: string;
+}
+
+export default function SiteHeader({
+  theme,
+  homeHref = "/",
+  className = "",
+  transparent = false,
+}: {
+  theme?: SiteHeaderTheme;
+  homeHref?: string;
+  className?: string;
+  transparent?: boolean;
+}) {
+  const { user, signOut, accountType, isAdmin } = useAuth();
+  const { content } = useSiteContent();
+  const navigate = useNavigate();
+  const { brandName, logoUrl, logoUrlDark } = content.navbar;
+  const { theme: appTheme } = useTheme();
+  // Pick dark logo when in dark mode (and a dark logo is provided); fall back to the light/default logo.
+  const activeLogoUrl = appTheme === "dark" ? (logoUrlDark || logoUrl) : logoUrl;
+  // `homeHref` is kept in the API for back-compat but the logo now always links to illuxus.com.
+  void homeHref;
+
+  // Load profile so the avatar/initials reflect the user's saved name
+  // rather than always falling back to the first email letter.
+  const [profile, setProfile] = useState<{ display_name: string | null; avatar_url: string | null; first_name: string | null; last_name: string | null } | null>(null);
+  useEffect(() => {
+    if (!user) { setProfile(null); return; }
+    let cancelled = false;
+    const load = () => {
+      supabase.rpc("get_my_profile").then(({ data }) => {
+        if (cancelled || !data) return;
+        const p = data as { display_name: string | null; avatar_url: string | null; first_name: string | null; last_name: string | null };
+        setProfile({
+          display_name: p.display_name ?? null,
+          avatar_url: p.avatar_url ?? null,
+          first_name: p.first_name ?? null,
+          last_name: p.last_name ?? null,
+        });
+      });
+    };
+    load();
+    const channel = supabase
+      .channel(`site-header-profile-${user.id}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles", filter: `user_id=eq.${user.id}` }, load)
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(channel); };
+  }, [user]);
+
+  const fullName = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ").trim();
+  const displayName = profile?.display_name || fullName || user?.email?.split("@")[0] || "Account";
+  const initials = (fullName || displayName).split(/\s+/).map((s) => s[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || (user?.email?.[0] || "A").toUpperCase();
+  const avatarUrl = profile?.avatar_url || null;
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/");
+  };
+
+  const themed = !!theme;
+  const styleVars: React.CSSProperties = themed
+    ? {
+        backgroundColor: transparent ? "transparent" : theme?.backgroundColor,
+        color: theme?.textColor,
+        borderColor: theme?.textColor ? `${theme.textColor}15` : undefined,
+        fontFamily: theme?.fontFamily ? `${theme.fontFamily}, sans-serif` : undefined,
+      }
+    : {};
+
+  // Themed pages skip backdrop blur to avoid washing out the page palette.
+  const surfaceClass = themed
+    ? "border-b"
+    : "border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60";
+
+  return (
+    <header className={`sticky top-0 z-40 ${surfaceClass} ${className}`} style={styleVars}>
+      <SiteContainer className="h-14 flex items-center justify-between gap-4">
+        {/* Logo always navigates to the Illuxus marketing site, regardless of which segment we're in. */}
+        <a
+          href="https://illuxus.com"
+          className="flex items-center gap-2 shrink-0"
+          aria-label={`${brandName} — illuxus.com`}
+        >
+          {activeLogoUrl ? (
+            <img
+              src={activeLogoUrl}
+              alt={brandName}
+              className="h-7 w-auto max-w-[160px] object-contain"
+            />
+          ) : (
+            <span className="text-base font-semibold tracking-tight">{brandName}</span>
+          )}
+        </a>
+
+        <div className="flex items-center gap-2">
+          <Link
+            to="/discover"
+            className="text-[13px] font-medium px-3 h-8 inline-flex items-center gap-1.5 rounded-full hover:bg-secondary transition-colors"
+            style={themed ? { color: theme?.textColor } : undefined}
+          >
+            <Compass className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Discover</span>
+          </Link>
+          {/*
+            Theme toggle is shown everywhere — including themed event/org pages —
+            so visitors can switch light/dark from any surface.
+            On themed pages we wrap it in a translucent scrim that adapts to the
+            page text color so the pill stays visible on any branded background.
+          */}
+          <div
+            className={themed ? "rounded-full p-0.5" : undefined}
+            style={
+              themed
+                ? {
+                    backgroundColor: `${theme?.textColor ?? "#000"}10`,
+                    border: `1px solid ${theme?.textColor ?? "#000"}20`,
+                  }
+                : undefined
+            }
+          >
+            <ThemeToggle size="sm" />
+          </div>
+          {user ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="flex items-center gap-1.5 h-8 pl-1 pr-2 rounded-md hover:bg-secondary transition-colors"
+                  style={
+                    themed
+                      ? { backgroundColor: `${theme?.textColor ?? "#000"}10`, border: `1px solid ${theme?.textColor ?? "#000"}20`, color: theme?.textColor }
+                      : undefined
+                  }
+                  aria-label={displayName}
+                >
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt={displayName} className="h-6 w-6 rounded-full object-cover" />
+                  ) : (
+                    <div
+                      className={themed ? "h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-semibold" : "h-6 w-6 rounded-full bg-foreground text-background flex items-center justify-center text-[10px] font-semibold"}
+                      style={themed ? { backgroundColor: theme?.accentColor, color: "#fff" } : undefined}
+                    >
+                      {initials}
+                    </div>
+                  )}
+                  <ChevronDown className="h-3 w-3 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <div className="px-2 py-1.5">
+                  <p className="text-[13px] font-medium truncate">{displayName}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
+                  <p className="text-[11px] text-muted-foreground capitalize">{accountType || "attendee"}</p>
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link to="/u/me/events"><Ticket className="h-3.5 w-3.5 mr-2" /> My tickets</Link>
+                </DropdownMenuItem>
+                {(accountType === "organizer" || isAdmin) && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/dashboard"><CalendarDays className="h-3.5 w-3.5 mr-2" /> Organizer dashboard</Link>
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem asChild>
+                  <Link to="/dashboard/settings"><SettingsIcon className="h-3.5 w-3.5 mr-2" /> Settings</Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">
+                  <LogOut className="h-3.5 w-3.5 mr-2" /> Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Link
+              to="/login"
+              className="text-[13px] font-medium px-3 h-8 inline-flex items-center rounded-full border transition-colors hover:opacity-90"
+              style={
+                themed
+                  ? { borderColor: `${theme?.textColor ?? "#000"}20`, color: theme?.textColor }
+                  : undefined
+              }
+            >
+              Sign in
+            </Link>
+          )}
+        </div>
+      </SiteContainer>
+    </header>
+  );
+}

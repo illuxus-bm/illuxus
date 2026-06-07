@@ -1,0 +1,732 @@
+import { useState, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical } from "lucide-react";
+import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
+import SponsorLogoUploader from "./SponsorLogoUploader";
+import {
+  DndContext, DragOverlay, closestCenter, KeyboardSensor, PointerSensor,
+  useSensor, useSensors, useDroppable,
+  type DragEndEvent, type DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext, sortableKeyboardCoordinates, arrayMove,
+  useSortable, rectSortingStrategy, verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  groupSponsorsByTier,
+  reorderWithinTier as reorderWithinTierPure,
+  reorderGroups as reorderGroupsPure,
+  moveSponsorToTier as moveSponsorToTierPure,
+} from "./sponsor-dnd";
+
+interface Sponsor {
+  id: string;
+  name: string;
+  email: string | null;
+  logo_url: string | null;
+  website: string | null;
+  tier: string;
+  tier_label: string | null;
+  description: string | null;
+}
+
+interface SponsorMember {
+  id: string;
+  sponsor_id: string;
+  email: string;
+  display_name: string | null;
+  role: string;
+  invite_token: string;
+  accepted_at: string | null;
+  designation?: string | null;
+  company?: string | null;
+}
+
+interface Props {
+  eventId: string;
+}
+
+const TIERS = [
+  { value: "platinum", label: "Platinum", color: "bg-[hsl(var(--brand-purple)/0.12)] text-[hsl(var(--brand-purple))] border-[hsl(var(--brand-purple)/0.3)]" },
+  { value: "gold", label: "Gold", color: "bg-[hsl(var(--brand-amber)/0.12)] text-[hsl(var(--brand-amber))] border-[hsl(var(--brand-amber)/0.3)]" },
+  { value: "silver", label: "Silver", color: "bg-muted text-muted-foreground border-border" },
+  { value: "bronze", label: "Bronze", color: "bg-[hsl(var(--brand-orange)/0.12)] text-[hsl(var(--brand-orange))] border-[hsl(var(--brand-orange)/0.3)]" },
+  { value: "custom", label: "Custom…", color: "bg-primary/10 text-primary border-primary/20" },
+];
+
+const tierColor = (tier: string) => TIERS.find((t) => t.value === tier)?.color || TIERS[3].color;
+
+const emptySponsor = { name: "", email: "", logo_url: "", website: "", tier: "bronze", tier_label: "", description: "" };
+
+interface TierPreset { id: string; label: string; }
+
+export default function SponsorManagement({ eventId }: Props) {
+  const [sponsors, setSponsors] = useState<Sponsor[]>([]);
+  const [allSponsors, setAllSponsors] = useState<Sponsor[]>([]);
+  const [assignedIds, setAssignedIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Sponsor | null>(null);
+  const [form, setForm] = useState(emptySponsor);
+  const [teamOpen, setTeamOpen] = useState<Sponsor | null>(null);
+  const [members, setMembers] = useState<SponsorMember[]>([]);
+  const [memberForm, setMemberForm] = useState<PersonFields>(() => emptyPersonFields());
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [orgId, setOrgId] = useState<string | null>(null);
+  const [tierPresets, setTierPresets] = useState<TierPreset[]>([]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const fetchData = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const [{ data: allSpk }, { data: assigned }, { data: ev }] = await Promise.all([
+      supabase.from("sponsors").select("*").order("name"),
+      supabase.from("event_sponsors").select("sponsor_id, display_order").eq("event_id", eventId).order("display_order"),
+      supabase.from("events").select("org_id").eq("id", eventId).maybeSingle(),
+    ]);
+
+    const orderedIds = (assigned || []).map((a: any) => a.sponsor_id as string);
+    const ids = new Set(orderedIds);
+    const byId = new Map((allSpk || []).map((s: Sponsor) => [s.id, s] as const));
+    const ordered = orderedIds.map((id) => byId.get(id)).filter(Boolean) as Sponsor[];
+    setAllSponsors(allSpk || []);
+    setSponsors(ordered);
+    setAssignedIds(ids);
+    const _orgId = (ev as any)?.org_id ?? null;
+    setOrgId(_orgId);
+    if (_orgId) {
+      const { data: presets } = await supabase
+        .from("org_sponsor_tiers")
+        .select("id,label")
+        .eq("org_id", _orgId)
+        .order("label");
+      setTierPresets((presets || []) as TierPreset[]);
+    } else {
+      setTierPresets([]);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchData(); }, [eventId]);
+
+  const fetchMembers = async (sponsorId: string) => {
+    const { data } = await supabase.from("sponsor_members").select("*").eq("sponsor_id", sponsorId).order("created_at");
+    setMembers((data || []) as SponsorMember[]);
+  };
+
+  const openTeam = async (s: Sponsor) => {
+    setTeamOpen(s);
+    setMemberForm({ ...emptyPersonFields(), company: s.name });
+    await fetchMembers(s.id);
+  };
+
+  const inviteMember = async () => {
+    if (!teamOpen) return;
+    const v = validatePersonFields(memberForm);
+    if (!v.ok) { toast.error(v.error); return; }
+    const { error } = await supabase.from("sponsor_members").insert({
+      sponsor_id: teamOpen.id,
+      email: memberForm.email.trim().toLowerCase(),
+      display_name: displayName(memberForm) || null,
+      title: memberForm.title,
+      first_name: memberForm.first_name.trim(),
+      last_name: memberForm.last_name.trim(),
+      designation: memberForm.designation.trim(),
+      company: memberForm.company.trim() || teamOpen.name,
+      mobile_country_code: memberForm.mobile_country_code,
+      mobile_number: memberForm.mobile_number.trim(),
+      linkedin_url: memberForm.linkedin_url.trim() || null,
+      company_website: memberForm.company_website.trim() || null,
+      company_employee_count: memberForm.company_employee_count || null,
+      industry: memberForm.industry || null,
+    });
+    if (error) { toast.error(error.message); return; }
+    setMemberForm({ ...emptyPersonFields(), company: teamOpen.name });
+    await fetchMembers(teamOpen.id);
+    toast.success("Team member added — share their invite link");
+  };
+
+  const removeMember = async (id: string) => {
+    await supabase.from("sponsor_members").delete().eq("id", id);
+    if (teamOpen) await fetchMembers(teamOpen.id);
+  };
+
+  const copyInvite = (token: string) => {
+    const url = `${window.location.origin}/sponsor/accept?token=${token}`;
+    navigator.clipboard.writeText(url);
+    toast.success("Invite link copied", { description: url });
+  };
+
+  const handleSave = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    if (!form.name.trim()) { toast.error("Name is required"); return; }
+    if (form.tier === "custom" && !form.tier_label.trim()) { toast.error("Custom tier name is required"); return; }
+    const tierLabelToSave = form.tier === "custom" ? form.tier_label.trim() : null;
+
+    if (editing) {
+      const { error } = await supabase.from("sponsors").update({
+        name: form.name, email: form.email || null, logo_url: form.logo_url || null,
+        website: form.website || null, tier: form.tier, tier_label: tierLabelToSave, description: form.description || null,
+      }).eq("id", editing.id);
+      if (error) { toast.error(error.message); return; }
+      toast.success("Sponsor updated");
+    } else {
+      const { data, error } = await supabase.from("sponsors").insert({
+        name: form.name, email: form.email || null, logo_url: form.logo_url || null,
+        website: form.website || null, tier: form.tier, tier_label: tierLabelToSave, description: form.description || null,
+        user_id: user.id,
+      }).select().single();
+      if (error) { toast.error(error.message); return; }
+      await supabase.from("event_sponsors").insert({ event_id: eventId, sponsor_id: data.id });
+      toast.success("Sponsor added & assigned");
+    }
+    setOpen(false);
+    setEditing(null);
+    setForm(emptySponsor);
+    // Save custom tier as a reusable org-level preset
+    if (form.tier === "custom" && tierLabelToSave && orgId) {
+      const exists = tierPresets.some(
+        (p) => p.label.toLowerCase() === tierLabelToSave.toLowerCase()
+      );
+      if (!exists) {
+        await supabase
+          .from("org_sponsor_tiers")
+          .insert({ org_id: orgId, label: tierLabelToSave, created_by: user.id });
+      }
+    }
+    fetchData();
+  };
+
+  const handleAssign = async (sponsorId: string) => {
+    if (assignedIds.has(sponsorId)) {
+      await supabase.from("event_sponsors").delete().eq("event_id", eventId).eq("sponsor_id", sponsorId);
+      toast.success("Sponsor removed from event");
+    } else {
+      const nextOrder = sponsors.length;
+      const { error } = await supabase.from("event_sponsors").insert({
+        event_id: eventId, sponsor_id: sponsorId, display_order: nextOrder,
+      });
+      if (error) { toast.error(error.message); return; }
+      toast.success("Sponsor assigned to event");
+    }
+    fetchData();
+  };
+
+  const handleDelete = async (id: string) => {
+    await supabase.from("sponsors").delete().eq("id", id);
+    toast.success("Sponsor deleted");
+    fetchData();
+  };
+
+  const openEdit = (s: Sponsor) => {
+    setEditing(s);
+    setForm({
+      name: s.name, email: s.email || "", logo_url: s.logo_url || "",
+      website: s.website || "", tier: s.tier, tier_label: s.tier_label || "", description: s.description || "",
+    });
+    setOpen(true);
+  };
+
+  if (loading) return <div className="text-muted-foreground p-8 text-center">Loading sponsors...</div>;
+
+  // Group by tier in the order sponsors first appear (so the saved display_order
+  // determines tier-group order across reloads, not the static TIERS array).
+  const customColor = TIERS.find((t) => t.value === "custom")!.color;
+  const grouped: TierGroup[] = (() => {
+    const map = new Map<string, TierGroup>();
+    for (const s of sponsors) {
+      const isCustom = s.tier === "custom";
+      const tierLabel = isCustom ? (s.tier_label || "Custom").trim() : null;
+      const key = isCustom ? `custom:${tierLabel}` : s.tier;
+      if (!map.has(key)) {
+        const preset = TIERS.find((t) => t.value === s.tier);
+        map.set(key, {
+          key,
+          tier: s.tier,
+          tierLabel,
+          label: isCustom ? (tierLabel || "Custom") : (preset?.label || s.tier),
+          color: isCustom ? customColor : (preset?.color || customColor),
+          sponsors: [],
+        });
+      }
+      map.get(key)!.sponsors.push(s);
+    }
+    return Array.from(map.values());
+  })();
+
+  const persistOrder = async (next: Sponsor[]) => {
+    const updates = next.map((s, i) =>
+      supabase.from("event_sponsors")
+        .update({ display_order: i })
+        .eq("event_id", eventId)
+        .eq("sponsor_id", s.id)
+    );
+    const results = await Promise.all(updates);
+    if (results.some((r) => r.error)) {
+      toast.error("Failed to save order");
+      fetchData();
+    }
+  };
+
+  const reorderGroups = async (oldIndex: number, newIndex: number) => {
+    const next = reorderGroupsPure(sponsors, oldIndex, newIndex);
+    setSponsors(next);
+    await persistOrder(next);
+  };
+
+  const reorderSponsorWithinTier = async (activeId: string, overId: string) => {
+    const next = reorderWithinTierPure(sponsors, activeId, overId);
+    if (next === sponsors) return;
+    setSponsors(next);
+    await persistOrder(next);
+  };
+
+  const moveSponsorToTier = async (
+    sponsorId: string,
+    destTier: string,
+    destTierLabel: string | null,
+    insertBeforeSponsorId: string | null,
+  ) => {
+    const { next, tierChanged } = moveSponsorToTierPure(
+      sponsors, sponsorId, destTier, destTierLabel, insertBeforeSponsorId,
+    );
+    if (next === sponsors) return;
+    setSponsors(next);
+
+    if (tierChanged) {
+      const { error } = await supabase
+        .from("sponsors")
+        .update({ tier: destTier, tier_label: destTier === "custom" ? destTierLabel : null })
+        .eq("id", sponsorId);
+      if (error) {
+        toast.error(error.message);
+        fetchData();
+        return;
+      }
+      toast.success(`Moved to ${destTier === "custom" ? destTierLabel || "Custom" : destTier} tier`);
+    }
+    await persistOrder(next);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold">Sponsors</h2>
+          <p className="text-sm text-muted-foreground">{sponsors.length} sponsors assigned to this event</p>
+        </div>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditing(null); setForm(emptySponsor); } }}>
+          <DialogTrigger asChild>
+            <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Sponsor</Button>
+          </DialogTrigger>
+          <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[520px] max-h-[90vh] p-0 gap-0 overflow-hidden flex flex-col">
+            <DialogHeader className="sticky top-0 z-10 bg-background border-b px-5 sm:px-6 py-4">
+              <DialogTitle>{editing ? "Edit Sponsor" : "Add New Sponsor"}</DialogTitle>
+            </DialogHeader>
+            <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-4 space-y-3">
+              <div><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+              <div>
+                <Label>Tier</Label>
+                <Select
+                  value={
+                    form.tier === "custom" && form.tier_label
+                      ? `preset:${form.tier_label}`
+                      : form.tier
+                  }
+                  onValueChange={(v) => {
+                    if (v.startsWith("preset:")) {
+                      setForm({ ...form, tier: "custom", tier_label: v.slice("preset:".length) });
+                    } else if (v === "custom") {
+                      setForm({ ...form, tier: "custom", tier_label: "" });
+                    } else {
+                      setForm({ ...form, tier: v, tier_label: "" });
+                    }
+                  }}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {TIERS.filter((t) => t.value !== "custom").map((t) => (
+                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    ))}
+                    {tierPresets.map((p) => (
+                      <SelectItem key={`preset:${p.id}`} value={`preset:${p.label}`}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="custom">Custom…</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {form.tier === "custom" && !tierPresets.some(
+                (p) => p.label.toLowerCase() === form.tier_label.trim().toLowerCase() && form.tier_label.trim() !== ""
+              ) && (
+                <div>
+                  <Label>Custom tier name *</Label>
+                  <Input
+                    value={form.tier_label}
+                    onChange={(e) => setForm({ ...form, tier_label: e.target.value })}
+                    placeholder="e.g. Diamond, Founding Partner"
+                    maxLength={40}
+                  />
+                </div>
+              )}
+              <div><Label>Email</Label><Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+              <div><Label>Website</Label><Input value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} placeholder="https://" /></div>
+              <div>
+                <Label>Logo</Label>
+                <div className="mt-1.5">
+                  <SponsorLogoUploader
+                    value={form.logo_url}
+                    onChange={(url) => setForm({ ...form, logo_url: url || "" })}
+                  />
+                </div>
+              </div>
+              <div><Label>Description</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} /></div>
+            </div>
+            <div className="sticky bottom-0 bg-background border-t px-5 sm:px-6 py-3">
+              <Button onClick={handleSave} className="w-full">{editing ? "Update" : "Create & Assign"}</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Sponsors grouped by tier */}
+      {grouped.length === 0 && (
+        <div className="text-center py-12 text-muted-foreground">
+          <Award className="h-10 w-10 mx-auto mb-2 opacity-40" />
+          <p>No sponsors yet. Add your first sponsor.</p>
+        </div>
+      )}
+
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        accessibility={{
+          announcements: {
+            onDragStart({ active }) {
+              const d = active.data.current as { type?: string; name?: string; tierLabel?: string } | undefined;
+              if (d?.type === "group") return `Picked up ${d.tierLabel ?? "tier"} group`;
+              if (d?.type === "sponsor") return `Picked up sponsor ${d.name ?? ""}`;
+              return "Picked up item";
+            },
+            onDragOver({ active, over }) {
+              const a = active.data.current as { type?: string; name?: string } | undefined;
+              const o = over?.data.current as { type?: string; tierLabel?: string; name?: string } | undefined;
+              if (!over) return "Not over a drop target";
+              if (a?.type === "group") return `${a.name ?? "Group"} is over ${o?.tierLabel ?? "another group"}`;
+              if (a?.type === "sponsor") {
+                if (o?.type === "tier-zone" || o?.type === "group") return `Hovering over ${o.tierLabel ?? "tier"} group`;
+                if (o?.type === "sponsor") return `Hovering over ${o.name ?? "another sponsor"}`;
+              }
+              return "";
+            },
+            onDragEnd({ active, over }) {
+              const a = active.data.current as { type?: string; name?: string } | undefined;
+              const o = over?.data.current as { type?: string; tierLabel?: string; name?: string } | undefined;
+              if (!over) return "Drag cancelled";
+              if (a?.type === "group") return `Reordered tier group ${a.name ?? ""}`;
+              if (a?.type === "sponsor") return `Dropped ${a.name ?? "sponsor"} in ${o?.tierLabel ?? "tier"}`;
+              return "Dropped";
+            },
+            onDragCancel() { return "Drag cancelled"; },
+          },
+        }}
+        onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))}
+        onDragCancel={() => setActiveId(null)}
+        onDragEnd={(e: DragEndEvent) => {
+          setActiveId(null);
+          const { active, over } = e;
+          if (!over) return;
+          const activeData = active.data.current as { type?: string; tier?: string; tierLabel?: string | null } | undefined;
+          const overData = over.data.current as { type?: string; tier?: string; tierLabel?: string | null } | undefined;
+
+          if (activeData?.type === "group") {
+            if (active.id === over.id) return;
+            const oldIndex = grouped.findIndex((g) => g.key === active.id);
+            const newIndex = grouped.findIndex((g) => g.key === over.id);
+            if (oldIndex < 0 || newIndex < 0) return;
+            void reorderGroups(oldIndex, newIndex);
+            return;
+          }
+
+          if (activeData?.type === "sponsor") {
+            const sponsorId = String(active.id);
+            if (overData?.type === "sponsor") {
+              if (over.id === active.id) return;
+              const sameTier =
+                overData.tier === activeData.tier &&
+                (overData.tier !== "custom" || (overData.tierLabel ?? null) === (activeData.tierLabel ?? null));
+              if (sameTier) {
+                void reorderSponsorWithinTier(sponsorId, String(over.id));
+              } else {
+                void moveSponsorToTier(sponsorId, overData.tier!, overData.tierLabel ?? null, String(over.id));
+              }
+            } else if (overData?.type === "tier-zone" || overData?.type === "group") {
+              void moveSponsorToTier(sponsorId, overData.tier!, overData.tierLabel ?? null, null);
+            }
+          }
+        }}
+      >
+        <SortableContext items={grouped.map((g) => g.key)} strategy={verticalListSortingStrategy}>
+          <div className="space-y-6">
+            {grouped.map((group) => (
+              <SortableTierGroup
+                key={group.key}
+                group={group}
+                onTeam={openTeam}
+                onEdit={openEdit}
+                onDelete={handleDelete}
+              />
+            ))}
+          </div>
+        </SortableContext>
+        <DragOverlay dropAnimation={{ duration: 200, easing: "cubic-bezier(0.18, 0.67, 0.6, 1.22)" }}>
+          {activeId ? (() => {
+            const sp = sponsors.find((s) => s.id === activeId);
+            if (sp) return <SponsorCardView sponsor={sp} dragging />;
+            const grp = grouped.find((g) => g.key === activeId);
+            if (grp) {
+              return (
+                <div className="bg-card border-2 border-primary/40 rounded-lg px-3 py-2 shadow-2xl ring-2 ring-primary/30">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${grp.color}`}>{grp.label}</span>
+                  <span className="text-muted-foreground text-xs ml-2">({grp.sponsors.length} sponsors)</span>
+                </div>
+              );
+            }
+            return null;
+          })() : null}
+        </DragOverlay>
+      </DndContext>
+
+      {/* Unassigned sponsors pool */}
+      {allSponsors.filter((s) => !assignedIds.has(s.id)).length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-muted-foreground mb-2">Available Sponsors (click to assign)</h3>
+          <div className="flex flex-wrap gap-2">
+            {allSponsors.filter((s) => !assignedIds.has(s.id)).map((s) => (
+              <Button key={s.id} variant="outline" size="sm" onClick={() => handleAssign(s.id)}>
+                <Plus className="h-3 w-3 mr-1" />{s.name}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Team manager dialog */}
+      <Dialog open={!!teamOpen} onOpenChange={(v) => !v && setTeamOpen(null)}>
+        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[640px] max-h-[90vh] p-0 gap-0 overflow-hidden flex flex-col">
+          <DialogHeader className="sticky top-0 z-10 bg-background border-b px-5 sm:px-6 py-4">
+            <DialogTitle>{teamOpen?.name} · Team</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-4 space-y-4">
+            <PersonFieldsForm value={memberForm} onChange={setMemberForm} />
+            <Button onClick={inviteMember} size="sm" className="w-full">Add team member</Button>
+            <div className="border border-border rounded-md divide-y divide-border max-h-[260px] overflow-y-auto">
+              {members.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-6">No team members yet.</p>
+              ) : members.map((m) => (
+                <div key={m.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium truncate">{m.display_name || m.email}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      {m.designation ? `${m.designation} · ` : ""}{m.email}
+                    </p>
+                  </div>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${m.accepted_at ? "bg-green-500/10 text-green-600 border-green-500/20" : "bg-muted text-muted-foreground border-border"}`}>
+                    {m.accepted_at ? "Active" : "Invited"}
+                  </span>
+                  <Button size="icon" variant="ghost" className="h-6 w-6" title="Copy invite link" onClick={() => copyInvite(m.invite_token)}><Copy className="h-3 w-3" /></Button>
+                  <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => removeMember(m.id)}><X className="h-3 w-3" /></Button>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground">Members see speakers and registered attendees for events this sponsor is attached to — without email or phone.</p>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+type TierGroup = {
+  key: string;
+  tier: string;
+  tierLabel: string | null;
+  label: string;
+  color: string;
+  sponsors: Sponsor[];
+};
+
+function SortableTierGroup({
+  group, onTeam, onEdit, onDelete,
+}: {
+  group: TierGroup;
+  onTeam: (s: Sponsor) => void;
+  onEdit: (s: Sponsor) => void;
+  onDelete: (id: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: group.key,
+    data: { type: "group", tier: group.tier, tierLabel: group.tierLabel, name: group.label },
+  });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `tier-zone:${group.key}`,
+    data: { type: "tier-zone", tier: group.tier, tierLabel: group.tierLabel, name: group.label },
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={isDragging ? "border-2 border-dashed border-primary/40 rounded-xl p-2 -m-2" : undefined}
+    >
+      <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+        <button
+          type="button"
+          {...attributes} {...listeners}
+          aria-label={`Reorder ${group.label} tier (press space to pick up, arrows to move, space to drop)`}
+          className="h-6 w-5 -ml-1 flex items-center justify-center text-muted-foreground hover:text-foreground rounded cursor-grab active:cursor-grabbing touch-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${group.color}`}>{group.label}</span>
+        <span className="text-muted-foreground text-xs">({group.sponsors.length})</span>
+      </h3>
+      <div
+        ref={setDropRef}
+        className={`rounded-xl transition-colors ${isOver ? "bg-primary/5 ring-2 ring-primary/40 ring-offset-2 ring-offset-background" : ""}`}
+      >
+        <SortableContext items={group.sponsors.map((s) => s.id)} strategy={rectSortingStrategy}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 items-stretch p-1">
+            {group.sponsors.map((s) => (
+              <SortableSponsorCard
+                key={s.id} sponsor={s} group={group}
+                onTeam={() => onTeam(s)}
+                onEdit={() => onEdit(s)}
+                onDelete={() => onDelete(s.id)}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </div>
+    </div>
+  );
+}
+
+function SortableSponsorCard({
+  sponsor: s, group, onTeam, onEdit, onDelete,
+}: {
+  sponsor: Sponsor;
+  group: TierGroup;
+  onTeam: () => void; onEdit: () => void; onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } = useSortable({
+    id: s.id,
+    data: { type: "sponsor", tier: group.tier, tierLabel: group.tierLabel, name: s.name },
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={[
+        "bg-card border rounded-xl p-4 flex flex-col h-full transition-shadow",
+        isDragging ? "opacity-40 border-dashed border-primary/50" : "border-border",
+        isOver && !isDragging ? "outline outline-2 outline-primary/60 outline-offset-2" : "",
+      ].join(" ")}
+    >
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          {...attributes} {...listeners}
+          aria-label={`Reorder sponsor ${s.name} (press space to pick up, arrows to move, space to drop, escape to cancel)`}
+          className="h-7 w-5 -ml-1 flex items-center justify-center text-muted-foreground hover:text-foreground rounded cursor-grab active:cursor-grabbing touch-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        <SponsorCardBody sponsor={s} onTeam={onTeam} onEdit={onEdit} onDelete={onDelete} />
+      </div>
+      <p className="text-xs text-muted-foreground mt-2 line-clamp-2 min-h-[2.25rem]">
+        {s.description || ""}
+      </p>
+    </div>
+  );
+}
+
+function SponsorCardBody({
+  sponsor: s, onTeam, onEdit, onDelete,
+}: {
+  sponsor: Sponsor;
+  onTeam: () => void; onEdit: () => void; onDelete: () => void;
+}) {
+  return (
+    <>
+      <div className="h-10 w-20 rounded-md bg-accent/30 flex items-center justify-center shrink-0 overflow-hidden">
+        {s.logo_url ? (
+          <img src={s.logo_url} alt={s.name} className="h-full w-full object-contain" />
+        ) : (
+          <Award className="h-5 w-5 text-muted-foreground" />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-sm truncate">{s.name}</p>
+        {s.website && (
+          <a href={s.website} target="_blank" rel="noopener noreferrer" className="text-xs text-primary flex items-center gap-1 hover:underline truncate">
+            <ExternalLink className="h-3 w-3 shrink-0" /><span className="truncate">{new URL(s.website).hostname}</span>
+          </a>
+        )}
+      </div>
+      <div className="flex gap-1 shrink-0">
+        <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Manage team for ${s.name}`} onClick={onTeam}><UsersIcon className="h-3 w-3" /></Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Edit ${s.name}`} onClick={onEdit}><Pencil className="h-3 w-3" /></Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label={`Delete ${s.name}`} onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>
+      </div>
+    </>
+  );
+}
+
+function SponsorCardView({ sponsor: s, dragging = false }: { sponsor: Sponsor; dragging?: boolean }) {
+  return (
+    <div className={`bg-card border rounded-xl p-4 flex flex-col h-full ${dragging ? "shadow-2xl ring-2 ring-primary/40 scale-[1.02] border-primary/40" : "border-border"}`}>
+      <div className="flex items-center gap-3">
+        <div className="h-7 w-5 -ml-1 flex items-center justify-center text-muted-foreground">
+          <GripVertical className="h-4 w-4" />
+        </div>
+        <div className="h-10 w-20 rounded-md bg-accent/30 flex items-center justify-center shrink-0 overflow-hidden">
+          {s.logo_url ? (
+            <img src={s.logo_url} alt="" className="h-full w-full object-contain" />
+          ) : (
+            <Award className="h-5 w-5 text-muted-foreground" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-sm truncate">{s.name}</p>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground mt-2 line-clamp-2 min-h-[2.25rem]">
+        {s.description || ""}
+      </p>
+    </div>
+  );
+}
