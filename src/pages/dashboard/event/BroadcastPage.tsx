@@ -43,6 +43,10 @@ export default function BroadcastPage() {
   const [wsUrl, setWsUrl] = useState<string | null>(null);
   const [canPublish, setCanPublish] = useState(false);
   const [showPrejoin, setShowPrejoin] = useState(false);
+  // Device selections captured in the pre-join screen and forwarded to LiveKit
+  const [deviceOpts, setDeviceOpts] = useState<{
+    mic: boolean; cam: boolean; camId?: string; micId?: string; spkId?: string;
+  } | null>(null);
   const [minimized, setMinimized] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -244,6 +248,8 @@ export default function BroadcastPage() {
           asPublisher
           onCancel={() => setShowPrejoin(false)}
           onJoin={async (opts) => {
+            // Persist the chosen devices so WebinarStage can honour them
+            if (opts) setDeviceOpts(opts);
             const ok = await fetchToken();
             if (ok) setShowPrejoin(false);
           }}
@@ -268,6 +274,10 @@ export default function BroadcastPage() {
           userId={user.id}
           isHost
           onDisconnect={leaveStage}
+          micEnabled={deviceOpts?.mic ?? true}
+          camEnabled={deviceOpts?.cam ?? true}
+          camDeviceId={deviceOpts?.camId}
+          micDeviceId={deviceOpts?.micId}
         />
       </Suspense>
     );

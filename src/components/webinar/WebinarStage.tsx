@@ -30,9 +30,19 @@ type Props = {
   isHost?: boolean;
   eventBannerUrl?: string | null;
   eventTitle?: string | null;
+  // Device selections from PreJoinCheck — honoured when the host joins
+  micEnabled?: boolean;
+  camEnabled?: boolean;
+  camDeviceId?: string;
+  micDeviceId?: string;
 };
 
-function WebinarStageImpl({ token, wsUrl, canPublish, onDisconnect, layout = "grid", branding, brandingEnabled = true, sessionId, userId, isHost, eventBannerUrl, eventTitle }: Props) {
+function WebinarStageImpl({
+  token, wsUrl, canPublish, onDisconnect, layout = "grid",
+  branding, brandingEnabled = true, sessionId, userId, isHost,
+  eventBannerUrl, eventTitle,
+  micEnabled = true, camEnabled = true, camDeviceId, micDeviceId,
+}: Props) {
   // Only treat *intentional* disconnects as "leave the stage". Transient
   // disconnects fire during screen-share negotiation, tab switches, network
   // blips, and page suspensions — the SDK reconnects automatically and we
@@ -62,13 +72,30 @@ function WebinarStageImpl({ token, wsUrl, canPublish, onDisconnect, layout = "gr
       screenShareEncoding: VideoPresets.h1080.encoding,
     },
   }), []);
+  // Build audio/video constraints from the device selection captured in PreJoinCheck.
+  // LiveKitRoom accepts MediaTrackConstraints for audio/video so we embed the
+  // exact deviceId the user chose — this is what was previously ignored.
+  const audioConstraints = useMemo(() => {
+    if (!canPublish) return false;
+    if (!micEnabled) return false;
+    if (micDeviceId) return { deviceId: { exact: micDeviceId }, echoCancellation: true, noiseSuppression: true } as MediaTrackConstraints;
+    return true;
+  }, [canPublish, micEnabled, micDeviceId]);
+
+  const videoConstraints = useMemo(() => {
+    if (!canPublish) return false;
+    if (!camEnabled) return false;
+    if (camDeviceId) return { deviceId: { exact: camDeviceId } } as MediaTrackConstraints;
+    return true;
+  }, [canPublish, camEnabled, camDeviceId]);
+
   return (
     <LiveKitRoom
       token={token}
       serverUrl={wsUrl}
       connect
-      audio={canPublish}
-      video={canPublish}
+      audio={audioConstraints}
+      video={videoConstraints}
       options={options}
       onDisconnected={handleDisconnected}
       data-lk-theme="default"

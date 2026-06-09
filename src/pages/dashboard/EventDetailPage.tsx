@@ -719,8 +719,9 @@ const EventDetailPage = () => {
             {activeSection === "registrations" && <RegistrationsSection eventId={event.id} />}
             {activeSection === "communicate" && <CommunicationSection eventId={event.id} />}
             {activeSection === "reports" && <ReportsSection eventId={event.id} />}
+            {activeSection === "search" && <EventSearch eventId={event.id} registrations={registrations} />}
 
-            {!["dashboard", "settings", "manage", "agenda", "exhibitors", "design", "registrations", "communicate", "reports", "broadcast"].includes(activeSection) && (
+            {!["dashboard", "settings", "manage", "agenda", "exhibitors", "design", "registrations", "communicate", "reports", "broadcast", "search"].includes(activeSection) && (
               <div className="flex items-center justify-center h-64 text-muted-foreground">
                 <p className="text-sm">{sidebarNav.find(n => n.key === activeSection)?.label} — Coming soon</p>
               </div>
@@ -750,6 +751,151 @@ function NumberCard({ icon, label, value }: { icon: React.ReactNode; label: stri
         <p className="text-lg font-semibold mono">{value}</p>
         <p className="text-[11px] text-muted-foreground">{label}</p>
       </div>
+    </div>
+  );
+}
+
+// ─── EventSearch ──────────────────────────────────────────────────────────────
+// Full-text search across registrations for a single event.
+
+type Registration = Tables<"registrations">;
+
+function EventSearch({
+  eventId,
+  registrations,
+}: {
+  eventId: string;
+  registrations: Registration[];
+}) {
+  const [query, setQuery] = useState("");
+
+  const filtered = registrations.filter((r) => {
+    if (!query.trim()) return true;
+    const q = query.toLowerCase();
+    return (
+      r.name.toLowerCase().includes(q) ||
+      r.email.toLowerCase().includes(q) ||
+      (r.company ?? "").toLowerCase().includes(q) ||
+      (r.ticket_type ?? "").toLowerCase().includes(q) ||
+      (r.status ?? "").toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-base font-semibold">Search Registrations</h2>
+        <p className="text-[12px] text-muted-foreground mt-0.5">
+          Search by name, email, company, ticket type or status
+        </p>
+      </div>
+
+      {/* Search input */}
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search registrations…"
+          className="pl-9 h-9"
+        />
+        {query && (
+          <button
+            onClick={() => setQuery("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Results count */}
+      {query.trim() && (
+        <p className="text-[12px] text-muted-foreground">
+          {filtered.length} result{filtered.length !== 1 ? "s" : ""} for{" "}
+          <span className="font-medium text-foreground">"{query}"</span>
+        </p>
+      )}
+
+      {/* Results table */}
+      {filtered.length === 0 ? (
+        <div className="text-center py-12 border border-dashed border-border rounded-lg">
+          <Search className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-sm font-medium mb-1">No results found</p>
+          <p className="text-[13px] text-muted-foreground">
+            Try a different name, email, or ticket type.
+          </p>
+        </div>
+      ) : (
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-card z-10 border-b border-border">
+                <tr className="text-[11px] uppercase tracking-wide text-muted-foreground text-left">
+                  <th className="py-2.5 px-4 font-medium">Name</th>
+                  <th className="py-2.5 px-4 font-medium">Email</th>
+                  <th className="py-2.5 px-4 font-medium">Company</th>
+                  <th className="py-2.5 px-4 font-medium">Ticket</th>
+                  <th className="py-2.5 px-4 font-medium">Status</th>
+                  <th className="py-2.5 px-4 font-medium">Checked In</th>
+                  <th className="py-2.5 px-4 font-medium">Registered</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filtered.map((r) => (
+                  <tr key={r.id} className="hover:bg-muted/20 transition-colors">
+                    <td className="py-2.5 px-4 font-medium whitespace-nowrap">{r.name}</td>
+                    <td className="py-2.5 px-4 text-[12px] text-muted-foreground whitespace-nowrap">{r.email}</td>
+                    <td className="py-2.5 px-4 text-[12px] text-muted-foreground">{r.company || "—"}</td>
+                    <td className="py-2.5 px-4">
+                      <span className="text-[11px] capitalize bg-muted px-1.5 py-0.5 rounded">
+                        {r.ticket_type}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-4">
+                      <span
+                        className={`text-[11px] font-medium capitalize px-1.5 py-0.5 rounded ${
+                          r.approval_status === "approved"
+                            ? "bg-green-500/10 text-green-600"
+                            : r.approval_status === "pending"
+                            ? "bg-amber-500/10 text-amber-600"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {r.approval_status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-4 text-[12px]">
+                      {r.checked_in ? (
+                        <span className="text-green-600 font-medium flex items-center gap-1">
+                          <Check className="h-3 w-3" /> Yes
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-4 text-[12px] text-muted-foreground whitespace-nowrap">
+                      {new Date(r.created_at).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-2 border-t border-border bg-muted/20">
+            <p className="text-[11px] text-muted-foreground">
+              {query.trim()
+                ? `${filtered.length} of ${registrations.length} registrants match`
+                : `${registrations.length} total registrant${registrations.length !== 1 ? "s" : ""}`}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

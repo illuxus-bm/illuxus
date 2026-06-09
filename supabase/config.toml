@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.fx-rates]
 verify_jwt = false
+
+[functions.send-event-email]
+verify_jwt = true

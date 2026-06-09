@@ -14,6 +14,7 @@ interface FollowedOrg {
   id: string;
   name: string;
   slug: string;
+  subdomain: string | null;
   logo_url: string | null;
 }
 
@@ -50,7 +51,7 @@ export default function ProfilePage() {
         const ids = follows.map((f) => f.org_id);
         const { data: orgRows } = await supabase
           .from("organizations")
-          .select("id, name, slug, logo_url")
+          .select("id, name, slug, subdomain, logo_url")
           .in("id", ids);
         orgs = (orgRows ?? []) as FollowedOrg[];
       }
@@ -153,21 +154,31 @@ export default function ProfilePage() {
             <p className="text-[13px] text-muted-foreground">You're not following any organizations yet.</p>
           ) : (
             <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {followed.map((o) => (
-                <li key={o.id}>
-                  <Link to={`/${o.slug}`} className="flex items-center gap-3 bg-card border border-border rounded-xl p-3 hover:border-foreground/20 transition-colors">
-                    {o.logo_url ? (
-                      <img src={o.logo_url} alt={o.name} className="h-10 w-10 rounded-lg object-cover" />
-                    ) : (
-                      <div className="h-10 w-10 rounded-lg bg-secondary flex items-center justify-center text-sm font-semibold">{o.name[0]}</div>
-                    )}
-                    <div className="min-w-0">
-                      <div className="text-[13px] font-semibold truncate">{o.name}</div>
-                      <div className="text-[11px] text-muted-foreground truncate">/{o.slug}</div>
-                    </div>
-                  </Link>
-                </li>
-              ))}
+              {followed.map((o) => {
+                // Prefer the workspace handle (subdomain) for the public URL —
+                // the PublicOrgPage resolves by subdomain first, then slug.
+                const handle = o.subdomain || o.slug;
+                return (
+                  <li key={o.id}>
+                    <Link
+                      to={`/org/${handle}`}
+                      className="flex items-center gap-3 bg-card border border-border rounded-xl p-3 hover:border-foreground/20 transition-colors"
+                    >
+                      {o.logo_url ? (
+                        <img src={o.logo_url} alt={o.name} className="h-10 w-10 rounded-lg object-cover" />
+                      ) : (
+                        <div className="h-10 w-10 rounded-lg bg-secondary flex items-center justify-center text-sm font-semibold">
+                          {o.name[0]}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-semibold truncate">{o.name}</div>
+                        <div className="text-[11px] text-muted-foreground truncate">/{handle}</div>
+                      </div>
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>

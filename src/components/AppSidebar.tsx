@@ -1,6 +1,6 @@
 import {
   Calendar, Users, Settings, Ticket, BarChart3,
-  Megaphone, FileText, HelpCircle, CreditCard, Shield, Layout, Globe
+  Megaphone, FileText, HelpCircle, CreditCard, Shield, Layout, Globe,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -21,19 +21,26 @@ import {
 } from "@/components/ui/sidebar";
 
 const mainItems = [
-  { title: "Events", url: "/dashboard", icon: Calendar },
-  { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3 },
+  { title: "Events",    url: "/dashboard/events",    icon: Calendar   },
+  { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3  },
+  { title: "Reports",   url: "/dashboard/reports",   icon: FileText   },
+];
+
+const attendeeItems = [
+  { title: "Attendees", url: "/dashboard/attendees", icon: Users   },
+  { title: "Tickets",   url: "/dashboard/tickets",   icon: Ticket  },
 ];
 
 const manageItems = [
-  { title: "Marketing", url: "/dashboard/marketing", icon: Megaphone },
-  { title: "Landing Page", url: "/dashboard/landing-builder", icon: Layout },
+  { title: "Marketing",    url: "/dashboard/marketing",       icon: Megaphone },
+  { title: "Landing Page", url: "/dashboard/landing-builder", icon: Layout    },
+  { title: "Domains",      url: "/dashboard/domains",         icon: Globe     },
 ];
 
 const bottomItems = [
-  { title: "Billing", url: "/dashboard/billing", icon: CreditCard },
-  { title: "Settings", url: "/dashboard/settings", icon: Settings },
-  { title: "Help", url: "/dashboard/help", icon: HelpCircle },
+  { title: "Billing",  url: "/dashboard/billing",  icon: CreditCard },
+  { title: "Settings", url: "/dashboard/settings", icon: Settings   },
+  { title: "Help",     url: "/dashboard/help",     icon: HelpCircle },
 ];
 
 export function AppSidebar() {
@@ -51,8 +58,14 @@ export function AppSidebar() {
   const planName = PLAN_DETAILS[currentPlan]?.name || "Free";
 
   const isActive = (path: string) => {
-    if (path === "/dashboard") {
-      return location.pathname === "/dashboard" || location.pathname === "/dashboard/events";
+    // Events lives at /dashboard/events but / dashboard is the home redirect
+    if (path === "/dashboard/events") {
+      return (
+        location.pathname === "/dashboard" ||
+        location.pathname === "/dashboard/events" ||
+        // keep highlighted when inside an event detail page
+        location.pathname.startsWith("/dashboard/events/")
+      );
     }
     return location.pathname.startsWith(path);
   };
@@ -96,6 +109,17 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="gap-1 px-1">{renderItems(mainItems)}</SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarSeparator className="my-2 mx-3" />
+
+        <SidebarGroup className="py-0">
+          <SidebarGroupLabel className="h-6 text-[10px] uppercase tracking-widest text-muted-foreground/60 font-bold px-3 mb-1">
+            {!collapsed && "People"}
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-1 px-1">{renderItems(attendeeItems)}</SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 

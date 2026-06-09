@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import {
-  User, Shield, Bell, Building2, Users, Mail, Trash2, UserPlus, Crown, ShieldCheck, Eye, UserCog, Upload, X
+  User, Shield, Bell, Building2, Users, Mail, Trash2, UserPlus, Crown, ShieldCheck, Eye, UserCog, Upload, X, Loader2
 } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -557,17 +557,7 @@ const SettingsPage = () => {
 
             {/* Notifications Tab */}
             {activeTab === "notifications" && (
-              <div className="bg-card border border-border rounded-lg p-5 space-y-4">
-                <h2 className="text-sm font-semibold">Notifications</h2>
-                <div className="space-y-1.5">
-                  {["Email notifications for new attendees", "Event reminder emails", "Weekly analytics digest"].map((item) => (
-                    <label key={item} className="flex items-center gap-3 p-2.5 rounded-md hover:bg-muted/50 cursor-pointer transition-colors">
-                      <input type="checkbox" defaultChecked className="rounded border-input" />
-                      <span className="text-[13px]">{item}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
+              <NotificationsTab userId={user?.id} />
             )}
           </div>
         </div>
@@ -629,3 +619,123 @@ const SettingsPage = () => {
 };
 
 export default SettingsPage;
+
+// ─── Notifications Tab ────────────────────────────────────────────────────────
+// Preferences are stored in profiles.video_fx_prefs (a jsonb column that
+// already exists in the schema) under the key "notification_prefs" so we
+// don't need a new DB table or column.
+
+const NOTIF_OPTIONS = [
+  { key: "new_attendee_email",    label: "Email notifications for new attendees",     desc: "Receive an email each time someone registers for your event." },
+  { key: "event_reminder_email",  label: "Event reminder emails",                     desc: "Get a reminder email 24 hours before each event starts."      },
+  { key: "weekly_digest_email",   label: "Weekly analytics digest",                   desc: "A weekly summary of registrations, revenue, and check-ins."   },
+] as const;
+
+type NotifKey = (typeof NOTIF_OPTIONS)[number]["key"];
+type NotifPrefs = Record<NotifKey, boolean>;
+
+const DEFAULT_PREFS: NotifPrefs = {
+  new_attendee_email:   true,
+  event_reminder_email: true,
+  weekly_digest_email:  true,
+};
+
+function NotificationsTab({ userId }: { userId: string | undefined }) {
+  const { toast } = useToast();
+  const [prefs, setPrefs]     = useState<NotifPrefs>(DEFAULT_PREFS);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving]   = useState(false);
+
+  useEffect(() => {
+    if (!userId) return;
+    supabase
+      .from("profiles")
+      .select("video_fx_prefs")
+      .eq("user_id", userId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.video_fx_prefs) {
+          const stored = (data.video_fx_prefs as Record<string, unknown>)["notification_prefs"];
+          if (stored && typeof stored === "object") {
+            setPrefs({ ...DEFAULT_PREFS, ...(stored as Partial<NotifPrefs>) });
+          }
+        }
+        setLoading(false);
+      });
+  }, [userId]);
+
+  const toggle = (key: NotifKey) =>
+    setPrefs((p) => ({ ...p, [key]: !p[key] }));
+
+  const save = async () => {
+    if (!userId) return;
+    setSaving(true);
+    // Read current video_fx_prefs so we only patch the notification_prefs key
+    const { data: current } = await supabase
+      .from("profiles")
+      .select("video_fx_prefs")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    const merged = {
+      ...((current?.video_fx_prefs as Record<string, unknown>) ?? {}),
+      notification_prefs: prefs,
+    };
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ video_fx_prefs: merged })
+      .eq("user_id", userId);
+
+    setSaving(false);
+    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+    else       toast({ title: "Notification preferences saved" });
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-card border border-border rounded-lg p-5 flex items-center justify-center py-10">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-card border border-border rounded-lg p-5 space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold">Notifications</h2>
+        <p className="text-[12px] text-muted-foreground mt-0.5">
+          Choose which emails you want to receive. Changes are saved to your profile.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {NOTIF_OPTIONS.map((opt) => (
+          <div
+            key={opt.key}
+            className="flex items-center justify-between gap-4 p-3 rounded-md border border-border hover:bg-muted/30 transition-colors"
+          >
+            <div>
+              <p className="text-[13px] font-medium">{opt.label}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">{opt.desc}</p>
+            </div>
+            <Switch
+              checked={prefs[opt.key]}
+              onCheckedChange={() => toggle(opt.key)}
+              aria-label={opt.label}
+            />
+          </div>
+        ))}
+      </div>
+
+      <Button
+        size="sm"
+        className="h-8 text-[13px] gap-1.5"
+        onClick={save}
+        disabled={saving}
+      >
+        {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</> : "Save Preferences"}
+      </Button>
+    </div>
+  );
+}

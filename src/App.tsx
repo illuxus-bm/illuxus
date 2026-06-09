@@ -43,6 +43,7 @@ function lazyWithLog<T extends { default: React.ComponentType<any> }>(
 const ResetPasswordPage = lazyWithLog("ResetPasswordPage", () => import("./pages/ResetPasswordPage.tsx"));
 const OnboardingPage = lazyWithLog("OnboardingPage", () => import("./pages/OnboardingPage.tsx"));
 const Dashboard = lazyWithLog("Dashboard", () => import("./pages/Dashboard.tsx"));
+const EventsPage = lazyWithLog("EventsPage", () => import("./pages/dashboard/EventsPage.tsx"));
 const AttendeesPage = lazyWithLog("AttendeesPage", () => import("./pages/dashboard/AttendeesPage.tsx"));
 const TicketsPage = lazyWithLog("TicketsPage", () => import("./pages/dashboard/TicketsPage.tsx"));
 const AnalyticsPage = lazyWithLog("AnalyticsPage", () => import("./pages/dashboard/AnalyticsPage.tsx"));
@@ -191,7 +192,7 @@ const App = () => (
               <Route path="/u/me/events" element={<AttendeeRoute><MyEventsPage /></AttendeeRoute>} />
               <Route path="/t/:id" element={<AttendeeRoute><TicketDetailPage /></AttendeeRoute>} />
               <Route path="/dashboard" element={<ProtectedRoute><OnboardingGuard><Dashboard /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/events" element={<ProtectedRoute><OnboardingGuard><Dashboard /></OnboardingGuard></ProtectedRoute>} />
+              <Route path="/dashboard/events" element={<ProtectedRoute><OnboardingGuard><EventsPage /></OnboardingGuard></ProtectedRoute>} />
               <Route path="/dashboard/events/new" element={<ProtectedRoute><OnboardingGuard><EventQuickCreatePage /></OnboardingGuard></ProtectedRoute>} />
               <Route path="/dashboard/events/:id/guests" element={<ProtectedRoute><OnboardingGuard><GuestListPage /></OnboardingGuard></ProtectedRoute>} />
               <Route path="/dashboard/events/:id/broadcast" element={<ProtectedRoute><OnboardingGuard><BroadcastPage /></OnboardingGuard></ProtectedRoute>} />

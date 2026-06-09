@@ -27,7 +27,7 @@ const PLANS = [
 ];
 
 const PricingPage = () => {
-  const { org, subscription, refreshOrg } = useOrg();
+  const { org, subscription, refreshOrg, eventCount, memberCount } = useOrg();
   const { toast } = useToast();
   const [upgrading, setUpgrading] = useState<string | null>(null);
   const [togglingAddon, setTogglingAddon] = useState(false);
@@ -98,8 +98,8 @@ const PricingPage = () => {
         <div className="bg-card border border-border rounded-xl p-5">
           <h3 className="text-sm font-semibold mb-3">Usage</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <UsageBar label="Events" current={org ? 0 : 0} max={PLAN_DETAILS[currentPlan]?.limits.max_events || 3} />
-            <UsageBar label="Team members" current={1} max={PLAN_DETAILS[currentPlan]?.limits.max_team_members || 1} />
+            <UsageBar label="Events" current={eventCount} max={PLAN_DETAILS[currentPlan]?.limits.max_events || 3} />
+            <UsageBar label="Team members" current={memberCount} max={PLAN_DETAILS[currentPlan]?.limits.max_team_members || 1} />
             <UsageBar label="Max attendees/event" current={0} max={PLAN_DETAILS[currentPlan]?.limits.max_attendees_per_event || 50} />
           </div>
         </div>
