@@ -192,6 +192,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifs, setNotifs] = useState<NotifItem[]>([]);
+  const [notifLoading, setNotifLoading] = useState(false);
+  // Track whether the user has seen the current batch — clears the red dot
+  const [notifSeen, setNotifSeen] = useState(false);
 
   const handleSignOut = async () => { await signOut(); navigate("/"); };
 
@@ -215,32 +218,58 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; supabase.removeChannel(channel); };
   }, [user]);
 
-  // Notifications — pull recent registrations as activity feed
+  // Notifications — pull recent registrations across all org events.
+  // Uses two sequential queries because Supabase JS v2 doesn't support
+  // subquery-as-array in .in() — the previous inline cast was silently broken.
   useEffect(() => {
     if (!org?.id || !notifOpen) return;
-    supabase
-      .from("registrations")
-      .select("id, name, email, event_id, created_at, events(title)")
-      .in("event_id",
-        // We need event IDs for this org; re-query inline to avoid prop-drilling
-        supabase.from("events").select("id").eq("org_id", org.id) as unknown as string[]
-      )
-      .order("created_at", { ascending: false })
-      .limit(10)
-      .then(({ data }) => {
-        if (!data) return;
-        setNotifs(
-          (data as Array<{ id: string; name: string; email: string; event_id: string; created_at: string; events: { title: string } | null }>)
-            .map((r) => ({
-              id: r.id,
-              title: `New registration`,
-              body: `${r.name} registered for ${r.events?.title ?? "an event"}`,
-              read: false,
-              created_at: r.created_at,
-              url: `/dashboard/attendees`,
-            }))
-        );
-      });
+    let cancelled = false;
+
+    const fetchNotifs = async () => {
+      // Step 1: get event IDs for this org
+      const { data: eventsData } = await supabase
+        .from("events")
+        .select("id")
+        .eq("org_id", org.id);
+
+      if (cancelled || !eventsData || eventsData.length === 0) {
+        setNotifs([]);
+        return;
+      }
+
+      const eventIds = eventsData.map((e) => e.id);
+
+      // Step 2: get recent registrations for those events with event title
+      const { data } = await supabase
+        .from("registrations")
+        .select("id, name, email, event_id, created_at, events(title)")
+        .in("event_id", eventIds)
+        .order("created_at", { ascending: false })
+        .limit(15);
+
+      if (cancelled || !data) return;
+
+      setNotifs(
+        (data as Array<{
+          id: string;
+          name: string;
+          email: string;
+          event_id: string;
+          created_at: string;
+          events: { title: string } | null;
+        }>).map((r) => ({
+          id: r.id,
+          title: "New registration",
+          body: `${r.name} registered for ${r.events?.title ?? "an event"}`,
+          read: false,
+          created_at: r.created_at,
+          url: `/dashboard/attendees`,
+        }))
+      );
+    };
+
+    fetchNotifs();
+    return () => { cancelled = true; };
   }, [org?.id, notifOpen]);
 
   const unreadCount = notifs.filter((n) => !n.read).length;
