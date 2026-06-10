@@ -90,9 +90,12 @@ const queryClient = new QueryClient();
  */
 const ProfileGate = ({ children }: { children: React.ReactNode }) => {
   const { profileCompleted, isAdmin, loading } = useAuth();
-  if (loading) return <FullPageLoader />;
+  const { org, loading: orgLoading } = useOrg();
+  if (loading || orgLoading) return <FullPageLoader />;
   if (profileCompleted === null) return <FullPageLoader />;
-  if (!profileCompleted && !isAdmin) return <Navigate to="/complete-profile" replace />;
+  // If the user has an org, they've already been using the platform — skip profile gate.
+  // This prevents blocking returning organizers whose profile_completed flag is stale.
+  if (!profileCompleted && !isAdmin && !org) return <Navigate to="/complete-profile" replace />;
   return <>{children}</>;
 };
 
