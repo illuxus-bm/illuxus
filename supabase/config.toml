@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.send-event-email]
 verify_jwt = true
+
+[functions.create-participant-account]
+verify_jwt = true

@@ -59,6 +59,38 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
     }).select("id, join_token, qr_code").single();
     if (error || !data) { setBusy(false); return toast.error(error?.message || "Failed to add"); }
 
+    // ── Create auth account for participant ───────────────────────────────────
+    // Uses the mobile number as the initial password. On first sign-in the
+    // participant will be prompted to change their password.
+    const mobileNum = fields.mobile_number.trim();
+    if (mobileNum) {
+      const { data: accountResult, error: accountErr } = await supabase.functions.invoke("create-participant-account", {
+        body: {
+          registration_id: data.id,
+          email,
+          password: mobileNum,
+          first_name: fields.first_name.trim(),
+          last_name: fields.last_name.trim(),
+          title: fields.title,
+          designation: fields.designation.trim(),
+          company: fields.company.trim() || "",
+          mobile_country_code: fields.mobile_country_code,
+          mobile_number: mobileNum,
+          linkedin_url: fields.linkedin_url.trim() || "",
+          company_website: fields.company_website.trim() || "",
+          company_employee_count: fields.company_employee_count || "",
+          industry: fields.industry || "",
+        },
+      });
+      if (accountErr) {
+        // Non-fatal — registration is already saved; account can be created later
+        console.warn("Could not create participant account:", accountErr);
+        toast.warning("Participant added but account creation failed — they can still sign up manually.");
+      } else if (accountResult?.is_existing_user) {
+        toast.info("Existing user found — ticket linked to their account.");
+      }
+    }
+
     let speakerLink: string | undefined;
     if (isVirtual && role === "speaker") {
       const { data: sess } = await supabase.from("webinar_sessions").select("id").eq("event_id", eventId)

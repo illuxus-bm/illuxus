@@ -34,6 +34,10 @@ const LoginPage = () => {
   const [twoFactor, setTwoFactor] = useState<{ open: boolean; email: string; nextRoute: string }>({
     open: false, email: "", nextRoute: "/dashboard",
   });
+  // Must-change-password flow: organizer-created accounts start with phone as password
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const navigate = useNavigate();
   const { toast } = useToast();
   const { content } = useSiteContent();
@@ -110,6 +114,21 @@ const LoginPage = () => {
         // Look up the user's account type to route correctly
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
+          // Check if this is a participant account created by an organizer
+          // that needs to change their initial password (phone number).
+          const mustChange = user.user_metadata?.must_change_password === true;
+          if (mustChange) {
+            // Clear the flag and redirect to password reset
+            toast({
+              title: "Welcome! Please set a new password",
+              description: "Your account was created by an event organizer. Choose a secure password to continue.",
+            });
+            setIsForgot(false);
+            setMustChangePassword(true);
+            setLoading(false);
+            return;
+          }
+
           const { data: profile } = await supabase.rpc("get_my_profile");
           const p = profile as { account_type?: string; two_factor_enabled?: boolean } | null;
           const next = p?.account_type === "attendee" ? "/u/me/events" : "/dashboard";
@@ -127,14 +146,18 @@ const LoginPage = () => {
     setLoading(false);
   };
 
-  const title = isForgot
+  const title = mustChangePassword
+    ? "Set your new password"
+    : isForgot
     ? "Reset password"
     : isSignUp
     ? signUpStep === 1
       ? accountType === "attendee" ? "Create your attendee account" : "Create your organizer account"
       : "A few details about you"
     : "Welcome back";
-  const buttonText = isForgot
+  const buttonText = mustChangePassword
+    ? "Update Password"
+    : isForgot
     ? "Send Reset Link"
     : isSignUp
       ? signUpStep === 1 ? "Continue" : "Create Account"
@@ -177,6 +200,85 @@ const LoginPage = () => {
         </div>
 
         <div className="bg-card border border-border rounded-xl p-6">
+          {/* ── Must change password screen ─── */}
+          {mustChangePassword ? (
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (newPassword.length < 6) {
+                  toast({ title: "Password too short", description: "Use at least 6 characters.", variant: "destructive" });
+                  return;
+                }
+                if (newPassword !== confirmPassword) {
+                  toast({ title: "Passwords don't match", description: "Re-enter your new password.", variant: "destructive" });
+                  return;
+                }
+                setLoading(true);
+                // Update the password and clear the must_change_password flag
+                const { error: pwErr } = await supabase.auth.updateUser({ password: newPassword });
+                if (pwErr) {
+                  toast({ title: "Error", description: pwErr.message, variant: "destructive" });
+                  setLoading(false);
+                  return;
+                }
+                // Clear the flag in user metadata
+                await supabase.auth.updateUser({
+                  data: { must_change_password: false },
+                });
+                toast({ title: "Password updated!", description: "You can now sign in with your new password." });
+                setMustChangePassword(false);
+                setNewPassword("");
+                setConfirmPassword("");
+                // Navigate to the attendee dashboard
+                navigate("/u/me/events");
+                setLoading(false);
+              }}
+              className="space-y-4"
+            >
+              <p className="text-[13px] text-muted-foreground">
+                Your account was created by an event organizer. Please choose a secure password to continue.
+              </p>
+              <div>
+                <Label htmlFor="new-password" className="text-[13px]">New password</Label>
+                <div className="relative mt-1.5">
+                  <Input
+                    id="new-password"
+                    type={showPassword ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Enter new password"
+                    required
+                    minLength={6}
+                    className="h-9 text-sm pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="confirm-password" className="text-[13px]">Confirm password</Label>
+                <Input
+                  id="confirm-password"
+                  type={showPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter new password"
+                  required
+                  minLength={6}
+                  className="mt-1.5 h-9 text-sm"
+                />
+              </div>
+              <Button type="submit" className="w-full h-9 text-sm font-medium" disabled={loading}>
+                {loading ? "Updating…" : buttonText}
+              </Button>
+            </form>
+          ) : (
+          <>
           {!isForgot && (!isSignUp || signUpStep === 1) && (
             <div className="grid grid-cols-2 gap-1 p-1 mb-5 bg-muted rounded-lg">
               <button
@@ -319,6 +421,8 @@ const LoginPage = () => {
               </>
             )}
           </div>
+          </>
+          )}
         </div>
 
         <div className="mt-6 text-center">

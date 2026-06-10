@@ -52,12 +52,30 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
     if (!user) return;
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
+      // Check by user_id first, then fall back to email match for organizer-created registrations
+      // that may not yet be linked (e.g. edge function failed to set user_id).
+      let { data } = await supabase
         .from("registrations")
-        .select("id, approval_status, status, join_token")
+        .select("id, approval_status, status, join_token, user_id")
         .eq("event_id", event.id)
         .eq("user_id", user.id)
         .maybeSingle();
+
+      if (!data && user.email) {
+        const { data: byEmail } = await supabase
+          .from("registrations")
+          .select("id, approval_status, status, join_token, user_id")
+          .eq("event_id", event.id)
+          .eq("email", user.email.toLowerCase())
+          .is("user_id", null)
+          .maybeSingle();
+        if (byEmail) {
+          // Link this orphan registration to the current user
+          await supabase.from("registrations").update({ user_id: user.id }).eq("id", byEmail.id);
+          data = byEmail;
+        }
+      }
+
       if (cancelled || !data) return;
       setRegistrationId(data.id);
       setJoinToken((data as { join_token?: string }).join_token ?? null);
