@@ -144,7 +144,9 @@ const OnboardingGuard = ({ children }: { children: React.ReactNode }) => {
   if (loading) return <FullPageLoader />;
   // Attendees never go through organizer onboarding — push them to their tickets page.
   if (accountType === "attendee" && !isAdmin) return <Navigate to="/my/tickets" replace />;
-  if (!onboardingCompleted || !org) return <Navigate to="/onboarding" replace />;
+  // If the user has an org, they've completed onboarding regardless of the profile flag.
+  // The profile flag can get out of sync if it wasn't set during legacy onboarding.
+  if (!org && !onboardingCompleted) return <Navigate to="/onboarding" replace />;
   return <>{children}</>;
 };
 

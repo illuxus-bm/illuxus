@@ -119,7 +119,28 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
       .limit(1)
       .maybeSingle();
 
-    if (!membership) {
+    // Fallback: check if user owns an org directly (handles edge cases where
+    // the org_members row was never created or got deleted)
+    let orgId: string | null = membership?.org_id ?? null;
+    if (!orgId) {
+      const { data: ownedOrg } = await supabase
+        .from("organizations")
+        .select("id")
+        .eq("owner_id", user.id)
+        .limit(1)
+        .maybeSingle();
+      if (ownedOrg) {
+        orgId = ownedOrg.id;
+        // Auto-repair: insert the missing org_members row
+        await supabase.from("org_members").insert({
+          org_id: ownedOrg.id,
+          user_id: user.id,
+          role: "owner",
+        }).then(() => {});
+      }
+    }
+
+    if (!orgId) {
       setLoading(false);
       return;
     }
@@ -128,7 +149,7 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
     const { data: orgData } = await supabase
       .from("organizations")
       .select("*")
-      .eq("id", membership.org_id)
+      .eq("id", orgId)
       .single();
 
     if (orgData) {
