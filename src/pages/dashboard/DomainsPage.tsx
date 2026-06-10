@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrg } from "@/contexts/OrgContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -28,6 +29,7 @@ const PROJECT_PUBLISHED_HOST = "illuxus.com";
 const DomainsPage = () => {
   const { org, refreshOrg } = useOrg();
   const { toast } = useToast();
+  const { theme: appTheme } = useTheme();
   const [handle, setHandle] = useState("");
   const [published, setPublished] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -81,7 +83,7 @@ const DomainsPage = () => {
   data-target="my-events"
   data-filter="${filter}"
   data-limit="10"
-  data-theme="light"
+  data-theme="${appTheme === "dark" ? "dark" : "light"}"
   data-api="${protocol}//${preferred.host}"
   defer
 ></script>`;

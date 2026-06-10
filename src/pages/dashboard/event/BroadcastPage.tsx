@@ -116,10 +116,59 @@ export default function BroadcastPage() {
   }, [session?.id]);
 
   const createSession = async () => {
+    // Clean up old ended/error sessions for this event to prevent row accumulation.
+    if (eventId) {
+      await supabase
+        .from("webinar_sessions")
+        .delete()
+        .eq("event_id", eventId)
+        .in("status", ["ended", "error"]);
+    }
+
+    // Try the edge function first (creates a real LiveKit room).
     const { data, error } = await supabase.functions.invoke("livekit-room-create", { body: { event_id: eventId, record_enabled: false } });
-    if (error) return toast.error(error.message);
-    setSession(data.session);
-    toast.success("Stream room ready");
+
+    if (!error && data?.session) {
+      setSession(data.session);
+      toast.success("Stream room ready");
+      return;
+    }
+
+    // Fallback: if the edge function is unavailable (no LiveKit keys configured),
+    // create the session row directly so the UI still works for testing.
+    const room = `event-${(eventId || "").slice(0, 8)}-${Date.now().toString(36)}`;
+    const { data: fallbackSession, error: dbErr } = await supabase
+      .from("webinar_sessions")
+      .insert({
+        event_id: eventId,
+        livekit_room: room,
+        status: "scheduled",
+        record_enabled: false,
+        created_by: user!.id,
+      })
+      .select()
+      .single();
+
+    if (dbErr) {
+      toast.error(`Could not create session: ${dbErr.message}`);
+      return;
+    }
+
+    setSession(fallbackSession);
+    toast.warning("Session created (LiveKit not configured — streaming won't work until you add LiveKit secrets in Supabase)");
+  };
+
+  // Restart an ended session — resets status to "scheduled" so the host
+  // can go live again on the same room without losing speaker config.
+  const restartSession = async () => {
+    if (!session) return;
+    const { error } = await supabase
+      .from("webinar_sessions")
+      .update({ status: "scheduled", ended_at: null })
+      .eq("id", session.id);
+    if (error) { toast.error(error.message); return; }
+    setSession({ ...session, status: "scheduled", ended_at: null });
+    toast.success("Session restarted — click Go Live when ready");
   };
 
   const goLive = async () => {
@@ -445,9 +494,14 @@ export default function BroadcastPage() {
               </>
             )}
             {session.status === "ended" && (
-              <Button onClick={createSession} variant="outline">
-                <Plus className="h-4 w-4 mr-2" />New session
-              </Button>
+              <>
+                <Button onClick={restartSession} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                  <Radio className="h-4 w-4 mr-2" />Restart session
+                </Button>
+                <Button onClick={createSession} variant="outline">
+                  <Plus className="h-4 w-4 mr-2" />New session
+                </Button>
+              </>
             )}
           </div>
         </div>

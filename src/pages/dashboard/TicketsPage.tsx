@@ -5,6 +5,7 @@ import { useOrg } from "@/contexts/OrgContext";
 import { motion } from "framer-motion";
 import { Ticket, DollarSign, TrendingUp, BarChart3 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
+import { formatMoney } from "@/lib/currency";
 
 type Event = Tables<"events">;
 
@@ -88,7 +89,7 @@ const TicketsPage = () => {
                     return (
                       <tr key={event.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
                         <td className="p-4 font-medium">{event.title}</td>
-                        <td className="p-4 text-sm">${Number(event.price || 0).toFixed(2)}</td>
+                        <td className="p-4 text-sm">{formatMoney(Number(event.price || 0), event.currency || undefined)}</td>
                         <td className="p-4 text-sm">{event.tickets_sold || 0}</td>
                         <td className="p-4 text-sm">{event.capacity || "∞"}</td>
                         <td className="p-4">

@@ -227,6 +227,7 @@ export default function SponsorManagement({ eventId }: Props) {
   };
 
   const handleDelete = async (id: string) => {
+    if (!confirm("Delete this sponsor permanently? This cannot be undone.")) return;
     await supabase.from("sponsors").delete().eq("id", id);
     toast.success("Sponsor deleted");
     fetchData();

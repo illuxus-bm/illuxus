@@ -8,6 +8,7 @@ import {
   CalendarDays, CheckCircle2, Hourglass, XCircle, ShieldCheck, UserPlus, MailWarning, Video, Copy,
 } from "lucide-react";
 import { formatMoney } from "@/lib/currency";
+import { publicUrl } from "@/lib/publicUrl";
 
 interface RsvpEvent {
   id: string;
@@ -246,7 +247,7 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
                     variant="outline"
                     className="h-8 text-[12px]"
                     onClick={() => {
-                      navigator.clipboard.writeText(`https://illuxus.com/e/${event.id}/live?join=${joinToken}`);
+                      navigator.clipboard.writeText(publicUrl(`/e/${event.id}/live?join=${joinToken}`));
                       toast({ title: "Join link copied" });
                     }}
                   >

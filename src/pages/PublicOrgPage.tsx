@@ -79,6 +79,8 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
   const [view, setView] = useState<"grid" | "list">("grid");
   const [calMonth, setCalMonth] = useState<Date>(() => new Date());
   const [now, setNow] = useState<Date>(() => new Date());
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Live "current time" tick for the header — updates once a minute.
   useEffect(() => {
@@ -139,7 +141,19 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
     appTheme === "dark"
       ? { ...baseTheme, backgroundColor: "#0b0d12", textColor: "#f5f5f7" }
       : baseTheme;
-  const events = tab === "upcoming" ? upcoming : past;
+  const rawEvents = tab === "upcoming" ? upcoming : past;
+  // Apply search filter if the user is searching
+  const events = searchQuery.trim()
+    ? rawEvents.filter((e) => {
+        const q = searchQuery.toLowerCase();
+        return (
+          e.title.toLowerCase().includes(q) ||
+          (e.venue || "").toLowerCase().includes(q) ||
+          (e.location || "").toLowerCase().includes(q) ||
+          (e.description || "").toLowerCase().includes(q)
+        );
+      })
+    : rawEvents;
   const cover = cfg.cover || "";
   const bio = cfg.bio || "";
   const accentLink = cfg.accentLink || {};
@@ -279,12 +293,40 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
               <IconBtn active={view === "list"} onClick={() => setView("list")} title="List view" theme={theme}>
                 <ListIcon className="h-3.5 w-3.5" />
               </IconBtn>
-              <IconBtn title="Search" theme={theme}>
+              <IconBtn title="Search" theme={theme} onClick={() => setSearchOpen((v) => !v)} active={searchOpen}>
                 <Search className="h-3.5 w-3.5" />
               </IconBtn>
             </div>
           </div>
         </div>
+
+        {/* Inline search bar — shown when search icon is clicked */}
+        {searchOpen && (
+          <div className="mt-3 relative max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: `${theme.textColor}50` }} />
+            <input
+              autoFocus
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search events by title, venue or location…"
+              className="w-full h-10 pl-10 pr-10 rounded-lg border text-[14px] outline-none transition-colors focus:ring-2"
+              style={{
+                borderColor: `${theme.textColor}20`,
+                backgroundColor: `${theme.backgroundColor}`,
+                color: theme.textColor,
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded-full"
+                style={{ color: `${theme.textColor}60` }}
+              >
+                ×
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex items-center gap-1 border-b mt-4" style={{ borderColor: `${theme.textColor}15` }}>

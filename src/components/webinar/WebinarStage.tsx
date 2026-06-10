@@ -5,13 +5,12 @@ import {
   ParticipantTile,
   RoomAudioRenderer,
   useTracks,
-  useLocalParticipant,
   useParticipants,
   FocusLayout,
   FocusLayoutContainer,
   CarouselLayout,
 } from "@livekit/components-react";
-import { Track, VideoPresets, DisconnectReason, type LocalVideoTrack } from "livekit-client";
+import { Track, VideoPresets, DisconnectReason } from "livekit-client";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { StageOverlays, type Branding } from "./StageOverlays";
 import { AirmeetControlBar } from "./AirmeetControlBar";
@@ -335,75 +334,3 @@ const FittedStage = memo(function FittedStage({
 
 const MemoStage = memo(Stage);
 
-/**
- * Live indicator showing the local publisher's video resolution, FPS and bitrate.
- * Helps speakers confirm they're streaming at 1080p.
- */
-function StreamQualityIndicator() {
-  const { localParticipant } = useLocalParticipant();
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const dotRef = useRef<HTMLSpanElement>(null);
-  const resRef = useRef<HTMLSpanElement>(null);
-  const fpsRef = useRef<HTMLSpanElement>(null);
-  const bpsRef = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    let lastBytes = 0;
-    let lastTs = 0;
-    let cancelled = false;
-    const tick = async () => {
-      if (cancelled) return;
-      const pub = localParticipant?.getTrackPublication?.(Track.Source.Camera);
-      const track = pub?.track as LocalVideoTrack | undefined;
-      const sender = (track as any)?.sender as RTCRtpSender | undefined;
-      if (sender?.getStats) {
-        try {
-          const report = await sender.getStats();
-          let w = 0, h = 0, fps = 0, bytes = 0, ts = 0;
-          report.forEach((s: any) => {
-            if (s.type === "outbound-rtp" && s.kind === "video") {
-              w = s.frameWidth || w;
-              h = s.frameHeight || h;
-              fps = Math.round(s.framesPerSecond || fps);
-              bytes = s.bytesSent || bytes;
-              ts = s.timestamp || ts;
-            }
-          });
-          let kbps = 0;
-          if (lastTs && ts > lastTs) {
-            kbps = Math.round(((bytes - lastBytes) * 8) / (ts - lastTs));
-          }
-          lastBytes = bytes; lastTs = ts;
-          if (w && h && wrapRef.current) {
-            // Direct DOM writes — no React reconciliation during live broadcast.
-            wrapRef.current.style.display = "flex";
-            if (resRef.current) resRef.current.textContent = `${w}×${h}`;
-            if (fpsRef.current) fpsRef.current.textContent = `${fps}fps`;
-            if (bpsRef.current) bpsRef.current.textContent = kbps > 1000 ? `${(kbps / 1000).toFixed(1)}Mbps` : `${kbps}kbps`;
-            if (dotRef.current) dotRef.current.className = `h-1.5 w-1.5 rounded-full animate-pulse ${h >= 700 ? "bg-green-400" : "bg-amber-400"}`;
-          }
-        } catch {/* ignore */}
-      }
-    };
-    const i = setInterval(tick, 1500);
-    tick();
-    return () => { cancelled = true; clearInterval(i); };
-  }, [localParticipant]);
-
-  return (
-    <div
-      ref={wrapRef}
-      style={{ display: "none" }}
-      className="absolute bottom-24 right-3 z-30 bg-black/70 backdrop-blur text-white text-[10px] font-mono px-2 py-1 rounded border border-white/10 items-center gap-2"
-    >
-      <span ref={dotRef} className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-      <span ref={resRef}>—</span>
-      <span className="opacity-60">·</span>
-      <span ref={fpsRef}>—</span>
-      <span className="opacity-60">·</span>
-      <span ref={bpsRef}>—</span>
-    </div>
-  );
-}
-
-const MemoStreamQuality = memo(StreamQualityIndicator);

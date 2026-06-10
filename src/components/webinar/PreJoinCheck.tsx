@@ -3,11 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Mic, MicOff, Video, VideoOff, Loader2, CheckCircle2, Wifi, Ban, Plus, ChevronRight } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Loader2, CheckCircle2, Wifi, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
-  onJoin: (opts?: { mic: boolean; cam: boolean; camId?: string; micId?: string; spkId?: string }) => void;
+  onJoin: (opts?: { mic: boolean; cam: boolean; camId?: string; micId?: string; spkId?: string; headline?: string }) => void;
   onCancel?: () => void;
   asPublisher: boolean;
 }) {
@@ -27,10 +27,10 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
   const [spkId, setSpkId] = useState<string>("");
   const [level, setLevel] = useState(0);
   const [resLabel, setResLabel] = useState<string>("");
-  const [background, setBackground] = useState<string>("none");
   const [headline, setHeadline] = useState("");
 
   const refreshDevices = async () => {
+    if (!navigator.mediaDevices) return;
     try {
       const list = await navigator.mediaDevices.enumerateDevices();
       setDevices({
@@ -51,6 +51,12 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
 
   const startMedia = async (cId?: string, mId?: string) => {
     setErr(null);
+    // navigator.mediaDevices is only available in secure contexts (HTTPS or localhost).
+    // On plain HTTP over a network IP, it's undefined — show a helpful message.
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setErr("Camera/mic access requires HTTPS. Open this page via https:// or localhost.");
+      return;
+    }
     try {
       stream?.getTracks().forEach((t) => t.stop());
       const s = await navigator.mediaDevices.getUserMedia({
@@ -145,13 +151,13 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
     audioCtxRef.current?.close();
-    onJoin({ mic, cam, camId: camId || undefined, micId: micId || undefined, spkId: spkId || undefined });
+    onJoin({ mic, cam, camId: camId || undefined, micId: micId || undefined, spkId: spkId || undefined, headline: headline.trim() || undefined });
   };
 
   const ChecklistRow = ({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) => (
     <div className="flex items-center justify-between text-[12px]">
       <div className="flex items-center gap-2">
-        {ok ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : <Ban className="h-3.5 w-3.5 text-destructive" />}
+        {ok ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : <XCircle className="h-3.5 w-3.5 text-destructive" />}
         <span>{label}</span>
       </div>
       {hint && <span className="text-[11px] text-muted-foreground font-mono">{hint}</span>}
@@ -176,13 +182,6 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
   const allOk = camOk && micOk && !err && !!resLabel;
   const bars = 5;
 
-  const VIRTUAL_BGS: { id: string; gradient: string }[] = [
-    { id: "mountain", gradient: "linear-gradient(135deg,#1e3a5f,#3b82a0)" },
-    { id: "city", gradient: "linear-gradient(135deg,#7c3aed,#ec4899,#f59e0b)" },
-    { id: "party", gradient: "linear-gradient(135deg,#1e293b,#475569,#cbd5e1)" },
-    { id: "ocean", gradient: "linear-gradient(135deg,#0ea5e9,#67e8f9)" },
-  ];
-
   const deviceRows = [
     { icon: <Video className="h-3.5 w-3.5" />, label: "Camera", value: camId, set: (v: string) => { setCamId(v); startMedia(v, micId); }, opts: devices.cams, ok: camOk },
     { icon: <Mic className="h-3.5 w-3.5" />, label: "Microphone", value: micId, set: (v: string) => { setMicId(v); startMedia(camId, v); }, opts: devices.mics, ok: micOk },
@@ -205,7 +204,6 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
                 playsInline
                 className="w-full h-full object-cover"
                 style={{
-                  filter: background === "blur" ? "blur(14px)" : undefined,
                   // Mirror self-view (selfie convention) — published track is NOT mirrored.
                   transform: "scaleX(-1)",
                 }}
@@ -292,18 +290,6 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
             <Wifi className="h-3.5 w-3.5" /> Test audio & video
           </button>
 
-          <div className="space-y-1 pt-2">
-            <Label className="text-[13px] font-medium">Video headline</Label>
-            <p className="text-[12px] text-muted-foreground">Displayed below your name when you are live on stage</p>
-            <Input
-              value={headline}
-              onChange={(e) => setHeadline(e.target.value.slice(0, 50))}
-              placeholder="Enter video headline"
-              className="mt-2"
-            />
-            <div className="text-[11px] text-muted-foreground text-right font-mono">{headline.length}/50</div>
-          </div>
-
           <details className="rounded-md border border-border p-3 bg-muted/30 text-[12px]">
             <summary className="cursor-pointer font-medium select-none">Pre-join checklist</summary>
             <div className="mt-3 space-y-2">
@@ -317,67 +303,43 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
           </details>
         </div>
 
-        {/* RIGHT — test setup + virtual backgrounds + Join */}
+        {/* RIGHT — test setup + Join */}
         <div className="space-y-6">
           <div>
             <h2 className="text-2xl font-semibold tracking-tight">Test your setup</h2>
             <p className="text-[13px] text-muted-foreground mt-2">
               Check your appearance and audio on the left before entering the venue.<br />
-              <span className="text-amber-500/90">Your selection will reflect when you join a table or go on stage.</span>
+              <span className="text-amber-500/90">Your device selection will be used when you join the stage.</span>
             </p>
           </div>
 
-          <div>
-            <div className="flex items-center gap-2 text-[13px] font-medium text-primary">
-              <span>✦</span> Select a background
-            </div>
-            <p className="text-[12px] text-muted-foreground mt-0.5">Apply a virtual background to make your video stand-out.</p>
+          {/* Video headline — passed to LiveKit as participant metadata */}
+          <div className="space-y-1.5">
+            <Label className="text-[13px] font-medium">Video headline</Label>
+            <p className="text-[12px] text-muted-foreground">Displayed below your name when you are live on stage</p>
+            <Input
+              value={headline}
+              onChange={(e) => setHeadline(e.target.value.slice(0, 50))}
+              placeholder="e.g. CEO at Acme Inc."
+              className="mt-1.5"
+            />
+            <div className="text-[11px] text-muted-foreground text-right font-mono">{headline.length}/50</div>
+          </div>
 
-            <div className="grid grid-cols-4 gap-3 mt-4">
-              <button
-                onClick={() => setBackground("none")}
-                className={cn(
-                  "aspect-[4/3] rounded-lg flex items-center justify-center bg-muted ring-1 transition-all",
-                  background === "none" ? "ring-primary ring-2" : "ring-border hover:ring-primary/50"
-                )}
-              >
-                <Ban className="h-6 w-6 text-destructive" />
-              </button>
-              <button
-                onClick={() => setBackground("blur")}
-                className={cn(
-                  "aspect-[4/3] rounded-lg flex items-center justify-center text-sm font-medium text-foreground/80 ring-1 transition-all",
-                  background === "blur" ? "ring-primary ring-2" : "ring-border hover:ring-primary/50"
-                )}
-                style={{ background: "linear-gradient(135deg,hsl(var(--muted)),hsl(var(--accent)))" }}
-              >
-                Blur
-              </button>
-              <button
-                className="aspect-[4/3] rounded-lg flex items-center justify-center bg-muted ring-1 ring-border hover:ring-primary/50 transition-all text-muted-foreground"
-              >
-                <Plus className="h-6 w-6" />
-              </button>
-              {VIRTUAL_BGS.map((bg) => (
-                <button
-                  key={bg.id}
-                  onClick={() => setBackground(bg.id)}
-                  className={cn(
-                    "aspect-[4/3] rounded-lg ring-1 transition-all overflow-hidden",
-                    background === bg.id ? "ring-primary ring-2" : "ring-border hover:ring-primary/50"
-                  )}
-                  style={{ background: bg.gradient }}
-                  aria-label={bg.id}
-                />
-              ))}
+          {/* Device summary */}
+          <div className="rounded-lg border border-border p-4 space-y-2 bg-muted/20">
+            <p className="text-[13px] font-medium">Ready to join with:</p>
+            <div className="grid grid-cols-2 gap-2 text-[12px] text-muted-foreground">
+              <div className="flex items-center gap-2">
+                {cam ? <Video className="h-3.5 w-3.5 text-emerald-500" /> : <VideoOff className="h-3.5 w-3.5 text-destructive" />}
+                Camera {cam ? "on" : "off"}
+              </div>
+              <div className="flex items-center gap-2">
+                {mic ? <Mic className="h-3.5 w-3.5 text-emerald-500" /> : <MicOff className="h-3.5 w-3.5 text-destructive" />}
+                Mic {mic ? "on" : "off"}
+              </div>
             </div>
-
-            <div className="flex items-center justify-center gap-1.5 mt-4">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30" />
-              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30" />
-              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground ml-1" />
-            </div>
+            {resLabel && <p className="text-[11px] font-mono text-muted-foreground">Capture: {resLabel}</p>}
           </div>
 
           <Button

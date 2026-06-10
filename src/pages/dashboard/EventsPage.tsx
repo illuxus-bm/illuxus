@@ -16,6 +16,7 @@ import {
 import type { Tables } from "@/integrations/supabase/types";
 import EventCoverPicker from "@/components/event/EventCoverPicker";
 import { eventPublicPath, eventDashboardPath } from "@/lib/event-routes";
+import { formatMoney } from "@/lib/currency";
 
 type Event = Tables<"events">;
 
@@ -351,7 +352,7 @@ const EventsPage = () => {
                     >
                       <span className="text-[12px] text-muted-foreground">
                         {event.tickets_sold ?? 0}/{event.capacity || "∞"} tickets
-                        {Number(event.price || 0) > 0 && ` · $${Number(event.price).toFixed(2)}`}
+                        {Number(event.price || 0) > 0 && ` · ${formatMoney(Number(event.price), event.currency || undefined)}`}
                       </span>
 
                       <div className="flex items-center gap-1">

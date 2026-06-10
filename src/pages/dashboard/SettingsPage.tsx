@@ -220,16 +220,28 @@ const SettingsPage = () => {
   const handleInvite = async () => {
     if (!org || !user || !inviteEmail.trim()) return;
     setInviting(true);
-    const { error } = await supabase.from("org_invitations").insert({
+    const { data: invitation, error } = await supabase.from("org_invitations").insert({
       org_id: org.id,
       email: inviteEmail.trim().toLowerCase(),
       role: inviteRole,
       invited_by: user.id,
-    });
+    }).select("token").single();
     setInviting(false);
     if (error) {
       toast({ title: "Error", description: error.message.includes("duplicate") ? "This email has already been invited" : error.message, variant: "destructive" });
     } else {
+      // Send invite email via edge function (best-effort — invite is saved even if email fails)
+      const inviteUrl = `${window.location.origin}/login?invite=${invitation?.token || ""}`;
+      supabase.functions.invoke("send-event-email", {
+        body: {
+          event_id: "invite",
+          email_id: invitation?.token || crypto.randomUUID(),
+          subject: `You're invited to join ${org.name} on Illuxus`,
+          body: `Hi!\n\n${user.email} has invited you to join "${org.name}" as a ${inviteRole}.\n\nClick the link below to accept:\n${inviteUrl}\n\nIf you don't have an account yet, you'll be able to create one when you click the link.\n\nBest,\nThe Illuxus Team`,
+          recipient_emails: [inviteEmail.trim().toLowerCase()],
+        },
+      }).catch(() => { /* non-fatal if edge function not deployed */ });
+
       toast({ title: "Invitation sent", description: `Invited ${inviteEmail} as ${inviteRole}` });
       setInviteEmail("");
       setInviteRole("member");

@@ -1,2 +1,0 @@
-ALTER TABLE public.events ADD COLUMN IF NOT EXISTS currency text NOT NULL DEFAULT 'INR';
-COMMENT ON COLUMN public.events.currency IS 'ISO 4217 currency code for the event''s ticket prices (e.g. INR, USD, EUR).';

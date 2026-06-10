@@ -1,1 +1,0 @@
-ALTER TABLE public.events ADD COLUMN IF NOT EXISTS attendance_target_pct integer CHECK (attendance_target_pct IS NULL OR (attendance_target_pct BETWEEN 0 AND 100));

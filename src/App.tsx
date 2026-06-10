@@ -81,8 +81,6 @@ const queryClient = new QueryClient();
  * Block access to authenticated routes until the user has completed
  * the mandatory profile (title, name, company, mobile, city, etc.).
  */
-// Profile completion gate temporarily disabled — passes children straight through
-// so users aren't blocked from the dashboard while we revisit the flow.
 /**
  * Forces every signed-in user — attendee, organizer, or admin — through the
  * "Complete your profile" screen before they can reach app routes. Admins are

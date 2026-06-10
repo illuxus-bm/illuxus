@@ -20,7 +20,7 @@ async function loadRates(): Promise<FxRates | null> {
   } catch {}
   // Try direct fetch first (most reliable, no SDK overhead), then fall back to invoke.
   const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fx-rates`;
-  const anon = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+  const anon = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY) as string | undefined;
   try {
     const res = await fetch(url, {
       headers: anon ? { apikey: anon, Authorization: `Bearer ${anon}` } : {},

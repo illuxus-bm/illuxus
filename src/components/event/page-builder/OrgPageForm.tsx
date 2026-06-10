@@ -17,7 +17,7 @@ import {
 } from "@/lib/workspace-handle";
 
 const PROJECT_CUSTOM_DOMAIN = "www.illuxus.com";
-const PROJECT_PUBLISHED_HOST = "biz-meet.lovable.app";
+const PROJECT_PUBLISHED_HOST = "illuxus.com";
 
 /**
  * Lu.ma-style organization landing page customization.

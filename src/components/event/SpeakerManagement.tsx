@@ -169,6 +169,7 @@ export default function SpeakerManagement({ eventId }: Props) {
   };
 
   const handleDelete = async (id: string) => {
+    if (!confirm("Delete this speaker permanently? This cannot be undone.")) return;
     await supabase.from("speakers").delete().eq("id", id);
     toast.success("Speaker deleted");
     fetchData();
