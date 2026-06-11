@@ -8,6 +8,7 @@ import { ArrowLeft, Minimize2, Maximize2, X, LogOut } from "lucide-react";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { useSessionBranding } from "@/components/webinar/StageOverlays";
 import { WaitingLobby } from "@/components/webinar/WaitingLobby";
+import { uuid } from "@/lib/uuid";
 
 const WebinarStage = lazy(() =>
   import("@/components/webinar/WebinarStage").then((m) => ({ default: m.WebinarStage })),
@@ -40,11 +41,11 @@ export default function EventLivePage() {
     try {
       const existing = localStorage.getItem(key);
       if (existing) return existing;
-      const fresh = crypto.randomUUID();
+      const fresh = uuid();
       localStorage.setItem(key, fresh);
       return fresh;
     } catch {
-      return crypto.randomUUID();
+      return uuid();
     }
   });
   const [kicked, setKicked] = useState(false);

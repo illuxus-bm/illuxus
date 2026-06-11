@@ -176,14 +176,20 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
   };
 
   const cancelRsvp = async () => {
-    if (!registrationId) return;
+    if (!registrationId || !user) return;
     setSubmitting(true);
-    const { error } = await supabase.rpc("cancel_my_registration", { _registration_id: registrationId });
+    // Use direct DELETE — the existing RLS policy "Attendee cancel own" lets the user delete their own row
+    const { error } = await supabase
+      .from("registrations")
+      .delete()
+      .eq("id", registrationId)
+      .eq("user_id", user.id);
     if (error) {
       toast({ title: "Could not cancel", description: error.message, variant: "destructive" });
     } else {
       setRegistrationId(null);
       setState("idle");
+      setJoinToken(null);
       toast({ title: "RSVP cancelled" });
     }
     setSubmitting(false);

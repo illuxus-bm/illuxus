@@ -202,6 +202,267 @@ CREATE OR REPLACE FUNCTION public.sponsor_portal_people(_eid uuid) RETURNS TABLE
 GRANT EXECUTE ON FUNCTION public.sponsor_portal_events() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.sponsor_portal_people(uuid) TO authenticated;
 
+-- ── Speaker portal RPCs ───────────────────────────────────────────────────────
+-- Match speakers by email (speakers.email = auth.users.email of current user)
+CREATE OR REPLACE FUNCTION public.speaker_portal_events()
+RETURNS TABLE(event_id uuid, event_slug text, event_title text, event_description text, event_date timestamptz, end_date timestamptz, location text, venue text, image_url text, status text, organizer_name text, speaker_id uuid, speaker_name text, speaker_photo_url text, speaker_company text, session_count bigint)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT DISTINCT
+    e.id, e.slug, e.title, e.description, e.date, e.end_date, e.location, e.venue, e.image_url, e.status,
+    o.name,
+    sp.id, sp.name, sp.photo_url, sp.company,
+    (SELECT count(*) FROM sessions s WHERE s.event_id = e.id AND s.speaker_id = sp.id)
+  FROM speakers sp
+  JOIN event_speakers es ON es.speaker_id = sp.id
+  JOIN events e ON e.id = es.event_id
+  LEFT JOIN organizations o ON o.id = e.org_id
+  WHERE lower(sp.email) = lower((SELECT email FROM auth.users WHERE id = auth.uid()))
+  ORDER BY e.date DESC;
+$$;
+
+CREATE OR REPLACE FUNCTION public.speaker_portal_event_details(_eid uuid)
+RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  _email text;
+  _result jsonb;
+BEGIN
+  SELECT email INTO _email FROM auth.users WHERE id = auth.uid();
+  IF _email IS NULL THEN RETURN NULL; END IF;
+
+  -- Verify the user is a speaker for this event
+  IF NOT EXISTS (
+    SELECT 1 FROM speakers sp
+    JOIN event_speakers es ON es.speaker_id = sp.id
+    WHERE es.event_id = _eid AND lower(sp.email) = lower(_email)
+  ) THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT jsonb_build_object(
+    'event', (SELECT to_jsonb(e) FROM (
+      SELECT e.id, e.slug, e.title, e.description, e.date, e.end_date, e.location, e.venue,
+             e.image_url, e.banner_landscape_url, e.status, e.timezone, e.event_format,
+             o.name as organizer_name, o.slug as organizer_slug, o.logo_url as organizer_logo
+      FROM events e LEFT JOIN organizations o ON o.id = e.org_id WHERE e.id = _eid
+    ) e),
+    'speaker', (SELECT to_jsonb(s) FROM (
+      SELECT sp.id, sp.name, sp.email, sp.bio, sp.photo_url, sp.company, sp.designation,
+             sp.linkedin_url, sp.company_website, sp.title, sp.first_name, sp.last_name
+      FROM speakers sp
+      JOIN event_speakers es ON es.speaker_id = sp.id
+      WHERE es.event_id = _eid AND lower(sp.email) = lower(_email)
+      LIMIT 1
+    ) s),
+    'sessions', COALESCE((SELECT jsonb_agg(to_jsonb(ss) ORDER BY ss.start_time) FROM (
+      SELECT s.id, s.title, s.description, s.session_type, s.start_time, s.end_time, s.location
+      FROM sessions s
+      WHERE s.event_id = _eid
+        AND s.speaker_id IN (SELECT sp.id FROM speakers sp WHERE lower(sp.email) = lower(_email))
+    ) ss), '[]'::jsonb),
+    'analytics', (SELECT jsonb_build_object(
+      'total_registrations', (SELECT count(*) FROM registrations r WHERE r.event_id = _eid AND r.approval_status = 'approved'),
+      'checked_in_count', (SELECT count(*) FROM registrations r WHERE r.event_id = _eid AND r.checked_in = true)
+    ))
+  ) INTO _result;
+
+  RETURN _result;
+END;
+$$;
+
+-- Returns the role assignments for the current user (used to populate dropdown menu)
+CREATE OR REPLACE FUNCTION public.user_role_assignments()
+RETURNS jsonb
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT jsonb_build_object(
+    'has_speaker', EXISTS(
+      SELECT 1 FROM speakers sp
+      JOIN event_speakers es ON es.speaker_id = sp.id
+      WHERE lower(sp.email) = lower((SELECT email FROM auth.users WHERE id = auth.uid()))
+    ),
+    'has_sponsor', EXISTS(
+      SELECT 1 FROM sponsor_members sm
+      WHERE sm.user_id = auth.uid() AND sm.accepted_at IS NOT NULL
+    )
+  );
+$$;
+
+GRANT EXECUTE ON FUNCTION public.speaker_portal_events() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.speaker_portal_event_details(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.user_role_assignments() TO authenticated;
+
+-- ── Application workflow RPCs ─────────────────────────────────────────────────
+-- Approve a speaker application: creates speakers row, links to event_speakers, notifies applicant
+CREATE OR REPLACE FUNCTION public.approve_speaker_application(_app_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  _app speaker_applications%ROWTYPE;
+  _is_owner boolean;
+  _speaker_id uuid;
+  _event_title text;
+BEGIN
+  SELECT * INTO _app FROM speaker_applications WHERE id = _app_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Application not found'; END IF;
+
+  -- Authorization: only event owner or admin can approve
+  SELECT EXISTS(SELECT 1 FROM events WHERE id = _app.event_id AND (user_id = auth.uid() OR has_role(auth.uid(),'admin'))) INTO _is_owner;
+  IF NOT _is_owner THEN RAISE EXCEPTION 'Unauthorized'; END IF;
+
+  -- Find or create speaker row (for the organizer's `user_id` so RLS lets them manage it)
+  SELECT id INTO _speaker_id FROM speakers
+    WHERE lower(email) = lower(_app.email) AND user_id IN (SELECT user_id FROM events WHERE id = _app.event_id)
+    LIMIT 1;
+
+  IF _speaker_id IS NULL THEN
+    INSERT INTO speakers(user_id, name, email, bio, company, designation, linkedin_url, mobile_country_code, mobile_number)
+    VALUES(
+      (SELECT user_id FROM events WHERE id = _app.event_id),
+      _app.full_name, _app.email, _app.bio, _app.company, _app.job_title, _app.linkedin_url,
+      _app.mobile_country_code, _app.mobile_number
+    )
+    RETURNING id INTO _speaker_id;
+  END IF;
+
+  -- Link to event (idempotent via UNIQUE constraint)
+  INSERT INTO event_speakers(event_id, speaker_id) VALUES(_app.event_id, _speaker_id)
+    ON CONFLICT(event_id, speaker_id) DO NOTHING;
+
+  -- Update application status
+  UPDATE speaker_applications SET status = 'approved', reviewed_by = auth.uid(), reviewed_at = now()
+    WHERE id = _app_id;
+
+  -- Notification
+  SELECT title INTO _event_title FROM events WHERE id = _app.event_id;
+  INSERT INTO app_notifications(user_id, type, title, body, link)
+  VALUES(_app.user_id, 'speaker_approved',
+         'Speaker application approved',
+         'You have been approved as a speaker for ' || COALESCE(_event_title, 'an event') || '.',
+         '/speaker');
+
+  RETURN _speaker_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.reject_speaker_application(_app_id uuid, _reason text DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE _app speaker_applications%ROWTYPE; _is_owner boolean; _event_title text;
+BEGIN
+  SELECT * INTO _app FROM speaker_applications WHERE id = _app_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Application not found'; END IF;
+  SELECT EXISTS(SELECT 1 FROM events WHERE id = _app.event_id AND (user_id = auth.uid() OR has_role(auth.uid(),'admin'))) INTO _is_owner;
+  IF NOT _is_owner THEN RAISE EXCEPTION 'Unauthorized'; END IF;
+
+  UPDATE speaker_applications
+    SET status = 'rejected', rejection_reason = _reason, reviewed_by = auth.uid(), reviewed_at = now()
+    WHERE id = _app_id;
+
+  SELECT title INTO _event_title FROM events WHERE id = _app.event_id;
+  INSERT INTO app_notifications(user_id, type, title, body, link)
+  VALUES(_app.user_id, 'speaker_rejected',
+         'Speaker application not approved',
+         'Your speaker application for ' || COALESCE(_event_title, 'the event') || ' was not approved.' ||
+         CASE WHEN _reason IS NOT NULL THEN ' Reason: ' || _reason ELSE '' END,
+         '/u/me/applications');
+END;
+$$;
+
+-- Approve sponsor application: creates sponsor row + event_sponsors link + sponsor_members invite
+CREATE OR REPLACE FUNCTION public.approve_sponsor_application(_app_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  _app sponsor_applications%ROWTYPE;
+  _is_owner boolean;
+  _sponsor_id uuid;
+  _event_title text;
+BEGIN
+  SELECT * INTO _app FROM sponsor_applications WHERE id = _app_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Application not found'; END IF;
+  SELECT EXISTS(SELECT 1 FROM events WHERE id = _app.event_id AND (user_id = auth.uid() OR has_role(auth.uid(),'admin'))) INTO _is_owner;
+  IF NOT _is_owner THEN RAISE EXCEPTION 'Unauthorized'; END IF;
+
+  -- Create sponsor record (owned by the event organizer)
+  INSERT INTO sponsors(user_id, name, email, logo_url, website, tier, description)
+  VALUES(
+    (SELECT user_id FROM events WHERE id = _app.event_id),
+    _app.company_name, _app.contact_email, _app.logo_url, _app.company_website,
+    COALESCE(_app.sponsorship_tier, 'bronze'), _app.company_description
+  ) RETURNING id INTO _sponsor_id;
+
+  -- Link to event
+  INSERT INTO event_sponsors(event_id, sponsor_id) VALUES(_app.event_id, _sponsor_id)
+    ON CONFLICT(event_id, sponsor_id) DO NOTHING;
+
+  -- Auto-accept the applicant as a sponsor member so they get portal access
+  INSERT INTO sponsor_members(sponsor_id, user_id, email, display_name, role, accepted_at, designation, mobile_country_code, mobile_number)
+  VALUES(_sponsor_id, _app.user_id, _app.contact_email, _app.contact_name, 'admin', now(),
+         _app.contact_designation, _app.contact_mobile_country_code, _app.contact_mobile_number)
+    ON CONFLICT(sponsor_id, email) DO UPDATE SET user_id = EXCLUDED.user_id, accepted_at = EXCLUDED.accepted_at;
+
+  -- Update application status
+  UPDATE sponsor_applications SET status = 'approved', reviewed_by = auth.uid(), reviewed_at = now() WHERE id = _app_id;
+
+  -- Notification
+  SELECT title INTO _event_title FROM events WHERE id = _app.event_id;
+  INSERT INTO app_notifications(user_id, type, title, body, link)
+  VALUES(_app.user_id, 'sponsor_approved',
+         'Sponsor application approved',
+         'Your company has been approved as a sponsor for ' || COALESCE(_event_title, 'an event') || '.',
+         '/sponsor');
+
+  RETURN _sponsor_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.reject_sponsor_application(_app_id uuid, _reason text DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE _app sponsor_applications%ROWTYPE; _is_owner boolean; _event_title text;
+BEGIN
+  SELECT * INTO _app FROM sponsor_applications WHERE id = _app_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Application not found'; END IF;
+  SELECT EXISTS(SELECT 1 FROM events WHERE id = _app.event_id AND (user_id = auth.uid() OR has_role(auth.uid(),'admin'))) INTO _is_owner;
+  IF NOT _is_owner THEN RAISE EXCEPTION 'Unauthorized'; END IF;
+
+  UPDATE sponsor_applications
+    SET status = 'rejected', rejection_reason = _reason, reviewed_by = auth.uid(), reviewed_at = now()
+    WHERE id = _app_id;
+
+  SELECT title INTO _event_title FROM events WHERE id = _app.event_id;
+  INSERT INTO app_notifications(user_id, type, title, body, link)
+  VALUES(_app.user_id, 'sponsor_rejected',
+         'Sponsor application not approved',
+         'Your sponsor application for ' || COALESCE(_event_title, 'the event') || ' was not approved.' ||
+         CASE WHEN _reason IS NOT NULL THEN ' Reason: ' || _reason ELSE '' END,
+         '/u/me/applications');
+END;
+$$;
+
+-- "My applications" — returns the current user's speaker + sponsor applications
+CREATE OR REPLACE FUNCTION public.my_applications()
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT jsonb_build_object(
+    'speaker', COALESCE((SELECT jsonb_agg(to_jsonb(sa) ORDER BY sa.created_at DESC) FROM (
+      SELECT sa.id, sa.event_id, sa.session_title, sa.expertise, sa.status, sa.rejection_reason,
+             sa.created_at, sa.updated_at, e.title as event_title, e.date as event_date, e.image_url
+      FROM speaker_applications sa
+      JOIN events e ON e.id = sa.event_id
+      WHERE sa.user_id = auth.uid()
+    ) sa), '[]'::jsonb),
+    'sponsor', COALESCE((SELECT jsonb_agg(to_jsonb(sp) ORDER BY sp.created_at DESC) FROM (
+      SELECT sp.id, sp.event_id, sp.company_name, sp.sponsorship_tier, sp.status, sp.rejection_reason,
+             sp.created_at, sp.updated_at, e.title as event_title, e.date as event_date, e.image_url
+      FROM sponsor_applications sp
+      JOIN events e ON e.id = sp.event_id
+      WHERE sp.user_id = auth.uid()
+    ) sp), '[]'::jsonb)
+  );
+$$;
+
+GRANT EXECUTE ON FUNCTION public.approve_speaker_application(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.reject_speaker_application(uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.approve_sponsor_application(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.reject_sponsor_application(uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.my_applications() TO authenticated;
+
 -- ── Webinar helpers ───────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.claim_join_session(_jt text,_sid text) RETURNS TABLE(registration_id uuid,event_id uuid,user_id uuid,name text,email text) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE _r registrations;

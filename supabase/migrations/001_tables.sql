@@ -521,6 +521,120 @@ CREATE TABLE public.webinar_browser_sessions (id uuid PRIMARY KEY DEFAULT gen_ra
 ALTER TABLE public.webinar_browser_sessions ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.webinar_browser_sessions TO authenticated;
 
+-- ── Speaker & Sponsor application tables ──────────────────────────────────────
+CREATE TABLE public.speaker_applications (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  -- Personal info
+  full_name text NOT NULL,
+  email text NOT NULL,
+  mobile_country_code text,
+  mobile_number text,
+  linkedin_url text,
+  portfolio_url text,
+  -- Professional info
+  job_title text,
+  company text,
+  years_experience int,
+  industry text,
+  -- Speaker profile
+  bio text,
+  expertise text,
+  topics text,
+  past_experience text,
+  -- Session proposal
+  session_title text NOT NULL,
+  session_description text NOT NULL,
+  key_takeaways text,
+  target_audience text,
+  session_category text,
+  session_duration_minutes int,
+  -- Optional links
+  past_videos_url text,
+  resume_url text,
+  notes text,
+  -- Status workflow
+  status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','under_review','approved','rejected')),
+  rejection_reason text,
+  reviewed_by uuid,
+  reviewed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(event_id, user_id)
+);
+CREATE INDEX idx_speaker_apps_event ON public.speaker_applications(event_id, status);
+CREATE INDEX idx_speaker_apps_user ON public.speaker_applications(user_id);
+ALTER TABLE public.speaker_applications ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Applicant view own speaker apps" ON public.speaker_applications FOR SELECT TO authenticated USING(user_id = auth.uid());
+CREATE POLICY "Applicant create speaker apps" ON public.speaker_applications FOR INSERT TO authenticated WITH CHECK(user_id = auth.uid());
+CREATE POLICY "Organizer view speaker apps" ON public.speaker_applications FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM events e WHERE e.id = event_id AND (e.user_id = auth.uid() OR has_role(auth.uid(),'admin'))));
+CREATE POLICY "Organizer update speaker apps" ON public.speaker_applications FOR UPDATE TO authenticated USING(EXISTS(SELECT 1 FROM events e WHERE e.id = event_id AND (e.user_id = auth.uid() OR has_role(auth.uid(),'admin'))));
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.speaker_applications TO authenticated;
+CREATE TRIGGER trg_speaker_apps_updated BEFORE UPDATE ON public.speaker_applications FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+CREATE TABLE public.sponsor_applications (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  -- Company info
+  company_name text NOT NULL,
+  company_website text,
+  industry text,
+  company_description text,
+  logo_url text,
+  -- Contact person
+  contact_name text NOT NULL,
+  contact_email text NOT NULL,
+  contact_mobile_country_code text,
+  contact_mobile_number text,
+  contact_designation text,
+  -- Sponsorship info
+  sponsorship_tier text,
+  budget_range text,
+  objectives text,
+  expected_outcomes text,
+  -- Marketing assets (URLs only — no file upload in v1)
+  brochure_url text,
+  deck_url text,
+  promotional_url text,
+  -- Notes + status
+  notes text,
+  status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','under_review','approved','rejected')),
+  rejection_reason text,
+  reviewed_by uuid,
+  reviewed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(event_id, user_id)
+);
+CREATE INDEX idx_sponsor_apps_event ON public.sponsor_applications(event_id, status);
+CREATE INDEX idx_sponsor_apps_user ON public.sponsor_applications(user_id);
+ALTER TABLE public.sponsor_applications ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Applicant view own sponsor apps" ON public.sponsor_applications FOR SELECT TO authenticated USING(user_id = auth.uid());
+CREATE POLICY "Applicant create sponsor apps" ON public.sponsor_applications FOR INSERT TO authenticated WITH CHECK(user_id = auth.uid());
+CREATE POLICY "Organizer view sponsor apps" ON public.sponsor_applications FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM events e WHERE e.id = event_id AND (e.user_id = auth.uid() OR has_role(auth.uid(),'admin'))));
+CREATE POLICY "Organizer update sponsor apps" ON public.sponsor_applications FOR UPDATE TO authenticated USING(EXISTS(SELECT 1 FROM events e WHERE e.id = event_id AND (e.user_id = auth.uid() OR has_role(auth.uid(),'admin'))));
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.sponsor_applications TO authenticated;
+CREATE TRIGGER trg_sponsor_apps_updated BEFORE UPDATE ON public.sponsor_applications FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- Notifications: lightweight in-app notifications for application status updates
+CREATE TABLE public.app_notifications (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  type text NOT NULL,
+  title text NOT NULL,
+  body text,
+  link text,
+  read boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_app_notifs_user ON public.app_notifications(user_id, created_at DESC);
+ALTER TABLE public.app_notifications ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "User view own notifs" ON public.app_notifications FOR SELECT TO authenticated USING(user_id = auth.uid());
+CREATE POLICY "User update own notifs" ON public.app_notifications FOR UPDATE TO authenticated USING(user_id = auth.uid());
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.app_notifications TO authenticated;
+
 -- ── Storage buckets ───────────────────────────────────────────────────────────
 INSERT INTO storage.buckets(id,name,public) VALUES('site-assets','site-assets',true) ON CONFLICT(id) DO NOTHING;
 INSERT INTO storage.buckets(id,name,public) VALUES('avatars','avatars',true) ON CONFLICT(id) DO NOTHING;

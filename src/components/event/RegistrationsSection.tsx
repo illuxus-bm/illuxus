@@ -335,7 +335,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       }
       const reg = row.registration;
       const { data, error } = await supabase.rpc("toggle_attendance" as never, {
-        p_registration_id: reg.id,
+        p_reg_id: reg.id,
         p_method: method,
       } as never);
       const result = Array.isArray(data) ? (data as any[])[0] : (data as any);
@@ -366,7 +366,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const undoAttendance = async (row: Row, kind: "in" | "out") => {
     if (!row.registration) return;
     const { data, error } = await supabase.rpc("undo_attendance" as never, {
-      p_registration_id: row.registration.id,
+      p_reg_id: row.registration.id,
       p_kind: kind,
     } as never);
     if (error) {
@@ -413,7 +413,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     if (haveReg.length > 0) {
       const { error } = await supabase.rpc("bulk_set_attendance" as never, {
         p_ids: haveReg.map((r) => r.registration!.id),
-        p_target_state: "inside",
+        p_target: "inside",
         p_method: "bulk",
       } as never);
       if (error) {
@@ -437,7 +437,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     }
     const { error } = await supabase.rpc("bulk_set_attendance" as never, {
       p_ids: toRevert.map((r) => r.registration!.id),
-      p_target_state: "outside",
+      p_target: "outside",
       p_method: "bulk",
     } as never);
     if (error) {

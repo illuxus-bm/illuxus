@@ -3,6 +3,7 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { FullPageLoader } from "@/components/FullPageLoader";
+import SiteHeader from "@/components/SiteHeader";
 import { ArrowLeft, Mic, Users, CheckCircle, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
@@ -26,7 +27,7 @@ export default function SponsorEventDetailPage() {
 
   const load = async () => {
     if (!eventId) return;
-    const { data } = await supabase.rpc("sponsor_portal_people" as never, { _event_id: eventId } as never);
+    const { data } = await supabase.rpc("sponsor_portal_people" as never, { _eid: eventId } as never);
     setPeople(((data || []) as unknown as Person[]));
     setLoading(false);
   };
@@ -59,6 +60,7 @@ export default function SponsorEventDetailPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <SiteHeader />
       <header className="border-b border-border">
         <div className="max-w-screen-xl mx-auto px-6 py-3 flex items-center gap-3">
           <Link to="/sponsor" className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1">

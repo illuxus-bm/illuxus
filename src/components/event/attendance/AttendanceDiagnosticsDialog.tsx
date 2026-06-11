@@ -46,7 +46,7 @@ export default function AttendanceDiagnosticsDialog({
   const forceCheckIn = async (id: string) => {
     setFixing(id);
     const { error } = await supabase.rpc("toggle_attendance" as never, {
-      p_registration_id: id, p_method: "manual-fix",
+      p_reg_id: id, p_method: "manual-fix",
     } as never);
     setFixing(null);
     if (error) { toast.error("Could not check in", { description: error.message }); return; }

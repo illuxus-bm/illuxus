@@ -40,6 +40,7 @@ import { CurrencySwitcher, getStoredDisplayCurrency } from "@/components/Currenc
 import { FullPageLoader } from "@/components/FullPageLoader";
 
 const BroadcastPageLazy = lazy(() => import("./event/BroadcastPage"));
+const ApplicationsSectionLazy = lazy(() => import("@/components/event/ApplicationsSection").then((m) => ({ default: m.ApplicationsSection })));
 
 type Event = Tables<"events">;
 
@@ -50,6 +51,7 @@ const sidebarNav = [
   { label: "Speakers", icon: ClipboardList, key: "manage" },
   { label: "Registrations", icon: Users, key: "registrations" },
   { label: "Sponsors", icon: Award, key: "exhibitors" },
+  { label: "Applications", icon: ClipboardList, key: "applications" },
   { label: "Agenda", icon: CalendarCheck, key: "agenda" },
   { label: "Design", icon: Palette, key: "design" },
   { label: "Communicate", icon: Mail, key: "communicate" },
@@ -730,7 +732,13 @@ const EventDetailPage = () => {
               </Suspense>
             )}
 
-            {!["dashboard", "settings", "manage", "agenda", "exhibitors", "design", "registrations", "communicate", "reports", "broadcast", "search"].includes(activeSection) && (
+            {activeSection === "applications" && (
+              <Suspense fallback={<FullPageLoader label="Loading applications…" />}>
+                <ApplicationsSectionLazy eventId={event.id} />
+              </Suspense>
+            )}
+
+            {!["dashboard", "settings", "manage", "agenda", "exhibitors", "design", "registrations", "communicate", "reports", "broadcast", "search", "applications"].includes(activeSection) && (
               <div className="flex items-center justify-center h-64 text-muted-foreground">
                 <p className="text-sm">{sidebarNav.find(n => n.key === activeSection)?.label} — Coming soon</p>
               </div>

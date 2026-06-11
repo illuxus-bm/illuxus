@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Upload, X, Image as ImageIcon } from "lucide-react";
+import { uuid } from "@/lib/uuid";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const ALLOWED = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
@@ -27,7 +28,7 @@ export default function SponsorLogoUploader({
     setUploading(true);
     try {
       const ext = file.name.split(".").pop()?.toLowerCase() || "png";
-      const path = `sponsor-logos/${crypto.randomUUID()}.${ext}`;
+      const path = `sponsor-logos/${uuid()}.${ext}`;
       const { error } = await supabase.storage.from("site-assets").upload(path, file, {
         cacheControl: "3600",
         upsert: false,

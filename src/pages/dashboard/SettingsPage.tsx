@@ -21,6 +21,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import type { Tables } from "@/integrations/supabase/types";
 import PersonFieldsForm, { type PersonFields, emptyPersonFields, displayName as buildDisplayName } from "@/components/people/PersonFieldsForm";
+import { uuid } from "@/lib/uuid";
 
 type Profile = Tables<"profiles">;
 
@@ -236,7 +237,7 @@ const SettingsPage = () => {
       supabase.functions.invoke("send-event-email", {
         body: {
           event_id: "invite",
-          email_id: invitation?.token || crypto.randomUUID(),
+          email_id: invitation?.token || uuid(),
           subject: `You're invited to join ${org.name} on Illuxus`,
           body: `Hi!\n\n${user.email} has invited you to join "${org.name}" as a ${inviteRole}.\n\nClick the link below to accept:\n${inviteUrl}\n\nIf you don't have an account yet, you'll be able to create one when you click the link.\n\nBest,\nThe Illuxus Team`,
           recipient_emails: [inviteEmail.trim().toLowerCase()],

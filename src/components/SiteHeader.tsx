@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePortalAccess } from "@/hooks/usePortalAccess";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,7 +14,7 @@ import {
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useTheme } from "@/contexts/ThemeContext";
 import { SiteContainer } from "@/components/layout/SiteContainer";
-import { CalendarDays, ChevronDown, Compass, LogOut, Settings as SettingsIcon, Ticket } from "lucide-react";
+import { CalendarDays, ChevronDown, ClipboardList, Compass, LogOut, Mic, Building2, Settings as SettingsIcon, Ticket } from "lucide-react";
 
 /**
  * Centralized site header used across every public segment
@@ -44,6 +45,7 @@ export default function SiteHeader({
   transparent?: boolean;
 }) {
   const { user, signOut, accountType, isAdmin } = useAuth();
+  const { data: portalAccess } = usePortalAccess();
   const { content } = useSiteContent();
   const navigate = useNavigate();
   const { brandName, logoUrl, logoUrlDark } = content.navbar;
@@ -187,9 +189,22 @@ export default function SiteHeader({
                 <DropdownMenuItem asChild>
                   <Link to="/u/me/events"><Ticket className="h-3.5 w-3.5 mr-2" /> My tickets</Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/u/me/applications"><ClipboardList className="h-3.5 w-3.5 mr-2" /> My applications</Link>
+                </DropdownMenuItem>
                 {(accountType === "organizer" || isAdmin) && (
                   <DropdownMenuItem asChild>
                     <Link to="/dashboard"><CalendarDays className="h-3.5 w-3.5 mr-2" /> Organizer dashboard</Link>
+                  </DropdownMenuItem>
+                )}
+                {portalAccess?.has_speaker && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/speaker"><Mic className="h-3.5 w-3.5 mr-2" /> Speaker dashboard</Link>
+                  </DropdownMenuItem>
+                )}
+                {portalAccess?.has_sponsor && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/sponsor"><Building2 className="h-3.5 w-3.5 mr-2" /> Sponsor dashboard</Link>
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem asChild>

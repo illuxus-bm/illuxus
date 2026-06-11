@@ -63,6 +63,7 @@ const DomainsPage = lazyWithLog("DomainsPage", () => import("./pages/dashboard/D
 const DiscoverFeed = lazyWithLog("DiscoverFeed", () => import("./pages/DiscoverFeed.tsx"));
 const ProfilePage = lazyWithLog("ProfilePage", () => import("./pages/u/ProfilePage.tsx"));
 const MyEventsPage = lazyWithLog("MyEventsPage", () => import("./pages/u/MyEventsPage.tsx"));
+const MyApplicationsPage = lazyWithLog("MyApplicationsPage", () => import("./pages/u/MyApplicationsPage.tsx"));
 const TicketDetailPage = lazyWithLog("TicketDetailPage", () => import("./pages/t/TicketDetailPage.tsx"));
 const EventQuickCreatePage = lazyWithLog("EventQuickCreatePage", () => import("./pages/dashboard/EventQuickCreatePage.tsx"));
 const GuestListPage = lazyWithLog("GuestListPage", () => import("./pages/dashboard/event/GuestListPage.tsx"));
@@ -74,6 +75,8 @@ const SelfCheckInPage = lazyWithLog("SelfCheckInPage", () => import("./pages/Sel
 const SponsorEventsPage = lazyWithLog("SponsorEventsPage", () => import("./pages/sponsor/SponsorEventsPage.tsx"));
 const SponsorEventDetailPage = lazyWithLog("SponsorEventDetailPage", () => import("./pages/sponsor/SponsorEventDetailPage.tsx"));
 const SponsorAcceptInvitePage = lazyWithLog("SponsorAcceptInvitePage", () => import("./pages/sponsor/AcceptInvitePage.tsx"));
+const SpeakerEventsPage = lazyWithLog("SpeakerEventsPage", () => import("./pages/speaker/SpeakerEventsPage.tsx"));
+const SpeakerEventDetailPage = lazyWithLog("SpeakerEventDetailPage", () => import("./pages/speaker/SpeakerEventDetailPage.tsx"));
 const QuickViewsPreviewPage = lazyWithLog("QuickViewsPreviewPage", () => import("./pages/dev/QuickViewsPreviewPage.tsx"));
 const queryClient = new QueryClient();
 
@@ -193,6 +196,7 @@ const App = () => (
               <Route path="/my/tickets" element={<Navigate to="/u/me/events" replace />} />
               <Route path="/u/me" element={<AttendeeRoute><ProfilePage /></AttendeeRoute>} />
               <Route path="/u/me/events" element={<AttendeeRoute><MyEventsPage /></AttendeeRoute>} />
+              <Route path="/u/me/applications" element={<AttendeeRoute><MyApplicationsPage /></AttendeeRoute>} />
               <Route path="/u/me/settings" element={<AttendeeRoute><SettingsPage /></AttendeeRoute>} />
               <Route path="/t/:id" element={<AttendeeRoute><TicketDetailPage /></AttendeeRoute>} />
               <Route path="/dashboard" element={<ProtectedRoute><OnboardingGuard><Dashboard /></OnboardingGuard></ProtectedRoute>} />
@@ -205,6 +209,8 @@ const App = () => (
               <Route path="/sponsor" element={<SponsorEventsPage />} />
               <Route path="/sponsor/events/:eventId" element={<SponsorEventDetailPage />} />
               <Route path="/sponsor/accept" element={<SponsorAcceptInvitePage />} />
+              <Route path="/speaker" element={<SpeakerEventsPage />} />
+              <Route path="/speaker/events/:eventId" element={<SpeakerEventDetailPage />} />
               {import.meta.env.DEV && (
                 <Route path="/__preview/quick-views" element={<QuickViewsPreviewPage />} />
               )}
@@ -252,6 +258,7 @@ function GlobalFooter() {
     "/reset-password",
     "/complete-profile",
     "/sponsor",
+    "/speaker",
     "/checkin",
     "/e/", // live event
     "/__preview",

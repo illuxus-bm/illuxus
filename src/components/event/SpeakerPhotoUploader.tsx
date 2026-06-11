@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Upload, X, User } from "lucide-react";
+import { uuid } from "@/lib/uuid";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const ALLOWED = ["image/png", "image/jpeg", "image/webp"];
@@ -31,7 +32,7 @@ export default function SpeakerPhotoUploader({
     setUploading(true);
     try {
       const ext = file.name.split(".").pop()?.toLowerCase() || "png";
-      const path = `speaker-photos/${crypto.randomUUID()}.${ext}`;
+      const path = `speaker-photos/${uuid()}.${ext}`;
       const { error } = await supabase.storage.from("site-assets").upload(path, file, {
         cacheControl: "3600",
         upsert: false,

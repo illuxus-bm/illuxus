@@ -13,6 +13,7 @@ import PreviewHostBanner from "@/components/PreviewHostBanner";
 import SiteHeader from "@/components/SiteHeader";
 import EventRsvpCard from "@/components/EventRsvpCard";
 import EventPagePreview from "@/components/event/page-form/EventPagePreview";
+import { EventApplicationButtons } from "@/components/applications/EventApplicationButtons";
 import LiveStatusBanner from "@/components/event/LiveStatusBanner";
 import { useTheme } from "@/contexts/ThemeContext";
 import { validateTheme } from "@/lib/theme-contrast";
@@ -287,6 +288,16 @@ const PublicEventPage = () => {
         darkMode={appTheme === "dark"}
         registrationSlot={<EventRsvpCard event={event as never} accentColor={config.theme.primaryColor} />}
       />
+
+      {/* Speaker & Sponsor application CTAs — shown to logged-in attendees */}
+      {event && eventExt.status === "published" && (
+        <div className="max-w-4xl mx-auto px-4 py-2">
+          <EventApplicationButtons
+            eventId={event.id}
+            eventOwnerId={(event as { user_id?: string }).user_id ?? null}
+          />
+        </div>
+      )}
     </div>
   );
 };

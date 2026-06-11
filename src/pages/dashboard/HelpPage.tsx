@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { uuid } from "@/lib/uuid";
 
 // ─── FAQ data ─────────────────────────────────────────────────────────────────
 
@@ -109,7 +110,7 @@ const HelpPage = () => {
       await supabase.functions.invoke("send-event-email", {
         body: {
           event_id:        "support",
-          email_id:        crypto.randomUUID(),
+          email_id:        uuid(),
           subject:         `[Support] ${supportSubject.trim()}`,
           body:            `From: ${user?.email ?? "unknown"}\n\n${supportBody.trim()}`,
           recipient_emails: ["support@illuxus.com"],

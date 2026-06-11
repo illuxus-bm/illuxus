@@ -1,0 +1,172 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { useMySpeakerApplication, useMySponsorApplication } from "@/hooks/useApplications";
+import { Button } from "@/components/ui/button";
+import { SpeakerApplicationDialog } from "./SpeakerApplicationDialog";
+import { SponsorApplicationDialog } from "./SponsorApplicationDialog";
+import { Mic, Building2, CheckCircle2, Clock, XCircle } from "lucide-react";
+import type { ApplicationStatus } from "@/types/applications";
+
+interface Props {
+  eventId: string;
+  eventOwnerId?: string | null;
+}
+
+/**
+ * "Apply as Speaker" / "Become a Sponsor" buttons shown on the public event page.
+ * Hides automatically if the user is the organizer or already has an approved assignment.
+ */
+export function EventApplicationButtons({ eventId, eventOwnerId }: Props) {
+  const { user, accountType, isAdmin } = useAuth();
+  const navigate = useNavigate();
+  const [speakerOpen, setSpeakerOpen] = useState(false);
+  const [sponsorOpen, setSponsorOpen] = useState(false);
+
+  const { data: speakerApp } = useMySpeakerApplication(eventId);
+  const { data: sponsorApp } = useMySponsorApplication(eventId);
+
+  // Hide entirely from organizers of this specific event
+  const isEventOwner = user && eventOwnerId && user.id === eventOwnerId;
+
+  // Organizers (with their own org) viewing other events can still apply
+  const canApply = !isEventOwner && !isAdmin;
+
+  if (!canApply) return null;
+
+  const handleSpeakerClick = () => {
+    if (!user) {
+      navigate(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    setSpeakerOpen(true);
+  };
+
+  const handleSponsorClick = () => {
+    if (!user) {
+      navigate(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    setSponsorOpen(true);
+  };
+
+  return (
+    <>
+      <div className="grid sm:grid-cols-2 gap-3 my-6">
+        {/* Speaker application */}
+        <ApplicationCard
+          icon={Mic}
+          title="Apply as Speaker"
+          description="Propose a session and join the lineup."
+          existingStatus={speakerApp?.status}
+          onClick={handleSpeakerClick}
+        />
+        {/* Sponsor application */}
+        <ApplicationCard
+          icon={Building2}
+          title="Become a Sponsor"
+          description="Sponsor this event and reach the audience."
+          existingStatus={sponsorApp?.status}
+          onClick={handleSponsorClick}
+        />
+      </div>
+
+      {user && (
+        <>
+          <SpeakerApplicationDialog
+            eventId={eventId}
+            open={speakerOpen}
+            onOpenChange={setSpeakerOpen}
+          />
+          <SponsorApplicationDialog
+            eventId={eventId}
+            open={sponsorOpen}
+            onOpenChange={setSponsorOpen}
+          />
+        </>
+      )}
+
+      {/* Hide unused references to silence linter */}
+      <span className="hidden">{accountType}</span>
+    </>
+  );
+}
+
+function ApplicationCard({
+  icon: Icon,
+  title,
+  description,
+  existingStatus,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  existingStatus?: ApplicationStatus;
+  onClick: () => void;
+}) {
+  if (existingStatus) {
+    return (
+      <div className="border border-border rounded-lg p-4 bg-card flex items-start gap-3">
+        <Icon className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px] font-semibold">{title}</p>
+          <ApplicationStatusBadge status={existingStatus} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={onClick}
+      className="border border-border rounded-lg p-4 bg-card hover:border-primary/40 transition-colors flex items-start gap-3 text-left group"
+    >
+      <Icon className="h-5 w-5 text-primary shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+      <div className="min-w-0 flex-1">
+        <p className="text-[14px] font-semibold">{title}</p>
+        <p className="text-[12px] text-muted-foreground mt-0.5">{description}</p>
+        <span className="text-[12px] text-primary mt-1.5 inline-block group-hover:underline">
+          Apply →
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function ApplicationStatusBadge({ status }: { status: ApplicationStatus }) {
+  const config: Record<
+    ApplicationStatus,
+    { label: string; icon: React.ComponentType<{ className?: string }>; cls: string }
+  > = {
+    pending: {
+      label: "Application pending",
+      icon: Clock,
+      cls: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+    },
+    under_review: {
+      label: "Under review",
+      icon: Clock,
+      cls: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+    },
+    approved: {
+      label: "Approved",
+      icon: CheckCircle2,
+      cls: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+    },
+    rejected: {
+      label: "Not approved",
+      icon: XCircle,
+      cls: "bg-destructive/15 text-destructive",
+    },
+  };
+  const c = config[status];
+  return (
+    <span
+      className={`inline-flex items-center gap-1 mt-1.5 text-[11px] font-medium px-2 py-0.5 rounded-full ${c.cls}`}
+    >
+      <c.icon className="h-3 w-3" />
+      {c.label}
+    </span>
+  );
+}

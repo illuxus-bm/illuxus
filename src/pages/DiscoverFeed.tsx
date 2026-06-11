@@ -21,15 +21,29 @@ export default function DiscoverFeed() {
   useEffect(() => {
     let cancel = false;
     (async () => {
-      const { data } = await supabase
+      // Fetch published events. We don't filter by date in SQL — instead
+      // we filter client-side using end_date when available, or date otherwise.
+      // This is more reliable than complex .or() filters and lets us show
+      // ongoing/today's events too.
+      const { data, error } = await supabase
         .from("events")
         .select("id, slug, title, description, date, end_date, venue, location, image_url, price, organizations(name, slug, subdomain, logo_url)")
         .eq("status", "published")
-        .gte("date", new Date().toISOString())
         .order("date", { ascending: true })
-        .limit(50);
+        .limit(100);
       if (cancel) return;
-      setEvents((data || []) as unknown as LumaEvent[]);
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.error("[DiscoverFeed] events query failed:", error);
+      }
+      // Filter out events that have already ended.
+      const now = Date.now();
+      const upcoming = (data || []).filter((e: { date: string; end_date: string | null }) => {
+        const endTs = e.end_date ? new Date(e.end_date).getTime() : null;
+        const startTs = e.date ? new Date(e.date).getTime() : 0;
+        return endTs ? endTs >= now : startTs >= now;
+      });
+      setEvents(upcoming as unknown as LumaEvent[]);
       setLoading(false);
     })();
     return () => { cancel = true; };
