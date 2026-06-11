@@ -168,21 +168,98 @@ export function useEventSponsorApplications(eventId: string | undefined) {
 /**
  * Mutations: approve/reject/submit.
  */
+/**
+ * Approve speaker application — does everything client-side to avoid RPC version drift.
+ * The organizer can directly insert into speakers + event_speakers via RLS policies.
+ */
 export function useApproveSpeakerApplication() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (appId: string) => {
-      const { data, error } = await supabase.rpc("approve_speaker_application" as never, { _app_id: appId } as never);
-      if (error) throw error;
-      return data;
+      // 1. Fetch the application details
+      const { data: app, error: fetchErr } = await supabase
+        .from("speaker_applications" as never)
+        .select("*")
+        .eq("id", appId)
+        .single();
+      if (fetchErr || !app) throw fetchErr || new Error("Application not found");
+
+      const a = app as unknown as SpeakerApplication;
+
+      // 2. Get the current user (the organizer doing the approving)
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      // 3. Find or create the speakers row (owned by the organizer)
+      let speakerId: string;
+      const { data: existingSpeaker } = await supabase
+        .from("speakers" as never)
+        .select("id")
+        .eq("user_id", user.id)
+        .ilike("email", a.email)
+        .maybeSingle();
+
+      if (existingSpeaker) {
+        speakerId = (existingSpeaker as unknown as { id: string }).id;
+      } else {
+        const { data: newSpeaker, error: speakerErr } = await supabase
+          .from("speakers" as never)
+          .insert({
+            user_id: user.id,
+            name: a.full_name,
+            email: a.email,
+            bio: a.bio,
+            company: a.company,
+            designation: a.job_title,
+            linkedin_url: a.linkedin_url,
+            mobile_country_code: a.mobile_country_code,
+            mobile_number: a.mobile_number,
+          } as never)
+          .select("id")
+          .single();
+        if (speakerErr || !newSpeaker) throw speakerErr || new Error("Could not create speaker");
+        speakerId = (newSpeaker as unknown as { id: string }).id;
+      }
+
+      // 4. Link to event (idempotent — UNIQUE constraint will protect against duplicates)
+      const { error: linkErr } = await supabase
+        .from("event_speakers" as never)
+        .upsert({ event_id: a.event_id, speaker_id: speakerId } as never, {
+          onConflict: "event_id,speaker_id",
+        });
+      if (linkErr) throw linkErr;
+
+      // 5. Update application status
+      const { error: updateErr } = await supabase
+        .from("speaker_applications" as never)
+        .update({
+          status: "approved",
+          reviewed_by: user.id,
+          reviewed_at: new Date().toISOString(),
+        } as never)
+        .eq("id", appId);
+      if (updateErr) throw updateErr;
+
+      // 6. Best-effort notification (non-fatal if app_notifications table doesn't exist yet)
+      try {
+        const { data: ev } = await supabase.from("events").select("title").eq("id", a.event_id).maybeSingle();
+        await supabase.from("app_notifications" as never).insert({
+          user_id: a.user_id,
+          type: "speaker_approved",
+          title: "Speaker application approved",
+          body: `You have been approved as a speaker for ${ev?.title ?? "an event"}.`,
+          link: "/speaker",
+        } as never);
+      } catch { /* notification is best-effort */ }
+
+      return speakerId;
     },
-    onSuccess: (_, appId) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["event-speaker-applications"] });
       qc.invalidateQueries({ queryKey: ["my-speaker-application"] });
       qc.invalidateQueries({ queryKey: ["my-applications"] });
       qc.invalidateQueries({ queryKey: ["portal-access"] });
-      // Notify the user — touch app id to silence linter
-      void appId;
+      qc.invalidateQueries({ queryKey: ["speaker-events"] });
     },
   });
 }
@@ -191,8 +268,40 @@ export function useRejectSpeakerApplication() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ appId, reason }: { appId: string; reason?: string }) => {
-      const { error } = await supabase.rpc("reject_speaker_application" as never, { _app_id: appId, _reason: reason || null } as never);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { data: app } = await supabase
+        .from("speaker_applications" as never)
+        .select("user_id, event_id")
+        .eq("id", appId)
+        .single();
+      const a = app as unknown as { user_id: string; event_id: string } | null;
+
+      const { error } = await supabase
+        .from("speaker_applications" as never)
+        .update({
+          status: "rejected",
+          rejection_reason: reason ?? null,
+          reviewed_by: user.id,
+          reviewed_at: new Date().toISOString(),
+        } as never)
+        .eq("id", appId);
       if (error) throw error;
+
+      // Best-effort notification
+      if (a) {
+        try {
+          const { data: ev } = await supabase.from("events").select("title").eq("id", a.event_id).maybeSingle();
+          await supabase.from("app_notifications" as never).insert({
+            user_id: a.user_id,
+            type: "speaker_rejected",
+            title: "Speaker application not approved",
+            body: `Your speaker application for ${ev?.title ?? "the event"} was not approved.${reason ? " Reason: " + reason : ""}`,
+            link: "/u/me/applications",
+          } as never);
+        } catch { /* best-effort */ }
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["event-speaker-applications"] });
@@ -205,15 +314,93 @@ export function useApproveSponsorApplication() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (appId: string) => {
-      const { data, error } = await supabase.rpc("approve_sponsor_application" as never, { _app_id: appId } as never);
-      if (error) throw error;
-      return data;
+      // 1. Fetch the application
+      const { data: app, error: fetchErr } = await supabase
+        .from("sponsor_applications" as never)
+        .select("*")
+        .eq("id", appId)
+        .single();
+      if (fetchErr || !app) throw fetchErr || new Error("Application not found");
+
+      const a = app as unknown as SponsorApplication;
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      // 2. Create sponsor row owned by the organizer
+      const { data: newSponsor, error: sponsorErr } = await supabase
+        .from("sponsors" as never)
+        .insert({
+          user_id: user.id,
+          name: a.company_name,
+          email: a.contact_email,
+          logo_url: a.logo_url,
+          website: a.company_website,
+          tier: a.sponsorship_tier ?? "bronze",
+          description: a.company_description,
+        } as never)
+        .select("id")
+        .single();
+      if (sponsorErr || !newSponsor) throw sponsorErr || new Error("Could not create sponsor");
+      const sponsorId = (newSponsor as unknown as { id: string }).id;
+
+      // 3. Link to event
+      const { error: linkErr } = await supabase
+        .from("event_sponsors" as never)
+        .upsert({ event_id: a.event_id, sponsor_id: sponsorId } as never, {
+          onConflict: "event_id,sponsor_id",
+        });
+      if (linkErr) throw linkErr;
+
+      // 4. Auto-accept the applicant as a sponsor member (gives them portal access)
+      const { error: memberErr } = await supabase
+        .from("sponsor_members" as never)
+        .upsert({
+          sponsor_id: sponsorId,
+          user_id: a.user_id,
+          email: a.contact_email,
+          display_name: a.contact_name,
+          role: "admin",
+          accepted_at: new Date().toISOString(),
+          designation: a.contact_designation,
+          mobile_country_code: a.contact_mobile_country_code,
+          mobile_number: a.contact_mobile_number,
+        } as never, {
+          onConflict: "sponsor_id,email",
+        });
+      if (memberErr) console.warn("sponsor_members upsert:", memberErr.message);
+
+      // 5. Update application status
+      const { error: updateErr } = await supabase
+        .from("sponsor_applications" as never)
+        .update({
+          status: "approved",
+          reviewed_by: user.id,
+          reviewed_at: new Date().toISOString(),
+        } as never)
+        .eq("id", appId);
+      if (updateErr) throw updateErr;
+
+      // 6. Best-effort notification
+      try {
+        const { data: ev } = await supabase.from("events").select("title").eq("id", a.event_id).maybeSingle();
+        await supabase.from("app_notifications" as never).insert({
+          user_id: a.user_id,
+          type: "sponsor_approved",
+          title: "Sponsor application approved",
+          body: `Your company has been approved as a sponsor for ${ev?.title ?? "an event"}.`,
+          link: "/sponsor",
+        } as never);
+      } catch { /* best-effort */ }
+
+      return sponsorId;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["event-sponsor-applications"] });
       qc.invalidateQueries({ queryKey: ["my-sponsor-application"] });
       qc.invalidateQueries({ queryKey: ["my-applications"] });
       qc.invalidateQueries({ queryKey: ["portal-access"] });
+      qc.invalidateQueries({ queryKey: ["sponsor-events"] });
     },
   });
 }
@@ -222,8 +409,39 @@ export function useRejectSponsorApplication() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ appId, reason }: { appId: string; reason?: string }) => {
-      const { error } = await supabase.rpc("reject_sponsor_application" as never, { _app_id: appId, _reason: reason || null } as never);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { data: app } = await supabase
+        .from("sponsor_applications" as never)
+        .select("user_id, event_id")
+        .eq("id", appId)
+        .single();
+      const a = app as unknown as { user_id: string; event_id: string } | null;
+
+      const { error } = await supabase
+        .from("sponsor_applications" as never)
+        .update({
+          status: "rejected",
+          rejection_reason: reason ?? null,
+          reviewed_by: user.id,
+          reviewed_at: new Date().toISOString(),
+        } as never)
+        .eq("id", appId);
       if (error) throw error;
+
+      if (a) {
+        try {
+          const { data: ev } = await supabase.from("events").select("title").eq("id", a.event_id).maybeSingle();
+          await supabase.from("app_notifications" as never).insert({
+            user_id: a.user_id,
+            type: "sponsor_rejected",
+            title: "Sponsor application not approved",
+            body: `Your sponsor application for ${ev?.title ?? "the event"} was not approved.${reason ? " Reason: " + reason : ""}`,
+            link: "/u/me/applications",
+          } as never);
+        } catch { /* best-effort */ }
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["event-sponsor-applications"] });

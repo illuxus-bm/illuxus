@@ -60,19 +60,54 @@ export default function SpeakerManagement({ eventId }: Props) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const [{ data: allSpk }, { data: assigned }, { data: sess }] = await Promise.all([
-      supabase.from("speakers").select("*").order("name"),
-      supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
-      supabase.from("webinar_sessions").select("id").eq("event_id", eventId)
-        .order("created_at", { ascending: false }).limit(1).maybeSingle(),
-    ]);
+    // Step 1: get the IDs of speakers linked to this event
+    const { data: links, error: linksErr } = await supabase
+      .from("event_speakers")
+      .select("speaker_id, display_order")
+      .eq("event_id", eventId)
+      .order("display_order");
 
-    const orderedIds = (assigned || []).map((a: any) => a.speaker_id as string);
+    if (linksErr) console.error("[SpeakerManagement] event_speakers error:", linksErr);
+
+    const orderedIds = (links ?? []).map((a: { speaker_id: string }) => a.speaker_id);
     const ids = new Set(orderedIds);
-    const byId = new Map((allSpk || []).map((s: Speaker) => [s.id, s] as const));
-    const ordered = orderedIds.map((id) => byId.get(id)).filter(Boolean) as Speaker[];
-    setAllSpeakers(allSpk || []);
-    setSpeakers(ordered);
+
+    // Step 2: fetch the linked speakers by ID. This relies on the RLS policy
+    // "Event owner view linked speakers" letting organizers read speakers attached
+    // to their events even when speakers.user_id was set incorrectly by old code.
+    let linkedSpeakers: Speaker[] = [];
+    if (orderedIds.length > 0) {
+      const { data: rows, error: spkErr } = await supabase
+        .from("speakers")
+        .select("*")
+        .in("id", orderedIds);
+      if (spkErr) console.error("[SpeakerManagement] linked speakers error:", spkErr);
+      const byId = new Map((rows ?? []).map((s: Speaker) => [s.id, s] as const));
+      linkedSpeakers = orderedIds.map((id) => byId.get(id)).filter(Boolean) as Speaker[];
+      // Diagnostic: log if any IDs are missing (RLS blocked)
+      const missing = orderedIds.filter((id) => !byId.has(id));
+      if (missing.length) {
+        console.warn(
+          "[SpeakerManagement] event_speakers rows exist but speakers rows blocked by RLS:",
+          missing,
+          "→ Run the 'Event owner view linked speakers' policy from migration 001_tables.sql"
+        );
+      }
+    }
+
+    // Step 3: fetch ALL speakers visible to the organizer (for the picker)
+    const { data: allSpk } = await supabase.from("speakers").select("*").order("name");
+
+    const byIdAll = new Map<string, Speaker>();
+    for (const s of (allSpk ?? []) as Speaker[]) byIdAll.set(s.id, s);
+    for (const s of linkedSpeakers) byIdAll.set(s.id, s);
+
+    // Step 4: webinar session lookup (unchanged)
+    const { data: sess } = await supabase.from("webinar_sessions").select("id").eq("event_id", eventId)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+    setAllSpeakers(Array.from(byIdAll.values()).sort((a, b) => a.name.localeCompare(b.name)));
+    setSpeakers(linkedSpeakers);
     setAssignedIds(ids);
     setSessionId(sess?.id ?? null);
     if (sess?.id) {

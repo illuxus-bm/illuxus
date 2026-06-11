@@ -201,7 +201,8 @@ CREATE TABLE public.speakers (
 ALTER TABLE public.speakers ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Creators manage speakers" ON public.speakers FOR ALL TO authenticated USING(auth.uid()=user_id) WITH CHECK(auth.uid()=user_id);
 CREATE POLICY "Admins manage speakers" ON public.speakers FOR ALL TO authenticated USING(has_role(auth.uid(),'admin')) WITH CHECK(has_role(auth.uid(),'admin'));
-GRANT SELECT ON public.speakers TO anon;
+GRANT SELECT ON public.speakers TO anon, authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.speakers TO authenticated;
 CREATE TRIGGER update_speakers_updated_at BEFORE UPDATE ON public.speakers FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- ── sponsors ──────────────────────────────────────────────────────────────────
@@ -214,7 +215,8 @@ CREATE TABLE public.sponsors (
 ALTER TABLE public.sponsors ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Creators manage sponsors" ON public.sponsors FOR ALL TO authenticated USING(auth.uid()=user_id) WITH CHECK(auth.uid()=user_id);
 CREATE POLICY "Admins manage sponsors" ON public.sponsors FOR ALL TO authenticated USING(has_role(auth.uid(),'admin')) WITH CHECK(has_role(auth.uid(),'admin'));
-GRANT SELECT ON public.sponsors TO anon;
+GRANT SELECT ON public.sponsors TO anon, authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.sponsors TO authenticated;
 CREATE TRIGGER update_sponsors_updated_at BEFORE UPDATE ON public.sponsors FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- ── event_speakers ────────────────────────────────────────────────────────────
@@ -228,10 +230,12 @@ CREATE TABLE public.event_speakers (
 ALTER TABLE public.event_speakers ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Auth view event_speakers" ON public.event_speakers FOR SELECT TO authenticated USING(true);
 CREATE POLICY "Owner manage event_speakers" ON public.event_speakers FOR ALL TO authenticated USING(EXISTS(SELECT 1 FROM public.events WHERE id=event_id AND(user_id=auth.uid() OR has_role(auth.uid(),'admin')))) WITH CHECK(EXISTS(SELECT 1 FROM public.events WHERE id=event_id AND(user_id=auth.uid() OR has_role(auth.uid(),'admin'))));
-GRANT SELECT ON public.event_speakers TO anon;
+GRANT SELECT ON public.event_speakers TO anon, authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.event_speakers TO authenticated;
 
 -- Anon cross-join policies (now safe — event_speakers exists)
 CREATE POLICY "Anon view speakers for published" ON public.speakers FOR SELECT TO anon USING(EXISTS(SELECT 1 FROM public.event_speakers es JOIN public.events e ON e.id=es.event_id WHERE es.speaker_id=speakers.id AND e.status='published'));
+CREATE POLICY "Event owner view linked speakers" ON public.speakers FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM public.event_speakers es JOIN public.events e ON e.id=es.event_id WHERE es.speaker_id=speakers.id AND e.user_id=auth.uid()));
 REVOKE SELECT(email) ON public.speakers FROM anon;
 
 -- ── event_sponsors ────────────────────────────────────────────────────────────
@@ -245,9 +249,11 @@ CREATE TABLE public.event_sponsors (
 ALTER TABLE public.event_sponsors ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Auth view event_sponsors" ON public.event_sponsors FOR SELECT TO authenticated USING(true);
 CREATE POLICY "Owner manage event_sponsors" ON public.event_sponsors FOR ALL TO authenticated USING(EXISTS(SELECT 1 FROM public.events WHERE id=event_id AND(user_id=auth.uid() OR has_role(auth.uid(),'admin')))) WITH CHECK(EXISTS(SELECT 1 FROM public.events WHERE id=event_id AND(user_id=auth.uid() OR has_role(auth.uid(),'admin'))));
-GRANT SELECT ON public.event_sponsors TO anon;
+GRANT SELECT ON public.event_sponsors TO anon, authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.event_sponsors TO authenticated;
 
 CREATE POLICY "Anon view sponsors for published" ON public.sponsors FOR SELECT TO anon USING(EXISTS(SELECT 1 FROM public.event_sponsors es JOIN public.events e ON e.id=es.event_id WHERE es.sponsor_id=sponsors.id AND e.status='published'));
+CREATE POLICY "Event owner view linked sponsors" ON public.sponsors FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM public.event_sponsors es JOIN public.events e ON e.id=es.event_id WHERE es.sponsor_id=sponsors.id AND e.user_id=auth.uid()));
 REVOKE SELECT(email) ON public.sponsors FROM anon;
 
 -- ── sessions ──────────────────────────────────────────────────────────────────

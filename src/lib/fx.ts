@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { formatMoney, SUPPORTED_CURRENCIES } from "@/lib/currency";
 
 export type FxRates = { base: string; rates: Record<string, number>; fetched_at: string };
@@ -32,23 +31,12 @@ async function loadRates(): Promise<FxRates | null> {
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...value, _saved: Date.now() })); } catch {}
         return value;
       }
-    } else {
-      console.warn("[fx-rates] direct fetch failed:", res.status);
     }
-  } catch (e) {
-    console.warn("[fx-rates] direct fetch threw:", e);
-  }
-  try {
-    const { data, error } = await supabase.functions.invoke("fx-rates");
-    if (error || !data?.rates) {
-      console.warn("[fx-rates] invoke failed:", error);
-      return null;
-    }
-    const value = data as FxRates;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...value, _saved: Date.now() })); } catch {}
-    return value;
-  } catch (e) {
-    console.warn("[fx-rates] invoke threw:", e);
+    // Non-2xx (404/CORS/etc): edge function not deployed. Silently fail —
+    // amounts will display in their original currency, which is acceptable.
+    return null;
+  } catch {
+    // Network/CORS error: edge function unavailable. Silently fail.
     return null;
   }
 }

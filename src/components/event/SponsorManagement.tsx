@@ -92,18 +92,49 @@ export default function SponsorManagement({ eventId }: Props) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const [{ data: allSpk }, { data: assigned }, { data: ev }] = await Promise.all([
-      supabase.from("sponsors").select("*").order("name"),
-      supabase.from("event_sponsors").select("sponsor_id, display_order").eq("event_id", eventId).order("display_order"),
-      supabase.from("events").select("org_id").eq("id", eventId).maybeSingle(),
-    ]);
+    // Step 1: links for this event
+    const { data: links, error: linksErr } = await supabase
+      .from("event_sponsors")
+      .select("sponsor_id, display_order")
+      .eq("event_id", eventId)
+      .order("display_order");
+    if (linksErr) console.error("[SponsorManagement] event_sponsors error:", linksErr);
 
-    const orderedIds = (assigned || []).map((a: any) => a.sponsor_id as string);
+    const orderedIds = (links ?? []).map((a: { sponsor_id: string }) => a.sponsor_id);
     const ids = new Set(orderedIds);
-    const byId = new Map((allSpk || []).map((s: Sponsor) => [s.id, s] as const));
-    const ordered = orderedIds.map((id) => byId.get(id)).filter(Boolean) as Sponsor[];
-    setAllSponsors(allSpk || []);
-    setSponsors(ordered);
+
+    // Step 2: linked sponsors by ID (relies on permissive RLS policy)
+    let linkedSponsors: Sponsor[] = [];
+    if (orderedIds.length > 0) {
+      const { data: rows, error: spkErr } = await supabase
+        .from("sponsors")
+        .select("*")
+        .in("id", orderedIds);
+      if (spkErr) console.error("[SponsorManagement] linked sponsors error:", spkErr);
+      const byId = new Map((rows ?? []).map((s: Sponsor) => [s.id, s] as const));
+      linkedSponsors = orderedIds.map((id) => byId.get(id)).filter(Boolean) as Sponsor[];
+      const missing = orderedIds.filter((id) => !byId.has(id));
+      if (missing.length) {
+        console.warn(
+          "[SponsorManagement] event_sponsors rows exist but sponsors blocked by RLS:",
+          missing,
+          "→ Run the 'Event owner view linked sponsors' policy from migration 001_tables.sql"
+        );
+      }
+    }
+
+    // Step 3: all sponsors visible to the organizer (for picker)
+    const { data: allSpk } = await supabase.from("sponsors").select("*").order("name");
+
+    // Step 4: org tier presets
+    const { data: ev } = await supabase.from("events").select("org_id").eq("id", eventId).maybeSingle();
+
+    const byIdAll = new Map<string, Sponsor>();
+    for (const s of (allSpk ?? []) as Sponsor[]) byIdAll.set(s.id, s);
+    for (const s of linkedSponsors) byIdAll.set(s.id, s);
+
+    setAllSponsors(Array.from(byIdAll.values()).sort((a, b) => a.name.localeCompare(b.name)));
+    setSponsors(linkedSponsors);
     setAssignedIds(ids);
     const _orgId = (ev as any)?.org_id ?? null;
     setOrgId(_orgId);
