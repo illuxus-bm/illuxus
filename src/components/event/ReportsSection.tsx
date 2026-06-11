@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Download, TrendingUp, Users, DollarSign, Ticket, Target, Mic2, CheckCircle2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import {
 } from "recharts";
 import type { Tables } from "@/integrations/supabase/types";
 import { formatMoney } from "@/lib/currency";
+import ExportReportDialog, { type ExportField } from "./reports/ExportReportDialog";
 
 type Registration = Tables<"registrations">;
 type Speaker = Tables<"speakers">;
@@ -26,6 +27,18 @@ interface SpeakerRow {
   company: string | null;
   checked_in: boolean;
   checked_in_at: string | null;
+  // Full form fields for CSV export
+  title: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  designation: string | null;
+  mobile_country_code: string | null;
+  mobile_number: string | null;
+  linkedin_url: string | null;
+  company_website: string | null;
+  company_employee_count: string | null;
+  industry: string | null;
+  bio: string | null;
 }
 
 export default function ReportsSection({ eventId }: { eventId: string }) {
@@ -34,6 +47,7 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
   const [currency, setCurrency] = useState<string>("INR");
   const [targetPct, setTargetPct] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exportOpen, setExportOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +65,7 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
           .maybeSingle(),
         supabase
           .from("event_speakers")
-          .select("speaker_id, speakers:speakers(id, name, email, company)")
+          .select("speaker_id, speakers:speakers(id, name, email, company, title, first_name, last_name, designation, mobile_country_code, mobile_number, linkedin_url, company_website, company_employee_count, industry, bio)")
           .eq("event_id", eventId),
       ]);
       if (cancelled) return;
@@ -64,7 +78,15 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
       setTargetPct(ev?.attendance_target_pct ?? null);
 
       // Build speaker attendance by matching email against speaker-typed registrations
-      type ESRow = { speaker_id: string; speakers: Pick<Speaker, "id" | "name" | "email" | "company"> | null };
+      type ESRow = {
+        speaker_id: string;
+        speakers: Pick<
+          Speaker,
+          "id" | "name" | "email" | "company" | "title" | "first_name" | "last_name"
+          | "designation" | "mobile_country_code" | "mobile_number" | "linkedin_url"
+          | "company_website" | "company_employee_count" | "industry" | "bio"
+        > | null;
+      };
       const esRows = (esRes.data as ESRow[] | null) ?? [];
       const speakerRegs = regs.filter((r) => r.ticket_type === "speaker");
       const byEmail = new Map<string, Registration>();
@@ -83,6 +105,17 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
             company: sp.company,
             checked_in: !!reg?.checked_in,
             checked_in_at: reg?.checked_in_at ?? null,
+            title: sp.title ?? null,
+            first_name: sp.first_name ?? null,
+            last_name: sp.last_name ?? null,
+            designation: sp.designation ?? null,
+            mobile_country_code: sp.mobile_country_code ?? null,
+            mobile_number: sp.mobile_number ?? null,
+            linkedin_url: sp.linkedin_url ?? null,
+            company_website: sp.company_website ?? null,
+            company_employee_count: sp.company_employee_count ?? null,
+            industry: sp.industry ?? null,
+            bio: sp.bio ?? null,
           };
         });
       setSpeakers(rows);
@@ -140,44 +173,65 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
   }, {} as Record<string, number>);
   const revenueBarData = Object.entries(revenueByType).map(([name, revenue]) => ({ name, revenue }));
 
-  const exportReport = () => {
-    const lines = [
-      "Event Report",
-      `Total Registrations: ${registrations.length}`,
-      `Confirmed: ${confirmedCount}`,
-      `Total Revenue: ${formatMoney(totalRevenue, currency)}`,
-      `Avg Ticket Price: ${formatMoney(avgTicketPrice, currency)}`,
-      "",
-      "Ticket Type Breakdown:",
-      ...Object.entries(ticketBreakdown).map(([t, c]) => `  ${t}: ${c}`),
-      "",
-      "Status Breakdown:",
-      ...Object.entries(statusBreakdown).map(([s, c]) => `  ${s}: ${c}`),
-      "",
-      "Revenue by Ticket Type:",
-      ...Object.entries(revenueByType).map(([t, r]) => `  ${t}: ${formatMoney(r, currency)}`),
-      "",
-      "Attendance:",
-      `  Speakers: ${speakersAttended} / ${speakersTotal} attended`,
-      `  Delegates: ${delegatesAttended} / ${delegatesTotal} attended`,
-      `  Overall: ${totalAttended} / ${totalRegisteredForTarget} (${actualPct}%)`,
-      ...(targetPct != null
-        ? [`  Target: ${targetPct}% — ${meetsTarget ? "MET" : "NOT MET"}`]
-        : []),
-      "",
-      "Speakers:",
-      ...speakers.map((s) => `  [${s.checked_in ? "X" : " "}] ${s.name}${s.company ? ` (${s.company})` : ""}${s.email ? ` <${s.email}>` : ""}`),
-      "",
-      "Delegates:",
-      ...delegates.map((r) => `  [${r.checked_in ? "X" : " "}] ${r.name}${r.company ? ` (${r.company})` : ""} <${r.email}>`),
-    ];
-    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `event-report-${eventId}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // ── Field definitions used by the export-report picker ─────────────────────
+  const fmtDateTime = (v: string | null | undefined) => (v ? new Date(v).toLocaleString() : "");
+  const fmtDate = (v: string | null | undefined) => (v ? new Date(v).toLocaleDateString() : "");
+  const yn = (v: boolean | null | undefined) => (v ? "Yes" : "No");
+  const fullPhone = (cc: string | null | undefined, num: string | null | undefined) => {
+    if (!num) return "";
+    return cc ? `${cc} ${num}` : num;
+  };
+
+  const REGISTRATION_FIELDS = useMemo<(ExportField & { get: (r: Registration) => string | number })[]>(() => [
+    // Identity
+    { key: "title",       label: "Title",        group: "Identity", defaultOn: false, get: (r) => r.title ?? "" },
+    { key: "first_name",  label: "First name",   group: "Identity", defaultOn: true,  get: (r) => r.first_name ?? "" },
+    { key: "last_name",   label: "Last name",    group: "Identity", defaultOn: true,  get: (r) => r.last_name ?? "" },
+    { key: "name",        label: "Full name",    group: "Identity", defaultOn: true,  get: (r) => r.name ?? "" },
+    // Contact
+    { key: "email",       label: "Email",        group: "Contact",  defaultOn: true,  get: (r) => r.email ?? "" },
+    { key: "mobile",      label: "Mobile",       group: "Contact",  defaultOn: true,  get: (r) => fullPhone(r.mobile_country_code, r.mobile_number) },
+    { key: "linkedin_url",label: "LinkedIn URL", group: "Contact",  defaultOn: false, get: (r) => r.linkedin_url ?? "" },
+    // Company
+    { key: "designation",          label: "Designation",     group: "Company", defaultOn: true,  get: (r) => r.designation ?? "" },
+    { key: "company",              label: "Company",         group: "Company", defaultOn: true,  get: (r) => r.company ?? "" },
+    { key: "company_website",      label: "Company website", group: "Company", defaultOn: false, get: (r) => r.company_website ?? "" },
+    { key: "company_employee_count",label: "Employee count",  group: "Company", defaultOn: false, get: (r) => r.company_employee_count ?? "" },
+    { key: "industry",             label: "Industry",        group: "Company", defaultOn: false, get: (r) => r.industry ?? "" },
+    // Ticket & Payment
+    { key: "ticket_type",  label: "Ticket type",   group: "Ticket & Payment", defaultOn: true,  get: (r) => r.ticket_type ?? "" },
+    { key: "amount_paid",  label: "Amount paid",   group: "Ticket & Payment", defaultOn: true,  get: (r) => Number(r.amount_paid || 0) },
+    // Status
+    { key: "status",          label: "Reg. status",    group: "Status", defaultOn: true,  get: (r) => r.status ?? "" },
+    { key: "approval_status", label: "Approval",       group: "Status", defaultOn: false, get: (r) => r.approval_status ?? "" },
+    { key: "approved_at",     label: "Approved at",    group: "Status", defaultOn: false, get: (r) => fmtDateTime(r.approved_at) },
+    { key: "decline_reason",  label: "Decline reason", group: "Status", defaultOn: false, get: (r) => r.decline_reason ?? "" },
+    // Attendance
+    { key: "attendance_state", label: "Attendance state", group: "Attendance", defaultOn: true,  get: (r) => r.attendance_state ?? "" },
+    { key: "checked_in",       label: "Checked in",       group: "Attendance", defaultOn: true,  get: (r) => yn(r.checked_in) },
+    { key: "checked_in_at",    label: "Checked in at",    group: "Attendance", defaultOn: true,  get: (r) => fmtDateTime(r.checked_in_at) },
+    { key: "checked_in_method",label: "Check-in method",  group: "Attendance", defaultOn: false, get: (r) => r.checked_in_method ?? "" },
+    { key: "last_in_at",       label: "Last in at",       group: "Attendance", defaultOn: false, get: (r) => fmtDateTime(r.last_in_at) },
+    { key: "last_out_at",      label: "Last out at",      group: "Attendance", defaultOn: false, get: (r) => fmtDateTime(r.last_out_at) },
+    { key: "total_minutes",    label: "Total minutes",    group: "Attendance", defaultOn: false, get: (r) => Number(r.total_minutes || 0) },
+    // System
+    { key: "id",          label: "Registration ID", group: "System", defaultOn: false, get: (r) => r.id },
+    { key: "user_id",     label: "User ID",         group: "System", defaultOn: false, get: (r) => r.user_id ?? "" },
+    { key: "qr_code",     label: "QR code",         group: "System", defaultOn: false, get: (r) => r.qr_code ?? "" },
+    { key: "created_at",  label: "Registered at",   group: "System", defaultOn: true,  get: (r) => fmtDateTime(r.created_at) },
+    { key: "updated_at",  label: "Updated at",      group: "System", defaultOn: false, get: (r) => fmtDateTime(r.updated_at) },
+  ], []);
+
+  const exportReport = () => setExportOpen(true);
+
+  const handleExportConfirm = (selectedKeys: string[]) => {
+    const cols = REGISTRATION_FIELDS.filter((f) => selectedKeys.includes(f.key));
+    if (cols.length === 0) return;
+    downloadCsv(
+      `event-report-${eventId}.csv`,
+      cols.map((c) => c.label),
+      registrations.map((r) => cols.map((c) => c.get(r))),
+    );
   };
 
   const downloadCsv = (filename: string, header: string[], rows: (string | number)[][]) => {
@@ -198,15 +252,72 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
   const exportSpeakersCsv = () =>
     downloadCsv(
       `speakers-${eventId}.csv`,
-      ["Name", "Email", "Company", "Attended", "Checked in at"],
-      speakers.map((s) => [s.name, s.email ?? "", s.company ?? "", s.checked_in ? "Yes" : "No", s.checked_in_at ?? ""]),
+      [
+        "Title", "First name", "Last name", "Full name",
+        "Email", "Mobile", "LinkedIn URL",
+        "Designation", "Company", "Company website", "Employee count", "Industry",
+        "Bio",
+        "Attended", "Checked in at",
+      ],
+      speakers.map((s) => [
+        s.title ?? "",
+        s.first_name ?? "",
+        s.last_name ?? "",
+        s.name ?? "",
+        s.email ?? "",
+        fullPhone(s.mobile_country_code, s.mobile_number),
+        s.linkedin_url ?? "",
+        s.designation ?? "",
+        s.company ?? "",
+        s.company_website ?? "",
+        s.company_employee_count ?? "",
+        s.industry ?? "",
+        s.bio ?? "",
+        s.checked_in ? "Yes" : "No",
+        s.checked_in_at ? new Date(s.checked_in_at).toLocaleString() : "",
+      ]),
     );
 
   const exportDelegatesCsv = () =>
     downloadCsv(
       `delegates-${eventId}.csv`,
-      ["Name", "Email", "Company", "Ticket type", "Attended", "Checked in at"],
-      delegates.map((r) => [r.name, r.email, r.company ?? "", r.ticket_type, r.checked_in ? "Yes" : "No", r.checked_in_at ?? ""]),
+      [
+        "Title", "First name", "Last name", "Full name",
+        "Email", "Mobile", "LinkedIn URL",
+        "Designation", "Company", "Company website", "Employee count", "Industry",
+        "Ticket type", "Amount paid", "Reg. status", "Approval", "Approved at", "Decline reason",
+        "Attendance state", "Checked in", "Checked in at", "Check-in method",
+        "Last in at", "Last out at", "Total minutes",
+        "Registered at",
+      ],
+      delegates.map((r) => [
+        r.title ?? "",
+        r.first_name ?? "",
+        r.last_name ?? "",
+        r.name ?? "",
+        r.email ?? "",
+        fullPhone(r.mobile_country_code, r.mobile_number),
+        r.linkedin_url ?? "",
+        r.designation ?? "",
+        r.company ?? "",
+        r.company_website ?? "",
+        r.company_employee_count ?? "",
+        r.industry ?? "",
+        r.ticket_type ?? "",
+        Number(r.amount_paid || 0),
+        r.status ?? "",
+        r.approval_status ?? "",
+        r.approved_at ? new Date(r.approved_at).toLocaleString() : "",
+        r.decline_reason ?? "",
+        r.attendance_state ?? "",
+        r.checked_in ? "Yes" : "No",
+        r.checked_in_at ? new Date(r.checked_in_at).toLocaleString() : "",
+        r.checked_in_method ?? "",
+        r.last_in_at ? new Date(r.last_in_at).toLocaleString() : "",
+        r.last_out_at ? new Date(r.last_out_at).toLocaleString() : "",
+        Number(r.total_minutes || 0),
+        r.created_at ? new Date(r.created_at).toLocaleString() : "",
+      ]),
     );
 
   if (loading) return <div className="text-center py-12 text-sm text-muted-foreground">Loading report data...</div>;
@@ -397,6 +508,15 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
           )}
         </div>
       </div>
+
+      <ExportReportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        fields={REGISTRATION_FIELDS}
+        rowCount={registrations.length}
+        storageKey={`illuxus.report-export.${eventId}`}
+        onConfirm={handleExportConfirm}
+      />
     </div>
   );
 }

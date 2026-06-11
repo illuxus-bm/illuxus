@@ -20,6 +20,7 @@ import PrintBadgesDialog from "./registrations/PrintBadgesDialog";
 import BulkCheckInDialog from "./registrations/BulkCheckInDialog";
 import RegistrantQuickView, { type QuickViewRow } from "./registrations/RegistrantQuickView";
 import AttendanceHistoryDialog from "./attendance/AttendanceHistoryDialog";
+import EventAttendanceHistoryDialog from "./attendance/EventAttendanceHistoryDialog";
 import AttendanceDiagnosticsDialog from "./attendance/AttendanceDiagnosticsDialog";
 import type { BadgeData, PrintMode } from "@/lib/print-badges";
 import { formatMoney } from "@/lib/currency";
@@ -95,6 +96,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [attTab, setAttTab] = useState<"all" | "inside" | "outside" | "never">("all");
   const [diagOpen, setDiagOpen] = useState(false);
   const [historyFor, setHistoryFor] = useState<{ id: string; name: string } | null>(null);
+  const [eventHistoryOpen, setEventHistoryOpen] = useState(false);
   const [sortKey, setSortKey] = useState<"name" | "state" | "last_in" | "last_out" | "minutes" | "ticket">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
@@ -501,6 +503,17 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     setPrintState({ open: true, badges: toBadges([r]), mode });
   };
 
+  // "Overall" print: prints what the user is currently looking at. If any rows
+  // are selected we honor the selection, otherwise fall back to the current
+  // filtered view (search + role + reg status + attendance tab applied).
+  const openPrintAll = (mode: PrintMode) => {
+    const rows = selected.size > 0
+      ? filtered.filter((r) => selected.has(r.id))
+      : filtered;
+    if (rows.length === 0) return toast.info("No attendees in the current view");
+    setPrintState({ open: true, badges: toBadges(rows), mode });
+  };
+
   const copySelfCheckInLink = () => {
     const url = publicUrl(`/checkin/${eventId}`);
     navigator.clipboard.writeText(url);
@@ -598,31 +611,67 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         </Select>
       </div>
 
-      {/* Attendance segment tabs */}
-      <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b border-border -mx-1 px-1">
-        {([
-          { key: "all",     label: "All",         count: stats.total },
-          { key: "inside",  label: "Inside now",  count: stats.insideNow },
-          { key: "outside", label: "Checked out", count: stats.outside },
-          { key: "never",   label: "Not arrived", count: stats.notArrived },
-        ] as const).map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setAttTab(t.key)}
-            className={`relative shrink-0 px-2.5 sm:px-3 py-1.5 text-[12px] font-medium transition-colors -mb-px border-b-2 ${
-              attTab === t.key
-                ? "text-foreground border-foreground"
-                : "text-muted-foreground border-transparent hover:text-foreground"
-            }`}
+      {/* Attendance segment tabs + global icon actions */}
+      <div className="flex items-center justify-between gap-2 border-b border-border -mx-1 px-1">
+        <div className="flex flex-wrap items-center gap-x-1 gap-y-1 min-w-0">
+          {([
+            { key: "all",     label: "All",         count: stats.total },
+            { key: "inside",  label: "Inside now",  count: stats.insideNow },
+            { key: "outside", label: "Checked out", count: stats.outside },
+            { key: "never",   label: "Not arrived", count: stats.notArrived },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setAttTab(t.key)}
+              className={`relative shrink-0 px-2.5 sm:px-3 py-1.5 text-[12px] font-medium transition-colors -mb-px border-b-2 ${
+                attTab === t.key
+                  ? "text-foreground border-foreground"
+                  : "text-muted-foreground border-transparent hover:text-foreground"
+              }`}
+            >
+              {t.label}
+              <span className={`ml-1.5 inline-flex items-center justify-center min-w-[18px] px-1.5 rounded-full text-[10px] tabular-nums ${
+                attTab === t.key ? "bg-foreground text-background" : "bg-muted text-muted-foreground"
+              }`}>
+                {t.count}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Overall actions (apply to selection if any, else current view) */}
+        <div className="flex items-center gap-0.5 shrink-0 pb-1">
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            title="Attendance history"
+            aria-label="Attendance history"
+            onClick={() => setEventHistoryOpen(true)}
           >
-            {t.label}
-            <span className={`ml-1.5 inline-flex items-center justify-center min-w-[18px] px-1.5 rounded-full text-[10px] tabular-nums ${
-              attTab === t.key ? "bg-foreground text-background" : "bg-muted text-muted-foreground"
-            }`}>
-              {t.count}
-            </span>
-          </button>
-        ))}
+            <History className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            title={selected.size > 0 ? `Print badges for ${selected.size} selected` : "Print badges for current view"}
+            aria-label="Print badges"
+            onClick={() => openPrintAll("badge")}
+          >
+            <Printer className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            title={selected.size > 0 ? `Print name tags for ${selected.size} selected` : "Print name tags for current view"}
+            aria-label="Print name tags"
+            onClick={() => openPrintAll("name")}
+          >
+            <Tag className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
 
       {/* Bulk action bar */}
@@ -804,6 +853,12 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         onOpenChange={(o) => { if (!o) setHistoryFor(null); }}
         registrationId={historyFor?.id ?? null}
         name={historyFor?.name ?? ""}
+      />
+      <EventAttendanceHistoryDialog
+        open={eventHistoryOpen}
+        onOpenChange={setEventHistoryOpen}
+        eventId={eventId}
+        eventTitle={eventInfo?.title}
       />
     </div>
   );
