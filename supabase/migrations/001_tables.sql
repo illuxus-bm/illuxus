@@ -366,8 +366,10 @@ CREATE TABLE public.site_content (
   created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE public.site_content ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Anyone view site_content" ON public.site_content FOR SELECT USING(true);
+CREATE POLICY "Anyone view site_content" ON public.site_content FOR SELECT TO anon, authenticated USING(true);
 CREATE POLICY "Admin manage site_content" ON public.site_content FOR ALL TO authenticated USING(has_role(auth.uid(),'admin')) WITH CHECK(has_role(auth.uid(),'admin'));
+GRANT SELECT ON public.site_content TO anon, authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.site_content TO authenticated;
 CREATE TRIGGER update_site_content_updated_at BEFORE UPDATE ON public.site_content FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- ── audit_logs ────────────────────────────────────────────────────────────────
