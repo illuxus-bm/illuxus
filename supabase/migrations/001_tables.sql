@@ -53,6 +53,7 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Auth can view profiles" ON public.profiles FOR SELECT TO authenticated USING(true);
 CREATE POLICY "Users update own profile" ON public.profiles FOR UPDATE USING(auth.uid()=user_id);
 CREATE POLICY "Users insert own profile" ON public.profiles FOR INSERT WITH CHECK(auth.uid()=user_id);
+GRANT SELECT, INSERT, UPDATE ON public.profiles TO authenticated;
 CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- ── organizations ─────────────────────────────────────────────────────────────
@@ -99,6 +100,10 @@ $$;
 CREATE POLICY "Members view org" ON public.organizations FOR SELECT TO authenticated USING(is_org_member(auth.uid(),id) OR owner_id=auth.uid());
 CREATE POLICY "Members view org members" ON public.org_members FOR SELECT TO authenticated USING(is_org_member(auth.uid(),org_id));
 CREATE POLICY "Owner manage members" ON public.org_members FOR ALL TO authenticated USING(is_org_owner(auth.uid(),org_id)) WITH CHECK(is_org_owner(auth.uid(),org_id));
+GRANT SELECT ON public.organizations TO anon, authenticated;
+GRANT INSERT, UPDATE ON public.organizations TO authenticated;
+GRANT SELECT ON public.org_members TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.org_members TO authenticated;
 
 -- ── subscriptions ─────────────────────────────────────────────────────────────
 CREATE TABLE public.subscriptions (
@@ -112,6 +117,7 @@ CREATE TABLE public.subscriptions (
 ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Members view sub" ON public.subscriptions FOR SELECT TO authenticated USING(is_org_member(auth.uid(),org_id));
 CREATE POLICY "Owner manage sub" ON public.subscriptions FOR ALL TO authenticated USING(is_org_owner(auth.uid(),org_id)) WITH CHECK(is_org_owner(auth.uid(),org_id));
+GRANT SELECT, INSERT, UPDATE ON public.subscriptions TO authenticated;
 
 -- ── org_invitations ───────────────────────────────────────────────────────────
 CREATE TABLE public.org_invitations (
@@ -175,10 +181,12 @@ CREATE TABLE public.events (
 CREATE UNIQUE INDEX events_slug_org_unique ON public.events(org_id, slug);
 CREATE INDEX events_slug_idx ON public.events(slug);
 ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "View published events" ON public.events FOR SELECT USING(status='published' OR auth.uid()=user_id OR public.has_role(auth.uid(),'admin'));
-CREATE POLICY "Insert events" ON public.events FOR INSERT WITH CHECK(auth.uid()=user_id);
-CREATE POLICY "Update events" ON public.events FOR UPDATE USING(auth.uid()=user_id OR public.has_role(auth.uid(),'admin'));
-CREATE POLICY "Delete events" ON public.events FOR DELETE USING(auth.uid()=user_id OR public.has_role(auth.uid(),'admin'));
+CREATE POLICY "View published events" ON public.events FOR SELECT TO anon,authenticated USING(status='published' OR auth.uid()=user_id OR public.has_role(auth.uid(),'admin'));
+CREATE POLICY "Insert events" ON public.events FOR INSERT TO authenticated WITH CHECK(auth.uid()=user_id);
+CREATE POLICY "Update events" ON public.events FOR UPDATE TO authenticated USING(auth.uid()=user_id OR public.has_role(auth.uid(),'admin'));
+CREATE POLICY "Delete events" ON public.events FOR DELETE TO authenticated USING(auth.uid()=user_id OR public.has_role(auth.uid(),'admin'));
+GRANT SELECT ON public.events TO anon, authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.events TO authenticated;
 CREATE TRIGGER update_events_updated_at BEFORE UPDATE ON public.events FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- ── speakers ──────────────────────────────────────────────────────────────────
@@ -295,7 +303,8 @@ CREATE POLICY "Owner update regs" ON public.registrations FOR UPDATE TO authenti
 CREATE POLICY "Owner delete regs" ON public.registrations FOR DELETE TO authenticated USING(EXISTS(SELECT 1 FROM events WHERE id=event_id AND(user_id=auth.uid() OR has_role(auth.uid(),'admin'))));
 CREATE POLICY "Attendee view own" ON public.registrations FOR SELECT TO authenticated USING(user_id=auth.uid());
 CREATE POLICY "Attendee cancel own" ON public.registrations FOR DELETE TO authenticated USING(user_id=auth.uid());
-ALTER TABLE public.registrations REPLICA IDENTITY FULL;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.registrations TO authenticated;
+ALTER TABLE public.registrations REPLICA IDENTITY DEFAULT;
 CREATE TRIGGER update_registrations_updated_at BEFORE UPDATE ON public.registrations FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- ── sponsor_members ───────────────────────────────────────────────────────────
@@ -434,6 +443,7 @@ CREATE TABLE public.webinar_sessions (
   created_by uuid NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE public.webinar_sessions ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.webinar_sessions TO authenticated;
 CREATE POLICY "Owner manage ws" ON public.webinar_sessions FOR ALL TO authenticated USING(is_event_owner(auth.uid(),event_id)) WITH CHECK(is_event_owner(auth.uid(),event_id));
 CREATE POLICY "Attendee read ws" ON public.webinar_sessions FOR SELECT TO authenticated USING(is_event_approved_attendee(auth.uid(),event_id));
 CREATE TRIGGER trg_ws_updated BEFORE UPDATE ON public.webinar_sessions FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
@@ -447,16 +457,19 @@ CREATE TABLE public.webinar_speakers (
   accepted_at timestamptz, created_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE public.webinar_speakers ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.webinar_speakers TO authenticated;
 CREATE POLICY "Owner manage wsp" ON public.webinar_speakers FOR ALL TO authenticated USING(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND is_event_owner(auth.uid(),s.event_id))) WITH CHECK(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND is_event_owner(auth.uid(),s.event_id)));
 
 CREATE TABLE public.webinar_stage_requests (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), session_id uuid NOT NULL REFERENCES public.webinar_sessions(id) ON DELETE CASCADE, user_id uuid NOT NULL, status text NOT NULL DEFAULT 'pending' CHECK(status IN('pending','accepted','declined','cancelled')), created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(session_id,user_id));
 ALTER TABLE public.webinar_stage_requests ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.webinar_stage_requests TO authenticated;
 CREATE POLICY "Attendee create req" ON public.webinar_stage_requests FOR INSERT TO authenticated WITH CHECK(user_id=auth.uid());
 CREATE POLICY "Attendee read own req" ON public.webinar_stage_requests FOR SELECT TO authenticated USING(user_id=auth.uid());
 CREATE POLICY "Owner manage req" ON public.webinar_stage_requests FOR ALL TO authenticated USING(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND is_event_owner(auth.uid(),s.event_id))) WITH CHECK(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND is_event_owner(auth.uid(),s.event_id)));
 
 CREATE TABLE public.webinar_qa (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), session_id uuid NOT NULL REFERENCES public.webinar_sessions(id) ON DELETE CASCADE, user_id uuid NOT NULL, question text NOT NULL CHECK(length(question) BETWEEN 1 AND 1000), upvotes int NOT NULL DEFAULT 0, answered boolean NOT NULL DEFAULT false, pinned boolean NOT NULL DEFAULT false, created_at timestamptz NOT NULL DEFAULT now());
 ALTER TABLE public.webinar_qa ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.webinar_qa TO authenticated;
 CREATE POLICY "Read qa" ON public.webinar_qa FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND(is_event_approved_attendee(auth.uid(),s.event_id) OR is_event_owner(auth.uid(),s.event_id))));
 CREATE POLICY "Ask qa" ON public.webinar_qa FOR INSERT TO authenticated WITH CHECK(user_id=auth.uid() AND EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND is_event_approved_attendee(auth.uid(),s.event_id)));
 CREATE POLICY "Moderate qa" ON public.webinar_qa FOR UPDATE TO authenticated USING(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND is_event_owner(auth.uid(),s.event_id)));
@@ -464,39 +477,47 @@ CREATE POLICY "Delete qa" ON public.webinar_qa FOR DELETE TO authenticated USING
 
 CREATE TABLE public.webinar_polls (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), session_id uuid NOT NULL REFERENCES public.webinar_sessions(id) ON DELETE CASCADE, question text NOT NULL, options jsonb NOT NULL, open boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now());
 ALTER TABLE public.webinar_polls ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.webinar_polls TO authenticated;
 CREATE POLICY "Read polls" ON public.webinar_polls FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND(is_event_approved_attendee(auth.uid(),s.event_id) OR is_event_owner(auth.uid(),s.event_id))));
 CREATE POLICY "Manage polls" ON public.webinar_polls FOR ALL TO authenticated USING(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND is_event_owner(auth.uid(),s.event_id))) WITH CHECK(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND is_event_owner(auth.uid(),s.event_id)));
 
 CREATE TABLE public.webinar_poll_votes (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), poll_id uuid NOT NULL REFERENCES public.webinar_polls(id) ON DELETE CASCADE, user_id uuid NOT NULL, option_index int NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(poll_id,user_id));
 ALTER TABLE public.webinar_poll_votes ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.webinar_poll_votes TO authenticated;
 CREATE POLICY "Vote" ON public.webinar_poll_votes FOR INSERT TO authenticated WITH CHECK(user_id=auth.uid() AND EXISTS(SELECT 1 FROM webinar_polls p JOIN webinar_sessions s ON s.id=p.session_id WHERE p.id=poll_id AND p.open AND is_event_approved_attendee(auth.uid(),s.event_id)));
 CREATE POLICY "Read votes" ON public.webinar_poll_votes FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM webinar_polls p JOIN webinar_sessions s ON s.id=p.session_id WHERE p.id=poll_id AND(is_event_approved_attendee(auth.uid(),s.event_id) OR is_event_owner(auth.uid(),s.event_id))));
 
 CREATE TABLE public.webinar_chat (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), session_id uuid NOT NULL REFERENCES public.webinar_sessions(id) ON DELETE CASCADE, user_id uuid NOT NULL, message text NOT NULL CHECK(length(message) BETWEEN 1 AND 500), deleted boolean NOT NULL DEFAULT false, created_at timestamptz NOT NULL DEFAULT now());
 ALTER TABLE public.webinar_chat ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.webinar_chat TO authenticated;
 CREATE POLICY "Read chat" ON public.webinar_chat FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND(is_event_approved_attendee(auth.uid(),s.event_id) OR is_event_owner(auth.uid(),s.event_id))));
 CREATE POLICY "Post chat" ON public.webinar_chat FOR INSERT TO authenticated WITH CHECK(user_id=auth.uid() AND EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND is_event_approved_attendee(auth.uid(),s.event_id)));
 CREATE POLICY "Moderate chat" ON public.webinar_chat FOR UPDATE TO authenticated USING(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND is_event_owner(auth.uid(),s.event_id)));
 
 CREATE TABLE public.webinar_reactions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), session_id uuid NOT NULL REFERENCES public.webinar_sessions(id) ON DELETE CASCADE, user_id uuid NOT NULL, emoji text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
 ALTER TABLE public.webinar_reactions ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.webinar_reactions TO authenticated;
 CREATE POLICY "Read reactions" ON public.webinar_reactions FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND(is_event_approved_attendee(auth.uid(),s.event_id) OR is_event_owner(auth.uid(),s.event_id))));
 CREATE POLICY "Post reactions" ON public.webinar_reactions FOR INSERT TO authenticated WITH CHECK(user_id=auth.uid() AND EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND(is_event_approved_attendee(auth.uid(),s.event_id) OR is_event_owner(auth.uid(),s.event_id))));
 
 CREATE TABLE public.webinar_announcements (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), session_id uuid NOT NULL REFERENCES public.webinar_sessions(id) ON DELETE CASCADE, message text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
 ALTER TABLE public.webinar_announcements ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.webinar_announcements TO authenticated;
 CREATE POLICY "Read announce" ON public.webinar_announcements FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND(is_event_approved_attendee(auth.uid(),s.event_id) OR is_event_owner(auth.uid(),s.event_id))));
 CREATE POLICY "Manage announce" ON public.webinar_announcements FOR ALL TO authenticated USING(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND is_event_owner(auth.uid(),s.event_id))) WITH CHECK(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND is_event_owner(auth.uid(),s.event_id)));
 
 CREATE TABLE public.webinar_lounge_tables (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), session_id uuid NOT NULL REFERENCES public.webinar_sessions(id) ON DELETE CASCADE, name text NOT NULL, capacity int NOT NULL DEFAULT 6, livekit_subroom text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
 ALTER TABLE public.webinar_lounge_tables ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.webinar_lounge_tables TO authenticated;
 
 CREATE TABLE public.webinar_attendance (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), session_id uuid NOT NULL, user_id uuid, identity text NOT NULL, display_name text, role text NOT NULL DEFAULT 'viewer', joined_at timestamptz NOT NULL DEFAULT now(), left_at timestamptz, duration_seconds int);
 ALTER TABLE public.webinar_attendance ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.webinar_attendance TO authenticated;
 CREATE POLICY "Owner read attendance" ON public.webinar_attendance FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM webinar_sessions s WHERE s.id=session_id AND is_event_owner(auth.uid(),s.event_id)));
 
 CREATE TABLE public.webinar_browser_sessions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), registration_id uuid NOT NULL, browser_session_id text NOT NULL, fingerprint text, created_at timestamptz NOT NULL DEFAULT now(), last_seen_at timestamptz NOT NULL DEFAULT now(), UNIQUE(registration_id,browser_session_id));
 ALTER TABLE public.webinar_browser_sessions ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.webinar_browser_sessions TO authenticated;
 
 -- ── Storage buckets ───────────────────────────────────────────────────────────
 INSERT INTO storage.buckets(id,name,public) VALUES('site-assets','site-assets',true) ON CONFLICT(id) DO NOTHING;

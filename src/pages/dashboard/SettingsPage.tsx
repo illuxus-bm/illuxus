@@ -3,6 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import SiteHeader from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,7 +42,7 @@ const roleBadgeColor = (role: string) => {
 };
 
 const SettingsPage = () => {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, accountType } = useAuth();
   const { org, refreshOrg } = useOrg();
   const { toast } = useToast();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -282,18 +283,24 @@ const SettingsPage = () => {
 
   const tabs = [
     { id: "profile", label: "Profile", icon: User },
-    { id: "organization", label: "Organization", icon: Building2 },
-    { id: "team", label: "Team", icon: Users },
+    ...(org ? [
+      { id: "organization", label: "Organization", icon: Building2 },
+      { id: "team", label: "Team", icon: Users },
+    ] : []),
     { id: "account", label: "Account", icon: Shield },
     { id: "notifications", label: "Notifications", icon: Bell },
   ];
 
-  return (
-    <DashboardLayout>
+  const isAttendee = accountType === "attendee" && !isAdmin && !org;
+
+  const settingsContent = (
+    <>
       <div className="max-w-[900px] space-y-5">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Settings</h1>
-          <p className="text-[13px] text-muted-foreground">Manage your account, organization, and team</p>
+          <p className="text-[13px] text-muted-foreground">
+            {isAttendee ? "Manage your profile and account" : "Manage your account, organization, and team"}
+          </p>
         </div>
 
         <div className="flex flex-col md:flex-row gap-5">
@@ -626,6 +633,23 @@ const SettingsPage = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </>
+  );
+
+  if (isAttendee) {
+    return (
+      <div className="min-h-screen bg-background">
+        <SiteHeader />
+        <main className="max-w-[900px] mx-auto px-4 py-8">
+          {settingsContent}
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <DashboardLayout>
+      {settingsContent}
     </DashboardLayout>
   );
 };

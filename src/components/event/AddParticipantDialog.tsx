@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +9,14 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { toast } from "sonner";
 import { UserPlus, Copy, Ticket, Link2 } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
+
+// Secondary Supabase client for creating participant accounts.
+// Uses a separate storage key so it won't sign out the organizer.
+const anonClient = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+  { auth: { storageKey: "sb-participant-signup", persistSession: false, autoRefreshToken: false } }
+);
 
 // Always build share links against the public production domain, never the
 // in-editor preview/sandbox host (lovableproject.com / *.lovable.app preview).
@@ -40,6 +49,67 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
     setBusy(true);
     const fullName = displayName(fields);
     const email = fields.email.trim().toLowerCase();
+    const mobileNum = fields.mobile_number.trim();
+
+    // ── Step 1: Create auth account (sends confirmation email) ────────────────
+    // Uses a separate client so the organizer stays signed in.
+    // The participant receives a confirmation email — once confirmed, they can
+    // sign in with email + phone number (initial password).
+    let newUserId: string | null = null;
+    let accountAlreadyExists = false;
+
+    if (mobileNum) {
+      // Check if user already exists
+      const { data: existingReg } = await supabase
+        .from("registrations")
+        .select("user_id")
+        .eq("email", email)
+        .not("user_id", "is", null)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingReg?.user_id) {
+        newUserId = existingReg.user_id;
+        accountAlreadyExists = true;
+      } else {
+        const { data: signUpResult, error: signUpErr } = await anonClient.auth.signUp({
+          email,
+          password: mobileNum,
+          options: {
+            emailRedirectTo: `${window.location.origin}/login`,
+            data: {
+              must_change_password: true,
+              account_type: "attendee",
+              title: fields.title || "",
+              first_name: fields.first_name.trim(),
+              last_name: fields.last_name.trim(),
+              designation: fields.designation.trim(),
+              company: fields.company.trim() || "",
+              mobile_country_code: fields.mobile_country_code,
+              mobile_number: mobileNum,
+              linkedin_url: fields.linkedin_url.trim() || "",
+              company_website: fields.company_website.trim() || "",
+              company_employee_count: fields.company_employee_count || "",
+              industry: fields.industry || "",
+              display_name: fullName,
+            },
+          },
+        });
+
+        if (signUpErr) {
+          if (signUpErr.message?.includes("already") ) {
+            accountAlreadyExists = true;
+          } else {
+            console.warn("SignUp error:", signUpErr.message);
+            // Non-fatal — continue to create registration anyway
+          }
+        } else if (signUpResult?.user) {
+          newUserId = signUpResult.user.id;
+        }
+      }
+    }
+
+    // ── Step 2: Create registration ──────────────────────────────────────────
     const { data, error } = await supabase.from("registrations").insert({
       event_id: eventId,
       name: fullName,
@@ -59,36 +129,14 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
     }).select("id, join_token, qr_code").single();
     if (error || !data) { setBusy(false); return toast.error(error?.message || "Failed to add"); }
 
-    // ── Create auth account for participant ───────────────────────────────────
-    // Uses the mobile number as the initial password. On first sign-in the
-    // participant will be prompted to change their password.
-    const mobileNum = fields.mobile_number.trim();
-    if (mobileNum) {
-      const { data: accountResult, error: accountErr } = await supabase.functions.invoke("create-participant-account", {
-        body: {
-          registration_id: data.id,
-          email,
-          password: mobileNum,
-          first_name: fields.first_name.trim(),
-          last_name: fields.last_name.trim(),
-          title: fields.title,
-          designation: fields.designation.trim(),
-          company: fields.company.trim() || "",
-          mobile_country_code: fields.mobile_country_code,
-          mobile_number: mobileNum,
-          linkedin_url: fields.linkedin_url.trim() || "",
-          company_website: fields.company_website.trim() || "",
-          company_employee_count: fields.company_employee_count || "",
-          industry: fields.industry || "",
-        },
-      });
-      if (accountErr) {
-        // Non-fatal — registration is already saved; account can be created later
-        console.warn("Could not create participant account:", accountErr);
-        toast.warning("Participant added but account creation failed — they can still sign up manually.");
-      } else if (accountResult?.is_existing_user) {
-        toast.info("Existing user found — ticket linked to their account.");
-      }
+    // Link registration to user (done via UPDATE which the organizer has permission for)
+    if (newUserId) {
+      await supabase.from("registrations").update({ user_id: newUserId }).eq("id", data.id);
+      // Also link any other unlinked registrations for same email
+      await supabase.from("registrations")
+        .update({ user_id: newUserId })
+        .eq("email", email)
+        .is("user_id", null);
     }
 
     let speakerLink: string | undefined;
@@ -107,7 +155,13 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
     setCreated({ join_token: data.join_token, qr_code: data.qr_code || "", speakerLink });
     setBusy(false);
     onAdded?.();
-    toast.success("Participant added");
+    if (accountAlreadyExists) {
+      toast.success("Participant added — existing account linked.");
+    } else if (mobileNum) {
+      toast.success("Participant added — confirmation email sent to " + email);
+    } else {
+      toast.success("Participant added");
+    }
   };
 
   const joinUrl = created ? `${publicOrigin()}/e/${eventSlug || eventId}/live?join=${created.join_token}` : "";
@@ -142,7 +196,17 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
           </div>
         ) : (
           <div className="space-y-4">
-            <p className="text-[13px] text-muted-foreground">Share this with <span className="font-medium text-foreground">{displayName(fields)}</span>. One link, one device — joining elsewhere signs them out.</p>
+            <p className="text-[13px] text-muted-foreground">
+              A confirmation email has been sent to <span className="font-medium text-foreground">{fields.email}</span>.
+              Once confirmed, they can sign in with their email and phone number as password.
+            </p>
+            <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1">
+              <p className="text-[12px] font-medium">Login credentials for participant:</p>
+              <p className="text-[12px] text-muted-foreground">Email: <span className="font-mono text-foreground">{fields.email}</span></p>
+              <p className="text-[12px] text-muted-foreground">Password: <span className="font-mono text-foreground">{fields.mobile_number}</span> (phone number)</p>
+              <p className="text-[11px] text-muted-foreground italic mt-1">They'll be asked to change their password on first sign-in.</p>
+            </div>
+            <p className="text-[12px] text-muted-foreground">Share the details below with <span className="font-medium text-foreground">{displayName(fields)}</span>:</p>
             {isVirtual ? (
               <>
                 <div className="space-y-1">

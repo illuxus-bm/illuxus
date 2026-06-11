@@ -193,7 +193,7 @@ export default function SiteHeader({
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem asChild>
-                  <Link to="/dashboard/settings"><SettingsIcon className="h-3.5 w-3.5 mr-2" /> Settings</Link>
+                  <Link to={accountType === "attendee" ? "/u/me/settings" : "/dashboard/settings"}><SettingsIcon className="h-3.5 w-3.5 mr-2" /> Settings</Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">

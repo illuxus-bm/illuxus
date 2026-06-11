@@ -13,7 +13,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { Radio, Square, Plus, Copy, Megaphone, Sparkles, LogOut, ArrowLeft, Minimize2, Maximize2, X, MessageSquare, Maximize, Minimize, Circle, CircleDot, StopCircle, PhoneOff, MapPinned, ExternalLink, Link2 } from "lucide-react";
-import { DashboardLayout } from "@/components/DashboardLayout";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { useSessionBranding } from "@/components/webinar/StageOverlays";
 import { publicUrl } from "@/lib/publicUrl";
@@ -126,13 +125,19 @@ export default function BroadcastPage() {
     }
 
     // Try the edge function first (creates a real LiveKit room).
-    const { data, error } = await supabase.functions.invoke("livekit-room-create", { body: { event_id: eventId, record_enabled: false } });
-
-    if (!error && data?.session) {
-      setSession(data.session);
-      toast.success("Stream room ready");
-      return;
+    let edgeFnWorked = false;
+    try {
+      const { data, error } = await supabase.functions.invoke("livekit-room-create", { body: { event_id: eventId, record_enabled: false } });
+      if (!error && data?.session) {
+        setSession(data.session);
+        toast.success("Stream room ready");
+        edgeFnWorked = true;
+      }
+    } catch {
+      // Edge function not available — fall through to fallback
     }
+
+    if (edgeFnWorked) return;
 
     // Fallback: if the edge function is unavailable (no LiveKit keys configured),
     // create the session row directly so the UI still works for testing.
@@ -172,8 +177,16 @@ export default function BroadcastPage() {
   };
 
   const goLive = async () => {
-    const { error } = await supabase.functions.invoke("livekit-go-live", { body: { session_id: session.id } });
-    if (error) return toast.error(error.message);
+    try {
+      const { error } = await supabase.functions.invoke("livekit-go-live", { body: { session_id: session.id } });
+      if (error) {
+        // Edge function failed — just update status directly in DB
+        await supabase.from("webinar_sessions").update({ status: "live" }).eq("id", session.id);
+      }
+    } catch {
+      // Edge function not available — update DB directly
+      await supabase.from("webinar_sessions").update({ status: "live" }).eq("id", session.id);
+    }
     setSession({ ...session, status: "live" });
     setShowPrejoin(true);
   };
@@ -183,22 +196,35 @@ export default function BroadcastPage() {
     if (!session || recBusy) return;
     setRecBusy(true);
     const fn = session.egress_id ? "recording-stop" : "recording-start";
-    const { error } = await supabase.functions.invoke(fn, { body: { session_id: session.id } });
+    try {
+      const { error } = await supabase.functions.invoke(fn, { body: { session_id: session.id } });
+      if (error) { setRecBusy(false); return toast.error("Recording requires LiveKit to be configured."); }
+    } catch {
+      setRecBusy(false);
+      return toast.error("Recording requires LiveKit to be configured.");
+    }
     setRecBusy(false);
-    if (error) return toast.error(error.message);
     toast.success(session.egress_id ? "Recording stopped" : "Recording started");
   };
 
   const fetchToken = async () => {
-    const { data, error } = await supabase.functions.invoke("livekit-token", { body: { session_id: session.id } });
-    if (error || !data?.token) { toast.error(error?.message || data?.error || "Failed to join"); return false; }
-    setToken(data.token); setWsUrl(data.ws_url); setCanPublish(data.can_publish);
-    return true;
+    try {
+      const { data, error } = await supabase.functions.invoke("livekit-token", { body: { session_id: session.id } });
+      if (error || !data?.token) { toast.error("LiveKit not configured — streaming requires LiveKit secrets in Supabase dashboard."); return false; }
+      setToken(data.token); setWsUrl(data.ws_url); setCanPublish(data.can_publish);
+      return true;
+    } catch {
+      toast.error("LiveKit not configured — streaming requires LiveKit secrets in Supabase dashboard.");
+      return false;
+    }
   };
 
   const endLive = async () => {
     if (!confirm("End stream for everyone?")) return;
-    await supabase.functions.invoke("livekit-room-end", { body: { session_id: session.id } });
+    try {
+      await supabase.functions.invoke("livekit-room-end", { body: { session_id: session.id } });
+    } catch { /* edge fn unavailable */ }
+    await supabase.from("webinar_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", session.id);
     setToken(null);
     setSession({ ...session, status: "ended" });
     toast.success("Stream ended");
@@ -239,7 +265,7 @@ export default function BroadcastPage() {
 
   if (event && event.event_format === "physical") {
     return (
-      <DashboardLayout>
+      <div className="min-h-screen bg-background p-4 lg:p-6">
         <div className="max-w-2xl">
           <Card className="p-8 text-center space-y-4">
             <MapPinned className="h-8 w-8 mx-auto text-muted-foreground" />
@@ -250,13 +276,13 @@ export default function BroadcastPage() {
             <Button asChild variant="outline"><Link to={`/dashboard/events/${eventId}`}>Back to event</Link></Button>
           </Card>
         </div>
-      </DashboardLayout>
+      </div>
     );
   }
 
   if (!hasAddon("webinar")) {
     return (
-      <DashboardLayout>
+      <div className="min-h-screen bg-background p-4 lg:p-6">
       <div className="max-w-2xl">
         <Card className="p-8 text-center space-y-4">
           <Sparkles className="h-8 w-8 mx-auto text-muted-foreground" />
@@ -267,13 +293,13 @@ export default function BroadcastPage() {
           <Button asChild><Link to="/dashboard/billing">Enable Webinar add-on</Link></Button>
         </Card>
       </div>
-      </DashboardLayout>
+      </div>
     );
   }
 
   if (!session) {
     return (
-      <DashboardLayout>
+      <div className="min-h-screen bg-background p-4 lg:p-6">
       <div className="max-w-[1200px] space-y-5">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Webinar</h1>
@@ -286,7 +312,7 @@ export default function BroadcastPage() {
           <Button onClick={createSession}><Plus className="h-4 w-4 mr-2" />Create webinar</Button>
         </Card>
       </div>
-      </DashboardLayout>
+      </div>
     );
   }
 
@@ -444,7 +470,7 @@ export default function BroadcastPage() {
   }
 
   return (
-    <DashboardLayout>
+    <div className="min-h-screen bg-background p-4 lg:p-6">
     <div className="max-w-[1200px] space-y-5">
       <div className="space-y-3">
         <Link
@@ -612,7 +638,7 @@ export default function BroadcastPage() {
         </TabsContent>
       </Tabs>
     </div>
-    </DashboardLayout>
+    </div>
   );
 }
 

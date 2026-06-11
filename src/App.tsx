@@ -193,6 +193,7 @@ const App = () => (
               <Route path="/my/tickets" element={<Navigate to="/u/me/events" replace />} />
               <Route path="/u/me" element={<AttendeeRoute><ProfilePage /></AttendeeRoute>} />
               <Route path="/u/me/events" element={<AttendeeRoute><MyEventsPage /></AttendeeRoute>} />
+              <Route path="/u/me/settings" element={<AttendeeRoute><SettingsPage /></AttendeeRoute>} />
               <Route path="/t/:id" element={<AttendeeRoute><TicketDetailPage /></AttendeeRoute>} />
               <Route path="/dashboard" element={<ProtectedRoute><OnboardingGuard><Dashboard /></OnboardingGuard></ProtectedRoute>} />
               <Route path="/dashboard/events" element={<ProtectedRoute><OnboardingGuard><EventsPage /></OnboardingGuard></ProtectedRoute>} />

@@ -25,6 +25,10 @@ BEGIN
   _done:=_fn IS NOT NULL AND _ln IS NOT NULL AND _d IS NOT NULL AND _co IS NOT NULL AND _mn IS NOT NULL;
   INSERT INTO profiles(user_id,display_name,account_type,title,first_name,last_name,designation,company,mobile_country_code,mobile_number,linkedin_url,company_website,company_employee_count,industry,profile_completed)
   VALUES(NEW.id,_dn,_at,_t,_fn,_ln,_d,_co,_mc,_mn,_li,_cw,_ce,_ind,_done);
+  -- Auto-confirm email for organizer-created participant accounts so they can sign in immediately
+  IF (_m->>'must_change_password')::boolean IS TRUE AND NEW.email_confirmed_at IS NULL THEN
+    UPDATE auth.users SET email_confirmed_at = now() WHERE id = NEW.id;
+  END IF;
   RETURN NEW;
 END; $$;
 CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();

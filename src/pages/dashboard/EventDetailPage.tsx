@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense, lazy } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
@@ -37,6 +37,9 @@ import { useOrg } from "@/contexts/OrgContext";
 import { formatMoney, DEFAULT_EVENT_CURRENCY } from "@/lib/currency";
 import { useFxRates, formatConverted } from "@/lib/fx";
 import { CurrencySwitcher, getStoredDisplayCurrency } from "@/components/CurrencySwitcher";
+import { FullPageLoader } from "@/components/FullPageLoader";
+
+const BroadcastPageLazy = lazy(() => import("./event/BroadcastPage"));
 
 type Event = Tables<"events">;
 
@@ -390,7 +393,7 @@ const EventDetailPage = () => {
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-background">
         <EventSidebar active={activeSection} onSelect={(k) => {
-          if (k === "broadcast") { navigate(`/dashboard/events/${event.id}/broadcast`); return; }
+          if (k === "broadcast") { setActiveSection("broadcast"); return; }
           setActiveSection(k);
         }} eventTitle={event.title} eventFormat={(event as any).event_format} />
 
@@ -720,6 +723,12 @@ const EventDetailPage = () => {
             {activeSection === "communicate" && <CommunicationSection eventId={event.id} />}
             {activeSection === "reports" && <ReportsSection eventId={event.id} />}
             {activeSection === "search" && <EventSearch eventId={event.id} registrations={registrations} />}
+
+            {activeSection === "broadcast" && (
+              <Suspense fallback={<FullPageLoader label="Loading webinar studio…" />}>
+                <BroadcastPageLazy />
+              </Suspense>
+            )}
 
             {!["dashboard", "settings", "manage", "agenda", "exhibitors", "design", "registrations", "communicate", "reports", "broadcast", "search"].includes(activeSection) && (
               <div className="flex items-center justify-center h-64 text-muted-foreground">
