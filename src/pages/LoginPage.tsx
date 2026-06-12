@@ -7,6 +7,8 @@ import { ArrowLeft, Eye, EyeOff, Ticket, Building2, ChevronLeft } from "lucide-r
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import TwoFactorChallengeDialog from "@/components/auth/TwoFactorChallengeDialog";
+import PasswordStrengthMeter from "@/components/auth/PasswordStrengthMeter";
+import { scorePassword } from "@/lib/password-strength";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -205,8 +207,13 @@ const LoginPage = () => {
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
-                if (newPassword.length < 6) {
-                  toast({ title: "Password too short", description: "Use at least 6 characters.", variant: "destructive" });
+                const strength = scorePassword(newPassword);
+                if (!strength.acceptable) {
+                  toast({
+                    title: "Password too weak",
+                    description: strength.hint || "Use at least 8 characters with a mix of letters, numbers and a symbol.",
+                    variant: "destructive",
+                  });
                   return;
                 }
                 if (newPassword !== confirmPassword) {
@@ -248,8 +255,9 @@ const LoginPage = () => {
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Enter new password"
                     required
-                    minLength={6}
+                    minLength={8}
                     className="h-9 text-sm pr-9"
+                    aria-describedby="new-password-strength"
                   />
                   <button
                     type="button"
@@ -259,6 +267,7 @@ const LoginPage = () => {
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+                <PasswordStrengthMeter id="new-password-strength" password={newPassword} />
               </div>
               <div>
                 <Label htmlFor="confirm-password" className="text-[13px]">Confirm password</Label>
@@ -269,11 +278,22 @@ const LoginPage = () => {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Re-enter new password"
                   required
-                  minLength={6}
+                  minLength={8}
                   className="mt-1.5 h-9 text-sm"
                 />
+                {confirmPassword && newPassword && confirmPassword !== newPassword && (
+                  <p className="mt-1.5 text-[11px] text-destructive">Passwords don't match.</p>
+                )}
               </div>
-              <Button type="submit" className="w-full h-9 text-sm font-medium" disabled={loading}>
+              <Button
+                type="submit"
+                className="w-full h-9 text-sm font-medium"
+                disabled={
+                  loading ||
+                  !scorePassword(newPassword).acceptable ||
+                  newPassword !== confirmPassword
+                }
+              >
                 {loading ? "Updating…" : buttonText}
               </Button>
             </form>
@@ -327,8 +347,17 @@ const LoginPage = () => {
               // of calling the API.
               if (isSignUp && signUpStep === 1) {
                 e.preventDefault();
-                if (!email || password.length < 6) {
-                  toast({ title: "Check your details", description: "Enter your email and a password of 6+ characters.", variant: "destructive" });
+                if (!email) {
+                  toast({ title: "Check your details", description: "Enter your email.", variant: "destructive" });
+                  return;
+                }
+                const strength = scorePassword(password);
+                if (!strength.acceptable) {
+                  toast({
+                    title: "Password too weak",
+                    description: strength.hint || "Use at least 8 characters with a mix of letters, numbers and a symbol.",
+                    variant: "destructive",
+                  });
                   return;
                 }
                 setSignUpStep(2);
@@ -374,8 +403,9 @@ const LoginPage = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     required
-                    minLength={6}
+                    minLength={isSignUp ? 8 : 6}
                     className="h-9 text-sm pr-9"
+                    aria-describedby={isSignUp ? "password-strength" : undefined}
                   />
                   <button
                     type="button"
@@ -385,6 +415,9 @@ const LoginPage = () => {
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+                {isSignUp && (
+                  <PasswordStrengthMeter id="password-strength" password={password} />
+                )}
               </div>
             )}
             </>
@@ -392,7 +425,14 @@ const LoginPage = () => {
             {isSignUp && signUpStep === 2 && (
               <PersonFieldsForm value={{ ...person, email }} onChange={(v) => setPerson(v)} hideEmail />
             )}
-            <Button type="submit" className="w-full h-9 text-sm font-medium" disabled={loading}>
+            <Button
+              type="submit"
+              className="w-full h-9 text-sm font-medium"
+              disabled={
+                loading ||
+                (isSignUp && signUpStep === 1 && !scorePassword(password).acceptable)
+              }
+            >
               {loading ? "Please wait..." : buttonText}
             </Button>
           </form>
