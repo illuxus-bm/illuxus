@@ -31,8 +31,8 @@ const FAQ_ITEMS = [
     a: "Open the event from your dashboard and click the 'Publish' button in the top-right header. Once published, a public landing page is live at your org URL. You can unpublish at any time from the same button.",
   },
   {
-    q: "How do I check attendees in at the event?",
-    a: "Open the event → Registrations tab. You can scan QR codes from the QR Scanner button, enter codes manually in Bulk Check-In, or use the toggle on each attendee row. Your attendees can also self-check-in using the link at /checkin/:eventId.",
+    q: "How do I check attendees in and out at the event?",
+    a: "Open the event → Registrations tab and click QR Scanner. The scanner has two tabs at the top — Check-In and Check-Out — and the same QR per participant works for both. Staff at the entrance keep the Check-In tab active; staff at the exit switch to the Check-Out tab. Bulk Check-In and the toggle on each attendee row still work as before for manual updates. Self-check-in at /checkin/:eventId is check-in only — attendees can mark themselves as arrived but not as departed.",
   },
   {
     q: "How do I invite team members to my organization?",

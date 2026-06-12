@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, Link2, History, ListChecks, Undo2, Stethoscope, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX } from "lucide-react";
 import { toast } from "sonner";
@@ -14,7 +14,8 @@ import {
   DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import type { Tables } from "@/integrations/supabase/types";
-import QRScannerDialog from "./registrations/QRScannerDialog";
+import QRScannerDialog, { type ScanResult, type ScannerTab } from "./registrations/QRScannerDialog";
+import { useEventCheckinCounters } from "@/hooks/useEventCheckinCounters";
 import AddParticipantDialog from "./AddParticipantDialog";
 import PrintBadgesDialog from "./registrations/PrintBadgesDialog";
 import BulkCheckInDialog from "./registrations/BulkCheckInDialog";
@@ -65,6 +66,28 @@ const kindColors: Record<RowKind, string> = {
   sponsor:  "bg-amber-500/10 text-amber-700 border-amber-500/20",
 };
 
+/**
+ * Human-readable labels for the non-success per-row codes returned by
+ * the new `bulk_set_attendance` RPC (migration 006). Used by `bulkCheckIn`
+ * / `bulkCheckOut` to surface a per-row skip reason via toast — REQ-15.3.
+ *
+ * The success codes (`applied_in` / `applied_out`) are intentionally
+ * absent so they never produce a skip toast.
+ */
+const BULK_SKIP_REASONS: Record<string, string> = {
+  already_inside: "Already inside",
+  already_outside: "Already checked out",
+  not_checked_in_yet: "Not checked in yet",
+  cancelled: "Registration cancelled",
+  declined: "Registration declined",
+  pending_approval: "Awaiting approval",
+  tracking_closed: "Tracking closed",
+  unauthorized: "Not allowed",
+  wrong_event: "Wrong event",
+  invalid: "Invalid request",
+  not_found: "Not found",
+};
+
 function ticketKind(ticket_type: string | null | undefined): RowKind {
   if (ticket_type === "speaker") return "speaker";
   if (ticket_type === "sponsor") return "sponsor";
@@ -99,6 +122,19 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [eventHistoryOpen, setEventHistoryOpen] = useState(false);
   const [sortKey, setSortKey] = useState<"name" | "state" | "last_in" | "last_out" | "minutes" | "ticket">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  // ─── Live-update lag tracking (REQ-11.4) ────────────────────────────────
+  // After a successful scanner-initiated RPC, we expect a postgres_changes
+  // UPDATE on the matching `registrations` row to arrive within 5s. If it
+  // doesn't, render a non-blocking "Live updates delayed" pill and emit a
+  // single `console.warn('UI sync failure')` per occurrence. The banner
+  // clears as soon as the matching realtime UPDATE is observed.
+  const [liveLag, setLiveLag] = useState<{ regId: string; expiresAt: number } | null>(null);
+  const [showLag, setShowLag] = useState(false);
+  const lagWarnedRef = useRef(false);
+
+  // Live counters from a single source of truth (REQ-11.5).
+  const liveCounters = useEventCheckinCounters(eventId);
 
   const reload = () => supabase.from("registrations").select("*").eq("event_id", eventId)
     .order("created_at", { ascending: false }).then(({ data }) => { if (data) setRegistrations(data); });
@@ -183,6 +219,13 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         "postgres_changes",
         { event: "*", schema: "public", table: "registrations", filter: `event_id=eq.${eventId}` },
         (payload) => {
+          // REQ-11.4 — clear the live-lag tracker as soon as the realtime
+          // UPDATE for the lagged registration arrives. Using the setState
+          // callback avoids a stale closure on `liveLag`.
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as Registration;
+            setLiveLag((prev) => (prev && prev.regId === updated.id ? null : prev));
+          }
           setRegistrations((prev) => {
             if (payload.eventType === "INSERT") {
               const row = payload.new as Registration;
@@ -204,6 +247,34 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [eventId]);
+
+  // REQ-11.4 — flip `showLag` true `expiresAt - now` ms after a lag is
+  // recorded. If `liveLag` clears (realtime UPDATE arrived in time, or a
+  // new scan replaced the previous tracker), reset the indicator and
+  // re-arm the one-shot console.warn.
+  useEffect(() => {
+    if (!liveLag) {
+      setShowLag(false);
+      lagWarnedRef.current = false;
+      return;
+    }
+    const delta = liveLag.expiresAt - Date.now();
+    if (delta <= 0) {
+      setShowLag(true);
+      return;
+    }
+    const t = window.setTimeout(() => setShowLag(true), delta);
+    return () => window.clearTimeout(t);
+  }, [liveLag]);
+
+  // REQ-11.4 — emit a single `console.warn('UI sync failure')` the first
+  // time the indicator becomes visible per liveLag occurrence.
+  useEffect(() => {
+    if (showLag && !lagWarnedRef.current) {
+      console.warn("UI sync failure");
+      lagWarnedRef.current = true;
+    }
+  }, [showLag]);
 
   // Merge attendees + virtual rows (speakers/sponsors). For speakers/sponsors
   // that already have a registration row in the DB, hide the virtual duplicate.
@@ -289,9 +360,12 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     pending: registrations.filter((r) => r.status === "pending").length,
     cancelled: registrations.filter((r) => r.status === "cancelled").length,
     checkedIn: registrations.filter((r) => r.checked_in === true).length,
-    insideNow: allRows.filter((r) => r.attendance_state === "inside").length,
-    outside: allRows.filter((r) => r.attendance_state === "outside").length,
-    notArrived: allRows.filter((r) => r.attendance_state === "never").length,
+    // REQ-11.5 — single source of truth via `useEventCheckinCounters`.
+    // Counts are derived from `registrations.attendance_state` server-side
+    // so they stay correct with paged datasets and match the tab filter.
+    insideNow: liveCounters.currentlyInside,
+    outside: liveCounters.checkedOut,
+    notArrived: liveCounters.notArrived,
     speakers: allRows.filter((r) => r.kind === "speaker").length,
     sponsors: allRows.filter((r) => r.kind === "sponsor").length,
   };
@@ -404,6 +478,48 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     toast.success(`Status set to ${newStatus}`);
   };
 
+  /**
+   * Handler invoked by `<QRScannerDialog>` after every applied scan.
+   * Reload the registrations list (the realtime subscription will
+   * eventually catch up too, but `reload()` keeps the table snappy on
+   * the dashboard) and start a 5s lag tracker on `applied_*` codes so
+   * the "Live updates delayed" indicator can flag stalled realtime
+   * delivery (REQ-11.4).
+   */
+  const handleScanApplied = (result: ScanResult, _tab: ScannerTab) => {
+    void reload();
+    if ((result.code === "applied_in" || result.code === "applied_out") && result.registrationId) {
+      setLiveLag({ regId: result.registrationId, expiresAt: Date.now() + 5000 });
+    }
+  };
+
+  /**
+   * Render per-row toasts for the non-success codes returned by the new
+   * `bulk_set_attendance` RPC (migration 006). Codes that are not
+   * `applied_in` / `applied_out` are surfaced individually so the
+   * organiser can see why a row was skipped (REQ-15.3). To keep the
+   * volume reasonable, more than 5 skips collapse into a single summary
+   * toast.
+   */
+  const surfaceBulkSkips = (
+    skipped: Array<{ registration_id: string; code: string }>,
+    source: Row[]
+  ) => {
+    if (skipped.length === 0) return;
+    if (skipped.length > 5) {
+      toast.warning(`${skipped.length} skipped`, {
+        description: "Some rows could not be updated. Open them individually to see why.",
+      });
+      return;
+    }
+    for (const row of skipped) {
+      const reg = source.find((r) => r.registration?.id === row.registration_id);
+      const name = reg?.name ?? "Registration";
+      const reason = BULK_SKIP_REASONS[row.code] ?? row.code;
+      toast.warning(`${name}: ${reason}`);
+    }
+  };
+
   const bulkCheckIn = async () => {
     const selectedRows = filtered.filter((r) => selected.has(r.id) && r.attendance_state !== "inside");
     const haveReg = selectedRows.filter((r) => !!r.registration);
@@ -412,8 +528,9 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       toast.info("All selected are already inside");
       return;
     }
+    let appliedCount = 0;
     if (haveReg.length > 0) {
-      const { error } = await supabase.rpc("bulk_set_attendance" as never, {
+      const { data, error } = await supabase.rpc("bulk_set_attendance" as never, {
         p_ids: haveReg.map((r) => r.registration!.id),
         p_target: "inside",
         p_method: "bulk",
@@ -422,13 +539,37 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         toast.error("Failed to bulk check in", { description: error.message });
         return;
       }
+      // REQ-15.3 — `bulk_set_attendance` now returns one row per input id.
+      // Iterate every row (the array length equals the input length) and
+      // partition into success vs. skip categories.
+      const rows = (Array.isArray(data) ? data : []) as Array<{ registration_id: string; code: string }>;
+      const skipped: Array<{ registration_id: string; code: string }> = [];
+      for (const row of rows) {
+        if (row.code === "applied_in" || row.code === "applied_out") {
+          appliedCount += 1;
+        } else {
+          skipped.push(row);
+        }
+      }
+      surfaceBulkSkips(skipped, haveReg);
     }
     for (const row of virtual) {
-      await supabase.rpc("self_check_in" as never, { p_token: row.qr_payload, p_event_id: eventId } as never);
+      const { data } = await supabase.rpc("self_check_in" as never, {
+        p_token: row.qr_payload,
+        p_event_id: eventId,
+      } as never);
+      const result = Array.isArray(data) ? (data as any[])[0] : (data as any);
+      if (result?.status === "ok" || result?.status === "checked_out") {
+        appliedCount += 1;
+      }
     }
     await reload();
     setSelected(new Set());
-    toast.success(`${selectedRows.length} checked in`);
+    if (appliedCount > 0) {
+      toast.success(`${appliedCount} checked in`);
+    } else {
+      toast.info("No changes applied");
+    }
   };
 
   const bulkCheckOut = async () => {
@@ -437,7 +578,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       toast.info("No one to check out in selection");
       return;
     }
-    const { error } = await supabase.rpc("bulk_set_attendance" as never, {
+    const { data, error } = await supabase.rpc("bulk_set_attendance" as never, {
       p_ids: toRevert.map((r) => r.registration!.id),
       p_target: "outside",
       p_method: "bulk",
@@ -446,9 +587,25 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       toast.error("Failed to check out", { description: error.message });
       return;
     }
+    // REQ-15.3 — same per-row partitioning as bulkCheckIn.
+    const rows = (Array.isArray(data) ? data : []) as Array<{ registration_id: string; code: string }>;
+    let appliedCount = 0;
+    const skipped: Array<{ registration_id: string; code: string }> = [];
+    for (const row of rows) {
+      if (row.code === "applied_in" || row.code === "applied_out") {
+        appliedCount += 1;
+      } else {
+        skipped.push(row);
+      }
+    }
+    surfaceBulkSkips(skipped, toRevert);
     await reload();
     setSelected(new Set());
-    toast.success(`${toRevert.length} checked out`);
+    if (appliedCount > 0) {
+      toast.success(`${appliedCount} checked out`);
+    } else {
+      toast.info("No changes applied");
+    }
   };
 
   const toggleSelect = (id: string) => {
@@ -524,7 +681,20 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold">Registrations</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-base font-semibold">Registrations</h2>
+            {/* REQ-11.4 — non-blocking pill when realtime delivery has
+                stalled past the 5s SLA after a known-successful RPC. */}
+            {showLag && (
+              <span
+                role="status"
+                aria-live="polite"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-yellow-500/10 text-yellow-700 border border-yellow-500/30"
+              >
+                Live updates delayed
+              </span>
+            )}
+          </div>
           <p className="text-[12px] text-muted-foreground">Manage attendees for this event</p>
         </div>
         <div className="flex items-center gap-2">
@@ -817,14 +987,17 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         </div>
       )}
 
+      {/*
+        REQ-1.1–1.6, 2.1–2.5, 9.1–9.3, 10.1–10.3 — the dialog now owns
+        RPC dispatch and exposes per-scan results via `onScanApplied`.
+        `eventId` drives the wrong_event guard inside the dialog.
+      */}
       <QRScannerDialog
         open={qrOpen}
         onOpenChange={setQrOpen}
         registrations={registrations}
-        onCheckIn={async (reg) => {
-          const row = allRows.find((r) => r.id === reg.id);
-          if (row) await toggleCheckIn(row, "qr");
-        }}
+        eventId={eventId}
+        onScanApplied={handleScanApplied}
       />
 
       <BulkCheckInDialog open={bulkOpen} onOpenChange={setBulkOpen} eventId={eventId} />

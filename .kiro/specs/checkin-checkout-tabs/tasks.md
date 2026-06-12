@@ -16,7 +16,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
 
 ## Tasks
 
-- [ ] 1. Database / SQL foundation
+- [x] 1. Database / SQL foundation
 
   - [x] 1.1 Add `_apply_attendance` helper migration
     - Create `supabase/migrations/004_apply_attendance_helper.sql` defining `public._apply_attendance(_reg_id uuid, _target text, _method text, _actor uuid) RETURNS text`.
@@ -29,7 +29,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
       - `supabase db reset` (or `supabase migration up`) succeeds against a clean local Supabase.
       - `psql -c "SELECT public._apply_attendance('00000000-0000-0000-0000-000000000000','inside','qr','00000000-0000-0000-0000-000000000000');"` returns `not_found` (smoke test that the function compiled and the existence branch is reachable).
 
-  - [ ] 1.2 Add `set_attendance` RPC migration (depends on 1.1)
+  - [x] 1.2 Add `set_attendance` RPC migration (depends on 1.1)
     - Create `supabase/migrations/005_set_attendance_rpc.sql` defining `public.set_attendance(p_reg_id uuid, p_target text, p_method text DEFAULT 'qr') RETURNS TABLE(code text, registration_id uuid, attendance_state text, last_in_at timestamptz, last_out_at timestamptz, total_minutes int, name text, ticket_type text)` per `design.md` "RPC surface (final shape)".
     - Body: call `_apply_attendance(p_reg_id, p_target, p_method, auth.uid())` to obtain the result code; then `SELECT … FROM registrations` to project the rich result row (so the client can render the success banner without a second round-trip).
     - `GRANT EXECUTE ON FUNCTION public.set_attendance(uuid, text, text) TO authenticated;`
@@ -39,7 +39,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
       - Migration applies cleanly after 1.1.
       - From a Supabase shell impersonating an event owner, `select * from public.set_attendance('<reg_id>','inside','qr');` returns one row with `code='applied_in'` for a `state='never'` registration, and exactly one new row appears in `attendance_events`.
 
-  - [ ] 1.3 Tighten `bulk_set_attendance` return shape (depends on 1.1)
+  - [x] 1.3 Tighten `bulk_set_attendance` return shape (depends on 1.1)
     - Create `supabase/migrations/006_bulk_set_attendance_per_row.sql` that `CREATE OR REPLACE`s `public.bulk_set_attendance(p_ids uuid[], p_target text, p_method text DEFAULT 'bulk')` with the new return shape `RETURNS TABLE(registration_id uuid, code text)`.
     - Body iterates `p_ids`, calling `_apply_attendance(_id, p_target, p_method, auth.uid())` once per id and yielding `(id, code)` for every input — including unauthorized / not-found / cancelled / declined ids — so REQ-15.3 holds: bulk result array length equals input length.
     - This is a breaking change for the one caller in `RegistrationsSection`; the client side ships in 3.3.
@@ -59,7 +59,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
       - Migration applies cleanly.
       - With a registration in `attendance_state='inside'`, `select * from public.self_check_in('<join_token>','<event_id>');` returns `status='already'` and the count of `attendance_events` rows for the registration is unchanged.
 
-- [ ] 2. TypeScript state-machine port + property-based tests
+- [x] 2. TypeScript state-machine port + property-based tests
 
   - [x] 2.1 Implement TypeScript port of `_apply_attendance`
     - Create `src/lib/attendance/types.ts` exporting `AttendanceState`, `Tab`, `Target`, `ScanResultCode`, `ApprovalStatus`, `RegistrationStatus`, `Method`, `RegistrationFixture` (a deterministic plain-JS shape with `id`, `event_id`, `status`, `approval_status`, `attendance_state`, `qr_code`, `join_token`, `kind` ('attendee' | 'speaker' | 'sponsor_contact')), `EventFixture` (`id`, `end_date`), `Actor` (`id`, `role: 'admin' | 'owner' | 'other'`), `AttendanceEventRow` (`registration_id`, `kind`, `method`, `actor_id`, `occurred_at`).
@@ -76,7 +76,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
       - `pnpm vitest --run src/lib/attendance/applyAttendance.ts` — file compiles (typecheck via `pnpm tsc --noEmit`).
       - `pnpm tsc --noEmit` reports no errors in `src/lib/attendance/**`.
 
-  - [ ] 2.2 [PBT] Property 1: State-transition correctness
+  - [x] 2.2 [PBT] Property 1: State-transition correctness
     - **Property 1: State-transition correctness**
     - **Validates: Requirements 3.1, 3.2, 3.3, 4.1, 4.2, 4.3, 12.1, 12.2**
     - Create `src/lib/attendance/__tests__/property-01-transitions.pbt.test.ts` with the comment header `// Feature: checkin-checkout-tabs, Property 1: State-transition correctness`.
@@ -85,7 +85,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - Files: `src/lib/attendance/__tests__/property-01-transitions.pbt.test.ts` (new).
     - _Acceptance:_ `pnpm vitest --run src/lib/attendance/__tests__/property-01-transitions.pbt.test.ts` passes with `numRuns: 100`.
 
-  - [ ] 2.3 [PBT] Property 2: Mode-and-ordering invariant
+  - [x] 2.3 [PBT] Property 2: Mode-and-ordering invariant
     - **Property 2: Mode-and-ordering invariant**
     - **Validates: Requirements 5.1, 5.2, 6.1, 6.2**
     - Create `src/lib/attendance/__tests__/property-02-mode-ordering.pbt.test.ts` with header `// Feature: checkin-checkout-tabs, Property 2: Mode-and-ordering invariant`.
@@ -96,7 +96,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - Files: `src/lib/attendance/__tests__/property-02-mode-ordering.pbt.test.ts` (new).
     - _Acceptance:_ `pnpm vitest --run src/lib/attendance/__tests__/property-02-mode-ordering.pbt.test.ts` passes.
 
-  - [ ] 2.4 [PBT] Property 3: Per-tab idempotence
+  - [x] 2.4 [PBT] Property 3: Per-tab idempotence
     - **Property 3: Per-tab idempotence**
     - **Validates: Requirements 5.3, 5.4**
     - Create `src/lib/attendance/__tests__/property-03-idempotence.pbt.test.ts` with header `// Feature: checkin-checkout-tabs, Property 3: Per-tab idempotence`.
@@ -105,7 +105,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - Files: `src/lib/attendance/__tests__/property-03-idempotence.pbt.test.ts` (new).
     - _Acceptance:_ `pnpm vitest --run src/lib/attendance/__tests__/property-03-idempotence.pbt.test.ts` passes.
 
-  - [ ] 2.5 [PBT] Property 4: QR resolution is total and unique
+  - [x] 2.5 [PBT] Property 4: QR resolution is total and unique
     - **Property 4: QR resolution is total and unique**
     - **Validates: Requirements 2.1, 2.2, 2.3, 2.5**
     - Create `src/lib/attendance/__tests__/property-04-qr-resolution.pbt.test.ts` with header `// Feature: checkin-checkout-tabs, Property 4: QR resolution is total and unique`.
@@ -115,7 +115,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - Files: `src/lib/attendance/__tests__/property-04-qr-resolution.pbt.test.ts` (new).
     - _Acceptance:_ `pnpm vitest --run src/lib/attendance/__tests__/property-04-qr-resolution.pbt.test.ts` passes.
 
-  - [ ] 2.6 [PBT] Property 5: Cross-event QR rejection
+  - [x] 2.6 [PBT] Property 5: Cross-event QR rejection
     - **Property 5: Cross-event QR rejection**
     - **Validates: Requirements 2.4**
     - Create `src/lib/attendance/__tests__/property-05-wrong-event.pbt.test.ts` with header `// Feature: checkin-checkout-tabs, Property 5: Cross-event QR rejection`.
@@ -124,7 +124,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - Files: `src/lib/attendance/__tests__/property-05-wrong-event.pbt.test.ts` (new); extend `src/lib/attendance/applyAttendance.ts` with `resolveAndDispatch` if not yet present.
     - _Acceptance:_ `pnpm vitest --run src/lib/attendance/__tests__/property-05-wrong-event.pbt.test.ts` passes.
 
-  - [ ] 2.7 [PBT] Property 6: Registration-status guard
+  - [x] 2.7 [PBT] Property 6: Registration-status guard
     - **Property 6: Registration-status guard**
     - **Validates: Requirements 7.1, 7.2, 7.3**
     - Create `src/lib/attendance/__tests__/property-06-status-guard.pbt.test.ts` with header `// Feature: checkin-checkout-tabs, Property 6: Registration-status guard`.
@@ -133,7 +133,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - Files: `src/lib/attendance/__tests__/property-06-status-guard.pbt.test.ts` (new).
     - _Acceptance:_ `pnpm vitest --run src/lib/attendance/__tests__/property-06-status-guard.pbt.test.ts` passes.
 
-  - [ ] 2.8 [PBT] Property 7: Tracking-window guard
+  - [x] 2.8 [PBT] Property 7: Tracking-window guard
     - **Property 7: Tracking-window guard**
     - **Validates: Requirements 8.1**
     - Create `src/lib/attendance/__tests__/property-07-tracking-window.pbt.test.ts` with header `// Feature: checkin-checkout-tabs, Property 7: Tracking-window guard`.
@@ -142,7 +142,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - Files: `src/lib/attendance/__tests__/property-07-tracking-window.pbt.test.ts` (new).
     - _Acceptance:_ `pnpm vitest --run src/lib/attendance/__tests__/property-07-tracking-window.pbt.test.ts` passes.
 
-  - [ ] 2.9 [PBT] Property 8: Authorization guard
+  - [x] 2.9 [PBT] Property 8: Authorization guard
     - **Property 8: Authorization guard**
     - **Validates: Requirements 13.2**
     - Create `src/lib/attendance/__tests__/property-08-authorization.pbt.test.ts` with header `// Feature: checkin-checkout-tabs, Property 8: Authorization guard`.
@@ -151,7 +151,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - Files: `src/lib/attendance/__tests__/property-08-authorization.pbt.test.ts` (new).
     - _Acceptance:_ `pnpm vitest --run src/lib/attendance/__tests__/property-08-authorization.pbt.test.ts` passes.
 
-  - [ ] 2.10 [PBT] Property 9: Rapid-scan dedup
+  - [x] 2.10 [PBT] Property 9: Rapid-scan dedup
     - **Property 9: Rapid-scan dedup**
     - **Validates: Requirements 9.1, 9.3**
     - Create `src/lib/attendance/__tests__/property-09-rapid-scan-dedup.pbt.test.ts` with header `// Feature: checkin-checkout-tabs, Property 9: Rapid-scan dedup`.
@@ -160,7 +160,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - Files: `src/lib/attendance/scannerStateMachine.ts` (new), `src/lib/attendance/__tests__/property-09-rapid-scan-dedup.pbt.test.ts` (new).
     - _Acceptance:_ `pnpm vitest --run src/lib/attendance/__tests__/property-09-rapid-scan-dedup.pbt.test.ts` passes.
 
-  - [ ] 2.11 [PBT] Property 10: Counter partition correctness
+  - [x] 2.11 [PBT] Property 10: Counter partition correctness
     - **Property 10: Counter partition correctness**
     - **Validates: Requirements 11.2, 11.5**
     - Create `src/lib/attendance/__tests__/property-10-counter-partition.pbt.test.ts` with header `// Feature: checkin-checkout-tabs, Property 10: Counter partition correctness`.
@@ -170,7 +170,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - Files: `src/lib/attendance/counters.ts` (new), `src/lib/attendance/__tests__/property-10-counter-partition.pbt.test.ts` (new).
     - _Acceptance:_ `pnpm vitest --run src/lib/attendance/__tests__/property-10-counter-partition.pbt.test.ts` passes.
 
-  - [ ] 2.12 [PBT] Property 11: Audit-trail immutability
+  - [x] 2.12 [PBT] Property 11: Audit-trail immutability
     - **Property 11: Audit-trail immutability**
     - **Validates: Requirements 12.3**
     - Create `src/lib/attendance/__tests__/property-11-audit-immutability.pbt.test.ts` with header `// Feature: checkin-checkout-tabs, Property 11: Audit-trail immutability`.
@@ -179,7 +179,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - Files: `src/lib/attendance/__tests__/property-11-audit-immutability.pbt.test.ts` (new).
     - _Acceptance:_ `pnpm vitest --run src/lib/attendance/__tests__/property-11-audit-immutability.pbt.test.ts` passes.
 
-  - [ ] 2.13 [PBT] Property 12: Bulk equivalence
+  - [x] 2.13 [PBT] Property 12: Bulk equivalence
     - **Property 12: Bulk equivalence**
     - **Validates: Requirements 15.1, 15.2, 15.3**
     - Create `src/lib/attendance/__tests__/property-12-bulk-equivalence.pbt.test.ts` with header `// Feature: checkin-checkout-tabs, Property 12: Bulk equivalence`.
@@ -188,7 +188,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - Files: `src/lib/attendance/__tests__/property-12-bulk-equivalence.pbt.test.ts` (new).
     - _Acceptance:_ `pnpm vitest --run src/lib/attendance/__tests__/property-12-bulk-equivalence.pbt.test.ts` passes.
 
-  - [ ] 2.14 [PBT] Property 13: Self-check-in invariant
+  - [x] 2.14 [PBT] Property 13: Self-check-in invariant
     - **Property 13: Self-check-in invariant**
     - **Validates: Requirements 14.1, 14.2, 14.3**
     - Create `src/lib/attendance/__tests__/property-13-self-checkin-invariant.pbt.test.ts` with header `// Feature: checkin-checkout-tabs, Property 13: Self-check-in invariant`.
@@ -199,7 +199,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - Files: `src/lib/attendance/__tests__/property-13-self-checkin-invariant.pbt.test.ts` (new); extend `src/lib/attendance/applyAttendance.ts` with `selfCheckIn`.
     - _Acceptance:_ `pnpm vitest --run src/lib/attendance/__tests__/property-13-self-checkin-invariant.pbt.test.ts` passes.
 
-- [ ] 3. Client implementation
+- [x] 3. Client implementation
 
   - [x] 3.1 Extend `useEventCheckinCounters` with `currentlyInside`, `checkedOut`, `notArrived`
     - Modify `src/hooks/useEventCheckinCounters.ts` to expand the returned `CheckinCounters` to `{ total, checkedIn, currentlyInside, checkedOut, notArrived }` per `design.md` "`useEventCheckinCounters` (extended) — REQ-11.5".
@@ -209,7 +209,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - _Validates: Requirements 11.5, 11.2_
     - _Acceptance:_ `pnpm tsc --noEmit` passes; existing callers of the hook still type-check.
 
-  - [ ] 3.2 Rewrite `QRScannerDialog` with tabs, dedup, in-flight lock, and 10s timeout
+  - [x] 3.2 Rewrite `QRScannerDialog` with tabs, dedup, in-flight lock, and 10s timeout
     - Rewrite `src/components/event/registrations/QRScannerDialog.tsx` as a tabbed dialog per `design.md` "`QRScannerDialog` (modified)". Key elements:
       - `Tabs` from `@/components/ui/tabs` with two values `'check-in' | 'check-out'`. Initial active tab `'check-in'` (REQ-1.2). Active tab name surfaced in dialog header (REQ-1.3).
       - One shared `Html5Qrcode` mount (do **not** stop+restart camera on tab switch).
@@ -226,7 +226,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - _Validates: Requirements 1.1–1.6, 2.1–2.5, 9.1–9.3, 10.1–10.3_
     - _Acceptance:_ `pnpm tsc --noEmit` passes; `pnpm vitest --run` does not break any unrelated test (component test added in 4.1).
 
-  - [ ] 3.3 Update `RegistrationsSection` (counters, banner, `onScanApplied`, bulk shape)
+  - [x] 3.3 Update `RegistrationsSection` (counters, banner, `onScanApplied`, bulk shape)
     - Modify `src/components/event/RegistrationsSection.tsx`:
       - Replace the inline `useMemo` attendance counts with the `currentlyInside / checkedOut / notArrived` fields from `useEventCheckinCounters` (3.1) so there is one source of truth.
       - Replace the `onCheckIn` prop wiring on `<QRScannerDialog>` with `onScanApplied={handleScanApplied}` where `handleScanApplied(result, tab)` (a) calls `reload()` and (b) on `result.code === 'applied_in' || 'applied_out'`, sets `liveLag = { regId: result.registrationId!, expiresAt: Date.now() + 5000 }`.
@@ -279,9 +279,9 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - _Validates: Requirements 11.3, 11.4_
     - _Acceptance:_ `pnpm vitest --run src/components/event/__tests__/RegistrationsSection-live-updates.test.tsx` passes.
 
-- [ ] 5. Cleanup
+- [x] 5. Cleanup
 
-  - [ ] 5.1 Update HelpPage copy referencing "Bulk Check-In"
+  - [x] 5.1 Update HelpPage copy referencing "Bulk Check-In"
     - Locate the section in `src/pages/dashboard/HelpPage.tsx` that mentions the QR scanner / bulk check-in flow. Reword it to describe the two scanner tabs (Check-In / Check-Out) and the fact that a single QR code per participant works for both. Keep the existing screenshot anchors if any.
     - Files: `src/pages/dashboard/HelpPage.tsx` (modify).
     - _Validates: User-facing documentation alignment with REQ-1, REQ-3, REQ-4_
@@ -294,7 +294,7 @@ Implementation language is **TypeScript** (the design already specifies TS inter
     - _Validates: Defense-in-depth for Requirements 6.1, 12.3_
     - _Acceptance:_ `supabase migration up` succeeds; the read-only query reports `0` violators against the seeded local database. (Skip this task entirely if the team prefers application-layer enforcement only.)
 
-- [ ] 6. Final checkpoint
+- [x] 6. Final checkpoint
   - Ensure all tests pass, ask the user if questions arise.
   - Run the full suite: `pnpm vitest --run` and `pnpm tsc --noEmit`.
   - For SQL: `supabase db reset` against a clean local Supabase to confirm migrations 004–007 (and optional 008) apply in order.
