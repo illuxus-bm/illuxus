@@ -1,6 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { logger } from "@/lib/observability";
 
 interface State {
   error: Error | null;
@@ -19,11 +20,9 @@ export class LazyRouteBoundary extends React.Component<{ children: React.ReactNo
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    // Surface in preview logs with a stable tag so we can grep for it.
-    // eslint-disable-next-line no-console
-    console.error("[LazyRoute] render error", {
-      name: error?.name,
-      message: error?.message,
+    logger.error("lazy-route render error", {
+      error_name: error?.name,
+      error_message: error?.message,
       stack: error?.stack,
       componentStack: info?.componentStack,
     });

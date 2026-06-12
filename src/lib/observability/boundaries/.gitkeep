@@ -1,0 +1,3 @@
+# Placeholder so the boundaries/ directory exists in Phase A.
+# Files (RootErrorBoundary.tsx, RouteErrorBoundary.tsx, FallbackView.tsx)
+# land in Phase B (tasks 2.1 - 2.3).
