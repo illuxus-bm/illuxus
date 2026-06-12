@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 import EventCoverPicker from "@/components/event/EventCoverPicker";
+import EventBannerPicker from "@/components/event/EventBannerPicker";
 import { eventPublicPath, eventDashboardPath } from "@/lib/event-routes";
 import { formatMoney } from "@/lib/currency";
 
@@ -52,6 +53,8 @@ const EventsPage = () => {
   const [price, setPrice] = useState("");
   const [status, setStatus] = useState("draft");
   const [imageUrl, setImageUrl] = useState("");
+  const [bannerLandscapeUrl, setBannerLandscapeUrl] = useState("");
+  const [bannerPortraitUrl, setBannerPortraitUrl] = useState("");
 
   const fetchEvents = async () => {
     if (!org?.id) return;
@@ -69,7 +72,7 @@ const EventsPage = () => {
   const resetForm = () => {
     setTitle(""); setDescription(""); setSlug(""); setSlugTouched(false); setDate(""); setEndDate("");
     setVenue(""); setLocation(""); setCapacity(""); setPrice("");
-    setStatus("draft"); setImageUrl(""); setEditingEvent(null); setShowForm(false);
+    setStatus("draft"); setImageUrl(""); setBannerLandscapeUrl(""); setBannerPortraitUrl(""); setEditingEvent(null); setShowForm(false);
   };
 
   const openEditForm = (event: Event) => {
@@ -86,6 +89,8 @@ const EventsPage = () => {
     setPrice(String(event.price || ""));
     setStatus(event.status);
     setImageUrl(event.image_url || "");
+    setBannerLandscapeUrl((event as { banner_landscape_url?: string | null }).banner_landscape_url || "");
+    setBannerPortraitUrl((event as { banner_portrait_url?: string | null }).banner_portrait_url || "");
     setShowForm(true);
   };
 
@@ -104,6 +109,8 @@ const EventsPage = () => {
       price: price ? parseFloat(price) : 0,
       status,
       image_url: imageUrl || null,
+      banner_landscape_url: bannerLandscapeUrl || null,
+      banner_portrait_url: bannerPortraitUrl || null,
       user_id: user.id,
       org_id: org.id,
       slug: slug.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, ""),
@@ -255,12 +262,46 @@ const EventsPage = () => {
                 <Input type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} className="mt-1" />
               </div>
               <div className="md:col-span-2">
-                <EventCoverPicker
-                  eventId={editingEvent?.id}
-                  userId={user!.id}
-                  imageUrl={imageUrl}
-                  onChange={setImageUrl}
-                />
+                <Label className="mb-1 block">Event images</Label>
+                <p className="text-[11px] text-muted-foreground mb-3">
+                  Cover (square) shows on listings. Landscape on desktop/tablet, portrait on phones (falls back to landscape).
+                </p>
+                <div className="space-y-4">
+                  {/* Cover image — its own row, capped width */}
+                  <div className="max-w-[280px]">
+                    <EventCoverPicker
+                      eventId={editingEvent?.id}
+                      userId={user!.id}
+                      imageUrl={imageUrl}
+                      onChange={setImageUrl}
+                    />
+                  </div>
+                  {/* Landscape + Portrait — side by side */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <EventBannerPicker
+                      eventId={editingEvent?.id}
+                      userId={user!.id}
+                      label="Landscape banner (desktop)"
+                      imageUrl={bannerLandscapeUrl}
+                      aspect={16 / 9}
+                      aspectLabel="16:9 (landscape)"
+                      recommendedPx="1920×1080 px"
+                      variant="landscape"
+                      onChange={(url) => setBannerLandscapeUrl(url || "")}
+                    />
+                    <EventBannerPicker
+                      eventId={editingEvent?.id}
+                      userId={user!.id}
+                      label="Portrait banner (mobile)"
+                      imageUrl={bannerPortraitUrl}
+                      aspect={4 / 5}
+                      aspectLabel="4:5 (portrait)"
+                      recommendedPx="1080×1350 px"
+                      variant="portrait"
+                      onChange={(url) => setBannerPortraitUrl(url || "")}
+                    />
+                  </div>
+                </div>
               </div>
               <div>
                 <Label>Status</Label>

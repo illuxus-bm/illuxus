@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { Tables } from "@/integrations/supabase/types";
 import EventCoverPicker from "@/components/event/EventCoverPicker";
+import EventBannerPicker from "@/components/event/EventBannerPicker";
 
 type Event = Tables<"events">;
 
@@ -62,6 +63,8 @@ const Dashboard = () => {
   const [price, setPrice] = useState("");
   const [status, setStatus] = useState("draft");
   const [imageUrl, setImageUrl] = useState("");
+  const [bannerLandscapeUrl, setBannerLandscapeUrl] = useState("");
+  const [bannerPortraitUrl, setBannerPortraitUrl] = useState("");
 
   const fetchEvents = async () => {
     if (!org?.id) return;
@@ -92,7 +95,7 @@ const Dashboard = () => {
   const resetForm = () => {
     setTitle(""); setDescription(""); setDate(""); setEndDate("");
     setVenue(""); setLocation(""); setCapacity(""); setPrice("");
-    setStatus("draft"); setImageUrl(""); setEditingEvent(null); setShowForm(false);
+    setStatus("draft"); setImageUrl(""); setBannerLandscapeUrl(""); setBannerPortraitUrl(""); setEditingEvent(null); setShowForm(false);
   };
 
   const openEditForm = (event: Event) => {
@@ -107,6 +110,8 @@ const Dashboard = () => {
     setPrice(String(event.price || ""));
     setStatus(event.status);
     setImageUrl(event.image_url || "");
+    setBannerLandscapeUrl((event as { banner_landscape_url?: string | null }).banner_landscape_url || "");
+    setBannerPortraitUrl((event as { banner_portrait_url?: string | null }).banner_portrait_url || "");
     setShowForm(true);
   };
 
@@ -124,6 +129,8 @@ const Dashboard = () => {
       price: price ? parseFloat(price) : 0,
       status,
       image_url: imageUrl || null,
+      banner_landscape_url: bannerLandscapeUrl || null,
+      banner_portrait_url: bannerPortraitUrl || null,
       user_id: user.id,
       org_id: org.id,
     };
@@ -328,12 +335,46 @@ const Dashboard = () => {
             </div>
             <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="md:col-span-2">
-                <EventCoverPicker
-                  eventId={editingEvent?.id}
-                  userId={user!.id}
-                  imageUrl={imageUrl}
-                  onChange={setImageUrl}
-                />
+                <Label className="text-[13px] mb-1 block">Event images</Label>
+                <p className="text-[11px] text-muted-foreground mb-3">
+                  Cover (square) shows on listings. Landscape on desktop/tablet, portrait on phones (falls back to landscape).
+                </p>
+                <div className="space-y-4">
+                  {/* Cover image — full width row, max width to keep it from being huge */}
+                  <div className="max-w-[280px]">
+                    <EventCoverPicker
+                      eventId={editingEvent?.id}
+                      userId={user!.id}
+                      imageUrl={imageUrl}
+                      onChange={setImageUrl}
+                    />
+                  </div>
+                  {/* Landscape + Portrait — side by side */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <EventBannerPicker
+                      eventId={editingEvent?.id}
+                      userId={user!.id}
+                      label="Landscape banner (desktop)"
+                      imageUrl={bannerLandscapeUrl}
+                      aspect={16 / 9}
+                      aspectLabel="16:9 (landscape)"
+                      recommendedPx="1920×1080 px"
+                      variant="landscape"
+                      onChange={(url) => setBannerLandscapeUrl(url || "")}
+                    />
+                    <EventBannerPicker
+                      eventId={editingEvent?.id}
+                      userId={user!.id}
+                      label="Portrait banner (mobile)"
+                      imageUrl={bannerPortraitUrl}
+                      aspect={4 / 5}
+                      aspectLabel="4:5 (portrait)"
+                      recommendedPx="1080×1350 px"
+                      variant="portrait"
+                      onChange={(url) => setBannerPortraitUrl(url || "")}
+                    />
+                  </div>
+                </div>
               </div>
               <div className="md:col-span-2">
                 <Label className="text-[13px]">Title</Label>

@@ -235,6 +235,7 @@ GRANT INSERT, UPDATE, DELETE ON public.event_speakers TO authenticated;
 
 -- Anon cross-join policies (now safe — event_speakers exists)
 CREATE POLICY "Anon view speakers for published" ON public.speakers FOR SELECT TO anon USING(EXISTS(SELECT 1 FROM public.event_speakers es JOIN public.events e ON e.id=es.event_id WHERE es.speaker_id=speakers.id AND e.status='published'));
+CREATE POLICY "Auth view speakers for published" ON public.speakers FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM public.event_speakers es JOIN public.events e ON e.id=es.event_id WHERE es.speaker_id=speakers.id AND e.status='published'));
 CREATE POLICY "Event owner view linked speakers" ON public.speakers FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM public.event_speakers es JOIN public.events e ON e.id=es.event_id WHERE es.speaker_id=speakers.id AND e.user_id=auth.uid()));
 REVOKE SELECT(email) ON public.speakers FROM anon;
 
@@ -253,6 +254,7 @@ GRANT SELECT ON public.event_sponsors TO anon, authenticated;
 GRANT INSERT, UPDATE, DELETE ON public.event_sponsors TO authenticated;
 
 CREATE POLICY "Anon view sponsors for published" ON public.sponsors FOR SELECT TO anon USING(EXISTS(SELECT 1 FROM public.event_sponsors es JOIN public.events e ON e.id=es.event_id WHERE es.sponsor_id=sponsors.id AND e.status='published'));
+CREATE POLICY "Auth view sponsors for published" ON public.sponsors FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM public.event_sponsors es JOIN public.events e ON e.id=es.event_id WHERE es.sponsor_id=sponsors.id AND e.status='published'));
 CREATE POLICY "Event owner view linked sponsors" ON public.sponsors FOR SELECT TO authenticated USING(EXISTS(SELECT 1 FROM public.event_sponsors es JOIN public.events e ON e.id=es.event_id WHERE es.sponsor_id=sponsors.id AND e.user_id=auth.uid()));
 REVOKE SELECT(email) ON public.sponsors FROM anon;
 

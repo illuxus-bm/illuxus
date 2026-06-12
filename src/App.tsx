@@ -199,7 +199,7 @@ const App = () => (
               <Route path="/u/me/applications" element={<AttendeeRoute><MyApplicationsPage /></AttendeeRoute>} />
               <Route path="/u/me/settings" element={<AttendeeRoute><SettingsPage /></AttendeeRoute>} />
               <Route path="/t/:id" element={<AttendeeRoute><TicketDetailPage /></AttendeeRoute>} />
-              <Route path="/dashboard" element={<ProtectedRoute><OnboardingGuard><Dashboard /></OnboardingGuard></ProtectedRoute>} />
+              <Route path="/dashboard" element={<Navigate to="/dashboard/events" replace />} />
               <Route path="/dashboard/events" element={<ProtectedRoute><OnboardingGuard><EventsPage /></OnboardingGuard></ProtectedRoute>} />
               <Route path="/dashboard/events/new" element={<ProtectedRoute><OnboardingGuard><EventQuickCreatePage /></OnboardingGuard></ProtectedRoute>} />
               <Route path="/dashboard/events/:id/guests" element={<ProtectedRoute><OnboardingGuard><GuestListPage /></OnboardingGuard></ProtectedRoute>} />
