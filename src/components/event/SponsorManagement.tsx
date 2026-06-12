@@ -1,13 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical } from "lucide-react";
+import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical, Search } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
 import SponsorLogoUploader from "./SponsorLogoUploader";
 import {
@@ -544,19 +545,11 @@ export default function SponsorManagement({ eventId }: Props) {
         </DragOverlay>
       </DndContext>
 
-      {/* Unassigned sponsors pool */}
-      {allSponsors.filter((s) => !assignedIds.has(s.id)).length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-muted-foreground mb-2">Available Sponsors (click to assign)</h3>
-          <div className="flex flex-wrap gap-2">
-            {allSponsors.filter((s) => !assignedIds.has(s.id)).map((s) => (
-              <Button key={s.id} variant="outline" size="sm" onClick={() => handleAssign(s.id)}>
-                <Plus className="h-3 w-3 mr-1" />{s.name}
-              </Button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Add existing sponsor — searchable popover instead of a flat cluster */}
+      <AssignSponsorPopover
+        sponsors={allSponsors.filter((s) => !assignedIds.has(s.id))}
+        onAssign={handleAssign}
+      />
 
       {/* Team manager dialog */}
       <Dialog open={!!teamOpen} onOpenChange={(v) => !v && setTeamOpen(null)}>
@@ -590,6 +583,96 @@ export default function SponsorManagement({ eventId }: Props) {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function AssignSponsorPopover({
+  sponsors, onAssign,
+}: {
+  sponsors: Sponsor[];
+  onAssign: (sponsorId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sponsors.slice(0, 50);
+    return sponsors
+      .filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          (s.tier || "").toLowerCase().includes(q) ||
+          (s.email || "").toLowerCase().includes(q)
+      )
+      .slice(0, 50);
+  }, [sponsors, query]);
+
+  if (sponsors.length === 0) return null;
+
+  return (
+    <div className="border-t border-border pt-4">
+      <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setQuery(""); }}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm" className="gap-1.5">
+            <Award className="h-3.5 w-3.5" />
+            Add existing sponsor
+            <span className="text-[11px] text-muted-foreground ml-1">({sponsors.length})</span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-80 p-0">
+          <div className="p-2 border-b border-border">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search by name, tier, email…"
+                className="pl-8 h-8 text-[13px]"
+                autoFocus
+              />
+            </div>
+          </div>
+          <div className="max-h-72 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <p className="text-[12px] text-muted-foreground text-center py-6">
+                No sponsors match.
+              </p>
+            ) : (
+              <div className="py-1">
+                {filtered.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => { onAssign(s.id); setOpen(false); setQuery(""); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/50 transition-colors text-left"
+                  >
+                    {s.logo_url ? (
+                      <img src={s.logo_url} alt={s.name} className="h-6 w-6 rounded object-contain bg-white shrink-0 border border-border" />
+                    ) : (
+                      <div className="h-6 w-6 rounded bg-muted flex items-center justify-center text-[10px] font-semibold text-muted-foreground shrink-0">
+                        {s.name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-medium truncate">{s.name}</p>
+                      <p className="text-[11px] text-muted-foreground truncate capitalize">
+                        {s.tier_label || s.tier}
+                      </p>
+                    </div>
+                    <Plus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  </button>
+                ))}
+              </div>
+            )}
+            {sponsors.length > filtered.length && !query.trim() && (
+              <p className="text-[10px] text-muted-foreground text-center py-2 border-t border-border">
+                Showing first 50 — type to search
+              </p>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

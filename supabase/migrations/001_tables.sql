@@ -363,6 +363,7 @@ CREATE POLICY "Org members view emails" ON public.event_emails FOR SELECT TO aut
 CREATE POLICY "Org members insert emails" ON public.event_emails FOR INSERT TO authenticated WITH CHECK(EXISTS(SELECT 1 FROM events e JOIN org_members om ON om.org_id=e.org_id WHERE e.id=event_id AND om.user_id=auth.uid()));
 CREATE POLICY "Org members update emails" ON public.event_emails FOR UPDATE TO authenticated USING(EXISTS(SELECT 1 FROM events e JOIN org_members om ON om.org_id=e.org_id WHERE e.id=event_id AND om.user_id=auth.uid()));
 CREATE POLICY "Org members delete emails" ON public.event_emails FOR DELETE TO authenticated USING(EXISTS(SELECT 1 FROM events e JOIN org_members om ON om.org_id=e.org_id WHERE e.id=event_id AND om.user_id=auth.uid()));
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_emails TO authenticated;
 
 -- ── site_content ──────────────────────────────────────────────────────────────
 CREATE TABLE public.site_content (

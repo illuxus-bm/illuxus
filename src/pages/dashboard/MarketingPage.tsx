@@ -164,8 +164,8 @@ function EmailCampaignsTab() {
 
   const resetCompose = () => { setSubject(""); setBody(""); setRecipientFilter("all"); };
 
-  const getRecipientEmails = async (): Promise<string[]> => {
-    if (recipientFilter === "speakers") {
+  const getRecipientEmails = async (filterParam: string = recipientFilter): Promise<string[]> => {
+    if (filterParam === "speakers") {
       const { data: rels } = await supabase
         .from("event_speakers").select("speaker_id").eq("event_id", selectedEventId);
       const ids = (rels || []).map((r) => r.speaker_id);
@@ -175,10 +175,57 @@ function EmailCampaignsTab() {
       return (spks || []).map((s) => s.email).filter(Boolean) as string[];
     }
     let q = supabase.from("registrations").select("email").eq("event_id", selectedEventId);
-    if (recipientFilter === "confirmed") q = q.eq("approval_status", "approved");
-    if (recipientFilter === "waitlist") q = q.eq("status", "waitlist");
+    if (filterParam === "confirmed") q = q.eq("approval_status", "approved");
+    if (filterParam === "waitlist") q = q.eq("status", "waitlist");
     const { data } = await q;
     return (data || []).map((r) => r.email).filter(Boolean);
+  };
+
+  // Send a previously-saved draft
+  const [sendingDraftId, setSendingDraftId] = useState<string | null>(null);
+  const sendDraft = async (msg: EmailMessage) => {
+    if (sendingDraftId) return;
+    if (!msg.body?.trim()) {
+      toast.error("Draft has no body — edit it first");
+      return;
+    }
+    setSendingDraftId(msg.id);
+    try {
+      const emails = await getRecipientEmails(msg.recipient_filter);
+      if (!emails.length) {
+        toast.error("No recipients found for this draft");
+        return;
+      }
+
+      const { error: fnErr } = await supabase.functions.invoke("send-event-email", {
+        body: {
+          event_id: selectedEventId,
+          email_id: msg.id,
+          subject: msg.subject,
+          body: msg.body,
+          recipient_emails: emails,
+        },
+      });
+
+      if (fnErr) {
+        toast.warning("Delivery failed. Configure RESEND_API_KEY and deploy the send-event-email edge function.");
+        return;
+      }
+
+      await supabase
+        .from("event_emails")
+        .update({ status: "sent", sent_at: new Date().toISOString() })
+        .eq("id", msg.id);
+
+      toast.success(`Sent to ${emails.length} recipient${emails.length !== 1 ? "s" : ""}`);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msg.id ? { ...m, status: "sent", sent_at: new Date().toISOString() } : m))
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to send draft");
+    } finally {
+      setSendingDraftId(null);
+    }
   };
 
   const handleSend = async () => {
@@ -367,6 +414,20 @@ function EmailCampaignsTab() {
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border capitalize ${statusStyle[msg.status] ?? ""}`}>
                         {msg.status}
                       </span>
+                      {msg.status === "draft" && (
+                        <Button
+                          size="sm"
+                          className="h-7 text-[12px] gap-1"
+                          onClick={() => sendDraft(msg)}
+                          disabled={sendingDraftId === msg.id || !msg.body?.trim()}
+                        >
+                          {sendingDraftId === msg.id ? (
+                            <><Loader2 className="h-3 w-3 animate-spin" /> Sending…</>
+                          ) : (
+                            <><Send className="h-3 w-3" /> Send</>
+                          )}
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -759,7 +820,7 @@ function LandingPagesTab() {
 
 const MarketingPage = () => (
   <DashboardLayout>
-    <div className="space-y-5 max-w-[900px]">
+    <div className="space-y-5 w-full">
       <div>
         <h1 className="text-lg font-semibold tracking-tight">Marketing</h1>
         <p className="text-[13px] text-muted-foreground">

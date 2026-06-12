@@ -104,14 +104,14 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
   };
 
   /** Build the list of recipient emails based on the filter choice. */
-  const fetchRecipientEmails = async (): Promise<string[]> => {
+  const fetchRecipientEmails = async (filter: string = newRecipients): Promise<string[]> => {
     let query = supabase.from("registrations").select("email").eq("event_id", eventId);
 
-    if (newRecipients === "confirmed") {
+    if (filter === "confirmed") {
       query = query.eq("approval_status", "approved");
-    } else if (newRecipients === "waitlist") {
+    } else if (filter === "waitlist") {
       query = query.eq("status", "waitlist");
-    } else if (newRecipients === "speakers") {
+    } else if (filter === "speakers") {
       // Speakers are stored in the speakers table linked via event_speakers
       const { data: speakerRels } = await supabase
         .from("event_speakers")
@@ -128,6 +128,56 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
 
     const { data } = await query;
     return (data || []).map((r) => r.email).filter(Boolean);
+  };
+
+  // Send a previously-saved draft. Reuses the same flow as handleSend
+  // but reads subject/body/recipient_filter from the draft row.
+  const [sendingDraftId, setSendingDraftId] = useState<string | null>(null);
+  const sendDraft = async (msg: Message) => {
+    if (sendingDraftId) return;
+    if (!msg.body?.trim()) {
+      toast.error("Draft has no body — edit it first");
+      return;
+    }
+    setSendingDraftId(msg.id);
+    try {
+      const recipientEmails = await fetchRecipientEmails(msg.recipient_filter);
+      if (!recipientEmails.length) {
+        toast.error("No recipients found for this draft");
+        return;
+      }
+
+      const { error: fnErr } = await supabase.functions.invoke("send-event-email", {
+        body: {
+          event_id: eventId,
+          email_id: msg.id,
+          subject: msg.subject,
+          body: msg.body,
+          recipient_emails: recipientEmails,
+        },
+      });
+
+      if (fnErr) {
+        toast.warning(
+          "Delivery failed. Configure RESEND_API_KEY and deploy the send-event-email edge function.",
+        );
+        return;
+      }
+
+      // Mark as sent
+      await supabase
+        .from("event_emails")
+        .update({ status: "sent", sent_at: new Date().toISOString() })
+        .eq("id", msg.id);
+
+      toast.success(`Email sent to ${recipientEmails.length} recipient${recipientEmails.length !== 1 ? "s" : ""}`);
+      // Refresh list
+      setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, status: "sent", sent_at: new Date().toISOString() } : m));
+    } catch (e) {
+      toast.error((e as Error).message || "Failed to send draft");
+    } finally {
+      setSendingDraftId(null);
+    }
   };
 
   const handleSend = async () => {
@@ -373,6 +423,20 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
                   >
                     {msg.status}
                   </span>
+                  {msg.status === "draft" && (
+                    <Button
+                      size="sm"
+                      className="h-7 text-[12px] gap-1"
+                      onClick={() => sendDraft(msg)}
+                      disabled={sendingDraftId === msg.id || !msg.body?.trim()}
+                    >
+                      {sendingDraftId === msg.id ? (
+                        <><Loader2 className="h-3 w-3 animate-spin" /> Sending…</>
+                      ) : (
+                        <><Send className="h-3 w-3" /> Send</>
+                      )}
+                    </Button>
+                  )}
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button
