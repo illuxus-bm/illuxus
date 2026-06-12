@@ -208,7 +208,7 @@ function EmailCampaignsTab() {
       });
 
       if (fnErr) {
-        toast.warning("Delivery failed. Configure RESEND_API_KEY and deploy the send-event-email edge function.");
+        toast.warning("Email recorded but not delivered — no email provider is configured.");
         return;
       }
 

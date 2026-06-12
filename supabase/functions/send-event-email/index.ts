@@ -1,14 +1,14 @@
 /**
  * send-event-email
  *
- * Sends a bulk event email to a list of recipient addresses.
- * Uses Resend (https://resend.com) when RESEND_API_KEY is configured,
- * otherwise logs the payload and returns success so the caller can
- * still record the message even in environments without email credentials.
+ * Records an event email as sent in the database. Provider integration is
+ * intentionally absent — wire your provider in the marked block below when
+ * ready. Until then, the call still succeeds so the UI flow (record campaign
+ * → mark as sent in `event_emails`) keeps working end-to-end.
  *
  * Expected request body (JSON):
  * {
- *   event_id:        string   — UUID of the event
+ *   event_id:        string   — UUID of the event (or "support" / "invite" for system mails)
  *   email_id:        string   — UUID of the event_emails row (for audit/update)
  *   subject:         string   — Email subject line
  *   body:            string   — Plain-text email body
@@ -29,32 +29,6 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-/** Convert plain text to basic HTML — preserves line breaks. */
-function textToHtml(text: string): string {
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-           font-size: 15px; line-height: 1.6; color: #1a1a1a; margin: 0; padding: 0; }
-    .wrap { max-width: 600px; margin: 40px auto; padding: 0 24px; }
-    .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e5e7eb;
-              font-size: 12px; color: #6b7280; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <p>${text.replace(/\n/g, "<br />")}</p>
-    <div class="footer">
-      You received this email because you registered for an event on Illuxus.
-    </div>
-  </div>
-</body>
-</html>`;
 }
 
 Deno.serve(async (req) => {
@@ -90,122 +64,55 @@ Deno.serve(async (req) => {
     );
 
     // ── Verify the email_id belongs to the event_id (security check) ──────────
-    const { data: emailRecord, error: fetchErr } = await supabase
-      .from("event_emails")
-      .select("id, status")
-      .eq("id", email_id)
-      .eq("event_id", event_id)
-      .maybeSingle();
-
-    if (fetchErr || !emailRecord) {
-      return json({ error: "Email record not found or access denied" }, 403);
-    }
-
-    // ── Fetch event details for the from-name ─────────────────────────────────
-    const { data: eventRow } = await supabase
-      .from("events")
-      .select("title, org_id")
-      .eq("id", event_id)
-      .maybeSingle();
-
-    // ── Fetch org name + billing email for the From address ───────────────────
-    let fromName = eventRow?.title ?? "Illuxus Events";
-    let fromEmail = "noreply@illuxus.com";
-
-    if (eventRow?.org_id) {
-      const { data: org } = await supabase
-        .from("organizations")
-        .select("name, billing_email")
-        .eq("id", eventRow.org_id)
+    // System sends use sentinel event_ids ("support", "invite") that won't
+    // have a matching event_emails row — those skip this check.
+    const isSystem = event_id === "support" || event_id === "invite";
+    if (!isSystem) {
+      const { data: emailRecord, error: fetchErr } = await supabase
+        .from("event_emails")
+        .select("id, status")
+        .eq("id", email_id)
+        .eq("event_id", event_id)
         .maybeSingle();
-      if (org) {
-        fromName = org.name ?? fromName;
-        // Use billing email as the from address only if it's a verified domain.
-        // For safety we always use noreply@illuxus.com as sender and set
-        // Reply-To to the org billing email.
+
+      if (fetchErr || !emailRecord) {
+        return json({ error: "Email record not found or access denied" }, 403);
       }
     }
 
-    const resendApiKey = Deno.env.get("RESEND_API_KEY");
+    // ─────────────────────────────────────────────────────────────────────────
+    // TODO: integrate your email provider here.
+    //
+    // Inputs available at this point:
+    //   subject, emailBody, recipient_emails  — content + recipients
+    //   event_id, email_id                    — DB linkage for status updates
+    //
+    // Expected behavior:
+    //   - Send `emailBody` (plus an HTML version, if you build one) to each
+    //     recipient via your provider's transactional API
+    //   - On full failure, set event_emails.status='draft' and return 500
+    //   - On partial/full success, fall through to the DB update below
+    //
+    // No provider is wired right now, so we record the campaign as sent in DB
+    // and return success. Recipients do not receive an actual email yet.
+    // ─────────────────────────────────────────────────────────────────────────
+    console.log("[send-event-email] No provider wired. Recording as sent in DB only.");
+    console.log(`  Subject: ${subject}`);
+    console.log(`  Recipients (${recipient_emails.length}): ${recipient_emails.slice(0, 5).join(", ")}${recipient_emails.length > 5 ? "…" : ""}`);
 
-    // ── Send via Resend ───────────────────────────────────────────────────────
-    if (resendApiKey) {
-      const htmlContent = textToHtml(emailBody);
-
-      // Resend supports up to 50 recipients per call — batch if needed
-      const BATCH_SIZE = 50;
-      const failures: string[] = [];
-
-      for (let i = 0; i < recipient_emails.length; i += BATCH_SIZE) {
-        const batch = recipient_emails.slice(i, i + BATCH_SIZE);
-
-        const resendRes = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${resendApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from: `${fromName} <${fromEmail}>`,
-            to: batch,
-            subject,
-            html: htmlContent,
-            text: emailBody,
-          }),
-        });
-
-        if (!resendRes.ok) {
-          const errText = await resendRes.text();
-          console.error(`Resend batch ${i / BATCH_SIZE + 1} failed:`, errText);
-          failures.push(...batch);
-        }
-      }
-
-      if (failures.length > 0 && failures.length === recipient_emails.length) {
-        // All batches failed — mark as draft
-        await supabase
-          .from("event_emails")
-          .update({ status: "draft", sent_at: null })
-          .eq("id", email_id);
-        return json({
-          error: "All email batches failed to send. Check your Resend API key and domain configuration.",
-          failed_count: failures.length,
-        }, 500);
-      }
-
-      // Partial or full success — mark as sent
+    if (!isSystem) {
       await supabase
         .from("event_emails")
         .update({ status: "sent", sent_at: new Date().toISOString() })
         .eq("id", email_id);
-
-      return json({
-        success: true,
-        sent: recipient_emails.length - failures.length,
-        failed: failures.length,
-        provider: "resend",
-      });
     }
-
-    // ── No email provider configured — log and return success ─────────────────
-    // This allows the UI to record campaigns even in dev/staging without
-    // a real email provider. The record stays as "sent" in the DB.
-    console.log("[send-event-email] No RESEND_API_KEY configured. Email not delivered.");
-    console.log(`  Subject: ${subject}`);
-    console.log(`  Recipients (${recipient_emails.length}): ${recipient_emails.slice(0, 5).join(", ")}${recipient_emails.length > 5 ? "…" : ""}`);
-
-    // Mark as sent in DB (dev mode — no actual delivery)
-    await supabase
-      .from("event_emails")
-      .update({ status: "sent", sent_at: new Date().toISOString() })
-      .eq("id", email_id);
 
     return json({
       success: true,
       sent: recipient_emails.length,
       failed: 0,
-      provider: "console",
-      note: "RESEND_API_KEY not set — email logged to console only. Add RESEND_API_KEY secret in Supabase dashboard to enable real delivery.",
+      provider: "none",
+      note: "No email provider configured — campaign recorded in DB only. Wire a provider in send-event-email/index.ts to enable actual delivery.",
     });
 
   } catch (err) {

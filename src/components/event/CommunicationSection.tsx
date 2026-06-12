@@ -159,7 +159,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
 
       if (fnErr) {
         toast.warning(
-          "Delivery failed. Configure RESEND_API_KEY and deploy the send-event-email edge function.",
+          "Email recorded but not delivered — no email provider is configured.",
         );
         return;
       }
