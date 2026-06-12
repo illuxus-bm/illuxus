@@ -57,6 +57,17 @@ const PublicEventPage = lazyWithLog("PublicEventPage", () => import("./pages/Pub
 const AdminPanelPage = lazyWithLog("AdminPanelPage", () => import("./pages/dashboard/AdminPanelPage.tsx"));
 const SiteEditorPage = lazyWithLog("SiteEditorPage", () => import("./pages/dashboard/admin/SiteEditorPage.tsx"));
 const AuditLogPage = lazyWithLog("AuditLogPage", () => import("./pages/dashboard/admin/AuditLogPage.tsx"));
+const CommunityHubPage = lazyWithLog("CommunityHubPage", () => import("./pages/dashboard/community/CommunityHubPage.tsx"));
+const CommunityHomePage = lazyWithLog("CommunityHomePage", () => import("./pages/dashboard/community/CommunityHomePage.tsx"));
+const CommunityFeedPage = lazyWithLog("CommunityFeedPage", () => import("./pages/dashboard/community/CommunityFeedPage.tsx"));
+const CommunityMembersPage = lazyWithLog("CommunityMembersPage", () => import("./pages/dashboard/community/CommunityMembersPage.tsx"));
+const CommunityAnnouncementsPage = lazyWithLog("CommunityAnnouncementsPage", () => import("./pages/dashboard/community/CommunityAnnouncementsPage.tsx"));
+const CommunityCalendarPage = lazyWithLog("CommunityCalendarPage", () => import("./pages/dashboard/community/CommunityCalendarPage.tsx"));
+const CommunityResourcesPage = lazyWithLog("CommunityResourcesPage", () => import("./pages/dashboard/community/CommunityResourcesPage.tsx"));
+const CommunityChatPage = lazyWithLog("CommunityChatPage", () => import("./pages/dashboard/community/CommunityChatPage.tsx"));
+const CommunityLeaderboardPage = lazyWithLog("CommunityLeaderboardPage", () => import("./pages/dashboard/community/CommunityLeaderboardPage.tsx"));
+const CommunityModerationPage = lazyWithLog("CommunityModerationPage", () => import("./pages/dashboard/community/CommunityModerationPage.tsx"));
+const CommunitySettingsPage = lazyWithLog("CommunitySettingsPage", () => import("./pages/dashboard/community/CommunitySettingsPage.tsx"));
 const PublicOrgPage = lazyWithLog("PublicOrgPage", () => import("./pages/PublicOrgPage.tsx"));
 const LandingBuilderPage = lazyWithLog("LandingBuilderPage", () => import("./pages/dashboard/LandingBuilderPage.tsx"));
 const DomainsPage = lazyWithLog("DomainsPage", () => import("./pages/dashboard/DomainsPage.tsx"));
@@ -228,6 +239,17 @@ const App = () => (
               <Route path="/dashboard/admin" element={<SuperAdminRoute><AdminPanelPage /></SuperAdminRoute>} />
               <Route path="/dashboard/admin/site" element={<SuperAdminRoute><SiteEditorPage /></SuperAdminRoute>} />
               <Route path="/dashboard/admin/audit" element={<SuperAdminRoute><AuditLogPage /></SuperAdminRoute>} />
+              <Route path="/dashboard/community" element={<ProtectedRoute><OnboardingGuard><CommunityHubPage /></OnboardingGuard></ProtectedRoute>} />
+              <Route path="/dashboard/community/:slug" element={<ProtectedRoute><OnboardingGuard><CommunityHomePage /></OnboardingGuard></ProtectedRoute>} />
+              <Route path="/dashboard/community/:slug/feed" element={<ProtectedRoute><OnboardingGuard><CommunityFeedPage /></OnboardingGuard></ProtectedRoute>} />
+              <Route path="/dashboard/community/:slug/members" element={<ProtectedRoute><OnboardingGuard><CommunityMembersPage /></OnboardingGuard></ProtectedRoute>} />
+              <Route path="/dashboard/community/:slug/announcements" element={<ProtectedRoute><OnboardingGuard><CommunityAnnouncementsPage /></OnboardingGuard></ProtectedRoute>} />
+              <Route path="/dashboard/community/:slug/calendar" element={<ProtectedRoute><OnboardingGuard><CommunityCalendarPage /></OnboardingGuard></ProtectedRoute>} />
+              <Route path="/dashboard/community/:slug/resources" element={<ProtectedRoute><OnboardingGuard><CommunityResourcesPage /></OnboardingGuard></ProtectedRoute>} />
+              <Route path="/dashboard/community/:slug/chat" element={<ProtectedRoute><OnboardingGuard><CommunityChatPage /></OnboardingGuard></ProtectedRoute>} />
+              <Route path="/dashboard/community/:slug/leaderboard" element={<ProtectedRoute><OnboardingGuard><CommunityLeaderboardPage /></OnboardingGuard></ProtectedRoute>} />
+              <Route path="/dashboard/community/:slug/moderation" element={<ProtectedRoute><OnboardingGuard><CommunityModerationPage /></OnboardingGuard></ProtectedRoute>} />
+              <Route path="/dashboard/community/:slug/settings" element={<ProtectedRoute><OnboardingGuard><CommunitySettingsPage /></OnboardingGuard></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
               </Routes>
               </Suspense>

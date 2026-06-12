@@ -6,7 +6,7 @@ import {
   LayoutDashboard, ClipboardList, Users, FileText, Palette,
   Mail, BarChart3, CalendarCheck, Search, Ticket, Presentation,
   UserCheck, UsersRound, Award, Megaphone, Globe, ArrowLeft, ExternalLink,
-  Link2, Check, X, Pencil, Copy, Settings, Radio, ChevronDown, RefreshCw
+  Link2, Check, X, Pencil, Copy, Settings, Radio, ChevronDown, RefreshCw, Users2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,6 +55,7 @@ const sidebarNav = [
   { label: "Agenda", icon: CalendarCheck, key: "agenda" },
   { label: "Design", icon: Palette, key: "design" },
   { label: "Communicate", icon: Mail, key: "communicate" },
+  { label: "Community", icon: Users2, key: "community" },
   { label: "Reports", icon: BarChart3, key: "reports" },
   { label: "Search", icon: Search, key: "search" },
 ];
@@ -394,8 +395,19 @@ const EventDetailPage = () => {
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-background">
-        <EventSidebar active={activeSection} onSelect={(k) => {
+        <EventSidebar active={activeSection} onSelect={async (k) => {
           if (k === "broadcast") { setActiveSection("broadcast"); return; }
+          if (k === "community") {
+            // Resolve this event's community and jump to its feed.
+            const { data: cid } = await supabase.rpc("community_resolve_event" as never, { _event_id: event.id } as never);
+            if (cid) {
+              const { data: comm } = await supabase.from("communities" as never).select("slug").eq("id", cid as string).maybeSingle();
+              const slug = (comm as { slug?: string } | null)?.slug;
+              if (slug) { navigate(`/dashboard/community/${slug}/feed`); return; }
+            }
+            navigate("/dashboard/community");
+            return;
+          }
           setActiveSection(k);
         }} eventTitle={event.title} eventFormat={(event as any).event_format} />
 
@@ -738,7 +750,7 @@ const EventDetailPage = () => {
               </Suspense>
             )}
 
-            {!["dashboard", "settings", "manage", "agenda", "exhibitors", "design", "registrations", "communicate", "reports", "broadcast", "search", "applications"].includes(activeSection) && (
+            {!["dashboard", "settings", "manage", "agenda", "exhibitors", "design", "registrations", "communicate", "reports", "broadcast", "search", "applications", "community"].includes(activeSection) && (
               <div className="flex items-center justify-center h-64 text-muted-foreground">
                 <p className="text-sm">{sidebarNav.find(n => n.key === activeSection)?.label} — Coming soon</p>
               </div>
