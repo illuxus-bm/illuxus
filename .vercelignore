@@ -1,0 +1,14 @@
+.kiro/
+.lovable/
+.vscode/
+docs/
+tests/
+playwright.config.ts
+playwright-fixture.ts
+src/test/
+src/**/__tests__/
+src/lib/attendance/__tests__/
+src/lib/observability/__tests__/
+pnpm-lock.yaml
+pnpm-workspace.yaml
+ROADMAP.md
