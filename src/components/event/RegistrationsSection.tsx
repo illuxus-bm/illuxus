@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { logger, supabaseRpc } from "@/lib/observability";
 import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, Link2, History, ListChecks, Undo2, Stethoscope, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -271,9 +272,12 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   // time the indicator becomes visible per liveLag occurrence.
   useEffect(() => {
     if (showLag && !lagWarnedRef.current) {
+      // eslint-disable-next-line no-console -- contract: live-updates-delayed indicator
       console.warn("UI sync failure");
+      logger.warn("ui sync failure", { reg_id: liveLag?.regId ?? null });
       lagWarnedRef.current = true;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: warn once per off→on transition of showLag; liveLag is read for context only
   }, [showLag]);
 
   // Merge attendees + virtual rows (speakers/sponsors). For speakers/sponsors
@@ -372,18 +376,22 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
 
   const checkInVirtual = async (row: Row) => {
     // Lazy-create a registration via the SECURITY DEFINER self_check_in RPC.
-    const { data, error } = await supabase.rpc("self_check_in" as never, {
+    const { data, error, correlationId } = await supabaseRpc("self_check_in" as never, {
       p_token: row.qr_payload,
       p_event_id: eventId,
     } as never);
     const result = Array.isArray(data) ? (data as any[])[0] : (data as any);
     if (error || !result) {
-      console.warn("self_check_in failed", { row, error, result });
-      toast.error("Could not check in", { description: error?.message || "No response from server" });
+      logger.warn("self-check-in failed", {
+        row_id: row.id,
+        error_message: error?.message ?? null,
+        result_code: result?.status ?? null,
+      });
+      toast.error("Could not check in", { description: `Reference: ${correlationId}` });
       return;
     }
     if (result.status !== "ok" && result.status !== "already" && result.status !== "checked_out") {
-      console.warn("self_check_in status", result);
+      logger.warn("self-check-in status", { result_code: result?.status ?? null });
       toast.error("Could not check in", { description: result.status });
       return;
     }
@@ -410,19 +418,19 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         return;
       }
       const reg = row.registration;
-      const { data, error } = await supabase.rpc("toggle_attendance" as never, {
+      const { data, error, correlationId } = await supabaseRpc("toggle_attendance" as never, {
         p_reg_id: reg.id,
         p_method: method,
       } as never);
       const result = Array.isArray(data) ? (data as any[])[0] : (data as any);
       if (error) {
-        console.warn("toggle_attendance error", error);
-        toast.error("Failed to update check-in", { description: error.message });
+        logger.warn("toggle-attendance error", { error_message: error.message });
+        toast.error("Failed to update check-in", { description: `Reference: ${correlationId}` });
         return;
       }
       if (!result) {
-        console.warn("toggle_attendance empty result", { reg });
-        toast.error("Failed to update check-in", { description: "No response from server" });
+        logger.warn("toggle-attendance empty result", { reg_id: reg.id });
+        toast.error("Failed to update check-in", { description: `Reference: ${correlationId}` });
         return;
       }
       if (result.state === "tracking_closed") {
@@ -441,12 +449,12 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
 
   const undoAttendance = async (row: Row, kind: "in" | "out") => {
     if (!row.registration) return;
-    const { data, error } = await supabase.rpc("undo_attendance" as never, {
+    const { data, error, correlationId } = await supabaseRpc("undo_attendance" as never, {
       p_reg_id: row.registration.id,
       p_kind: kind,
     } as never);
     if (error) {
-      toast.error("Failed to undo", { description: error.message });
+      toast.error("Failed to undo", { description: `Reference: ${correlationId}` });
       return;
     }
     const result = Array.isArray(data) ? (data as any[])[0] : (data as any);
@@ -530,13 +538,13 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     }
     let appliedCount = 0;
     if (haveReg.length > 0) {
-      const { data, error } = await supabase.rpc("bulk_set_attendance" as never, {
+      const { data, error, correlationId } = await supabaseRpc("bulk_set_attendance" as never, {
         p_ids: haveReg.map((r) => r.registration!.id),
         p_target: "inside",
         p_method: "bulk",
       } as never);
       if (error) {
-        toast.error("Failed to bulk check in", { description: error.message });
+        toast.error("Failed to bulk check in", { description: `Reference: ${correlationId}` });
         return;
       }
       // REQ-15.3 — `bulk_set_attendance` now returns one row per input id.
@@ -554,7 +562,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       surfaceBulkSkips(skipped, haveReg);
     }
     for (const row of virtual) {
-      const { data } = await supabase.rpc("self_check_in" as never, {
+      const { data } = await supabaseRpc("self_check_in" as never, {
         p_token: row.qr_payload,
         p_event_id: eventId,
       } as never);
@@ -578,13 +586,13 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       toast.info("No one to check out in selection");
       return;
     }
-    const { data, error } = await supabase.rpc("bulk_set_attendance" as never, {
+    const { data, error, correlationId } = await supabaseRpc("bulk_set_attendance" as never, {
       p_ids: toRevert.map((r) => r.registration!.id),
       p_target: "outside",
       p_method: "bulk",
     } as never);
     if (error) {
-      toast.error("Failed to check out", { description: error.message });
+      toast.error("Failed to check out", { description: `Reference: ${correlationId}` });
       return;
     }
     // REQ-15.3 — same per-row partitioning as bulkCheckIn.

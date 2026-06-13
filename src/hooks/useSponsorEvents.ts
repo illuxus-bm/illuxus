@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 import type { SponsorPortalEvent, SponsorPortalPerson } from "@/types/portals";
 
@@ -12,7 +13,7 @@ export function useSponsorEvents() {
   return useQuery<SponsorPortalEvent[]>({
     queryKey: ["sponsor-events", user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("sponsor_portal_events" as never);
+      const { data, error } = await supabaseRpc("sponsor_portal_events" as never);
       if (error) throw error;
       return ((data as unknown as SponsorPortalEvent[]) ?? []);
     },
@@ -32,7 +33,7 @@ export function useSponsorEventPeople(eventId: string | undefined) {
     queryKey: ["sponsor-event-people", user?.id, eventId],
     queryFn: async () => {
       if (!eventId) return [];
-      const { data, error } = await supabase.rpc("sponsor_portal_people" as never, { _eid: eventId } as never);
+      const { data, error } = await supabaseRpc("sponsor_portal_people" as never, { _eid: eventId } as never);
       if (error) throw error;
       return ((data as unknown as SponsorPortalPerson[]) ?? []);
     },

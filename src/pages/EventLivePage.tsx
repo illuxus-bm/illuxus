@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -143,7 +144,7 @@ export default function EventLivePage() {
   useEffect(() => {
     if (!eventId) return;
     (async () => {
-      const { data } = await supabase.rpc("event_branding_enabled", { _event_id: eventId });
+      const { data } = await supabaseRpc("event_branding_enabled", { _event_id: eventId });
       if (typeof data === "boolean") setBrandingEnabled(data);
     })();
   }, [eventId]);
@@ -153,7 +154,7 @@ export default function EventLivePage() {
   useEffect(() => {
     if (!joinToken || !user) return;
     (async () => {
-      const { data, error } = await supabase.rpc("claim_join_session", {
+      const { data, error } = await supabaseRpc("claim_join_session", {
         _join_token: joinToken, _session_id: browserSessionId,
       });
       if (error) { return; }

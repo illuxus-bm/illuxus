@@ -22,6 +22,7 @@ import { useSiteContent } from "@/hooks/useSiteContent";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -206,7 +207,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     if (!user) return;
     let cancelled = false;
     const load = () => {
-      supabase.rpc("get_my_profile").then(({ data }) => {
+      supabaseRpc("get_my_profile").then(({ data }) => {
         if (cancelled || !data) return;
         const p = data as { display_name: string | null; avatar_url: string | null; first_name: string | null; last_name: string | null };
         setProfile({ display_name: p.display_name ?? null, avatar_url: p.avatar_url ?? null, first_name: p.first_name ?? null, last_name: p.last_name ?? null });

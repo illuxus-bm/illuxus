@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import type { Community, CommunityMember } from "@/lib/community/types";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -86,7 +87,7 @@ export function useEventCommunity(eventId: string | undefined) {
     queryKey: ["community", "by-event", eventId],
     enabled: !!eventId,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("community_resolve_event" as never, {
+      const { data, error } = await supabaseRpc("community_resolve_event" as never, {
         _event_id: eventId,
       } as never);
       if (error) throw error;

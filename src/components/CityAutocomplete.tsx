@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { Input } from "@/components/ui/input";
 import { Loader2, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -62,7 +62,7 @@ export default function CityAutocomplete({ value, onChange, placeholder, require
     }
     debounceRef.current = window.setTimeout(async () => {
       setLoading(true);
-      const { data, error } = await supabase.rpc("search_cities", { _q: q, _limit: 8 });
+      const { data, error } = await supabaseRpc("search_cities", { _q: q, _limit: 8 });
       setLoading(false);
       if (!error && data) {
         setResults(data as CitySuggestion[]);

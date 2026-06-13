@@ -228,6 +228,91 @@ When either signal is truthy:
 For the full list of what is and is not collected, the retention window, and how to
 request deletion, see [`docs/observability-privacy.md`](./observability-privacy.md).
 
+## Deploying to production
+
+This section is for whoever is wiring observability into a production environment for
+the first time. The Logger, redactor, sinks, and error boundaries don't need any
+further configuration to work — what's left is pointing the Remote Sink at the right
+provider project, getting source maps uploaded, and verifying the result.
+
+### Build env vars (read by the bundle)
+
+These are read by Vite at build time and baked into the bundle. They're safe to put in
+the regular environment of your build runner.
+
+| Variable                     | Purpose                                                                 |
+| ---------------------------- | ----------------------------------------------------------------------- |
+| `VITE_OBSERVABILITY_DSN`     | Sentry (or compatible) DSN. Empty string disables remote reporting.     |
+| `VITE_OBSERVABILITY_OPT_OUT` | Set to `1` only if you want to disable remote logging at the build level (rare — for forks or self-hosted deployments that don't want to point at our provider). |
+
+### CI-only secrets (NOT exposed to the bundle)
+
+These are read by the source-map upload step at build time and **must not** be
+`VITE_`-prefixed. Vite would otherwise inline them into the JavaScript that ships to
+the browser, which would leak the auth token. Put these in your CI's secret store and
+expose them only to the build job.
+
+| Variable                    | Purpose                                                       |
+| --------------------------- | ------------------------------------------------------------- |
+| `OBSERVABILITY_AUTH_TOKEN`  | Required for source-map upload at build time.                 |
+| `OBSERVABILITY_ORG`         | Sentry org slug.                                              |
+| `OBSERVABILITY_PROJECT`     | Sentry project slug.                                          |
+
+### Behavior when env vars are missing
+
+The build is intentionally tolerant of partial configuration. Nothing here fails the
+build — instead, the affected piece becomes a no-op so a forgotten secret can't take
+production down.
+
+- **Empty `VITE_OBSERVABILITY_DSN`** → the Remote Sink is a no-op for the lifetime of
+  the build. The underlying `BrowserClient` is never constructed, so there is no
+  network traffic to the provider and no module-load cost beyond the empty-DSN check.
+  (REQ 8.3)
+- **Missing `OBSERVABILITY_AUTH_TOKEN` at build time** → the source-map upload step
+  is skipped with a single warning and the build still succeeds. Errors will appear
+  in the inbox without source-mapped stack frames until the token is provided on a
+  later build. (REQ 14.5)
+
+### Recommended rollout: canary org first
+
+Don't flip remote reporting on for every environment in one go. The recommended
+"Phase A" rollout from `design.md` is:
+
+1. Set `VITE_OBSERVABILITY_DSN` (and the CI-only secrets) **only** in a single canary
+   org or environment — typically a staging deployment or a small production tenant
+   you control.
+2. Trigger a controlled error in that environment (see "Verifying a production
+   deploy" below) and confirm that:
+   - the event arrives in the Sentry inbox within a minute,
+   - the stack trace is source-mapped to the original TypeScript,
+   - the release tag on the event matches the build sha you deployed.
+3. Only after the canary is green, set the same env vars on the rest of your
+   environments.
+
+Treat any of those three checks failing as a blocker for the wider rollout — fix the
+config in the canary first.
+
+### Verifying a production deploy
+
+Once the env vars are in place and a build has shipped, run through these three
+checks against the live origin:
+
+1. **Fallback view + correlation id.** In a browser console on the deployed site,
+   throw an error inside a route (e.g. `setTimeout(() => { throw new Error('canary'); }, 0)`
+   from a route component, or trigger a known failure path). The route-level error
+   boundary's Fallback_View should appear with a visible correlation id that the
+   user could copy into a support message.
+2. **Inbox + release tag.** Check the Sentry inbox for a matching event. It should
+   be tagged with the build sha as the release. If the release is `unknown` or
+   missing, the build didn't pick up `VITE_BUILD_SHA` — fix the build env before
+   continuing.
+3. **No source maps on the origin.** Confirm that `*.map` files are not reachable
+   under `/assets/` on the deployed origin. Source maps are uploaded to the provider
+   for stack symbolication and must not be served alongside the bundle.
+
+If all three pass, observability is wired up. If any of them fails, leave the
+canary in place and treat the failure as the next thing to fix before rolling wider.
+
 ## FAQ
 
 ### Why is my email redacted?

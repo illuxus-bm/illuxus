@@ -54,7 +54,8 @@ Records sent to the remote sink are retained for **30 days**, after which they a
 deleted by the provider. There is no separate long-term archive.
 
 The provider is [Sentry](https://sentry.io). The 30-day window is configured at the
-project level on the provider dashboard.
+project level on the provider dashboard. Confirm by visiting Settings → Privacy & Data
+Scrubbing on sentry.io for the project.
 
 ## Opt-out
 

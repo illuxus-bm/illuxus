@@ -4,6 +4,7 @@ import { usePortalAccess } from "@/hooks/usePortalAccess";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -62,7 +63,7 @@ export default function SiteHeader({
     if (!user) { setProfile(null); return; }
     let cancelled = false;
     const load = () => {
-      supabase.rpc("get_my_profile").then(({ data }) => {
+      supabaseRpc("get_my_profile").then(({ data }) => {
         if (cancelled || !data) return;
         const p = data as { display_name: string | null; avatar_url: string | null; first_name: string | null; last_name: string | null };
         setProfile({

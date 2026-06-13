@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { logger, supabaseRpc } from "@/lib/observability";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { History, LogIn, LogOut, Undo2 } from "lucide-react";
 
@@ -33,10 +33,15 @@ export default function AttendanceHistoryDialog({
   useEffect(() => {
     if (!open || !registrationId) return;
     setLoading(true);
-    supabase.rpc("registration_attendance_audit" as never, {
+    supabaseRpc("registration_attendance_audit" as never, {
       p_registration_id: registrationId, p_limit: 50,
     } as never).then(({ data, error }) => {
-      if (error) console.warn("audit fetch failed", error);
+      if (error) {
+        logger.warn("audit fetch failed", {
+          registration_id: registrationId,
+          error_message: error instanceof Error ? error.message : String(error),
+        });
+      }
       setEntries((data as Entry[]) || []);
       setLoading(false);
     });

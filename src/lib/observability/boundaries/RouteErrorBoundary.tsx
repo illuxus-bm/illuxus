@@ -1,9 +1,9 @@
-// RootErrorBoundary — top-level React class boundary that wraps the
-// entire app under <BrowserRouter>. Catches any error escaping a route
-// boundary (or thrown by providers / shells outside the route tree) and
-// surfaces a branded fallback so the app never blanks.
+// RouteErrorBoundary — per-route React class boundary that wraps each
+// lazy route element. Catches errors thrown inside a single route's
+// component tree so an isolated failure does not unmount the shell or
+// trip the root boundary.
 //
-// Validates: Requirements 7.1, 7.3, 7.4
+// Validates: Requirements 7.2, 7.3, 7.4
 //
 // Notes
 // ─────
@@ -33,7 +33,7 @@ interface State {
   error: Error | null;
 }
 
-export class RootErrorBoundary extends React.Component<Props, State> {
+export class RouteErrorBoundary extends React.Component<Props, State> {
   state: State = { error: null };
 
   static getDerivedStateFromError(error: Error): State {
@@ -54,7 +54,7 @@ export class RootErrorBoundary extends React.Component<Props, State> {
     }
 
     logger.error('boundary caught', {
-      boundary: 'root',
+      boundary: 'route',
       route,
       error_name: error?.name,
       error_message: error?.message,
@@ -77,4 +77,4 @@ export class RootErrorBoundary extends React.Component<Props, State> {
   }
 }
 
-export default RootErrorBoundary;
+export default RouteErrorBoundary;

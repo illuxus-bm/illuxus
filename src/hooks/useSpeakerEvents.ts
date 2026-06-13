@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 import type { SpeakerPortalEvent, SpeakerPortalEventDetails } from "@/types/portals";
 
@@ -13,7 +13,7 @@ export function useSpeakerEvents() {
   return useQuery<SpeakerPortalEvent[]>({
     queryKey: ["speaker-events", user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("speaker_portal_events" as never);
+      const { data, error } = await supabaseRpc("speaker_portal_events" as never);
       if (error) throw error;
       return ((data as unknown as SpeakerPortalEvent[]) ?? []);
     },
@@ -34,7 +34,7 @@ export function useSpeakerEventDetails(eventId: string | undefined) {
     queryKey: ["speaker-event-details", user?.id, eventId],
     queryFn: async () => {
       if (!eventId) return null;
-      const { data, error } = await supabase.rpc("speaker_portal_event_details" as never, { _eid: eventId } as never);
+      const { data, error } = await supabaseRpc("speaker_portal_event_details" as never, { _eid: eventId } as never);
       if (error) throw error;
       return (data as unknown as SpeakerPortalEventDetails) ?? null;
     },

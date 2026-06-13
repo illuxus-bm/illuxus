@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowRight, CalendarDays, Cpu, Utensils, Sparkles, Palette, Leaf, Dumbbell, Flower2, Bitcoin, MapPin, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { eventPublicPath } from "@/lib/event-routes";
+import { logger } from "@/lib/observability";
 
 /**
  * Lu.ma-style /discover page.
@@ -33,8 +34,7 @@ export default function DiscoverFeed() {
         .limit(100);
       if (cancel) return;
       if (error) {
-        // eslint-disable-next-line no-console
-        console.error("[DiscoverFeed] events query failed:", error);
+        logger.error("discover events query failed", { error_message: error?.message ?? String(error) });
       }
       // Filter out events that have already ended.
       const now = Date.now();

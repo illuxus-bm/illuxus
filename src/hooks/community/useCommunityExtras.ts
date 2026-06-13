@@ -3,6 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect } from "react";
 import type {
@@ -42,7 +43,7 @@ export function useVotePoll() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { pollId: string; optionId: string }) => {
-      const { error } = await supabase.rpc("community_vote" as never, {
+      const { error } = await supabaseRpc("community_vote" as never, {
         _poll_id: input.pollId, _option_id: input.optionId,
       } as never);
       if (error) throw error;
@@ -63,7 +64,7 @@ export function useCreatePoll() {
       multi?: boolean;
       closesAt?: string | null;
     }) => {
-      const { data, error } = await supabase.rpc("community_create_poll" as never, {
+      const { data, error } = await supabaseRpc("community_create_poll" as never, {
         _community_id: input.communityId,
         _question: input.question,
         _options: input.options,
@@ -143,7 +144,7 @@ export function useReports(communityId: string | undefined) {
 export function useReport() {
   return useMutation({
     mutationFn: async (input: { postId?: string; commentId?: string; reason: string; notes?: string }) => {
-      const { error } = await supabase.rpc("community_report" as never, {
+      const { error } = await supabaseRpc("community_report" as never, {
         _post_id: input.postId ?? null,
         _comment_id: input.commentId ?? null,
         _reason: input.reason,
@@ -158,7 +159,7 @@ export function useModerate() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { postId?: string; commentId?: string; action: "hide" | "unhide" | "delete" | "pin" | "unpin"; reason?: string }) => {
-      const { error } = await supabase.rpc("community_moderate" as never, {
+      const { error } = await supabaseRpc("community_moderate" as never, {
         _post_id: input.postId ?? null,
         _comment_id: input.commentId ?? null,
         _action: input.action,
@@ -177,7 +178,7 @@ export function useSetMemberStatus(communityId: string | undefined) {
   return useMutation({
     mutationFn: async (input: { userId: string; status: "active" | "suspended" | "banned"; reason?: string }) => {
       if (!communityId) throw new Error("No community");
-      const { error } = await supabase.rpc("community_set_member_status" as never, {
+      const { error } = await supabaseRpc("community_set_member_status" as never, {
         _community_id: communityId,
         _user_id: input.userId,
         _status: input.status,
@@ -213,7 +214,7 @@ export function useConnect() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { targetId: string; kind?: "follow" | "connect"; communityId?: string }) => {
-      const { error } = await supabase.rpc("community_connect" as never, {
+      const { error } = await supabaseRpc("community_connect" as never, {
         _target_id: input.targetId,
         _kind: input.kind ?? "connect",
         _community_id: input.communityId ?? null,
@@ -230,7 +231,7 @@ export function useRespondConnection() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { requestId: string; accept: boolean }) => {
-      const { error } = await supabase.rpc("community_respond_connection" as never, {
+      const { error } = await supabaseRpc("community_respond_connection" as never, {
         _request_id: input.requestId, _accept: input.accept,
       } as never);
       if (error) throw error;
@@ -313,7 +314,7 @@ export function useCommunitySearch(q: string, communityId?: string) {
     queryKey: ["community", "search", q, communityId ?? null],
     enabled: q.trim().length >= 2,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("community_search" as never, {
+      const { data, error } = await supabaseRpc("community_search" as never, {
         _q: q, _community_id: communityId ?? null, _limit: 30,
       } as never);
       if (error) throw error;

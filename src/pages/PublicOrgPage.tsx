@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   CalendarDays,
@@ -93,7 +94,7 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
     let cancel = false;
     (async () => {
       // Use security-definer RPC so only safe (non-billing) columns are exposed publicly
-      const { data: rows } = await supabase.rpc("get_public_org_by_slug", { _slug: slug });
+      const { data: rows } = await supabaseRpc("get_public_org_by_slug", { _slug: slug });
       const data = (Array.isArray(rows) ? rows[0] : rows) as OrgRow | null;
 
       if (cancel) return;

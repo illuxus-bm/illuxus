@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, CartesianGrid } from "recharts";
@@ -12,7 +12,7 @@ export function AnalyticsPanel({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     let active = true;
     setLoading(true);
-    supabase.rpc("get_webinar_analytics", { _session_id: sessionId } as any)
+    supabaseRpc("get_webinar_analytics", { _session_id: sessionId } as any)
       .then(({ data, error }) => { if (active) { setData(error ? null : data); setLoading(false); } });
     return () => { active = false; };
   }, [sessionId]);

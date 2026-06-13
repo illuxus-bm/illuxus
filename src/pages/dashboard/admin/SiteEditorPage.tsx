@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -870,7 +871,7 @@ export default function SiteEditorPage() {
       setAutoSaving(true);
       const saved: SiteSection[] = [];
       for (const s of snapshot) {
-        const { error } = await supabase.rpc("save_site_draft", {
+        const { error } = await supabaseRpc("save_site_draft", {
           _section: s,
           _content: draft[s] as any,
         });
@@ -912,7 +913,7 @@ export default function SiteEditorPage() {
     if (sections.length === 0) sections.push(active);
 
     for (const s of sections) {
-      const { error } = await supabase.rpc("save_site_draft", {
+      const { error } = await supabaseRpc("save_site_draft", {
         _section: s,
         _content: draft[s] as any,
       });
@@ -934,7 +935,7 @@ export default function SiteEditorPage() {
 
   const handlePublishActive = async () => {
     setPublishing(true);
-    const { error } = await supabase.rpc("publish_site_section", { _section: active });
+    const { error } = await supabaseRpc("publish_site_section", { _section: active });
     setPublishing(false);
     if (error) {
       toast.error(error.message || "Failed to publish");
@@ -953,7 +954,7 @@ export default function SiteEditorPage() {
   const handlePublishAll = async () => {
     setPublishing(true);
     for (const s of Array.from(draftSections)) {
-      const { error } = await supabase.rpc("publish_site_section", { _section: s });
+      const { error } = await supabaseRpc("publish_site_section", { _section: s });
       if (error) {
         toast.error(`Failed to publish ${s}: ${error.message}`);
         setPublishing(false);
@@ -968,7 +969,7 @@ export default function SiteEditorPage() {
 
   const handleDiscardActive = async () => {
     setDiscarding(true);
-    const { error } = await supabase.rpc("discard_site_draft", { _section: active });
+    const { error } = await supabaseRpc("discard_site_draft", { _section: active });
     setDiscarding(false);
     if (error) {
       toast.error(error.message || "Failed to discard");

@@ -12,27 +12,29 @@ import SiteHead from "@/components/SiteHead";
 import Footer from "@/components/Footer";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { LazyRouteBoundary } from "@/components/LazyRouteBoundary";
+import RootErrorBoundary from "@/lib/observability/boundaries/RootErrorBoundary";
+import RouteErrorBoundary from "@/lib/observability/boundaries/RouteErrorBoundary";
+import { logger } from "@/lib/observability";
 // Eagerly-loaded landing & auth pages (small + needed for first paint / SEO)
 import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import LoginPage from "./pages/LoginPage.tsx";
 
 /**
- * Wraps a lazy() loader with console diagnostics so we can see in preview
- * logs which chunk failed when a dynamic import errors out.
+ * Wraps a lazy() loader with structured logger diagnostics so we can see in
+ * preview logs which chunk failed when a dynamic import errors out.
  */
 function lazyWithLog<T extends { default: React.ComponentType<any> }>(
   name: string,
   loader: () => Promise<T>,
 ) {
   return lazy(() => {
-    // eslint-disable-next-line no-console
-    console.info(`[LazyRoute] loading ${name}`);
+    logger.debug('lazy-route loading', { name });
     return loader().catch((err) => {
-      // eslint-disable-next-line no-console
-      console.error(`[LazyRoute] failed to load ${name}`, {
-        name: err?.name,
-        message: err?.message,
+      logger.error('lazy-route load failed', {
+        name,
+        error_name: err?.name,
+        error_message: err?.message,
       });
       throw err;
     });
@@ -174,90 +176,94 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <AuthProvider>
-            <OrgProvider>
-              <SiteContentProvider>
-              <SiteHead />
-              <LazyRouteBoundary>
-              <Suspense fallback={<FullPageLoader />}>
-              <Routes>
-              <Route path="/" element={<HomeRoute />} />
-              <Route path="/discover" element={<DiscoverFeed />} />
-              {/* Lu.ma-style public events browser. */}
-              <Route path="/events" element={<EventsListingPage />} />
-              {/* Canonical org + event public URLs (Lu.ma-style with /org prefix). */}
-              <Route path="/org/:slug" element={<PublicOrgPage />} />
-              <Route path="/org/:orgSlug/events/:eventSlug" element={<PublicEventPage />} />
-              {/* Standalone event lookup by id/slug (no org context). */}
-              <Route path="/events/:id" element={<PublicEventPage />} />
-              {/* Legacy redirects — keep old links working forever. */}
-              <Route path="/o/:slug" element={<LegacyOrgRedirect />} />
-              <Route path="/o/:orgSlug/:eventSlug" element={<LegacyEventRedirect />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/reset-password" element={<ResetPasswordPage />} />
-              <Route
-                path="/complete-profile"
-                element={
-                  <RequireAuthOnly>
-                    <CompleteProfilePage />
-                  </RequireAuthOnly>
-                }
-              />
-              <Route path="/onboarding" element={<OrganizerRoute><OnboardingPage /></OrganizerRoute>} />
-              <Route path="/my/tickets" element={<Navigate to="/u/me/events" replace />} />
-              <Route path="/u/me" element={<AttendeeRoute><ProfilePage /></AttendeeRoute>} />
-              <Route path="/u/me/events" element={<AttendeeRoute><MyEventsPage /></AttendeeRoute>} />
-              <Route path="/u/me/applications" element={<AttendeeRoute><MyApplicationsPage /></AttendeeRoute>} />
-              <Route path="/u/me/settings" element={<AttendeeRoute><SettingsPage /></AttendeeRoute>} />
-              <Route path="/t/:id" element={<AttendeeRoute><TicketDetailPage /></AttendeeRoute>} />
-              <Route path="/dashboard" element={<Navigate to="/dashboard/events" replace />} />
-              <Route path="/dashboard/events" element={<ProtectedRoute><OnboardingGuard><EventsPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/events/new" element={<ProtectedRoute><OnboardingGuard><EventQuickCreatePage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/events/:id/guests" element={<ProtectedRoute><OnboardingGuard><GuestListPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/events/:id/broadcast" element={<ProtectedRoute><OnboardingGuard><BroadcastPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/e/:id/live" element={<EventLivePage />} />
-              <Route path="/checkin/:eventId" element={<SelfCheckInPage />} />
-              <Route path="/sponsor" element={<SponsorEventsPage />} />
-              <Route path="/sponsor/events/:eventId" element={<SponsorEventDetailPage />} />
-              <Route path="/sponsor/accept" element={<SponsorAcceptInvitePage />} />
-              <Route path="/speaker" element={<SpeakerEventsPage />} />
-              <Route path="/speaker/events/:eventId" element={<SpeakerEventDetailPage />} />
-              {import.meta.env.DEV && (
-                <Route path="/__preview/quick-views" element={<QuickViewsPreviewPage />} />
-              )}
-              <Route path="/dashboard/events/:id" element={<ProtectedRoute><OnboardingGuard><EventDetailPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/attendees" element={<ProtectedRoute><OnboardingGuard><AttendeesPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/tickets" element={<ProtectedRoute><OnboardingGuard><TicketsPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/analytics" element={<ProtectedRoute><OnboardingGuard><AnalyticsPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/settings" element={<ProtectedRoute><OnboardingGuard><SettingsPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/marketing" element={<ProtectedRoute><OnboardingGuard><MarketingPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/landing-builder" element={<ProtectedRoute><OnboardingGuard><LandingBuilderPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/domains" element={<ProtectedRoute><OnboardingGuard><DomainsPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/reports" element={<ProtectedRoute><OnboardingGuard><ReportsPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/help" element={<ProtectedRoute><OnboardingGuard><HelpPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/billing" element={<ProtectedRoute><OnboardingGuard><PricingPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/admin" element={<SuperAdminRoute><AdminPanelPage /></SuperAdminRoute>} />
-              <Route path="/dashboard/admin/site" element={<SuperAdminRoute><SiteEditorPage /></SuperAdminRoute>} />
-              <Route path="/dashboard/admin/audit" element={<SuperAdminRoute><AuditLogPage /></SuperAdminRoute>} />
-              <Route path="/dashboard/community" element={<ProtectedRoute><OnboardingGuard><CommunityHubPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/community/:slug" element={<ProtectedRoute><OnboardingGuard><CommunityHomePage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/community/:slug/feed" element={<ProtectedRoute><OnboardingGuard><CommunityFeedPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/community/:slug/members" element={<ProtectedRoute><OnboardingGuard><CommunityMembersPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/community/:slug/announcements" element={<ProtectedRoute><OnboardingGuard><CommunityAnnouncementsPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/community/:slug/calendar" element={<ProtectedRoute><OnboardingGuard><CommunityCalendarPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/community/:slug/resources" element={<ProtectedRoute><OnboardingGuard><CommunityResourcesPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/community/:slug/chat" element={<ProtectedRoute><OnboardingGuard><CommunityChatPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/community/:slug/leaderboard" element={<ProtectedRoute><OnboardingGuard><CommunityLeaderboardPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/community/:slug/moderation" element={<ProtectedRoute><OnboardingGuard><CommunityModerationPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="/dashboard/community/:slug/settings" element={<ProtectedRoute><OnboardingGuard><CommunitySettingsPage /></OnboardingGuard></ProtectedRoute>} />
-              <Route path="*" element={<NotFound />} />
-              </Routes>
-              </Suspense>
-              </LazyRouteBoundary>
-              <GlobalFooter />
-              </SiteContentProvider>
-            </OrgProvider>
-          </AuthProvider>
+          <RootErrorBoundary>
+            <AuthProvider>
+              <OrgProvider>
+                <SiteContentProvider>
+                <SiteHead />
+                <LazyRouteBoundary>
+                <Suspense fallback={<FullPageLoader />}>
+                <Routes>
+                <Route path="/" element={<RouteErrorBoundary><HomeRoute /></RouteErrorBoundary>} />
+                <Route path="/discover" element={<RouteErrorBoundary><DiscoverFeed /></RouteErrorBoundary>} />
+                {/* Lu.ma-style public events browser. */}
+                <Route path="/events" element={<RouteErrorBoundary><EventsListingPage /></RouteErrorBoundary>} />
+                {/* Canonical org + event public URLs (Lu.ma-style with /org prefix). */}
+                <Route path="/org/:slug" element={<RouteErrorBoundary><PublicOrgPage /></RouteErrorBoundary>} />
+                <Route path="/org/:orgSlug/events/:eventSlug" element={<RouteErrorBoundary><PublicEventPage /></RouteErrorBoundary>} />
+                {/* Standalone event lookup by id/slug (no org context). */}
+                <Route path="/events/:id" element={<RouteErrorBoundary><PublicEventPage /></RouteErrorBoundary>} />
+                {/* Legacy redirects — keep old links working forever. */}
+                <Route path="/o/:slug" element={<RouteErrorBoundary><LegacyOrgRedirect /></RouteErrorBoundary>} />
+                <Route path="/o/:orgSlug/:eventSlug" element={<RouteErrorBoundary><LegacyEventRedirect /></RouteErrorBoundary>} />
+                <Route path="/login" element={<RouteErrorBoundary><LoginPage /></RouteErrorBoundary>} />
+                <Route path="/reset-password" element={<RouteErrorBoundary><ResetPasswordPage /></RouteErrorBoundary>} />
+                <Route
+                  path="/complete-profile"
+                  element={
+                    <RouteErrorBoundary>
+                      <RequireAuthOnly>
+                        <CompleteProfilePage />
+                      </RequireAuthOnly>
+                    </RouteErrorBoundary>
+                  }
+                />
+                <Route path="/onboarding" element={<RouteErrorBoundary><OrganizerRoute><OnboardingPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/my/tickets" element={<RouteErrorBoundary><Navigate to="/u/me/events" replace /></RouteErrorBoundary>} />
+                <Route path="/u/me" element={<RouteErrorBoundary><AttendeeRoute><ProfilePage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/u/me/events" element={<RouteErrorBoundary><AttendeeRoute><MyEventsPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/u/me/applications" element={<RouteErrorBoundary><AttendeeRoute><MyApplicationsPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/u/me/settings" element={<RouteErrorBoundary><AttendeeRoute><SettingsPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/t/:id" element={<RouteErrorBoundary><AttendeeRoute><TicketDetailPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard" element={<RouteErrorBoundary><Navigate to="/dashboard/events" replace /></RouteErrorBoundary>} />
+                <Route path="/dashboard/events" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><EventsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/events/new" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><EventQuickCreatePage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/events/:id/guests" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><GuestListPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/events/:id/broadcast" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><BroadcastPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/e/:id/live" element={<RouteErrorBoundary><EventLivePage /></RouteErrorBoundary>} />
+                <Route path="/checkin/:eventId" element={<RouteErrorBoundary><SelfCheckInPage /></RouteErrorBoundary>} />
+                <Route path="/sponsor" element={<RouteErrorBoundary><SponsorEventsPage /></RouteErrorBoundary>} />
+                <Route path="/sponsor/events/:eventId" element={<RouteErrorBoundary><SponsorEventDetailPage /></RouteErrorBoundary>} />
+                <Route path="/sponsor/accept" element={<RouteErrorBoundary><SponsorAcceptInvitePage /></RouteErrorBoundary>} />
+                <Route path="/speaker" element={<RouteErrorBoundary><SpeakerEventsPage /></RouteErrorBoundary>} />
+                <Route path="/speaker/events/:eventId" element={<RouteErrorBoundary><SpeakerEventDetailPage /></RouteErrorBoundary>} />
+                {import.meta.env.DEV && (
+                  <Route path="/__preview/quick-views" element={<RouteErrorBoundary><QuickViewsPreviewPage /></RouteErrorBoundary>} />
+                )}
+                <Route path="/dashboard/events/:id" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><EventDetailPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/attendees" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><AttendeesPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/tickets" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><TicketsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/analytics" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><AnalyticsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/settings" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><SettingsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/marketing" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><MarketingPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/landing-builder" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><LandingBuilderPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/domains" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><DomainsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/reports" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><ReportsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/help" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><HelpPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/billing" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><PricingPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/admin" element={<RouteErrorBoundary><SuperAdminRoute><AdminPanelPage /></SuperAdminRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/admin/site" element={<RouteErrorBoundary><SuperAdminRoute><SiteEditorPage /></SuperAdminRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/admin/audit" element={<RouteErrorBoundary><SuperAdminRoute><AuditLogPage /></SuperAdminRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/community" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityHubPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/community/:slug" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityHomePage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/community/:slug/feed" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityFeedPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/community/:slug/members" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityMembersPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/community/:slug/announcements" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityAnnouncementsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/community/:slug/calendar" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityCalendarPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/community/:slug/resources" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityResourcesPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/community/:slug/chat" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityChatPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/community/:slug/leaderboard" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityLeaderboardPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/community/:slug/moderation" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityModerationPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/community/:slug/settings" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunitySettingsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="*" element={<RouteErrorBoundary><NotFound /></RouteErrorBoundary>} />
+                </Routes>
+                </Suspense>
+                </LazyRouteBoundary>
+                <GlobalFooter />
+                </SiteContentProvider>
+              </OrgProvider>
+            </AuthProvider>
+          </RootErrorBoundary>
         </BrowserRouter>
       </TooltipProvider>
     </ThemeProvider>

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, UserCheck, Building, Link2, Copy, GripVertical, Search, Users } from "lucide-react";
 import { publicUrl } from "@/lib/publicUrl";
+import { logger } from "@/lib/observability";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
 import SpeakerPhotoUploader from "./SpeakerPhotoUploader";
 import {
@@ -68,7 +69,7 @@ export default function SpeakerManagement({ eventId }: Props) {
       .eq("event_id", eventId)
       .order("display_order");
 
-    if (linksErr) console.error("[SpeakerManagement] event_speakers error:", linksErr);
+    if (linksErr) logger.error("speaker management failure", { kind: "event_speakers error", error_message: linksErr instanceof Error ? linksErr.message : String(linksErr) });
 
     const orderedIds = (links ?? []).map((a: { speaker_id: string }) => a.speaker_id);
     const ids = new Set(orderedIds);
@@ -82,17 +83,17 @@ export default function SpeakerManagement({ eventId }: Props) {
         .from("speakers")
         .select("*")
         .in("id", orderedIds);
-      if (spkErr) console.error("[SpeakerManagement] linked speakers error:", spkErr);
+      if (spkErr) logger.error("speaker management failure", { kind: "linked speakers error", error_message: spkErr instanceof Error ? spkErr.message : String(spkErr) });
       const byId = new Map((rows ?? []).map((s: Speaker) => [s.id, s] as const));
       linkedSpeakers = orderedIds.map((id) => byId.get(id)).filter(Boolean) as Speaker[];
       // Diagnostic: log if any IDs are missing (RLS blocked)
       const missing = orderedIds.filter((id) => !byId.has(id));
       if (missing.length) {
-        console.warn(
-          "[SpeakerManagement] event_speakers rows exist but speakers rows blocked by RLS:",
-          missing,
-          "→ Run the 'Event owner view linked speakers' policy from migration 001_tables.sql"
-        );
+        logger.warn("speaker management failure", {
+          kind: "event_speakers rows exist but speakers rows blocked by RLS",
+          missing_ids: missing,
+          hint: "Run the 'Event owner view linked speakers' policy from migration 001_tables.sql",
+        });
       }
     }
 

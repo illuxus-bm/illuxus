@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical, Search } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
+import { logger } from "@/lib/observability";
 import SponsorLogoUploader from "./SponsorLogoUploader";
 import {
   DndContext, DragOverlay, closestCenter, KeyboardSensor, PointerSensor,
@@ -99,7 +100,11 @@ export default function SponsorManagement({ eventId }: Props) {
       .select("sponsor_id, display_order")
       .eq("event_id", eventId)
       .order("display_order");
-    if (linksErr) console.error("[SponsorManagement] event_sponsors error:", linksErr);
+    if (linksErr)
+      logger.error("sponsor management failure", {
+        kind: "event_sponsors error",
+        error_message: linksErr instanceof Error ? linksErr.message : String(linksErr),
+      });
 
     const orderedIds = (links ?? []).map((a: { sponsor_id: string }) => a.sponsor_id);
     const ids = new Set(orderedIds);
@@ -111,16 +116,20 @@ export default function SponsorManagement({ eventId }: Props) {
         .from("sponsors")
         .select("*")
         .in("id", orderedIds);
-      if (spkErr) console.error("[SponsorManagement] linked sponsors error:", spkErr);
+      if (spkErr)
+        logger.error("sponsor management failure", {
+          kind: "linked sponsors error",
+          error_message: spkErr instanceof Error ? spkErr.message : String(spkErr),
+        });
       const byId = new Map((rows ?? []).map((s: Sponsor) => [s.id, s] as const));
       linkedSponsors = orderedIds.map((id) => byId.get(id)).filter(Boolean) as Sponsor[];
       const missing = orderedIds.filter((id) => !byId.has(id));
       if (missing.length) {
-        console.warn(
-          "[SponsorManagement] event_sponsors rows exist but sponsors blocked by RLS:",
+        logger.warn("sponsor management failure", {
+          kind: "sponsors blocked by RLS",
           missing,
-          "→ Run the 'Event owner view linked sponsors' policy from migration 001_tables.sql"
-        );
+          hint: "Run the 'Event owner view linked sponsors' policy from migration 001_tables.sql",
+        });
       }
     }
 

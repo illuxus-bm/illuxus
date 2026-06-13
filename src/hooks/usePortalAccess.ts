@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { logger, supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 import type { UserRoleAssignments } from "@/types/portals";
 
@@ -19,10 +19,12 @@ export function usePortalAccess() {
     queryKey: ["portal-access", user?.id],
     queryFn: async () => {
       if (!user) return { has_speaker: false, has_sponsor: false };
-      const { data, error } = await supabase.rpc("user_role_assignments" as never);
+      const { data, error } = await supabaseRpc("user_role_assignments" as never);
       if (error) {
         // Non-fatal — fail closed (no portal access shown)
-        console.warn("[usePortalAccess]", error.message);
+        logger.warn("portal access fetch failed", {
+          error_message: error instanceof Error ? error.message : String(error),
+        });
         return { has_speaker: false, has_sponsor: false };
       }
       return (data as unknown as UserRoleAssignments) ?? { has_speaker: false, has_sponsor: false };

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import SiteHeader from "@/components/SiteHeader";
@@ -26,7 +27,7 @@ export default function SponsorEventsPage() {
 
   useEffect(() => {
     if (!user) return;
-    supabase.rpc("sponsor_portal_events" as never).then(({ data }) => {
+    supabaseRpc("sponsor_portal_events" as never).then(({ data }) => {
       setRows((data || []) as unknown as EventRow[]);
       setLoading(false);
     });

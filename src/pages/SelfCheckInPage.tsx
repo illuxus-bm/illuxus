@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Html5Qrcode } from "html5-qrcode";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -109,7 +110,7 @@ export default function SelfCheckInPage() {
     if (!lastMethod) setLastMethod("manual");
 
     setBusy(true);
-    const { data, error } = await supabase.rpc("self_check_in", { p_token: token, p_event_id: eventId ?? null });
+    const { data, error } = await supabaseRpc("self_check_in", { p_token: token, p_event_id: eventId ?? null });
     setBusy(false);
 
     if (error) {

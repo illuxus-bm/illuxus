@@ -70,7 +70,7 @@ Mark only truly optional sub-tasks with `*` (per user direction, only the perf b
     - Push 65 pre-init emits → assert exactly 64 records retained, oldest dropped, drain order preserved, overflow `warn` appended
     - _Requirements: 4.5, 12.4_
 
-  - [~] 1.9 [PBT] Property 5 — Boot buffer replay preserves order
+  - [x] 1.9 [PBT] Property 5 — Boot buffer replay preserves order
     - File: `src/lib/observability/__tests__/boot-replay.property.test.ts`
     - Header: `// Feature: observability-foundation, Property 5: Boot buffer replay preserves order`
     - Generator: `fc.array(emitTuple, { maxLength: 64 })` of `(level, message, fields)` tuples
@@ -160,7 +160,7 @@ Mark only truly optional sub-tasks with `*` (per user direction, only the perf b
     - Force first-emit init throw → assert subsequent emits no-op without throwing
     - _Requirements: 1.1, 1.5, 1.6_
 
-  - [~] 1.21 [PBT] Property 2 — The Logger never throws and never leaks rejections
+  - [ ] 1.21 [PBT] Property 2 — The Logger never throws and never leaks rejections
     - File: `src/lib/observability/__tests__/logger-never-throws.property.test.ts`
     - Header: `// Feature: observability-foundation, Property 2: The Logger never throws and never leaks rejections`
     - Generators: arbitrary `(level, message, fields)` including malformed values, deeply nested cycles, oversized strings; sink behaviour matrix (sync throw / rejected promise / resolved promise)
@@ -168,27 +168,27 @@ Mark only truly optional sub-tasks with `*` (per user direction, only the perf b
     - `fc.assert(prop, { numRuns: 100 })`
     - _Requirements: 1.6, 4.1, 4.2_
 
-  - [~] 1.22 [PBT] Property 4 — Privacy opt-out is unconditional across all severities
+  - [ ] 1.22 [PBT] Property 4 — Privacy opt-out is unconditional across all severities
     - File: `src/lib/observability/__tests__/optout.property.test.ts`
     - Header: `// Feature: observability-foundation, Property 4: Privacy opt-out is unconditional across all severities`
     - With `getPrivacyOptOut()` forced to `true`, generate `fc.array` of arbitrary emit calls at every level → assert Remote_Sink `emit` invocation count is 0
     - `fc.assert(prop, { numRuns: 100 })`
     - _Requirements: 2.5, 11.4_
 
-  - [~] 1.23 [PBT] Property 6 — Sinks only ever see redacted records
+  - [ ] 1.23 [PBT] Property 6 — Sinks only ever see redacted records
     - File: `src/lib/observability/__tests__/sink-receives-redacted.property.test.ts`
     - Header: `// Feature: observability-foundation, Property 6: Sinks only ever see redacted records`
     - Stub sink captures every record passed to `emit`; for each captured record, assert `redact(record.fields)` deep-equals `record.fields` (fixed-point property)
     - `fc.assert(prop, { numRuns: 100 })`
     - _Requirements: 2.7, 3.1_
 
-  - [~] 1.24 Example test — sendBeacon-flush
+  - [x] 1.24 Example test — sendBeacon-flush
     - File: `src/lib/observability/__tests__/sendBeacon-flush.test.ts`
     - Mock `navigator.sendBeacon`; dispatch `pagehide` and `visibilitychange=hidden` events; assert each sink's `flushBeacon` is called and only `sendBeacon` is used (no `fetch` fallback)
     - When `sendBeacon` returns `false`, assert the affected batch is dropped
     - _Requirements: 5.3, 5.4, 5.5_
 
-  - [~] 1.25 Example test — optout-toggle
+  - [x] 1.25 Example test — optout-toggle
     - File: `src/lib/observability/__tests__/optout-toggle.test.ts`
     - Pre-fill in-memory Remote_Sink batch and Offline_Queue → call `setPrivacyOptOut(true)` → after one event-loop tick assert batch is empty and queue is cleared
     - Subsequent emits do not reach Remote_Sink
@@ -230,7 +230,7 @@ Mark only truly optional sub-tasks with `*` (per user direction, only the perf b
     - Document the 5 ms representative-laptop budget (REQ 5.1) in a comment for manual pre-release verification
     - _Requirements: 5.1_
 
-  - [~] 1.32 Phase A checkpoint
+  - [ ] 1.32 Phase A checkpoint
     - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 2. Phase B — Error boundaries
@@ -240,12 +240,12 @@ Mark only truly optional sub-tasks with `*` (per user direction, only the perf b
     - Render `<FallbackView correlationId={...} onReset={() => this.setState({ error: null })} />` on caught state
     - _Requirements: 7.1, 7.3, 7.4_
 
-  - [~] 2.2 Implement `RouteErrorBoundary.tsx`
+  - [x] 2.2 Implement `RouteErrorBoundary.tsx`
     - File: `src/lib/observability/boundaries/RouteErrorBoundary.tsx`
     - Same shape as RootErrorBoundary but emits `boundary: 'route'`
     - _Requirements: 7.2, 7.3, 7.4_
 
-  - [~] 2.3 Implement `FallbackView.tsx`
+  - [x] 2.3 Implement `FallbackView.tsx`
     - File: `src/lib/observability/boundaries/FallbackView.tsx`
     - Heading "Something went wrong"; brand-aligned body paragraph
     - Monospace block with active Correlation_Id or literal `"no reference"` when null
@@ -255,7 +255,7 @@ Mark only truly optional sub-tasks with `*` (per user direction, only the perf b
     - Source MUST contain zero `console.*` calls
     - _Requirements: 7.5, 7.6, 7.7, 7.8, 7.9, 7.10_
 
-  - [~] 2.4 Wire boundaries into `src/App.tsx` and migrate LazyRoute helper logging
+  - [x] 2.4 Wire boundaries into `src/App.tsx` and migrate LazyRoute helper logging
     - Wrap entire tree under `<BrowserRouter>` with `<RootErrorBoundary>`
     - Wrap every top-level `<Route>` element with `<RouteErrorBoundary>`
     - Migrate the inline LazyRoute helper logging in `src/App.tsx`: `console.info('[LazyRoute] loading ${name}')` → `logger.debug('lazy-route loading', { name })` and `console.error('[LazyRoute] failed to load ${name}', …)` → `logger.error('lazy-route load failed', { name, error_name, error_message })`
@@ -269,27 +269,27 @@ Mark only truly optional sub-tasks with `*` (per user direction, only the perf b
     - If the listed file does not currently contain a `console.*` call, mark the task complete with "no calls found" — do not add new logger calls speculatively
     - _Requirements: 13.1_
 
-  - [~] 2.6 Example test — `RootErrorBoundary.test.tsx`
+  - [ ] 2.6 Example test — `RootErrorBoundary.test.tsx`
     - File: `src/lib/observability/boundaries/__tests__/RootErrorBoundary.test.tsx`
     - Render a child that throws; assert `<FallbackView />` is rendered and a `logger.error` call was emitted with `boundary: 'root'`, `route`, `error_name`, `error_message`, `component_stack`, `correlation_id`
     - _Requirements: 7.3, 7.4, 7.5_
 
-  - [~] 2.7 Example test — `RouteErrorBoundary.test.tsx`
+  - [ ] 2.7 Example test — `RouteErrorBoundary.test.tsx`
     - File: `src/lib/observability/boundaries/__tests__/RouteErrorBoundary.test.tsx`
     - Same shape as 2.6 but asserts `boundary: 'route'`
     - _Requirements: 7.3, 7.4, 7.5_
 
-  - [~] 2.8 Example test — `FallbackView.test.tsx`
+  - [ ] 2.8 Example test — `FallbackView.test.tsx`
     - File: `src/lib/observability/boundaries/__tests__/FallbackView.test.tsx`
     - Render with and without a correlation id → assert "no reference" text, Copy button disabled state, Reload triggers `window.location.reload`, Go home navigates to `/` and calls `onReset`, Copy uses `navigator.clipboard.writeText` and falls back to Range/Selection when API absent
     - _Requirements: 7.5, 7.6, 7.7, 7.8, 7.10_
 
-  - [~] 2.9 Example test — `no-console-in-fallback.test.ts`
+  - [ ] 2.9 Example test — `no-console-in-fallback.test.ts`
     - File: `src/lib/observability/boundaries/__tests__/no-console-in-fallback.test.ts`
     - Read `FallbackView.tsx` source as text; assert no `console.` substring present
     - _Requirements: 7.9_
 
-  - [~] 2.10 Phase B checkpoint
+  - [ ] 2.10 Phase B checkpoint
     - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 3. Phase C — RPC wrapper rollout
@@ -302,7 +302,7 @@ Mark only truly optional sub-tasks with `*` (per user direction, only the perf b
     - Re-export from `src/lib/observability/index.ts`
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.6, 9.7, 9.8, 10.1, 10.2, 10.3, 10.4, 10.5_
 
-  - [~] 3.2 [PBT] Property 3 — Correlation context is causal and concurrency-isolated
+  - [ ] 3.2 [PBT] Property 3 — Correlation context is causal and concurrency-isolated
     - File: `src/lib/observability/__tests__/correlation.property.test.ts`
     - Header: `// Feature: observability-foundation, Property 3: Correlation context is causal and concurrency-isolated`
     - Generator: `fc.array(rpcInvocation, { minLength: 2, maxLength: 8 })` of concurrent invocations with random await schedules and emit points
@@ -311,24 +311,24 @@ Mark only truly optional sub-tasks with `*` (per user direction, only the perf b
     - `fc.assert(prop, { numRuns: 100 })`
     - _Requirements: 9.2, 9.3, 9.4, 9.5, 9.7_
 
-  - [~] 3.3 Example test — rpc-prefix-debug-prod
+  - [ ] 3.3 Example test — rpc-prefix-debug-prod
     - File: `src/lib/observability/__tests__/rpc-prefix-debug-prod.test.ts`
     - Shim `import.meta.env.PROD = true`, `import.meta.env.DEV = false`; invoke `supabaseRpc` against a stub transport; assert no pre-dispatch `debug 'rpc dispatch'` record is emitted
     - In DEV mode, assert the pre-dispatch `debug` record IS emitted with redacted `params`
     - _Requirements: 10.1, 10.4, 10.5_
 
-  - [~] 3.4 Migrate existing `supabase.rpc(...)` call sites to `supabaseRpc(...)`
+  - [x] 3.4 Migrate existing `supabase.rpc(...)` call sites to `supabaseRpc(...)`
     - Grep for `supabase.rpc(` across `src/{components,pages,hooks,lib,contexts}` and rename each to `supabaseRpc` with the import `import { supabaseRpc } from '@/lib/observability'`
     - Preserve identical `data` / `error` handling at every call site (the wrapper return shape matches and adds `correlationId`)
     - Where a call site already shows a toast on failure, append the correlation id as `description: 'Reference: ${correlationId}'`
     - Existing RPCs (`set_attendance`, `bulk_set_attendance`, `self_check_in`, `toggle_attendance`, `undo_attendance`, …) require zero SQL changes
     - _Requirements: 9.1, 9.8_
 
-  - [~] 3.5 Phase C checkpoint
+  - [ ] 3.5 Phase C checkpoint
     - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 4. Phase D — `console.*` migration batches
-  - [~] 4.1 migrate-console-`src/components/event/RegistrationsSection.tsx` (contractual — special)
+  - [x] 4.1 migrate-console-`src/components/event/RegistrationsSection.tsx` (contractual — special)
     - Preserve the existing `console.warn('UI sync failure')` call verbatim with `// eslint-disable-next-line no-console -- contract: live-updates-delayed indicator`
     - Add an equivalent `logger.warn('ui sync failure', { reg_id })` immediately after the preserved `console.warn`
     - Migrate the other lines (`console.warn('self_check_in failed', …)` etc. at lines 381 / 386 / 419 / 424) to `logger.warn('self-check-in failed', { row, error_message })` etc.
@@ -336,7 +336,7 @@ Mark only truly optional sub-tasks with `*` (per user direction, only the perf b
     - If the listed file does not currently contain a `console.*` call, mark the task complete with "no calls found" — do not add new logger calls speculatively
     - _Requirements: 13.1, 13.2, 13.5_
 
-  - [~] 4.2 [PBT] Property 9 — Live-updates indicator emits exactly one warn per occurrence
+  - [ ] 4.2 [PBT] Property 9 — Live-updates indicator emits exactly one warn per occurrence
     - File: `src/components/event/__tests__/registrations-live-warn.property.test.ts`
     - Header: `// Feature: observability-foundation, Property 9: Live-updates indicator emits exactly one warn per occurrence`
     - Render `RegistrationsSection` with stubbed realtime channel; spy on `console.warn` and `logger.warn`
@@ -345,86 +345,86 @@ Mark only truly optional sub-tasks with `*` (per user direction, only the perf b
     - `fc.assert(prop, { numRuns: 100 })`
     - _Requirements: 13.2, 13.5_
 
-  - [~] 4.3 migrate-console-`src/components/event/AddParticipantDialog.tsx`
+  - [x] 4.3 migrate-console-`src/components/event/AddParticipantDialog.tsx`
     - Replace `console.warn('SignUp error:', …)` → `logger.warn('signup error', { error_message })`
     - If the listed file does not currently contain a `console.*` call, mark the task complete with "no calls found" — do not add new logger calls speculatively
     - _Requirements: 13.1_
 
-  - [~] 4.4 migrate-console-`src/components/event/SpeakerManagement.tsx`
+  - [x] 4.4 migrate-console-`src/components/event/SpeakerManagement.tsx`
     - Replace `console.error/warn('[SpeakerManagement] …', …)` → `logger.error('speaker management failure', { kind, error_message })` (or `logger.warn(...)` matching original severity)
     - If the listed file does not currently contain a `console.*` call, mark the task complete with "no calls found" — do not add new logger calls speculatively
     - _Requirements: 13.1_
 
-  - [~] 4.5 migrate-console-`src/components/event/SponsorManagement.tsx`
+  - [x] 4.5 migrate-console-`src/components/event/SponsorManagement.tsx`
     - Replace `console.error/warn('[SponsorManagement] …', …)` → analogous `logger.error/warn('sponsor management failure', { kind, error_message })`
     - If the listed file does not currently contain a `console.*` call, mark the task complete with "no calls found" — do not add new logger calls speculatively
     - _Requirements: 13.1_
 
-  - [~] 4.6 migrate-console-`src/components/event/attendance/EventAttendanceHistoryDialog.tsx`
+  - [x] 4.6 migrate-console-`src/components/event/attendance/EventAttendanceHistoryDialog.tsx`
     - Replace `console.warn('event audit fetch failed', …)` → `logger.warn('event audit fetch failed', { event_id, error_message })`
     - If the listed file does not currently contain a `console.*` call, mark the task complete with "no calls found" — do not add new logger calls speculatively
     - _Requirements: 13.1_
 
-  - [~] 4.7 migrate-console-`src/components/event/attendance/AttendanceHistoryDialog.tsx`
+  - [x] 4.7 migrate-console-`src/components/event/attendance/AttendanceHistoryDialog.tsx`
     - Replace `console.warn('audit fetch failed', …)` → `logger.warn('audit fetch failed', { registration_id, error_message })`
     - If the listed file does not currently contain a `console.*` call, mark the task complete with "no calls found" — do not add new logger calls speculatively
     - _Requirements: 13.1_
 
-  - [~] 4.8 migrate-console-`src/pages/NotFound.tsx`
+  - [x] 4.8 migrate-console-`src/pages/NotFound.tsx`
     - Replace `console.error('404 …', pathname)` → `logger.warn('not-found route', { pathname })`
     - If the listed file does not currently contain a `console.*` call, mark the task complete with "no calls found" — do not add new logger calls speculatively
     - _Requirements: 13.1_
 
-  - [~] 4.9 migrate-console-`src/pages/DiscoverFeed.tsx`
+  - [x] 4.9 migrate-console-`src/pages/DiscoverFeed.tsx`
     - Replace `console.error('[DiscoverFeed] events query failed', error)` → `logger.error('discover events query failed', { error_message })`
     - If the listed file does not currently contain a `console.*` call, mark the task complete with "no calls found" — do not add new logger calls speculatively
     - _Requirements: 13.1_
 
-  - [~] 4.10 migrate-console-`src/pages/dashboard/AttendeesPage.tsx`
+  - [x] 4.10 migrate-console-`src/pages/dashboard/AttendeesPage.tsx`
     - Replace `console.error('Failed to fetch attendees:', message)` → `logger.error('fetch attendees failed', { error_message })`
     - If the listed file does not currently contain a `console.*` call, mark the task complete with "no calls found" — do not add new logger calls speculatively
     - _Requirements: 13.1_
 
-  - [~] 4.11 migrate-console-`src/lib/event-routes.ts`
+  - [x] 4.11 migrate-console-`src/lib/event-routes.ts`
     - Replace `console.warn('[event-route-anomaly]', a)` → `logger.warn('event route anomaly', { anomaly: a })`
     - If the listed file does not currently contain a `console.*` call, mark the task complete with "no calls found" — do not add new logger calls speculatively
     - _Requirements: 13.1_
 
-  - [~] 4.12 migrate-console-`src/hooks/usePortalAccess.ts`
+  - [x] 4.12 migrate-console-`src/hooks/usePortalAccess.ts`
     - Replace `console.warn('[usePortalAccess]', message)` → `logger.warn('portal access fetch failed', { error_message })`
     - If the listed file does not currently contain a `console.*` call, mark the task complete with "no calls found" — do not add new logger calls speculatively
     - _Requirements: 13.1_
 
-  - [~] 4.13 migrate-console-`src/hooks/useApplications.ts`
+  - [x] 4.13 migrate-console-`src/hooks/useApplications.ts`
     - Replace `console.warn('sponsor_members upsert:', message)` → `logger.warn('sponsor members upsert failed', { error_message })`
     - If the listed file does not currently contain a `console.*` call, mark the task complete with "no calls found" — do not add new logger calls speculatively
     - _Requirements: 13.1_
 
-  - [~] 4.14 Phase D checkpoint
+  - [ ] 4.14 Phase D checkpoint
     - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 5. Phase E — Lint flip
-  - [~] 5.1 Promote `no-console` rule from `'warn'` to `'error'`
+  - [x] 5.1 Promote `no-console` rule from `'warn'` to `'error'`
     - In `eslint.config.js`, change `'no-console': ['warn', { allow: [] }]` to `'no-console': ['error', { allow: [] }]` for the `src/**/*.{ts,tsx}` rule block
     - Run `bun run lint` (or `pnpm lint`); fix any remaining unaccounted callsites OR add an inline `eslint-disable-next-line` only when the callsite is contractually mandated (only the `RegistrationsSection.tsx` `console.warn('UI sync failure')` qualifies)
     - Final assertion: `pnpm lint` reports zero `no-console` violations
     - _Requirements: 13.3, 13.4_
 
-  - [~] 5.2 Phase E checkpoint
+  - [ ] 5.2 Phase E checkpoint
     - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 6. Phase F — Remote_Sink in production
-  - [~] 6.1 Document production env wiring
+  - [x] 6.1 Document production env wiring
     - In `docs/observability.md`, add a "Deploying to production" section that lists: setting `VITE_OBSERVABILITY_DSN` in the production build env, setting `OBSERVABILITY_AUTH_TOKEN` / `OBSERVABILITY_ORG` / `OBSERVABILITY_PROJECT` as CI-only secrets, and the canary-org rollout pattern from "Rollout / Migration Plan" Phase A
     - In `docs/observability-privacy.md`, confirm the 30-day retention is configured at the provider dashboard
     - _Requirements: 8.2, 11.1, 11.7, 14.5_
 
-  - [~] 6.2 Example test — sentry-release-tag
+  - [ ] 6.2 Example test — sentry-release-tag
     - File: `src/lib/observability/__tests__/sentry-release-tag.test.ts`
     - Mock the Sentry client; emit several records → assert each captured event has `release === VITE_BUILD_SHA`
     - _Requirements: 8.4, 14.1_
 
-  - [~] 6.3 Build smoke test — no-source-maps-in-dist
+  - [ ] 6.3 Build smoke test — no-source-maps-in-dist
     - File: `tests/build/no-source-maps-in-dist.test.ts`
     - Vitest test that runs (or asserts on the output of a prior) `bun run build` and walks `dist/` asserting zero `*.map` files remain
     - Skip on CI when `OBSERVABILITY_AUTH_TOKEN` is unset (the upload+delete step is the path that removes `.map` files)
@@ -434,7 +434,7 @@ Mark only truly optional sub-tasks with `*` (per user direction, only the perf b
     - Add a `postbuild` script (or CI step) running: `find dist -name '*.map' -type f | grep -q . && echo "::error::Source maps leaked into dist/" && exit 1 || true`
     - _Requirements: 8.9, 14.4_
 
-  - [~] 6.5 Final checkpoint
+  - [ ] 6.5 Final checkpoint
     - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

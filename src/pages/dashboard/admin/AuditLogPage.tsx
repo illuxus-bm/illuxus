@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +34,7 @@ export default function AuditLogPage() {
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase.rpc("admin_list_audit_logs", { _limit: 200 });
+    const { data } = await supabaseRpc("admin_list_audit_logs", { _limit: 200 });
     if (data) setEntries(data as AuditEntry[]);
     setLoading(false);
   };

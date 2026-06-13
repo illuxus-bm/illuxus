@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -231,7 +232,7 @@ export default function RegistrantQuickView({
       toast.error("Could not restore", { description: error.message });
       return;
     }
-    await supabase.rpc("log_registrant_action" as never, {
+    await supabaseRpc("log_registrant_action" as never, {
       _action: "restore",
       _registration_id: data.id,
       _details: { event_id: rest.event_id, restored_from: id, name: rest.name, email: rest.email },
@@ -250,7 +251,7 @@ export default function RegistrantQuickView({
       toast.error("Failed to delete", { description: error.message });
       return;
     }
-    await supabase.rpc("log_registrant_action" as never, {
+    await supabaseRpc("log_registrant_action" as never, {
       _action: "delete",
       _registration_id: row.refId,
       _details: { event_id: snapshot.event_id, name: snapshot.name, email: snapshot.email },

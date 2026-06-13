@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import type {
   AuthorProfile,
   CommentWithAuthor,
@@ -142,7 +143,7 @@ export function useCreatePost(communityId: string | undefined) {
       link_url?: string;
     }) => {
       if (!communityId) throw new Error("No community");
-      const { data, error } = await supabase.rpc("community_create_post" as never, {
+      const { data, error } = await supabaseRpc("community_create_post" as never, {
         _community_id: communityId,
         _type: input.type,
         _title: input.title ?? null,
@@ -163,7 +164,7 @@ export function useToggleReaction() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { postId?: string; commentId?: string; emoji?: string }) => {
-      const { data, error } = await supabase.rpc("community_react" as never, {
+      const { data, error } = await supabaseRpc("community_react" as never, {
         _post_id: input.postId ?? null,
         _comment_id: input.commentId ?? null,
         _emoji: input.emoji ?? "👍",
@@ -208,7 +209,7 @@ export function useJoinCommunity() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (communityId: string) => {
-      const { error } = await supabase.rpc("community_join" as never, {
+      const { error } = await supabaseRpc("community_join" as never, {
         _community_id: communityId,
       } as never);
       if (error) throw error;
@@ -223,7 +224,7 @@ export function useLeaveCommunity() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (communityId: string) => {
-      const { error } = await supabase.rpc("community_leave" as never, {
+      const { error } = await supabaseRpc("community_leave" as never, {
         _community_id: communityId,
       } as never);
       if (error) throw error;

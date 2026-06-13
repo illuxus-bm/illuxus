@@ -9,6 +9,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { toast } from "sonner";
 import { UserPlus, Copy, Ticket, Link2 } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
+import { logger } from "@/lib/observability";
 
 // Secondary Supabase client for creating participant accounts.
 // Uses a separate storage key so it won't sign out the organizer.
@@ -100,7 +101,9 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
           if (signUpErr.message?.includes("already") ) {
             accountAlreadyExists = true;
           } else {
-            console.warn("SignUp error:", signUpErr.message);
+            logger.warn("signup error", {
+              error_message: signUpErr instanceof Error ? signUpErr.message : String(signUpErr),
+            });
             // Non-fatal — continue to create registration anyway
           }
         } else if (signUpResult?.user) {

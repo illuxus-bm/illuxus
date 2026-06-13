@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Navigate } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -128,8 +129,8 @@ export default function AdminPanelPage() {
 
   const fetchData = async () => {
     const [orgRes, userRes] = await Promise.all([
-      supabase.rpc("admin_list_orgs"),
-      supabase.rpc("admin_list_users"),
+      supabaseRpc("admin_list_orgs"),
+      supabaseRpc("admin_list_users"),
     ]);
     if (orgRes.data) setOrgs(orgRes.data as OrgRow[]);
     if (userRes.data) setUsers(userRes.data as UserRow[]);
@@ -142,7 +143,7 @@ export default function AdminPanelPage() {
   }, [isAdmin]);
 
   const handlePlanChange = async (orgId: string, newPlan: string) => {
-    const { error } = await supabase.rpc("admin_update_org_plan", {
+    const { error } = await supabaseRpc("admin_update_org_plan", {
       _org_id: orgId,
       _new_plan: newPlan,
     });
@@ -166,7 +167,7 @@ export default function AdminPanelPage() {
   const saveOrgEdit = async () => {
     if (!editingOrgId) return;
     setSavingOrg(true);
-    const { error } = await (supabase.rpc as any)("admin_update_org", {
+    const { error } = await supabaseRpc("admin_update_org", {
       _org_id: editingOrgId,
       _name: editForm.name,
       _subdomain: editForm.subdomain,
@@ -196,7 +197,7 @@ export default function AdminPanelPage() {
   const handleDeleteOrg = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
-    const { error } = await supabase.rpc("admin_delete_org", { _org_id: deleteTarget.id });
+    const { error } = await supabaseRpc("admin_delete_org", { _org_id: deleteTarget.id });
     setDeleting(false);
     if (error) {
       toast.error("Failed to delete organization");
@@ -210,7 +211,7 @@ export default function AdminPanelPage() {
   const togglePlatformAdmin = async (target: UserRow) => {
     setTogglingRole(target.user_id);
     const grant = !target.is_platform_admin;
-    const { error } = await supabase.rpc("admin_set_user_role", {
+    const { error } = await supabaseRpc("admin_set_user_role", {
       _target_user_id: target.user_id,
       _role: "admin",
       _grant: grant,

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, Link, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft } from "lucide-react";
@@ -72,7 +73,7 @@ const PublicEventPage = () => {
         if (isUuid(id)) {
           if (!cancelled) setResolvedId(id);
         } else {
-          const { data } = await supabase.rpc("get_event_by_slug", { _slug: id });
+          const { data } = await supabaseRpc("get_event_by_slug", { _slug: id });
           const row = (data && data[0]) || null;
           if (!cancelled) {
             if (row?.id) setResolvedId(row.id);
@@ -85,7 +86,7 @@ const PublicEventPage = () => {
       if (eventSlug) {
         checkRouteParam("/org/:orgSlug/events/:eventSlug", "eventSlug", eventSlug, "slug");
         checkRouteParam("/org/:orgSlug/events/:eventSlug", "orgSlug", orgSlug, "slug");
-        const { data } = await supabase.rpc("get_event_by_slug", {
+        const { data } = await supabaseRpc("get_event_by_slug", {
           _slug: eventSlug, _org_slug: orgSlug ?? undefined,
         });
         const row = (data && data[0]) || null;
@@ -129,7 +130,7 @@ const PublicEventPage = () => {
       supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eid).order("display_order"),
       supabase.from("sessions").select("*").eq("event_id", eid).order("start_time"),
       supabase.from("event_sponsors").select("sponsor_id, display_order").eq("event_id", eid).order("display_order"),
-      supabase.rpc("get_event_attendees_public", { _event_id: eid, _limit: 12 }),
+      supabaseRpc("get_event_attendees_public", { _event_id: eid, _limit: 12 }),
     ]);
 
     if (evRes.data) setEvent(evRes.data as never);
@@ -185,8 +186,7 @@ const PublicEventPage = () => {
 
     const orgId = (evRes.data as { org_id?: string | null } | null)?.org_id;
     if (orgId) {
-      const { data: orgRows } = await supabase
-        .rpc("get_public_org_brief", { _org_id: orgId });
+      const { data: orgRows } = await supabaseRpc("get_public_org_brief", { _org_id: orgId });
       const orgRow = Array.isArray(orgRows) ? orgRows[0] : orgRows;
       if (orgRow) setOrg(orgRow as { name: string; logo_url: string | null; slug: string; subdomain?: string | null });
     }

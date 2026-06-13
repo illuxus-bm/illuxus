@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { Users, Search, UserCheck, UserX, Loader2, Mail } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { logger } from "@/lib/observability";
 
 interface AttendeeRow {
   id: string;
@@ -55,7 +56,10 @@ const AttendeesPage = () => {
         .order("created_at", { ascending: false });
 
       if (error) {
-        console.error("Failed to fetch attendees:", error.message);
+        const message: unknown = error.message;
+        logger.error("fetch attendees failed", {
+          error_message: message instanceof Error ? message.message : String(message),
+        });
         setLoading(false);
         return;
       }

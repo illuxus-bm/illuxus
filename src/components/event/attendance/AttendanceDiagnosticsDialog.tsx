@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, CheckCircle2, Stethoscope } from "lucide-react";
@@ -35,7 +35,7 @@ export default function AttendanceDiagnosticsDialog({
 
   const load = async () => {
     setLoading(true);
-    const { data, error } = await supabase.rpc("attendance_diagnostics" as never, { _event_id: eventId } as never);
+    const { data, error } = await supabaseRpc("attendance_diagnostics" as never, { _event_id: eventId } as never);
     if (error) toast.error("Diagnostics failed", { description: error.message });
     setRows((data as Diag[]) || []);
     setLoading(false);
@@ -45,11 +45,11 @@ export default function AttendanceDiagnosticsDialog({
 
   const forceCheckIn = async (id: string) => {
     setFixing(id);
-    const { error } = await supabase.rpc("toggle_attendance" as never, {
+    const { error, correlationId } = await supabaseRpc("toggle_attendance" as never, {
       p_reg_id: id, p_method: "manual-fix",
     } as never);
     setFixing(null);
-    if (error) { toast.error("Could not check in", { description: error.message }); return; }
+    if (error) { toast.error("Could not check in", { description: `Reference: ${correlationId}` }); return; }
     toast.success("Checked in");
     await load();
   };

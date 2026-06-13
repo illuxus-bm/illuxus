@@ -1,6 +1,7 @@
 import { useEffect, useState, Suspense, lazy } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import type { Tables } from "@/integrations/supabase/types";
 import {
   LayoutDashboard, ClipboardList, Users, FileText, Palette,
@@ -399,7 +400,7 @@ const EventDetailPage = () => {
           if (k === "broadcast") { setActiveSection("broadcast"); return; }
           if (k === "community") {
             // Resolve this event's community and jump to its feed.
-            const { data: cid } = await supabase.rpc("community_resolve_event" as never, { _event_id: event.id } as never);
+            const { data: cid } = await supabaseRpc("community_resolve_event" as never, { _event_id: event.id } as never);
             if (cid) {
               const { data: comm } = await supabase.from("communities" as never).select("slug").eq("id", cid as string).maybeSingle();
               const slug = (comm as { slug?: string } | null)?.slug;

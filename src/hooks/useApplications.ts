@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { logger } from "@/lib/observability";
 import type {
   MyApplications,
   SpeakerApplication,
@@ -368,7 +369,11 @@ export function useApproveSponsorApplication() {
         } as never, {
           onConflict: "sponsor_id,email",
         });
-      if (memberErr) console.warn("sponsor_members upsert:", memberErr.message);
+      if (memberErr) {
+        logger.warn("sponsor members upsert failed", {
+          error_message: memberErr.message,
+        });
+      }
 
       // 5. Update application status
       const { error: updateErr } = await supabase

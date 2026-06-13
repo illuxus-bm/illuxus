@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,7 +55,7 @@ export default function CompleteProfilePage() {
     (async () => {
       // Sensitive columns (mobile_number, email_verified) are no longer readable
       // through the table for other users — use the RPC for the caller's own row.
-      const { data } = await supabase.rpc("get_my_profile");
+      const { data } = await supabaseRpc("get_my_profile");
       if (cancelled) return;
       const p = data as any;
       if (p) {

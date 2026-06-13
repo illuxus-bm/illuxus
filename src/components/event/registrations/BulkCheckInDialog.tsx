@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Upload, CheckCircle, XCircle, Clock, Loader2, ListChecks } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 
 interface Props {
   open: boolean;
@@ -71,7 +72,7 @@ export default function BulkCheckInDialog({ open, onOpenChange, eventId }: Props
     const out: RowResult[] = [];
     for (const token of tokens) {
       try {
-        const { data, error } = await supabase.rpc("self_check_in", { p_token: token, p_event_id: eventId });
+        const { data, error } = await supabaseRpc("self_check_in", { p_token: token, p_event_id: eventId });
         if (error) {
           out.push({ token, status: "error", message: error.message });
         } else {

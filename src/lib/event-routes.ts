@@ -6,6 +6,8 @@
  * we never accidentally regress to UUID-based URLs.
  */
 
+import { logger } from "@/lib/observability";
+
 export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -124,8 +126,7 @@ export function reportRouteAnomaly(a: RouteAnomaly): void {
   if (w.__eventRouteAnomalies.length > 25) {
     w.__eventRouteAnomalies.splice(0, w.__eventRouteAnomalies.length - 25);
   }
-  // eslint-disable-next-line no-console
-  console.warn("[event-route-anomaly]", a);
+  logger.warn("event route anomaly", { anomaly: a });
 }
 
 /** Inspect a route param and report if it doesn't match the expected shape. */

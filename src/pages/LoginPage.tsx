@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -131,7 +132,7 @@ const LoginPage = () => {
             return;
           }
 
-          const { data: profile } = await supabase.rpc("get_my_profile");
+          const { data: profile } = await supabaseRpc("get_my_profile");
           const p = profile as { account_type?: string; two_factor_enabled?: boolean } | null;
           const next = p?.account_type === "attendee" ? "/u/me/events" : "/dashboard";
           if (p?.two_factor_enabled) {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, CalendarDays, CalendarPlus, Clock, MapPin, Radio, Sparkles } from "lucide-react";
 import { buildIcsBlobUrl } from "@/lib/ics";
@@ -72,7 +73,7 @@ export function WaitingLobby({ eventId, visitorName, role, sessionStatus, onJoin
         // square cover (image_url) which is reserved for listing thumbnails.
         setEvent({ ...(data as EventInfo), image_url: null });
         if (data.org_id) {
-          const { data: org } = await supabase.rpc("get_public_org_brief", { _org_id: data.org_id });
+          const { data: org } = await supabaseRpc("get_public_org_brief", { _org_id: data.org_id });
           const row = Array.isArray(org) ? org[0] : org;
           if (row) { setOrgName(row.name ?? null); setOrgLogo(row.logo_url ?? null); }
         }
