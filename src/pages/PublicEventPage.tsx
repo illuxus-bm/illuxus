@@ -197,6 +197,7 @@ const PublicEventPage = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
+        <SiteHeader />
         <div className="pt-10 container mx-auto px-4 grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-10">
           <Skeleton className="aspect-[4/5] md:aspect-[16/9] rounded-2xl" />
           <div>
@@ -213,6 +214,7 @@ const PublicEventPage = () => {
   if (!event) {
     return (
       <div className="min-h-screen bg-background">
+        <SiteHeader />
         <div className="pt-16 container mx-auto px-4 text-center">
           <p className="text-muted-foreground">Event not found.</p>
           <Button variant="ghost" asChild className="mt-4">

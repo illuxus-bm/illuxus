@@ -52,7 +52,9 @@ export default function SiteHeader({
   const { brandName, logoUrl, logoUrlDark } = content.navbar;
   const { theme: appTheme } = useTheme();
   // Pick dark logo when in dark mode (and a dark logo is provided); fall back to the light/default logo.
-  const activeLogoUrl = appTheme === "dark" ? (logoUrlDark || logoUrl) : logoUrl;
+  // Use the platform logo as final fallback so the header never appears without an image.
+  const fallbackLogo = "https://dcfygmgjqldvynbvmwdy.supabase.co/storage/v1/object/public/site-assets/favicon/1777010462147-m60zhn.png";
+  const activeLogoUrl = appTheme === "dark" ? (logoUrlDark || logoUrl || fallbackLogo) : (logoUrl || fallbackLogo);
   // `homeHref` is kept in the API for back-compat but the logo now always links to illuxus.com.
   void homeHref;
 

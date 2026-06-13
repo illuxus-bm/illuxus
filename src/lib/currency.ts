@@ -40,12 +40,23 @@ export function formatMoney(
   const safe = typeof n === "number" && Number.isFinite(n) ? n : 0;
   const code = (currency || DEFAULT_EVENT_CURRENCY).toUpperCase();
   const locale = LOCALE_BY_CURRENCY[code] ?? "en-US";
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency: code,
-    maximumFractionDigits: 0,
-    ...opts,
-  }).format(safe);
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: code,
+      maximumFractionDigits: 0,
+      ...opts,
+    }).format(safe);
+  } catch {
+    // Fallback for invalid currency codes — prevents UI crashes when an event
+    // has a malformed or unsupported currency stored in the database.
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: DEFAULT_EVENT_CURRENCY,
+      maximumFractionDigits: 0,
+      ...opts,
+    }).format(safe);
+  }
 }
 
 /** Convenience for places that just want the price-or-Free pill. */
