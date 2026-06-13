@@ -138,7 +138,7 @@ day's worth of work.
 - **Email sender re-platform.** Resend was removed from `send-event-email` (commit
   `14a8b06`). Decide replacement (SES / Postmark / direct Resend re-add) and
   redesign the queue + delivery surface in `MarketingPage.tsx`.
-- **Analytics rework.** `.lovable/plan.md` already drafts this: 8-card KPI grid with
+- **Analytics rework.** A drafted plan exists for: 8-card KPI grid with
   sparklines + delta chips, dual-axis revenue/tickets chart, status pie, top-5
   events table, day-of-week heatmap, cumulative revenue.
 - **Reports export hardening.** `ReportsSection` + `ExportReportDialog` drive CSV
@@ -239,8 +239,9 @@ landing pages.
   `src/pages/dashboard/ReportsPage.tsx`,
   `src/components/event/ReportsSection.tsx`,
   `src/components/event/reports/ExportReportDialog.tsx`
-- Open work: full Analytics rework (see `.lovable/plan.md` §3), property tests for
-  CSV exports.
+- Open work: full Analytics rework (8-card KPI grid, dual-axis charts,
+  status pie, top-5 events, weekday heatmap, cumulative revenue), property
+  tests for CSV exports.
 
 ### Epic G — Public + discovery
 

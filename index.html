@@ -2,28 +2,124 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Illuxus — The All-in-One Event Management Platform</title>
-    <meta name="description" content="Create, manage, and scale unforgettable events with Illuxus. Ticketing, speaker management, analytics, and more — all in one platform.">
-    <meta name="author" content="Illuxus" />
-    <meta name="theme-color" content="#0b0b1a" />
-    <link rel="icon" type="image/png" href="https://dcfygmgjqldvynbvmwdy.supabase.co/storage/v1/object/public/site-assets/favicon/1777010462147-m60zhn.png" />
-    
-    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- Primary meta -->
+    <title>illuxus — events, communities, and webinars</title>
+    <meta name="description" content="Run branded events, sell tickets, check attendees in via QR, host live webinars, and grow communities — all in one platform." />
+    <meta name="keywords" content="event management, ticketing platform, event registration, webinar platform, QR check-in, attendee management, event communities, sponsor management, speaker management, event analytics, illuxus" />
+    <meta name="author" content="illuxus" />
+    <meta name="application-name" content="illuxus" />
+    <meta name="generator" content="illuxus" />
+    <meta name="theme-color" content="#0b0b1a" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+
+    <!-- Canonical -->
+    <link rel="canonical" href="https://illuxus.com/" />
+
+    <!-- Favicons + manifest -->
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="mask-icon" href="/favicon-512.png" color="#0b0b1a" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="illuxus" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="msapplication-TileColor" content="#0b0b1a" />
+    <meta name="msapplication-TileImage" content="/favicon-192.png" />
+
+    <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="illuxus" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://illuxus.com/" />
+    <meta property="og:title" content="illuxus — events, communities, and webinars" />
+    <meta property="og:description" content="Run branded events, sell tickets, check attendees in via QR, host live webinars, and grow communities — all in one platform." />
+    <meta property="og:image" content="https://illuxus.com/og-image.png" />
+    <meta property="og:image:secure_url" content="https://illuxus.com/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="1200" />
+    <meta property="og:image:alt" content="illuxus" />
+
+    <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="illuxus — events, communities, and webinars" />
+    <meta name="twitter:description" content="Run branded events, sell tickets, check attendees in via QR, host live webinars, and grow communities — all in one platform." />
+    <meta name="twitter:image" content="https://illuxus.com/og-image.png" />
+    <meta name="twitter:image:alt" content="illuxus" />
+
+    <!-- Preconnect to upstream hosts so first paint is faster -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://dcfygmgjqldvynbvmwdy.supabase.co" crossorigin />
+    <link rel="dns-prefetch" href="https://dcfygmgjqldvynbvmwdy.supabase.co" />
+
+    <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <meta property="og:title" content="Illuxus — The All-in-One Event Management Platform">
-    <meta name="twitter:title" content="Illuxus — The All-in-One Event Management Platform">
-    <meta property="og:description" content="Create, manage, and scale unforgettable events with Illuxus. Ticketing, speaker management, analytics, and more — all in one platform.">
-    <meta name="twitter:description" content="Create, manage, and scale unforgettable events with Illuxus. Ticketing, speaker management, analytics, and more — all in one platform.">
-  <meta property="og:image" content="https://dcfygmgjqldvynbvmwdy.supabase.co/storage/v1/object/public/site-assets/favicon/1777010462147-m60zhn.png">
-  <meta name="twitter:image" content="https://dcfygmgjqldvynbvmwdy.supabase.co/storage/v1/object/public/site-assets/favicon/1777010462147-m60zhn.png">
-</head>
+
+    <!-- Structured data: Organization + WebSite (sitelinks search box) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://illuxus.com/#organization",
+            "name": "illuxus",
+            "url": "https://illuxus.com/",
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://illuxus.com/favicon-512.png",
+              "width": 512,
+              "height": 512
+            },
+            "description": "Run branded events, sell tickets, check attendees in via QR, host live webinars, and grow communities — all in one platform."
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://illuxus.com/#website",
+            "url": "https://illuxus.com/",
+            "name": "illuxus",
+            "publisher": { "@id": "https://illuxus.com/#organization" },
+            "inLanguage": "en-US",
+            "potentialAction": {
+              "@type": "SearchAction",
+              "target": {
+                "@type": "EntryPoint",
+                "urlTemplate": "https://illuxus.com/events?q={search_term_string}"
+              },
+              "query-input": "required name=search_term_string"
+            }
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "illuxus",
+            "operatingSystem": "Web",
+            "applicationCategory": "BusinessApplication",
+            "url": "https://illuxus.com/",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            }
+          }
+        ]
+      }
+    </script>
+  </head>
   <body>
     <div id="root"></div>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

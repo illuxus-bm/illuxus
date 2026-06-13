@@ -324,6 +324,6 @@ See `tasks.md` inside each spec for the granular task list and acceptance criter
 
 ## Acknowledgements
 
-Originally scaffolded with Lovable. Public links and bookmarks should remain stable
-forever — both the legacy `/o/:slug` URLs and the canonical `/org/:slug` are kept
-working via redirects in `App.tsx`.
+Public links and bookmarks should remain stable forever — both the legacy
+`/o/:slug` URLs and the canonical `/org/:slug` are kept working via redirects in
+`App.tsx`.

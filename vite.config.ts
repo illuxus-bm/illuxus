@@ -2,7 +2,6 @@ import { execSync } from "node:child_process";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
-import { componentTagger } from "lovable-tagger";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 
 function resolveBuildSha(): string {
@@ -48,7 +47,6 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
-      mode === "development" && componentTagger(),
       shouldUploadSourceMaps &&
         sentryVitePlugin({
           org: process.env.OBSERVABILITY_ORG,

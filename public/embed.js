@@ -74,7 +74,7 @@
         return;
       }
       // Public-URL handle for the org. Embed needs this to build
-      // /org/<orgSlug>/events/<eventSlug> links that match Lovable hosting.
+      // /org/<orgSlug>/events/<eventSlug> links that match the canonical hosting.
       var orgPathSlug = (data.org && data.org.slug) || orgSlug;
       var html = '<div class="ee-grid">';
       data.events.forEach(function (e) {
