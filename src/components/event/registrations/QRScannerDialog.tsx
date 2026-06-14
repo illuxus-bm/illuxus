@@ -20,17 +20,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertTriangle,
   Camera,
   CameraOff,
   CheckCircle,
+  Keyboard,
   RefreshCw,
   ScanLine,
   XCircle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { logger } from "@/lib/observability";
 import type { Tables } from "@/integrations/supabase/types";
 import {
   initialScannerState,
@@ -103,6 +106,79 @@ const RPC_TIMEOUT_MS = 10_000;
 const UUID_RE =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+// ─── Camera error categorization ───────────────────────────────────────────
+
+/**
+ * Translate a getUserMedia / html5-qrcode startup failure into a
+ * specific, user-actionable message. Without this every camera failure
+ * collapses into the same generic "Could not access camera" blurb,
+ * which is the #1 reason organisers think the scanner is broken when
+ * it's actually a permission / OS issue.
+ */
+function categorizeCameraError(err: unknown): { title: string; body: string; logName: string } {
+  // Secure-context check FIRST — if this fails, getUserMedia will always reject.
+  if (typeof window !== "undefined" && !window.isSecureContext) {
+    return {
+      title: "Secure connection required",
+      body: "The camera only works on HTTPS. Open this dashboard via the production HTTPS URL.",
+      logName: "InsecureContextError",
+    };
+  }
+
+  const e = err as { name?: string; message?: string } | null;
+  const name = e?.name ?? "";
+  const message = e?.message ?? String(err ?? "");
+
+  switch (name) {
+    case "NotAllowedError":
+    case "PermissionDeniedError":
+      return {
+        title: "Camera permission denied",
+        body: "Allow camera access for this site in your browser settings, then click Start Scanning again.",
+        logName: name,
+      };
+    case "NotFoundError":
+    case "DevicesNotFoundError":
+      return {
+        title: "No camera found",
+        body: "We couldn't find a camera on this device. Use the manual entry below.",
+        logName: name,
+      };
+    case "NotReadableError":
+    case "TrackStartError":
+      return {
+        title: "Camera in use",
+        body: "Another app or browser tab is using the camera. Close it and try again.",
+        logName: name,
+      };
+    case "OverconstrainedError":
+    case "ConstraintNotSatisfiedError":
+      return {
+        title: "Camera unavailable",
+        body: "This camera doesn't support the requested settings. Try a different device.",
+        logName: name,
+      };
+    case "AbortError":
+      return {
+        title: "Camera startup interrupted",
+        body: "Try clicking Start Scanning again.",
+        logName: name,
+      };
+    case "SecurityError":
+      return {
+        title: "Camera blocked",
+        body: "The browser blocked camera access. Check site settings and try again.",
+        logName: name,
+      };
+    default:
+      return {
+        title: "Could not access camera",
+        body: message || "Allow camera permissions or use the manual entry below.",
+        logName: name || "UnknownCameraError",
+      };
+  }
+}
+
 // ─── Token helpers ─────────────────────────────────────────────────────────
 
 /**
@@ -129,16 +205,23 @@ function classifyResolveFailure(token: string): "invalid" | "not_found" {
 }
 
 /**
- * Map a Supabase `Registration` row to the `RegistrationFixture` shape
- * that `resolveQr` operates on. The dialog only ever reads the
- * registrations array the dashboard already loaded, so we synthesize a
- * read-only `World` containing those rows and feed that to `resolveQr`.
- *
- * `kind` is derived from `ticket_type`: `'speaker'` and `'sponsor'` map
- * to `'speaker'` and `'sponsor_contact'` respectively (matching the
- * `speaker:<UUID>` / `sponsor_contact:<UUID>` token forms in REQ-2.1);
- * everything else is `'attendee'`.
+ * Accept either a raw token or a self-check-in URL containing
+ * `?token=...` / `?join=...`. Mirrors the parsing the public
+ * SelfCheckInPage does so manual entry feels identical to a scan.
  */
+function normalizeManualToken(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  try {
+    const u = new URL(trimmed);
+    const t = u.searchParams.get("token") || u.searchParams.get("join");
+    if (t) return t.trim();
+  } catch {
+    /* not a URL — fall through */
+  }
+  return trimmed;
+}
+
 function buildScopedWorld(regs: readonly Registration[]): World {
   const map = new Map<string, RegistrationFixture>();
   for (const r of regs) {
@@ -171,7 +254,6 @@ function buildScopedWorld(regs: readonly Registration[]): World {
 
 // ─── RPC row shape ─────────────────────────────────────────────────────────
 
-/** Shape of a row returned by the `set_attendance` RPC (migration 005). */
 interface SetAttendanceRow {
   code: ScanResultCode;
   registration_id: string | null;
@@ -216,7 +298,9 @@ export default function QRScannerDialog({
   const [activeTab, setActiveTab] = useState<ScannerTab>(initialTab);
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
-  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [cameraError, setCameraError] = useState<{ title: string; body: string } | null>(null);
+  const [manualValue, setManualValue] = useState("");
+  const [manualBusy, setManualBusy] = useState(false);
 
   // Refs visible to the html5-qrcode decode callback. The callback is
   // captured once at `Html5Qrcode.start()` time, so we can't read state
@@ -228,29 +312,16 @@ export default function QRScannerDialog({
   const eventIdRef = useRef<string>(eventId);
   const onScanAppliedRef = useRef(onScanApplied);
 
-  useEffect(() => {
-    activeTabRef.current = activeTab;
-  }, [activeTab]);
-  useEffect(() => {
-    registrationsRef.current = registrations;
-  }, [registrations]);
-  useEffect(() => {
-    eventIdRef.current = eventId;
-  }, [eventId]);
-  useEffect(() => {
-    onScanAppliedRef.current = onScanApplied;
-  }, [onScanApplied]);
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+  useEffect(() => { registrationsRef.current = registrations; }, [registrations]);
+  useEffect(() => { eventIdRef.current = eventId; }, [eventId]);
+  useEffect(() => { onScanAppliedRef.current = onScanApplied; }, [onScanApplied]);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const containerIdRef = useRef<string>(
     "qr-reader-" + Math.random().toString(36).slice(2)
   );
 
-  /**
-   * Drive the pure `scannerReducer` from `@/lib/attendance/scannerStateMachine`
-   * and return the dispatch outcome. Stable across renders because the
-   * underlying state lives in a ref.
-   */
   const dispatchScannerEvent = useCallback(
     (event: ScannerEvent): "rpc" | "ignored" => {
       const step = scannerReducer(scannerStateRef.current, event);
@@ -262,15 +333,12 @@ export default function QRScannerDialog({
 
   // Decode handler. Branch order:
   //   1. Reducer dispatch — covers REQ-9.1 (same-token dedup within
-  //      2000ms), REQ-9.3 (in-flight lock), and indirectly REQ-9.2 (a
-  //      result-shown banner keeps `inFlight=true` because we never send
-  //      `rpc-end` until the user clicks "Scan another").
+  //      2000ms), REQ-9.3 (in-flight lock), and indirectly REQ-9.2.
   //   2. Client-side resolution via `resolveQr` (REQ-2.1, REQ-2.3, REQ-2.5).
   //   3. Cross-event guard (REQ-2.4).
   //   4. RPC dispatch raced against a 10s timeout (REQ-10.1, REQ-10.2).
   const handleScan = useCallback(
     async (decodedText: string) => {
-      // 1. REQ-9.1 / REQ-9.2 / REQ-9.3 — single dedup gate via the reducer.
       const dispatch = dispatchScannerEvent({
         type: "decode",
         token: decodedText,
@@ -283,11 +351,6 @@ export default function QRScannerDialog({
       const dashboardEventId = eventIdRef.current;
       const onApplied = onScanAppliedRef.current;
 
-      // 2. Client-side resolution via `resolveQr` (REQ-2.1).
-      // We DO NOT send `rpc-end` on the failure paths below: the
-      // result-shown banner is what gates further decodes (REQ-9.2), and
-      // the user dismisses it via the "Scan another" button (which then
-      // sends `rpc-end` to re-arm the dispatch path).
       const world = buildScopedWorld(regsAtScan);
       const reg = resolveQr(world, decodedText);
 
@@ -299,7 +362,6 @@ export default function QRScannerDialog({
         return;
       }
 
-      // 3. REQ-2.4 — wrong-event guard. NO RPC is dispatched.
       if (reg.event_id !== dashboardEventId) {
         const dbReg = regsAtScan.find((r) => r.id === reg.id);
         const next: ScanResult = {
@@ -314,25 +376,14 @@ export default function QRScannerDialog({
       }
 
       const fallbackReg = regsAtScan.find((r) => r.id === reg.id);
-      const target: "inside" | "outside" =
-        tab === "check-in" ? "inside" : "outside";
+      const target: "inside" | "outside" = tab === "check-in" ? "inside" : "outside";
 
-      // 4. RPC dispatch, raced against a 10s timeout (REQ-10.2).
       type RaceShape =
-        | {
-            kind: "rpc";
-            data: SetAttendanceRow[] | null;
-            error: { message: string } | null;
-          }
+        | { kind: "rpc"; data: SetAttendanceRow[] | null; error: { message: string } | null }
         | { kind: "timeout" };
 
       let timerId: number | undefined;
       const rpcCall = supabase
-        // The generated `Database` types in this repo are committed before
-        // migration 005 is applied; the `set_attendance` RPC is therefore
-        // not yet present in `Database['public']['Functions']`. The
-        // existing codebase uses the same `as never` escape elsewhere
-        // (see `RegistrationsSection.toggleCheckIn`).
         .rpc("set_attendance" as never, {
           p_reg_id: reg.id,
           p_target: target,
@@ -360,13 +411,10 @@ export default function QRScannerDialog({
       try {
         raceResult = await Promise.race([rpcCall, timeoutPromise]);
       } catch (err) {
-        // Network-level failures throw rather than surface as `{error}`.
         raceResult = {
           kind: "rpc",
           data: null,
-          error: {
-            message: err instanceof Error ? err.message : String(err),
-          },
+          error: { message: err instanceof Error ? err.message : String(err) },
         };
       } finally {
         if (timerId !== undefined) window.clearTimeout(timerId);
@@ -374,7 +422,11 @@ export default function QRScannerDialog({
 
       let next: ScanResult;
       if (raceResult.kind === "timeout") {
-        // REQ-10.2 — timeout branch.
+        logger.warn("set_attendance timeout", {
+          rpc: "set_attendance",
+          reg_id: reg.id,
+          target,
+        });
         next = {
           code: "timeout",
           registrationId: reg.id,
@@ -382,10 +434,12 @@ export default function QRScannerDialog({
           ticketType: fallbackReg?.ticket_type,
         };
       } else if (raceResult.error) {
-        // REQ-10.1 — RPC error branch. The DB-side guarantee that no row
-        // is inserted on a rejection follows from the SECURITY DEFINER
-        // helper only INSERTing in success branches, plus PostgreSQL's
-        // transactional rollback on raise.
+        logger.error("set_attendance failed", {
+          rpc: "set_attendance",
+          reg_id: reg.id,
+          target,
+          error_message: raceResult.error.message,
+        });
         next = {
           code: "rpc_error",
           registrationId: reg.id,
@@ -396,8 +450,11 @@ export default function QRScannerDialog({
       } else {
         const row = raceResult.data?.[0];
         if (!row) {
-          // The RPC returns exactly one row per call (see migration 005);
-          // an empty result indicates a wire-level malformation.
+          logger.warn("set_attendance returned no row", {
+            rpc: "set_attendance",
+            reg_id: reg.id,
+            target,
+          });
           next = {
             code: "rpc_error",
             registrationId: reg.id,
@@ -418,28 +475,45 @@ export default function QRScannerDialog({
   const startScanner = async () => {
     setCameraError(null);
     setResult(null);
-    // Clear dedup state and in-flight on a fresh camera start.
     scannerStateRef.current = initialScannerState;
     try {
       const scanner = new Html5Qrcode(containerIdRef.current);
       scannerRef.current = scanner;
       await scanner.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        {
+          fps: 10,
+          // Dynamic qrbox so the scan target scales with the viewfinder
+          // instead of being pinned at 250×250 (which silently breaks
+          // when the dialog is narrower than the box on a phone).
+          qrbox: (viewW: number, viewH: number) => {
+            const edge = Math.min(viewW, viewH);
+            const target = Math.floor(edge * 0.75);
+            const clamped = Math.max(180, Math.min(target, 480));
+            return { width: clamped, height: clamped };
+          },
+        },
         (decodedText) => {
-          // html5-qrcode invokes the callback once per decoded frame.
-          // Fire-and-forget; the handler self-gates via the reducer.
-          void handleScan(decodedText);
+          // Fire-and-forget; gate via the reducer. Surface async errors
+          // through the logger so they're visible in telemetry.
+          handleScan(decodedText).catch((err) => {
+            logger.error("scanner handleScan threw", {
+              error_message: err instanceof Error ? err.message : String(err),
+            });
+          });
         },
         () => {
-          /* per-frame decode failures are noisy; swallow. */
+          /* per-frame decode failures are noisy; swallow to avoid log spam */
         }
       );
       setScanning(true);
-    } catch {
-      setCameraError(
-        "Could not access camera. Please allow camera permissions."
-      );
+    } catch (err) {
+      const cat = categorizeCameraError(err);
+      logger.warn("scanner camera start failed", {
+        error_name: cat.logName,
+        error_message: cat.body,
+      });
+      setCameraError({ title: cat.title, body: cat.body });
       scannerRef.current = null;
     }
   };
@@ -449,17 +523,16 @@ export default function QRScannerDialog({
     if (scanner && scanner.isScanning) {
       try {
         await scanner.stop();
-      } catch {
-        /* html5-qrcode throws when stop() races with internal teardown. */
+      } catch (err) {
+        logger.debug("scanner stop raced", {
+          error_message: err instanceof Error ? err.message : String(err),
+        });
       }
     }
     scannerRef.current = null;
     setScanning(false);
   }, []);
 
-  // REQ-1.4 — switching tabs clears `result` and resets the per-tab
-  // dedup buffer + in-flight flag via a `tab-switch` event to the
-  // reducer. The shared camera mount is NOT stopped or restarted.
   const handleTabChange = useCallback(
     (value: string) => {
       if (value !== "check-in" && value !== "check-out") return;
@@ -470,15 +543,26 @@ export default function QRScannerDialog({
     [dispatchScannerEvent]
   );
 
-  // REQ-10.3 — "Scan another" dismisses the banner and sends `rpc-end`
-  // to the reducer to re-arm the dispatch path. The camera stays
-  // running; `recentDecodes` is preserved so the same QR still pointing
-  // at the lens is suppressed by the 2s window (and not double-applied
-  // immediately).
   const scanAnother = useCallback(() => {
     setResult(null);
     dispatchScannerEvent({ type: "rpc-end" });
   }, [dispatchScannerEvent]);
+
+  // Manual entry: behaves identically to a scanned token. Re-arms the
+  // dispatch path before invoking handleScan so the reducer accepts the
+  // input.
+  const submitManual = useCallback(async () => {
+    const token = normalizeManualToken(manualValue);
+    if (!token) return;
+    setManualBusy(true);
+    dispatchScannerEvent({ type: "rpc-end" });
+    try {
+      await handleScan(token);
+      setManualValue("");
+    } finally {
+      setManualBusy(false);
+    }
+  }, [manualValue, dispatchScannerEvent, handleScan]);
 
   // Reset state on open; tear the camera down on close.
   useEffect(() => {
@@ -488,23 +572,18 @@ export default function QRScannerDialog({
       setResult(null);
       scannerStateRef.current = initialScannerState;
       setCameraError(null);
+      setManualValue("");
     } else {
       void stopScanner();
       setResult(null);
       scannerStateRef.current = initialScannerState;
       setCameraError(null);
+      setManualValue("");
     }
   }, [open, initialTab, stopScanner]);
 
-  // Tear the camera down on unmount.
-  useEffect(() => {
-    return () => {
-      void stopScanner();
-    };
-  }, [stopScanner]);
+  useEffect(() => () => { void stopScanner(); }, [stopScanner]);
 
-  // Memoize the dialog header copy so React doesn't re-render the icon
-  // on every parent update.
   const headerTitle = useMemo(
     () => `QR Scanner — ${tabTitle(activeTab)}`,
     [activeTab]
@@ -512,9 +591,8 @@ export default function QRScannerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          {/* REQ-1.3 — active tab name appears in the dialog header. */}
           <DialogTitle className="flex items-center gap-2 text-base">
             <ScanLine className="h-4 w-4" />
             <span>{headerTitle}</span>
@@ -526,7 +604,6 @@ export default function QRScannerDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* REQ-1.1 / REQ-1.2 — two tabs, default = 'check-in'. */}
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="check-in">Check-In</TabsTrigger>
@@ -538,43 +615,75 @@ export default function QRScannerDialog({
           {/*
             Shared `Html5Qrcode` mount. Lives outside <TabsContent> so the
             DOM node is stable across tab switches — the camera is not
-            stopped or restarted (REQ-1.4 carve-out).
+            stopped or restarted (REQ-1.4 carve-out). aspect-square +
+            max-height keeps the scanner big on tablets without
+            overflowing on small phones.
           */}
           <div
             id={containerIdRef.current}
-            className="w-full rounded-lg overflow-hidden bg-muted/50 min-h-[250px]"
+            className="w-full aspect-square mx-auto rounded-lg overflow-hidden bg-muted/50 border border-border"
+            style={{ maxHeight: "min(60vh, 460px)" }}
           />
 
           {cameraError && (
-            <div className="flex items-center gap-2 p-3 rounded-lg text-[13px] font-medium bg-red-500/10 text-red-600 border border-red-500/20">
-              <XCircle className="h-4 w-4 shrink-0" />
-              {cameraError}
+            <div className="flex items-start gap-2 p-3 rounded-lg text-[13px] bg-red-500/10 text-red-600 border border-red-500/20">
+              <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-0.5">
+                <div className="font-semibold">{cameraError.title}</div>
+                <div className="text-[12px] leading-relaxed">{cameraError.body}</div>
+              </div>
             </div>
           )}
 
-          {result && (
-            <ResultBanner result={result} onScanAnother={scanAnother} />
-          )}
+          {result && <ResultBanner result={result} onScanAnother={scanAnother} />}
 
           <div className="flex gap-2">
             {!scanning ? (
-              <Button
-                onClick={startScanner}
-                size="sm"
-                className="w-full gap-1.5 text-[13px]"
-              >
+              <Button onClick={startScanner} size="sm" className="w-full gap-1.5 text-[13px]">
                 <Camera className="h-3.5 w-3.5" /> Start Scanning
               </Button>
             ) : (
-              <Button
-                onClick={() => void stopScanner()}
-                size="sm"
-                variant="outline"
-                className="w-full gap-1.5 text-[13px]"
-              >
+              <Button onClick={() => void stopScanner()} size="sm" variant="outline" className="w-full gap-1.5 text-[13px]">
                 <CameraOff className="h-3.5 w-3.5" /> Stop Scanning
               </Button>
             )}
+          </div>
+
+          {/*
+            Manual fallback. Always visible so organisers in venues with
+            unreliable camera permissions still have a path forward.
+            Accepts a raw token, the registration id, or a self-check-in
+            URL containing `?token=...`.
+          */}
+          <div className="border-t border-border pt-3 space-y-2">
+            <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <Keyboard className="h-3 w-3" /> Or enter a code / link manually
+            </p>
+            <div className="flex gap-2">
+              <Input
+                value={manualValue}
+                onChange={(e) => setManualValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void submitManual();
+                  }
+                }}
+                placeholder="Paste code or self check-in link"
+                className="h-8 text-[12px]"
+                disabled={manualBusy}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1 text-[12px]"
+                onClick={() => void submitManual()}
+                disabled={manualBusy || !normalizeManualToken(manualValue)}
+              >
+                {manualBusy ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ScanLine className="h-3.5 w-3.5" />}
+                Apply
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>
@@ -604,45 +713,26 @@ interface BannerCopy {
   body: string;
 }
 
-/**
- * Banner copy table from `design.md` "Error Handling". Every code in
- * `ScanResultCode` produces a deterministic title + body string.
- */
 function bannerCopyFor(result: ScanResult): BannerCopy {
   const name = result.name ?? "Attendee";
   const ticketLabel = result.ticketType ? ` (${result.ticketType})` : "";
-  const occurred = result.occurredAt
-    ? formatTimestamp(result.occurredAt)
-    : null;
-  const totalLabel =
-    result.totalMinutes != null
-      ? ` Total onsite ${formatMinutes(result.totalMinutes)}.`
-      : "";
+  const occurred = result.occurredAt ? formatTimestamp(result.occurredAt) : null;
+  const totalLabel = result.totalMinutes != null ? ` Total onsite ${formatMinutes(result.totalMinutes)}.` : "";
 
   switch (result.code) {
     case "applied_in":
-      return {
-        title: "Checked in",
-        body: `Welcome, ${name}${ticketLabel}.`,
-      };
+      return { title: "Checked in", body: `Welcome, ${name}${ticketLabel}.` };
     case "applied_out":
-      return {
-        title: "Checked out",
-        body: `${name}${ticketLabel}.${totalLabel}`,
-      };
+      return { title: "Checked out", body: `${name}${ticketLabel}.${totalLabel}` };
     case "already_inside":
       return {
         title: "Already checked in",
-        body: occurred
-          ? `${name} is already inside (${occurred}).`
-          : `${name} is already inside.`,
+        body: occurred ? `${name} is already inside (${occurred}).` : `${name} is already inside.`,
       };
     case "already_outside":
       return {
         title: "Already checked out",
-        body: occurred
-          ? `${name} was last checked out at ${occurred}.`
-          : `${name} was last checked out.`,
+        body: occurred ? `${name} was last checked out at ${occurred}.` : `${name} was last checked out.`,
       };
     case "not_checked_in_yet":
       return {
@@ -650,55 +740,31 @@ function bannerCopyFor(result: ScanResult): BannerCopy {
         body: `${name} has not checked in. Switch to the Check-In tab first.`,
       };
     case "cancelled":
-      return {
-        title: "Registration cancelled",
-        body: "This ticket was cancelled and can't be used.",
-      };
+      return { title: "Registration cancelled", body: "This ticket was cancelled and can't be used." };
     case "declined":
-      return {
-        title: "Registration declined",
-        body: "This registration was declined.",
-      };
+      return { title: "Registration declined", body: "This registration was declined." };
     case "pending_approval":
-      return {
-        title: "Awaiting approval",
-        body: "This registration is still pending approval.",
-      };
+      return { title: "Awaiting approval", body: "This registration is still pending approval." };
     case "wrong_event":
-      return {
-        title: "Wrong event",
-        body: "This ticket is for a different event.",
-      };
+      return { title: "Wrong event", body: "This ticket is for a different event." };
     case "not_found":
-      return {
-        title: "Ticket not found",
-        body: "We couldn't find this ticket.",
-      };
+      return { title: "Ticket not found", body: "We couldn't find this ticket." };
     case "invalid":
-      return {
-        title: "Invalid code",
-        body: "That doesn't look like a valid ticket code.",
-      };
+      return { title: "Invalid code", body: "That doesn't look like a valid ticket code." };
     case "tracking_closed":
-      return {
-        title: "Tracking closed",
-        body: "Check-in and check-out closed for this event.",
-      };
+      return { title: "Tracking closed", body: "Check-in and check-out closed for this event." };
     case "unauthorized":
-      return {
-        title: "Not allowed",
-        body: "You're not authorized to scan for this event.",
-      };
+      return { title: "Not allowed", body: "You're not authorized to scan for this event." };
     case "rpc_error":
       return {
-        title: "Something went wrong",
-        body: result.message ?? "Please try again.",
+        title: "Server rejected the scan",
+        // Show the actual server message — used to be hidden behind a
+        // generic "Something went wrong" which made missing migrations
+        // and RLS issues invisible.
+        body: result.message ?? "Try again. If this keeps happening, the set_attendance migration may not be applied.",
       };
     case "timeout":
-      return {
-        title: "Request timed out",
-        body: "We didn't hear back from the server. Try again.",
-      };
+      return { title: "Request timed out", body: "We didn't hear back from the server. Try again." };
   }
 }
 
@@ -716,12 +782,7 @@ function ResultBanner({ result, onScanAnother }: ResultBannerProps) {
       : kind === "warn"
         ? "bg-yellow-500/10 text-yellow-700 border-yellow-500/20"
         : "bg-red-500/10 text-red-600 border-red-500/20";
-  const Icon =
-    kind === "success"
-      ? CheckCircle
-      : kind === "warn"
-        ? AlertTriangle
-        : XCircle;
+  const Icon = kind === "success" ? CheckCircle : kind === "warn" ? AlertTriangle : XCircle;
 
   return (
     <div
@@ -733,7 +794,7 @@ function ResultBanner({ result, onScanAnother }: ResultBannerProps) {
       <Icon className="h-4 w-4 shrink-0 mt-0.5" />
       <div className="flex-1 space-y-1">
         <div className="font-semibold">{title}</div>
-        <div className="text-[12px]">{body}</div>
+        <div className="text-[12px] break-words">{body}</div>
       </div>
       <Button
         size="sm"

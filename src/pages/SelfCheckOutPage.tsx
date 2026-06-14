@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Html5Qrcode } from "html5-qrcode";
 import { supabase } from "@/integrations/supabase/client";
-import { supabaseRpc } from "@/lib/observability";
+import { logger, supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -91,15 +91,15 @@ export default function SelfCheckOutPage() {
     setResult(null);
     setLastMethod("camera");
     try {
+      if (typeof window !== "undefined" && !window.isSecureContext) {
+        throw Object.assign(new Error("Camera requires HTTPS"), { name: "InsecureContextError" });
+      }
       const s = new Html5Qrcode(containerId.current);
       scannerRef.current = s;
       await s.start(
         { facingMode: "environment" },
         {
           fps: 10,
-          // Same dynamic qrbox sizing as the check-in page so the
-          // scan target scales with the viewfinder rather than being
-          // pinned to a small fixed size.
           qrbox: (viewW: number, viewH: number) => {
             const edge = Math.min(viewW, viewH);
             const target = Math.floor(edge * 0.75);
@@ -111,8 +111,23 @@ export default function SelfCheckOutPage() {
         () => {}
       );
       setScanning(true);
-    } catch {
-      setResult({ status: "error", message: "Could not access the camera. Allow camera access or enter your code manually below." });
+    } catch (err) {
+      const e = err as { name?: string; message?: string } | null;
+      const message =
+        e?.name === "InsecureContextError"
+          ? "The camera only works on HTTPS. Open this page via the secure URL."
+          : e?.name === "NotAllowedError" || e?.name === "PermissionDeniedError"
+            ? "Camera permission denied. Allow camera access in your browser, then try again."
+            : e?.name === "NotFoundError"
+              ? "We couldn't find a camera on this device. Use manual entry below."
+              : e?.name === "NotReadableError"
+                ? "Another app or tab is using the camera. Close it and try again."
+                : "Could not access the camera. Use manual entry below.";
+      logger.warn("self check-out camera start failed", {
+        error_name: e?.name ?? null,
+        error_message: e?.message ?? String(err ?? ""),
+      });
+      setResult({ status: "error", message });
     }
   };
 
@@ -147,6 +162,11 @@ export default function SelfCheckOutPage() {
     setBusy(false);
 
     if (error) {
+      logger.warn("self_check_out failed", {
+        rpc: "self_check_out",
+        event_id: eventId ?? null,
+        error_message: error.message,
+      });
       setResult({ status: "error", message: error.message });
       return;
     }
