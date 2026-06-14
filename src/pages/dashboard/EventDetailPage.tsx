@@ -406,7 +406,8 @@ const EventDetailPage = () => {
               const slug = (comm as { slug?: string } | null)?.slug;
               if (slug) { navigate(`/community/${slug}/feed`); return; }
             }
-            navigate("/community");
+            // If the community hasn't been created yet, stay on the dashboard and show the fallback UI
+            setActiveSection("community");
             return;
           }
           setActiveSection(k);
@@ -738,6 +739,20 @@ const EventDetailPage = () => {
             {activeSection === "communicate" && <CommunicationSection eventId={event.id} />}
             {activeSection === "reports" && <ReportsSection eventId={event.id} />}
             {activeSection === "search" && <EventSearch eventId={event.id} registrations={registrations} />}
+            {activeSection === "community" && (
+              <div className="flex flex-col items-center justify-center h-[50vh] text-center space-y-4">
+                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Users2 className="h-6 w-6 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold tracking-tight">No Community Setup</h3>
+                  <p className="text-[13px] text-muted-foreground mt-1 max-w-sm">This event does not have an active community yet. You can enable it in the event settings.</p>
+                </div>
+                <Button onClick={() => setActiveSection("settings")} className="mt-2" variant="outline">
+                   Go to Settings
+                </Button>
+              </div>
+            )}
 
             {activeSection === "broadcast" && (
               <Suspense fallback={<FullPageLoader label="Loading webinar studio…" />}>

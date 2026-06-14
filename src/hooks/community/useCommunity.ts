@@ -81,6 +81,26 @@ export function usePublicCommunities() {
   });
 }
 
+/**
+ * Fetch child communities (event communities) for a specific parent hub.
+ */
+export function useChildCommunities(parentId: string | null) {
+  return useQuery({
+    queryKey: ["community", "children", parentId],
+    enabled: !!parentId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("communities" as never)
+        .select("*")
+        .eq("parent_id", parentId)
+        .eq("visibility", "public")
+        .order("member_count", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as Community[];
+    },
+  });
+}
+
 /** Resolve `event_id → communities.id` so EventDetailPage can deep-link. */
 export function useEventCommunity(eventId: string | undefined) {
   return useQuery({

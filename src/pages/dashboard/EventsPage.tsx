@@ -11,8 +11,10 @@ import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
   Plus, Calendar, Edit, Trash2, X, Search,
-  MapPin, Clock, Link as LinkIcon, ArrowRight, ExternalLink, Settings2,
+  MapPin, Clock, Link as LinkIcon, ArrowRight, ExternalLink, Settings2, Users2,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Tables } from "@/integrations/supabase/types";
 import EventCoverPicker from "@/components/event/EventCoverPicker";
 import EventBannerPicker from "@/components/event/EventBannerPicker";
@@ -55,6 +57,8 @@ const EventsPage = () => {
   const [imageUrl, setImageUrl] = useState("");
   const [bannerLandscapeUrl, setBannerLandscapeUrl] = useState("");
   const [bannerPortraitUrl, setBannerPortraitUrl] = useState("");
+  const [createCommunity, setCreateCommunity] = useState(true);
+  const [communityCategory, setCommunityCategory] = useState("other");
 
   const fetchEvents = async () => {
     if (!org?.id) return;
@@ -72,7 +76,9 @@ const EventsPage = () => {
   const resetForm = () => {
     setTitle(""); setDescription(""); setSlug(""); setSlugTouched(false); setDate(""); setEndDate("");
     setVenue(""); setLocation(""); setCapacity(""); setPrice("");
-    setStatus("draft"); setImageUrl(""); setBannerLandscapeUrl(""); setBannerPortraitUrl(""); setEditingEvent(null); setShowForm(false);
+    setStatus("draft"); setImageUrl(""); setBannerLandscapeUrl(""); setBannerPortraitUrl("");
+    setCreateCommunity(true); setCommunityCategory("other");
+    setEditingEvent(null); setShowForm(false);
   };
 
   const openEditForm = (event: Event) => {
@@ -91,6 +97,8 @@ const EventsPage = () => {
     setImageUrl(event.image_url || "");
     setBannerLandscapeUrl((event as { banner_landscape_url?: string | null }).banner_landscape_url || "");
     setBannerPortraitUrl((event as { banner_portrait_url?: string | null }).banner_portrait_url || "");
+    setCreateCommunity((event as any).create_community ?? true);
+    setCommunityCategory((event as any).community_category ?? "other");
     setShowForm(true);
   };
 
@@ -114,6 +122,8 @@ const EventsPage = () => {
       user_id: user.id,
       org_id: org.id,
       slug: slug.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, ""),
+      create_community: createCommunity,
+      community_category: createCommunity ? communityCategory : null,
     };
 
     if (editingEvent) {
@@ -334,6 +344,52 @@ const EventsPage = () => {
                   <option value="cancelled">Cancelled</option>
                   <option value="completed">Completed</option>
                 </select>
+              </div>
+
+              {/* Community Settings */}
+              <div className="md:col-span-2">
+                <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Users2 className="h-4 w-4 text-primary" />
+                    <h4 className="text-[13px] font-semibold">Community Settings</h4>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[13px] font-medium">Create a community for this event</p>
+                      <p className="text-[12px] text-muted-foreground">Automatically set up a discussion space for attendees, speakers and sponsors.</p>
+                    </div>
+                    <Switch
+                      id="create-community-toggle"
+                      checked={createCommunity}
+                      onCheckedChange={setCreateCommunity}
+                    />
+                  </div>
+                  {createCommunity && (
+                    <div>
+                      <Label className="text-[12px] mb-1.5 block">Community category</Label>
+                      <Select value={communityCategory} onValueChange={setCommunityCategory}>
+                        <SelectTrigger className="h-9 text-[13px]">
+                          <SelectValue placeholder="Select a category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="tech">🖥️ Tech</SelectItem>
+                          <SelectItem value="ai">🤖 AI</SelectItem>
+                          <SelectItem value="startup">🚀 Startup</SelectItem>
+                          <SelectItem value="hackathon">🏆 Hackathon</SelectItem>
+                          <SelectItem value="cybersecurity">🔐 Cybersecurity</SelectItem>
+                          <SelectItem value="finance">💰 Finance</SelectItem>
+                          <SelectItem value="education">📚 Education</SelectItem>
+                          <SelectItem value="design">🎨 Design</SelectItem>
+                          <SelectItem value="marketing">📣 Marketing</SelectItem>
+                          <SelectItem value="health">🏥 Health</SelectItem>
+                          <SelectItem value="sustainability">🌱 Sustainability</SelectItem>
+                          <SelectItem value="other">🌐 Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[11px] text-muted-foreground mt-1">This places the event community under the right industry hub.</p>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="md:col-span-2 flex gap-3">
                 <Button type="submit" className="hero-gradient text-primary-foreground font-semibold">

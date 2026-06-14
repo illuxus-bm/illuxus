@@ -240,17 +240,17 @@ const App = () => (
                 <Route path="/dashboard/admin" element={<RouteErrorBoundary><SuperAdminRoute><AdminPanelPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/site" element={<RouteErrorBoundary><SuperAdminRoute><SiteEditorPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/audit" element={<RouteErrorBoundary><SuperAdminRoute><AuditLogPage /></SuperAdminRoute></RouteErrorBoundary>} />
-                {/* Standalone /community area — no OnboardingGuard so attendees can reach it. */}
-                <Route path="/community" element={<RouteErrorBoundary><ProtectedRoute><CommunityHubPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug" element={<RouteErrorBoundary><ProtectedRoute><CommunityHomePage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/feed" element={<RouteErrorBoundary><ProtectedRoute><CommunityFeedPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/members" element={<RouteErrorBoundary><ProtectedRoute><CommunityMembersPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/announcements" element={<RouteErrorBoundary><ProtectedRoute><CommunityAnnouncementsPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/calendar" element={<RouteErrorBoundary><ProtectedRoute><CommunityCalendarPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/resources" element={<RouteErrorBoundary><ProtectedRoute><CommunityResourcesPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/chat" element={<RouteErrorBoundary><ProtectedRoute><CommunityChatPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/moderation" element={<RouteErrorBoundary><ProtectedRoute><CommunityModerationPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/settings" element={<RouteErrorBoundary><ProtectedRoute><CommunitySettingsPage /></ProtectedRoute></RouteErrorBoundary>} />
+                {/* Standalone /community area — restricted to OrganizerRoute as requested */}
+                <Route path="/community" element={<RouteErrorBoundary><OrganizerRoute><CommunityHubPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug" element={<RouteErrorBoundary><OrganizerRoute><CommunityHomePage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/feed" element={<RouteErrorBoundary><OrganizerRoute><CommunityFeedPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/members" element={<RouteErrorBoundary><OrganizerRoute><CommunityMembersPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/announcements" element={<RouteErrorBoundary><OrganizerRoute><CommunityAnnouncementsPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/calendar" element={<RouteErrorBoundary><OrganizerRoute><CommunityCalendarPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/resources" element={<RouteErrorBoundary><OrganizerRoute><CommunityResourcesPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/chat" element={<RouteErrorBoundary><OrganizerRoute><CommunityChatPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/moderation" element={<RouteErrorBoundary><OrganizerRoute><CommunityModerationPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/settings" element={<RouteErrorBoundary><OrganizerRoute><CommunitySettingsPage /></OrganizerRoute></RouteErrorBoundary>} />
                 {/* Backward-compat: any old /dashboard/community link still resolves */}
                 <Route path="/dashboard/community" element={<RouteErrorBoundary><Navigate to="/community" replace /></RouteErrorBoundary>} />
                 <Route path="/dashboard/community/*" element={<RouteErrorBoundary><DashboardCommunityRedirect /></RouteErrorBoundary>} />
