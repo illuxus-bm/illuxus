@@ -7,8 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical, Search, Megaphone } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
 import { logger } from "@/lib/observability";
 import SponsorLogoUploader from "./SponsorLogoUploader";
@@ -84,6 +85,8 @@ export default function SponsorManagement({ eventId }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [tierPresets, setTierPresets] = useState<TierPreset[]>([]);
+  const [applicationsEnabled, setApplicationsEnabled] = useState(true);
+  const [togglingApplications, setTogglingApplications] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -137,7 +140,11 @@ export default function SponsorManagement({ eventId }: Props) {
     const { data: allSpk } = await supabase.from("sponsors").select("*").order("name");
 
     // Step 4: org tier presets
-    const { data: ev } = await supabase.from("events").select("org_id").eq("id", eventId).maybeSingle();
+    const { data: ev } = await supabase
+      .from("events")
+      .select("org_id, sponsor_applications_enabled")
+      .eq("id", eventId)
+      .maybeSingle();
 
     const byIdAll = new Map<string, Sponsor>();
     for (const s of (allSpk ?? []) as Sponsor[]) byIdAll.set(s.id, s);
@@ -148,6 +155,9 @@ export default function SponsorManagement({ eventId }: Props) {
     setAssignedIds(ids);
     const _orgId = (ev as any)?.org_id ?? null;
     setOrgId(_orgId);
+    setApplicationsEnabled(
+      (ev as { sponsor_applications_enabled?: boolean | null } | null)?.sponsor_applications_enabled ?? true,
+    );
     if (_orgId) {
       const { data: presets } = await supabase
         .from("org_sponsor_tiers")
@@ -162,6 +172,26 @@ export default function SponsorManagement({ eventId }: Props) {
   };
 
   useEffect(() => { fetchData(); }, [eventId]);
+
+  const handleApplicationsToggle = async (enabled: boolean) => {
+    setTogglingApplications(true);
+    setApplicationsEnabled(enabled);
+    const { error } = await supabase
+      .from("events")
+      .update({ sponsor_applications_enabled: enabled } as never)
+      .eq("id", eventId);
+    setTogglingApplications(false);
+    if (error) {
+      setApplicationsEnabled(!enabled);
+      toast.error(error.message);
+      logger.error("sponsor applications toggle failed", {
+        event_id: eventId,
+        error_message: error.message,
+      });
+      return;
+    }
+    toast.success(enabled ? "Call for Sponsors is now open" : "Call for Sponsors is now closed");
+  };
 
   const fetchMembers = async (sponsorId: string) => {
     const { data } = await supabase.from("sponsor_members").select("*").eq("sponsor_id", sponsorId).order("created_at");
@@ -444,6 +474,27 @@ export default function SponsorManagement({ eventId }: Props) {
             </div>
           </DialogContent>
         </Dialog>
+      </div>
+
+      {/* Call for Sponsors gate (per-event). Defaults ON via migration 009. */}
+      <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
+        <div className="flex items-start gap-3">
+          <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+            <Megaphone className="h-4 w-4 text-primary" />
+          </div>
+          <div>
+            <p className="text-[13px] font-semibold">Call for Sponsors</p>
+            <p className="text-[12px] text-muted-foreground">
+              Show the “Become a Sponsor” button on the public event page.
+            </p>
+          </div>
+        </div>
+        <Switch
+          checked={applicationsEnabled}
+          onCheckedChange={handleApplicationsToggle}
+          disabled={togglingApplications}
+          aria-label="Toggle call for sponsors"
+        />
       </div>
 
       {/* Sponsors grouped by tier */}

@@ -6,8 +6,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, UserCheck, Building, Link2, Copy, GripVertical, Search, Users } from "lucide-react";
+import { Plus, Pencil, Trash2, UserCheck, Building, Link2, Copy, GripVertical, Search, Users, Megaphone } from "lucide-react";
 import { publicUrl } from "@/lib/publicUrl";
 import { logger } from "@/lib/observability";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
@@ -57,6 +58,8 @@ export default function SpeakerManagement({ eventId }: Props) {
   const [form, setForm] = useState(emptyForm());
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [tokensByEmail, setTokensByEmail] = useState<Record<string, string>>({});
+  const [applicationsEnabled, setApplicationsEnabled] = useState(true);
+  const [togglingApplications, setTogglingApplications] = useState(false);
 
   const fetchData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -108,6 +111,16 @@ export default function SpeakerManagement({ eventId }: Props) {
     const { data: sess } = await supabase.from("webinar_sessions").select("id").eq("event_id", eventId)
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
 
+    // Step 5: per-event Call-for-Speakers toggle
+    const { data: ev } = await supabase
+      .from("events")
+      .select("speaker_applications_enabled")
+      .eq("id", eventId)
+      .maybeSingle();
+    setApplicationsEnabled(
+      (ev as { speaker_applications_enabled?: boolean | null } | null)?.speaker_applications_enabled ?? true,
+    );
+
     setAllSpeakers(Array.from(byIdAll.values()).sort((a, b) => a.name.localeCompare(b.name)));
     setSpeakers(linkedSpeakers);
     setAssignedIds(ids);
@@ -125,6 +138,28 @@ export default function SpeakerManagement({ eventId }: Props) {
   };
 
   useEffect(() => { fetchData(); }, [eventId]);
+
+  const handleApplicationsToggle = async (enabled: boolean) => {
+    setTogglingApplications(true);
+    // Optimistic update
+    setApplicationsEnabled(enabled);
+    const { error } = await supabase
+      .from("events")
+      .update({ speaker_applications_enabled: enabled } as never)
+      .eq("id", eventId);
+    setTogglingApplications(false);
+    if (error) {
+      // Roll back on failure
+      setApplicationsEnabled(!enabled);
+      toast.error(error.message);
+      logger.error("speaker applications toggle failed", {
+        event_id: eventId,
+        error_message: error.message,
+      });
+      return;
+    }
+    toast.success(enabled ? "Call for Speakers is now open" : "Call for Speakers is now closed");
+  };
 
   const syncWebinarSpeaker = async (speaker: Pick<Speaker, "name" | "email">) => {
     if (!sessionId || !speaker.email) return;
@@ -295,6 +330,27 @@ export default function SpeakerManagement({ eventId }: Props) {
             </div>
           </DialogContent>
         </Dialog>
+      </div>
+
+      {/* Call for Speakers gate (per-event). Defaults ON via migration 009. */}
+      <div className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
+        <div className="flex items-start gap-3">
+          <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+            <Megaphone className="h-4 w-4 text-primary" />
+          </div>
+          <div>
+            <p className="text-[13px] font-semibold">Call for Speakers</p>
+            <p className="text-[12px] text-muted-foreground">
+              Show the “Apply as Speaker” button on the public event page.
+            </p>
+          </div>
+        </div>
+        <Switch
+          checked={applicationsEnabled}
+          onCheckedChange={handleApplicationsToggle}
+          disabled={togglingApplications}
+          aria-label="Toggle call for speakers"
+        />
       </div>
 
       {/* Assigned Speakers */}

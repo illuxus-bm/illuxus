@@ -30,8 +30,6 @@ interface EventForm {
   timezone: string;
   attendance_target_pct: number | null;
   org_id: string | null;
-  speaker_applications_enabled: boolean;
-  sponsor_applications_enabled: boolean;
 }
 
 function toLocalInput(v: string | null): string {
@@ -79,10 +77,6 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
         attendance_target_pct:
           (data as { attendance_target_pct?: number | null }).attendance_target_pct ?? null,
         org_id: (data as { org_id?: string | null }).org_id ?? null,
-        speaker_applications_enabled:
-          (data as { speaker_applications_enabled?: boolean | null }).speaker_applications_enabled ?? true,
-        sponsor_applications_enabled:
-          (data as { sponsor_applications_enabled?: boolean | null }).sponsor_applications_enabled ?? true,
       });
       setLoading(false);
     })();
@@ -134,8 +128,6 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
         image_url: form.image_url || null,
         timezone: form.timezone || null,
         attendance_target_pct: form.attendance_target_pct,
-        speaker_applications_enabled: form.speaker_applications_enabled,
-        sponsor_applications_enabled: form.sponsor_applications_enabled,
       } as never)
       .eq("id", eventId);
     setSaving(false);
@@ -354,34 +346,6 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
             checked={form.requires_approval}
             onCheckedChange={(v) => update("requires_approval", v)}
             disabled={Number(form.price) > 0}
-          />
-        </div>
-
-        {/* Call-for-Speakers / Call-for-Sponsors gates. Both default ON
-            on existing events (migration 009) so toggling them off is
-            the explicit "close applications" action. */}
-        <div className="flex items-center justify-between rounded-md border border-border p-3">
-          <div>
-            <p className="text-[13px] font-medium">Call for Speakers</p>
-            <p className="text-[12px] text-muted-foreground">
-              Show the “Apply as Speaker” button on the public event page.
-            </p>
-          </div>
-          <Switch
-            checked={form.speaker_applications_enabled}
-            onCheckedChange={(v) => update("speaker_applications_enabled", v)}
-          />
-        </div>
-        <div className="flex items-center justify-between rounded-md border border-border p-3">
-          <div>
-            <p className="text-[13px] font-medium">Call for Sponsors</p>
-            <p className="text-[12px] text-muted-foreground">
-              Show the “Become a Sponsor” button on the public event page.
-            </p>
-          </div>
-          <Switch
-            checked={form.sponsor_applications_enabled}
-            onCheckedChange={(v) => update("sponsor_applications_enabled", v)}
           />
         </div>
 
