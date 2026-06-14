@@ -25,6 +25,8 @@ interface TicketRow {
     venue: string | null;
     location: string | null;
     image_url: string | null;
+    banner_landscape_url: string | null;
+    banner_portrait_url: string | null;
     timezone: string | null;
     organizations?: { name?: string | null; slug?: string | null; subdomain?: string | null } | null;
   } | null;
@@ -42,7 +44,7 @@ export default function TicketDetailPage() {
     (async () => {
       const { data } = await supabase
         .from("registrations")
-        .select("id, qr_code, approval_status, checked_in, ticket_type, amount_paid, events:events(id, title, slug, date, venue, location, image_url, timezone, organizations(name, slug, subdomain))")
+        .select("id, qr_code, approval_status, checked_in, ticket_type, amount_paid, events:events(id, title, slug, date, venue, location, image_url, banner_landscape_url, banner_portrait_url, timezone, organizations(name, slug, subdomain))")
         .eq("id", id)
         .maybeSingle();
       if (cancel) return;
@@ -68,9 +70,22 @@ export default function TicketDetailPage() {
           </div>
         ) : (
           <article className="bg-card border border-border rounded-2xl overflow-hidden">
-            {row.events.image_url && (
-              <img src={row.events.image_url} alt={row.events.title} className="w-full aspect-video object-cover" />
-            )}
+            {(() => {
+              // Prefer the organizer-uploaded landscape banner for the
+              // ticket header (16:9, matches the create/edit Design tab).
+              // Fall back to the square listing thumbnail when no banner
+              // has been set so older events still render an image.
+              const headerImg = row.events.banner_landscape_url || row.events.image_url;
+              if (!headerImg) return null;
+              return (
+                <img
+                  src={headerImg}
+                  alt={row.events.title}
+                  className="w-full aspect-video object-cover"
+                  loading="lazy"
+                />
+              );
+            })()}
             <div className="p-6">
               <div className="text-[11px] uppercase tracking-widest text-muted-foreground font-semibold mb-1">
                 {row.events.organizations?.name || "Event"}
