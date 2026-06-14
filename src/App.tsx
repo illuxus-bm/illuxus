@@ -47,7 +47,6 @@ const OnboardingPage = lazyWithLog("OnboardingPage", () => import("./pages/Onboa
 const Dashboard = lazyWithLog("Dashboard", () => import("./pages/Dashboard.tsx"));
 const EventsPage = lazyWithLog("EventsPage", () => import("./pages/dashboard/EventsPage.tsx"));
 const TicketsPage = lazyWithLog("TicketsPage", () => import("./pages/dashboard/TicketsPage.tsx"));
-const AnalyticsPage = lazyWithLog("AnalyticsPage", () => import("./pages/dashboard/AnalyticsPage.tsx"));
 const SettingsPage = lazyWithLog("SettingsPage", () => import("./pages/dashboard/SettingsPage.tsx"));
 const MarketingPage = lazyWithLog("MarketingPage", () => import("./pages/dashboard/MarketingPage.tsx"));
 const ReportsPage = lazyWithLog("ReportsPage", () => import("./pages/dashboard/ReportsPage.tsx"));
@@ -232,7 +231,7 @@ const App = () => (
                 )}
                 <Route path="/dashboard/events/:id" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><EventDetailPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/tickets" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><TicketsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/analytics" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><AnalyticsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/analytics" element={<RouteErrorBoundary><Navigate to="/dashboard/reports" replace /></RouteErrorBoundary>} />
                 <Route path="/dashboard/settings" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><SettingsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/marketing" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><MarketingPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/landing-builder" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><LandingBuilderPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
