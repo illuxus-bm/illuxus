@@ -28,6 +28,7 @@ import {
 } from "./PublicEventRenderer";
 import EventPagePreview from "./EventPagePreview";
 import EventBannerPicker from "@/components/event/EventBannerPicker";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
 import { useAuth } from "@/contexts/AuthContext";
 import { THEME_PRESETS, COLOR_SWATCHES, FONT_OPTIONS } from "./presets";
 import { useOrg } from "@/contexts/OrgContext";
@@ -345,6 +346,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
                   section={selected}
                   onUpdate={(patch) => updateSectionData(selected.id, patch)}
                   eventId={eventId}
+                  eventStartIso={event?.date ?? null}
                 />
               )}
             </div>
@@ -608,10 +610,39 @@ function FieldSwitch({ label, checked, onChange }: { label: string; checked: boo
 
 /* ─── Section forms ─── */
 
-function SectionForm({ section, onUpdate, eventId }: {
+/**
+ * Convert any stored date string (full ISO, datetime-local, etc.) to the
+ * local "YYYY-MM-DDTHH:mm" format the DateTimePicker expects. Returns ""
+ * for empty / unparseable input so the picker shows the placeholder.
+ */
+function toLocalDateTimeInput(value: string | null | undefined): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Pretty-format a stored date for the helper-text fallback hint. */
+function formatHumanDateTime(value: string | null | undefined): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    weekday: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function SectionForm({ section, onUpdate, eventId, eventStartIso }: {
   section: EventSection;
   onUpdate: (patch: Record<string, unknown>) => void;
   eventId: string;
+  eventStartIso?: string | null;
 }) {
   const meta = SECTION_CATALOG.find(m => m.id === section.id);
   const d = section.data as Record<string, unknown>;
@@ -837,7 +868,30 @@ function SectionForm({ section, onUpdate, eventId }: {
       </>;
       case "countdown": return <>
         <FieldText label="Title" value={(d.title as string) || ""} onChange={v => onUpdate({ title: v })} />
-        <FieldText label="Target date (ISO, optional)" value={(d.targetDate as string) || ""} onChange={v => onUpdate({ targetDate: v })} placeholder="Defaults to event start" />
+        <div className="space-y-1">
+          <Label className="text-[11px]">Target date &amp; time</Label>
+          <DateTimePicker
+            value={toLocalDateTimeInput(d.targetDate as string | undefined)}
+            onChange={(v) => onUpdate({ targetDate: v })}
+            placeholder="Pick when the countdown should hit zero"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            {d.targetDate
+              ? <>Counting down to <span className="font-medium text-foreground">{formatHumanDateTime(d.targetDate as string)}</span> in your local time.</>
+              : eventStartIso
+                ? <>Leave blank to count down to the event start <span className="font-medium text-foreground">({formatHumanDateTime(eventStartIso)})</span>.</>
+                : <>Leave blank to count down to the event start.</>}
+          </p>
+          {d.targetDate ? (
+            <button
+              type="button"
+              onClick={() => onUpdate({ targetDate: "" })}
+              className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+            >
+              Reset to event start
+            </button>
+          ) : null}
+        </div>
       </>;
       case "faq": return <>
         <FieldText label="Title" value={(d.title as string) || ""} onChange={v => onUpdate({ title: v })} />
