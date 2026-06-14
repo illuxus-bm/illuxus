@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, lazy, Suspense } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,10 @@ import {
   useSortable, rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+
+const SpeakerApplicationsPanelLazy = lazy(() =>
+  import("./ApplicationsSection").then((m) => ({ default: m.SpeakerApplicationsPanel })),
+);
 
 interface Speaker {
   id: string;
@@ -376,6 +380,19 @@ export default function SpeakerManagement({ eventId }: Props) {
         speakers={allSpeakers.filter((s) => !assignedIds.has(s.id))}
         onAssign={handleAssign}
       />
+
+      {/* Speaker applications — review and approve people who applied via
+          the public event page. Lives here (instead of a top-level "Applications"
+          tab) so organisers manage the full speaker pipeline in one place. */}
+      <div className="border-t border-border pt-6">
+        <Suspense
+          fallback={
+            <div className="text-[12px] text-muted-foreground">Loading applications…</div>
+          }
+        >
+          <SpeakerApplicationsPanelLazy eventId={eventId} />
+        </Suspense>
+      </div>
     </div>
   );
 }

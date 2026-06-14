@@ -67,6 +67,44 @@ export function ApplicationsSection({ eventId }: { eventId: string }) {
   );
 }
 
+/**
+ * Speaker-only applications panel — embedded inside the per-event Speakers
+ * tab so organisers can review applicants alongside the speaker roster.
+ */
+export function SpeakerApplicationsPanel({ eventId }: { eventId: string }) {
+  const [tab, setTab] = useState<Tab>("pending");
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-[15px] font-semibold tracking-tight">Speaker applications</h3>
+        <p className="text-[12px] text-muted-foreground">
+          Review and approve people who applied to speak at this event.
+        </p>
+      </div>
+      <SpeakerApplicationsList eventId={eventId} tab={tab} setTab={setTab} />
+    </div>
+  );
+}
+
+/**
+ * Sponsor-only applications panel — embedded inside the per-event Sponsors
+ * tab so organisers can review applicants alongside the sponsor roster.
+ */
+export function SponsorApplicationsPanel({ eventId }: { eventId: string }) {
+  const [tab, setTab] = useState<Tab>("pending");
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-[15px] font-semibold tracking-tight">Sponsor applications</h3>
+        <p className="text-[12px] text-muted-foreground">
+          Review and approve companies that applied to sponsor this event.
+        </p>
+      </div>
+      <SponsorApplicationsList eventId={eventId} tab={tab} setTab={setTab} />
+    </div>
+  );
+}
+
 // ─── Speaker applications ─────────────────────────────────────────────────────
 
 function SpeakerApplicationsList({

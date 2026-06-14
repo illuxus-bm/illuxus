@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, lazy, Suspense } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,10 @@ import {
   reorderGroups as reorderGroupsPure,
   moveSponsorToTier as moveSponsorToTierPure,
 } from "./sponsor-dnd";
+
+const SponsorApplicationsPanelLazy = lazy(() =>
+  import("./ApplicationsSection").then((m) => ({ default: m.SponsorApplicationsPanel })),
+);
 
 interface Sponsor {
   id: string;
@@ -610,6 +614,19 @@ export default function SponsorManagement({ eventId }: Props) {
         sponsors={allSponsors.filter((s) => !assignedIds.has(s.id))}
         onAssign={handleAssign}
       />
+
+      {/* Sponsor applications — review and approve companies that applied via
+          the public event page. Lives here (instead of a top-level "Applications"
+          tab) so organisers manage the full sponsor pipeline in one place. */}
+      <div className="border-t border-border pt-6">
+        <Suspense
+          fallback={
+            <div className="text-[12px] text-muted-foreground">Loading applications…</div>
+          }
+        >
+          <SponsorApplicationsPanelLazy eventId={eventId} />
+        </Suspense>
+      </div>
 
       {/* Team manager dialog */}
       <Dialog open={!!teamOpen} onOpenChange={(v) => !v && setTeamOpen(null)}>
