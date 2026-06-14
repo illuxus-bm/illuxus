@@ -14,6 +14,7 @@ import {
   validateHandle,
   HANDLE_MAX_LEN,
 } from "@/lib/workspace-handle";
+import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 
 const PLANS = [
   {
@@ -168,7 +169,11 @@ const OnboardingPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+      {/* Brand wordmark — present at the top of every onboarding step */}
+      <a href="/" className="mb-6 inline-flex" aria-label="illuxus home">
+        <IlluxusWordmark height={26} ariaLabel="" />
+      </a>
       <div className="w-full max-w-3xl">
         {/* Progress */}
         <div className="flex items-center justify-center gap-2 mb-8">

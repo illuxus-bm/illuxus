@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useTheme } from "@/contexts/ThemeContext";
+import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 
 const ResetPasswordPage = () => {
   const [password, setPassword] = useState("");
@@ -62,15 +63,7 @@ const ResetPasswordPage = () => {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 mb-4" aria-label={brandName}>
-            {activeLogoUrl ? (
-              <img
-                src={activeLogoUrl}
-                alt={brandName}
-                className="h-8 w-auto max-w-[180px] object-contain"
-              />
-            ) : (
-              <span className="text-lg font-semibold tracking-tight">{brandName}</span>
-            )}
+            <IlluxusWordmark height={26} ariaLabel="" />
           </div>
           <p className="text-muted-foreground text-sm">Set your new password</p>
         </div>

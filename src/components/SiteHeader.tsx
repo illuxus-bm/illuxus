@@ -15,6 +15,7 @@ import {
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useTheme } from "@/contexts/ThemeContext";
 import { SiteContainer } from "@/components/layout/SiteContainer";
+import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import { CalendarDays, ChevronDown, ClipboardList, Compass, LogOut, Mic, Building2, Settings as SettingsIcon, Ticket, Users2 } from "lucide-react";
 
 /**
@@ -112,21 +113,14 @@ export default function SiteHeader({
   return (
     <header className={`sticky top-0 z-40 ${surfaceClass} ${className}`} style={styleVars}>
       <SiteContainer className="h-14 flex items-center justify-between gap-4">
-        {/* Logo always navigates to the Illuxus marketing site, regardless of which segment we're in. */}
+        {/* Brand area — wordmark only. Always navigates to the canonical
+            illuxus deployment, regardless of which segment we're in. */}
         <a
-          href="https://illuxus.com"
+          href="https://illuxusbm.vercel.app"
           className="flex items-center gap-2 shrink-0"
-          aria-label={`${brandName} — illuxus.com`}
+          aria-label={`${brandName} home`}
         >
-          {activeLogoUrl ? (
-            <img
-              src={activeLogoUrl}
-              alt={brandName}
-              className="h-7 w-auto max-w-[160px] object-contain"
-            />
-          ) : (
-            <span className="text-base font-semibold tracking-tight">{brandName}</span>
-          )}
+          <IlluxusWordmark height={22} ariaLabel="" className="shrink-0" />
         </a>
 
         <div className="flex items-center gap-2">

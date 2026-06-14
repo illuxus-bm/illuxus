@@ -15,6 +15,7 @@ import PersonFieldsForm, {
   validatePersonFields,
   displayName as buildDisplayName,
 } from "@/components/people/PersonFieldsForm";
+import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import { z } from "zod";
 
 const citySchema = z.string().uuid("Pick your city from the suggestions");
@@ -221,7 +222,11 @@ export default function CompleteProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-start justify-center px-4 py-10">
+    <div className="min-h-screen bg-background flex flex-col items-center px-4 py-10">
+      {/* Brand wordmark — present on the profile completion screen */}
+      <a href="/" className="mb-6 inline-flex" aria-label="illuxus home">
+        <IlluxusWordmark height={26} ariaLabel="" />
+      </a>
       <div className="w-full max-w-2xl">
         <div className="text-center mb-8">
           <div className="h-12 w-12 rounded-xl bg-foreground/5 flex items-center justify-center mx-auto mb-4">

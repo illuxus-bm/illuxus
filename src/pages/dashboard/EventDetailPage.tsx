@@ -33,6 +33,7 @@ import RegistrationsSection from "@/components/event/RegistrationsSection";
 import CommunicationSection from "@/components/event/CommunicationSection";
 import ReportsSection from "@/components/event/ReportsSection";
 import EventSettingsSection from "@/components/event/EventSettingsSection";
+import { DashboardTopBar } from "@/components/DashboardTopBar";
 import { checkRouteParam, eventPublicPath, eventPublicUrl } from "@/lib/event-routes";
 import { useOrg } from "@/contexts/OrgContext";
 import { formatMoney, DEFAULT_EVENT_CURRENCY } from "@/lib/currency";
@@ -395,26 +396,34 @@ const EventDetailPage = () => {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-background">
-        <EventSidebar active={activeSection} onSelect={async (k) => {
-          if (k === "broadcast") { setActiveSection("broadcast"); return; }
-          if (k === "community") {
-            // Resolve this event's community and jump to its feed.
-            const { data: cid } = await supabaseRpc("community_resolve_event" as never, { _event_id: event.id } as never);
-            if (cid) {
-              const { data: comm } = await supabase.from("communities" as never).select("slug").eq("id", cid as string).maybeSingle();
-              const slug = (comm as { slug?: string } | null)?.slug;
-              if (slug) { navigate(`/community/${slug}/feed`); return; }
-            }
-            navigate("/community");
-            return;
-          }
-          setActiveSection(k);
-        }} eventTitle={event.title} eventFormat={(event as any).event_format} />
+      <div className="min-h-screen flex flex-col w-full bg-background">
+        {/* Main brand top bar — sticky at the very top of every organizer
+            page. The per-event header (title + slug + Preview/Update) lives
+            BELOW this so users always see the global nav first. The event
+            header carries its own SidebarTrigger for EventSidebar, so we
+            hide the duplicate one in the top bar here. */}
+        <DashboardTopBar showSidebarTrigger={false} />
 
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Header */}
-          <header className="sticky top-0 z-30 border-b border-border bg-card/80 glass px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 min-w-0">
+        <div className="flex flex-1 min-w-0 w-full">
+          <EventSidebar active={activeSection} onSelect={async (k) => {
+            if (k === "broadcast") { setActiveSection("broadcast"); return; }
+            if (k === "community") {
+              // Resolve this event's community and jump to its feed.
+              const { data: cid } = await supabaseRpc("community_resolve_event" as never, { _event_id: event.id } as never);
+              if (cid) {
+                const { data: comm } = await supabase.from("communities" as never).select("slug").eq("id", cid as string).maybeSingle();
+                const slug = (comm as { slug?: string } | null)?.slug;
+                if (slug) { navigate(`/community/${slug}/feed`); return; }
+              }
+              navigate("/community");
+              return;
+            }
+            setActiveSection(k);
+          }} eventTitle={event.title} eventFormat={(event as any).event_format} />
+
+          <div className="flex-1 flex flex-col min-w-0">
+          {/* Per-event header — sits directly below the main brand top bar. */}
+          <header className="border-b border-border bg-card/80 glass px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 min-w-0">
             <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
               <SidebarTrigger className="h-7 w-7" aria-label="Toggle event sidebar" />
               <button
@@ -757,6 +766,7 @@ const EventDetailPage = () => {
               </div>
             )}
           </main>
+        </div>
         </div>
       </div>
     </SidebarProvider>

@@ -13,6 +13,7 @@ import { scorePassword } from "@/lib/password-strength";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useTheme } from "@/contexts/ThemeContext";
+import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import PersonFieldsForm, {
   emptyPersonFields,
   validatePersonFields,
@@ -189,15 +190,7 @@ const LoginPage = () => {
         />
         <div className="text-center mb-8">
           <a href="/" className="inline-flex items-center gap-2 mb-4" aria-label={brandName}>
-            {activeLogoUrl ? (
-              <img
-                src={activeLogoUrl}
-                alt={brandName}
-                className="h-8 w-auto max-w-[180px] object-contain"
-              />
-            ) : (
-              <span className="text-lg font-semibold tracking-tight">{brandName}</span>
-            )}
+            <IlluxusWordmark height={26} ariaLabel="" />
           </a>
           <p className="text-muted-foreground text-sm">{title}</p>
         </div>
