@@ -153,19 +153,19 @@ const LoginPage = () => {
   const title = mustChangePassword
     ? "Set your new password"
     : isForgot
-    ? "Reset password"
-    : isSignUp
-    ? signUpStep === 1
-      ? accountType === "attendee" ? "Create your attendee account" : "Create your organizer account"
-      : "A few details about you"
-    : "Welcome back";
+      ? "Reset password"
+      : isSignUp
+        ? signUpStep === 1
+          ? accountType === "attendee" ? "Create your attendee account" : "Create your organizer account"
+          : "A few details about you"
+        : "Welcome back";
   const buttonText = mustChangePassword
     ? "Update Password"
     : isForgot
-    ? "Send Reset Link"
-    : isSignUp
-      ? signUpStep === 1 ? "Continue" : "Create Account"
-      : "Sign In";
+      ? "Send Reset Link"
+      : isSignUp
+        ? signUpStep === 1 ? "Continue" : "Create Account"
+        : "Sign In";
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -292,182 +292,179 @@ const LoginPage = () => {
               </Button>
             </form>
           ) : (
-          <>
-          {!isForgot && (!isSignUp || signUpStep === 1) && (
-            <div className="grid grid-cols-2 gap-1 p-1 mb-5 bg-muted rounded-lg">
-              <button
-                type="button"
-                onClick={() => setAccountType("attendee")}
-                className={`flex items-center justify-center gap-1.5 h-8 rounded-md text-[12px] font-medium transition-colors ${
-                  accountType === "attendee"
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Ticket className="h-3.5 w-3.5" /> Attendee
-              </button>
-              <button
-                type="button"
-                onClick={() => setAccountType("organizer")}
-                className={`flex items-center justify-center gap-1.5 h-8 rounded-md text-[12px] font-medium transition-colors ${
-                  accountType === "organizer"
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Building2 className="h-3.5 w-3.5" /> Organizer
-              </button>
-            </div>
-          )}
-          {!isForgot && (!isSignUp || signUpStep === 1) && (
-            <div className={`rounded-lg border px-3 py-2.5 mb-4 -mt-1 text-[12px] leading-relaxed ${
-              accountType === "attendee"
-                ? "border-blue-500/20 bg-blue-500/5 text-blue-700 dark:text-blue-400"
-                : "border-violet-500/20 bg-violet-500/5 text-violet-700 dark:text-violet-400"
-            }`}>
-              {accountType === "attendee" ? (
-                <span>
-                  <span className="font-semibold">For attendees, members, sponsors & speakers.</span>
-                  {" "}Use this login to access events you've registered for, manage your tickets, and connect with organizers.
-                </span>
-              ) : (
-                <span>
-                  <span className="font-semibold">For organizers, admins & super admins.</span>
-                  {" "}Use this login to create and manage events, handle registrations, and access your organization dashboard.
-                </span>
-              )}
-            </div>
-          )}
-          {isSignUp && signUpStep === 2 && (
-            <button
-              type="button"
-              onClick={() => setSignUpStep(1)}
-              className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground mb-3"
-            >
-              <ChevronLeft className="h-3 w-3" /> Back
-            </button>
-          )}
-          <form
-            onSubmit={(e) => {
-              // Step 1 of signup: validate basics, advance to step 2 instead
-              // of calling the API.
-              if (isSignUp && signUpStep === 1) {
-                e.preventDefault();
-                if (!email) {
-                  toast({ title: "Check your details", description: "Enter your email.", variant: "destructive" });
-                  return;
-                }
-                const strength = scorePassword(password);
-                if (!strength.acceptable) {
-                  toast({
-                    title: "Password too weak",
-                    description: strength.hint || "Use at least 8 characters with a mix of letters, numbers and a symbol.",
-                    variant: "destructive",
-                  });
-                  return;
-                }
-                setSignUpStep(2);
-                return;
-              }
-              handleSubmit(e);
-            }}
-            className="space-y-4"
-          >
-            {(!isSignUp || signUpStep === 1) && (
             <>
-            <div>
-              <Label htmlFor="email" className="text-[13px]">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-                className="mt-1.5 h-9 text-sm"
-              />
-            </div>
-            {!isForgot && (
-              <div>
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password" className="text-[13px]">Password</Label>
-                  {!isSignUp && (
-                    <button
-                      type="button"
-                      onClick={() => setIsForgot(true)}
-                      className="text-[12px] text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      Forgot password?
-                    </button>
-                  )}
-                </div>
-                <div className="relative mt-1.5">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    minLength={isSignUp ? 8 : 6}
-                    className="h-9 text-sm pr-9"
-                    aria-describedby={isSignUp ? "password-strength" : undefined}
-                  />
+              {!isForgot && (!isSignUp || signUpStep === 1) && (
+                <div className="grid grid-cols-2 gap-1 p-1 mb-5 bg-muted rounded-lg">
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => setAccountType("attendee")}
+                    className={`flex items-center justify-center gap-1.5 h-8 rounded-md text-[12px] font-medium transition-colors ${accountType === "attendee"
+                        ? "bg-card text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                      }`}
                   >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    <Ticket className="h-3.5 w-3.5" /> Attendee
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAccountType("organizer")}
+                    className={`flex items-center justify-center gap-1.5 h-8 rounded-md text-[12px] font-medium transition-colors ${accountType === "organizer"
+                        ? "bg-card text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                      }`}
+                  >
+                    <Building2 className="h-3.5 w-3.5" /> Organizer
                   </button>
                 </div>
-                {isSignUp && (
-                  <PasswordStrengthMeter id="password-strength" password={password} />
+              )}
+              {!isForgot && (!isSignUp || signUpStep === 1) && (
+                <div className={`rounded-lg border px-3 py-2.5 mb-4 -mt-1 text-[12px] leading-relaxed ${accountType === "attendee"
+                    ? "border-blue-500/20 bg-blue-500/5 text-blue-700 dark:text-blue-400"
+                    : "border-violet-500/20 bg-violet-500/5 text-violet-700 dark:text-violet-400"
+                  }`}>
+                  {accountType === "attendee" ? (
+                    <span>
+                      <span className="font-semibold">For attendees, members, sponsors & speakers.</span>
+                      {" "}Use this login to access events you've registered for, manage your tickets, and connect with organizers.
+                    </span>
+                  ) : (
+                    <span>
+                      <span className="font-semibold">For organizers & Team Members.</span>
+                      {" "}Use this login to create and manage events, handle registrations, and access your organization dashboard.
+                    </span>
+                  )}
+                </div>
+              )}
+              {isSignUp && signUpStep === 2 && (
+                <button
+                  type="button"
+                  onClick={() => setSignUpStep(1)}
+                  className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground mb-3"
+                >
+                  <ChevronLeft className="h-3 w-3" /> Back
+                </button>
+              )}
+              <form
+                onSubmit={(e) => {
+                  // Step 1 of signup: validate basics, advance to step 2 instead
+                  // of calling the API.
+                  if (isSignUp && signUpStep === 1) {
+                    e.preventDefault();
+                    if (!email) {
+                      toast({ title: "Check your details", description: "Enter your email.", variant: "destructive" });
+                      return;
+                    }
+                    const strength = scorePassword(password);
+                    if (!strength.acceptable) {
+                      toast({
+                        title: "Password too weak",
+                        description: strength.hint || "Use at least 8 characters with a mix of letters, numbers and a symbol.",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    setSignUpStep(2);
+                    return;
+                  }
+                  handleSubmit(e);
+                }}
+                className="space-y-4"
+              >
+                {(!isSignUp || signUpStep === 1) && (
+                  <>
+                    <div>
+                      <Label htmlFor="email" className="text-[13px]">Email</Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="you@example.com"
+                        required
+                        className="mt-1.5 h-9 text-sm"
+                      />
+                    </div>
+                    {!isForgot && (
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="password" className="text-[13px]">Password</Label>
+                          {!isSignUp && (
+                            <button
+                              type="button"
+                              onClick={() => setIsForgot(true)}
+                              className="text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              Forgot password?
+                            </button>
+                          )}
+                        </div>
+                        <div className="relative mt-1.5">
+                          <Input
+                            id="password"
+                            type={showPassword ? "text" : "password"}
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="••••••••"
+                            required
+                            minLength={isSignUp ? 8 : 6}
+                            className="h-9 text-sm pr-9"
+                            aria-describedby={isSignUp ? "password-strength" : undefined}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                        {isSignUp && (
+                          <PasswordStrengthMeter id="password-strength" password={password} />
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+                {isSignUp && signUpStep === 2 && (
+                  <PersonFieldsForm value={{ ...person, email }} onChange={(v) => setPerson(v)} hideEmail />
+                )}
+                <Button
+                  type="submit"
+                  className="w-full h-9 text-sm font-medium"
+                  disabled={
+                    loading ||
+                    (isSignUp && signUpStep === 1 && !scorePassword(password).acceptable)
+                  }
+                >
+                  {loading ? "Please wait..." : buttonText}
+                </Button>
+              </form>
+
+              <div className="mt-5 text-center text-[13px]">
+                {isForgot ? (
+                  <>
+                    <button
+                      onClick={() => setIsForgot(false)}
+                      className="text-foreground font-medium hover:underline"
+                    >
+                      Back to sign in
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-muted-foreground">
+                      {isSignUp ? "Already have an account?" : "Don't have an account?"}
+                    </span>{" "}
+                    <button
+                      onClick={() => { setIsSignUp(!isSignUp); setSignUpStep(1); }}
+                      className="text-foreground font-medium hover:underline"
+                    >
+                      {isSignUp ? "Sign in" : "Sign up"}
+                    </button>
+                  </>
                 )}
               </div>
-            )}
             </>
-            )}
-            {isSignUp && signUpStep === 2 && (
-              <PersonFieldsForm value={{ ...person, email }} onChange={(v) => setPerson(v)} hideEmail />
-            )}
-            <Button
-              type="submit"
-              className="w-full h-9 text-sm font-medium"
-              disabled={
-                loading ||
-                (isSignUp && signUpStep === 1 && !scorePassword(password).acceptable)
-              }
-            >
-              {loading ? "Please wait..." : buttonText}
-            </Button>
-          </form>
-
-          <div className="mt-5 text-center text-[13px]">
-            {isForgot ? (
-              <>
-                <button
-                  onClick={() => setIsForgot(false)}
-                  className="text-foreground font-medium hover:underline"
-                >
-                  Back to sign in
-                </button>
-              </>
-            ) : (
-              <>
-                <span className="text-muted-foreground">
-                  {isSignUp ? "Already have an account?" : "Don't have an account?"}
-                </span>{" "}
-                <button
-                  onClick={() => { setIsSignUp(!isSignUp); setSignUpStep(1); }}
-                  className="text-foreground font-medium hover:underline"
-                >
-                  {isSignUp ? "Sign in" : "Sign up"}
-                </button>
-              </>
-            )}
-          </div>
-          </>
           )}
         </div>
 
