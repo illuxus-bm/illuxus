@@ -345,7 +345,7 @@ export default function SpeakerManagement({ eventId }: Props) {
           <div>
             <p className="text-[13px] font-semibold">Call for Speakers</p>
             <p className="text-[12px] text-muted-foreground">
-              Show the “Apply as Speaker” button on the public event page.
+              Show the “Become a Speaker” button on the public event page.
             </p>
           </div>
         </div>

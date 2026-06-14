@@ -18,7 +18,7 @@ interface Props {
 }
 
 /**
- * "Apply as Speaker" / "Become a Sponsor" buttons shown on the public event page.
+ * "Become a Speaker" / "Become a Sponsor" buttons shown on the public event page.
  * Hides automatically if the user is the organizer or already has an approved assignment.
  */
 export function EventApplicationButtons({ eventId, eventOwnerId, speakerEnabled = true, sponsorEnabled = true }: Props) {
@@ -77,7 +77,7 @@ export function EventApplicationButtons({ eventId, eventOwnerId, speakerEnabled 
         {showSpeaker && (
           <ApplicationCard
             icon={Mic}
-            title="Apply as Speaker"
+            title="Become a Speaker"
             description="Propose a session and join the lineup."
             existingStatus={speakerApp?.status}
             disabled={!speakerEnabled}

@@ -140,7 +140,7 @@ export function SpeakerApplicationDialog({ eventId, open, onOpenChange, onSubmit
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Mic className="h-4 w-4 text-primary" /> Apply as Speaker
+            <Mic className="h-4 w-4 text-primary" /> Become a Speaker
           </DialogTitle>
           <DialogDescription>
             Step {step} of 3 — {step === 1 ? "Personal & Professional info" : step === 2 ? "Speaker profile" : "Session proposal"}
