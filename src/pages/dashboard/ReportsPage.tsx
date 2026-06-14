@@ -19,9 +19,11 @@ import {
   Download, FileText, Users, DollarSign, Ticket, TrendingUp,
   CheckCircle2, Loader2, Calendar, BarChart3, Target,
   Percent, RefreshCw, ArrowUpRight, ArrowDownRight, CalendarClock,
+  FileSpreadsheet, FileDown, Award,
 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
+import { downloadReportPdf } from "@/lib/reports/pdf";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,6 +36,15 @@ interface SpeakerAttendee {
   company: string | null;
   checked_in: boolean;
   checked_in_at: string | null;
+  event_title: string;
+}
+
+interface SponsorRow {
+  name: string;
+  email: string | null;
+  company: string | null;
+  tier: string | null;
+  website: string | null;
   event_title: string;
 }
 
@@ -185,7 +196,9 @@ const ReportsPage = () => {
   const [events,        setEvents]        = useState<EventRow[]>([]);
   const [registrations, setRegistrations] = useState<RegRow[]>([]);
   const [speakers,      setSpeakers]      = useState<SpeakerAttendee[]>([]);
+  const [sponsors,      setSponsors]      = useState<SponsorRow[]>([]);
   const [loading,       setLoading]       = useState(true);
+  const [exporting,     setExporting]     = useState<"none" | "xlsx" | "pdf">("none");
 
   // Filters
   const [eventFilter, setEventFilter] = useState<string>("all");
@@ -254,6 +267,39 @@ const ReportsPage = () => {
       });
 
     setSpeakers(spkRows);
+
+    // Sponsors — join event_sponsors → sponsors
+    const { data: spRows } = await supabase
+      .from("event_sponsors")
+      .select("sponsor_id, event_id, sponsors(name, email, tier, website)")
+      .in("event_id", eventIds);
+
+    type SpsRow = {
+      sponsor_id: string;
+      event_id: string;
+      sponsors: {
+        name: string;
+        email: string | null;
+        tier: string | null;
+        website: string | null;
+      } | null;
+    };
+
+    const sponsorRows: SponsorRow[] = ((spRows ?? []) as SpsRow[])
+      .filter((r) => r.sponsors)
+      .map((r) => {
+        const sp = r.sponsors!;
+        return {
+          name:        sp.name,
+          email:       sp.email,
+          company:     sp.name, // sponsor name = company name
+          tier:        sp.tier,
+          website:     sp.website,
+          event_title: eventTitleMap.get(r.event_id) ?? "Unknown",
+        };
+      });
+    setSponsors(sponsorRows);
+
     setLoading(false);
   };
 
@@ -480,41 +526,242 @@ const ReportsPage = () => {
     );
   };
 
-  const exportFullReport = () => {
-    const lines = [
-      "=== ILLUXUS FULL REPORT ===",
-      `Generated: ${new Date().toLocaleString()}`,
-      `Organization: ${org?.name ?? "—"}`,
-      `Currency: ${displayCcy}`,
-      `Range: ${RANGE_LABELS[range]} · Event: ${eventFilter === "all" ? "All" : eventById.get(eventFilter)?.title ?? eventFilter} · Status: ${statusFilter === "all" ? "All" : statusFilter}`,
-      "",
-      "── SUMMARY ──",
-      `Total Registrations : ${analytics.totalRegs}`,
-      `Active (confirmed)  : ${analytics.activeRegs}`,
-      `Total Revenue       : ${formatMoney(analytics.currRevenue, displayCcy)}`,
-      `Avg. Ticket Price   : ${formatMoney(analytics.avgTicket, displayCcy)}`,
-      `Conversion Rate     : ${analytics.conversionRate.toFixed(1)}%`,
-      `Check-in Rate       : ${analytics.checkInRate.toFixed(1)}%`,
-      "",
-      "── REVENUE BY EVENT ──",
-      ...analytics.revenueByEvent.map((r) => `  ${r.title}: ${formatMoney(r.revenue, displayCcy)} (${r.tickets} tickets)`),
-      "",
-      "── CHECK-IN BY EVENT ──",
-      ...analytics.checkInByEvent.map((r) => `  ${r.name}: ${r.checkedIn}/${r.total} (${r.rate}%)`),
-      "",
-      "── REGISTRATION STATUS ──",
-      ...analytics.statusPie.map((s) => `  ${s.name}: ${s.value}`),
-      "",
-      "── SPEAKERS ──",
-      ...speakers.map((s) => `  [${s.checked_in ? "✓" : " "}] ${s.name}${s.company ? ` (${s.company})` : ""} — ${s.event_title}`),
-    ];
-    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = `full-report-${new Date().toISOString().slice(0, 10)}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportSponsors = () => {
+    const rows = eventFilter === "all"
+      ? sponsors
+      : sponsors.filter((s) => {
+          const ev = eventById.get(eventFilter);
+          return ev ? s.event_title === ev.title : true;
+        });
+    downloadCsv(
+      `sponsors-${new Date().toISOString().slice(0, 10)}.csv`,
+      ["Name", "Tier", "Email", "Website", "Event"],
+      rows.map((s) => [s.name, s.tier ?? "", s.email ?? "", s.website ?? "", s.event_title]),
+    );
+  };
+
+  // ── Workbook (XLSX) export ───────────────────────────────────────────────
+  // Loads exceljs lazily so the main bundle stays light.
+  const exportWorkbook = async () => {
+    if (events.length === 0) return;
+    setExporting("xlsx");
+    try {
+      const { downloadWorkbook } = await import("@/lib/reports/excel");
+
+      const now = new Date().toISOString().slice(0, 10);
+      const filterContext = `${eventFilter === "all" ? "All events" : eventById.get(eventFilter)?.title ?? "Event"} · ${RANGE_LABELS[range]} · ${statusFilter === "all" ? "All statuses" : statusFilter}`;
+
+      const sponsorRowsForCurrentScope = eventFilter === "all"
+        ? sponsors
+        : sponsors.filter((s) => {
+            const ev = eventById.get(eventFilter);
+            return ev ? s.event_title === ev.title : true;
+          });
+      const speakerRowsForCurrentScope = eventFilter === "all"
+        ? speakers
+        : speakers.filter((s) => {
+            const ev = eventById.get(eventFilter);
+            return ev ? s.event_title === ev.title : true;
+          });
+
+      await downloadWorkbook(`illuxus-report-${now}.xlsx`, [
+        {
+          name: "Summary",
+          columns: [
+            { header: "Metric", key: "metric", width: 30 },
+            { header: "Value", key: "value", width: 30 },
+          ],
+          rows: [
+            { metric: "Organization", value: org?.name ?? "—" },
+            { metric: "Generated", value: new Date().toLocaleString() },
+            { metric: "Display currency", value: displayCcy },
+            { metric: "Filters", value: filterContext },
+            { metric: "Total registrations", value: analytics.totalRegs },
+            { metric: "Active registrations", value: analytics.activeRegs },
+            { metric: "Total revenue", value: formatMoney(analytics.currRevenue, displayCcy) },
+            { metric: "Avg. ticket", value: formatMoney(analytics.avgTicket, displayCcy) },
+            { metric: "Conversion rate", value: `${analytics.conversionRate.toFixed(1)}%` },
+            { metric: "Check-in rate", value: `${analytics.checkInRate.toFixed(1)}%` },
+            { metric: "Total events", value: analytics.totalEvents },
+            { metric: "Published events", value: analytics.publishedCount },
+            { metric: "Upcoming events", value: analytics.upcomingCount },
+          ],
+        },
+        {
+          name: "Registrations",
+          columns: [
+            { header: "Name", key: "name", width: 28 },
+            { header: "Email", key: "email", width: 30 },
+            { header: "Event", key: "event", width: 28 },
+            { header: "Ticket type", key: "ticket_type", width: 16 },
+            { header: "Status", key: "status", width: 14 },
+            { header: "Approval", key: "approval", width: 14 },
+            { header: "Amount paid", key: "amount", width: 16 },
+            { header: "Currency", key: "currency", width: 10 },
+            { header: "Checked in", key: "checked_in", width: 12 },
+            { header: "Checked in at", key: "checked_in_at", width: 22 },
+            { header: "Registered at", key: "created_at", width: 22 },
+          ],
+          rows: filteredRegs.map((r) => {
+            const ev = eventById.get(r.event_id);
+            return {
+              name: r.name,
+              email: r.email,
+              event: ev?.title ?? r.event_id,
+              ticket_type: r.ticket_type,
+              status: r.status,
+              approval: r.approval_status,
+              amount: Number(r.amount_paid || 0),
+              currency: (ev?.currency || DEFAULT_EVENT_CURRENCY).toUpperCase(),
+              checked_in: r.checked_in ? "Yes" : "No",
+              checked_in_at: r.checked_in_at ?? "",
+              created_at: new Date(r.created_at).toLocaleString(),
+            };
+          }),
+        },
+        {
+          name: "Speakers",
+          columns: [
+            { header: "Name", key: "name", width: 28 },
+            { header: "Email", key: "email", width: 30 },
+            { header: "Company", key: "company", width: 24 },
+            { header: "Event", key: "event_title", width: 28 },
+            { header: "Attended", key: "attended", width: 12 },
+            { header: "Checked in at", key: "checked_in_at", width: 22 },
+          ],
+          rows: speakerRowsForCurrentScope.map((s) => ({
+            name: s.name,
+            email: s.email ?? "",
+            company: s.company ?? "",
+            event_title: s.event_title,
+            attended: s.checked_in ? "Yes" : "No",
+            checked_in_at: s.checked_in_at ?? "",
+          })),
+        },
+        {
+          name: "Sponsors",
+          columns: [
+            { header: "Name", key: "name", width: 28 },
+            { header: "Tier", key: "tier", width: 14 },
+            { header: "Email", key: "email", width: 30 },
+            { header: "Website", key: "website", width: 32 },
+            { header: "Event", key: "event_title", width: 28 },
+          ],
+          rows: sponsorRowsForCurrentScope.map((s) => ({
+            name: s.name,
+            tier: s.tier ?? "",
+            email: s.email ?? "",
+            website: s.website ?? "",
+            event_title: s.event_title,
+          })),
+        },
+        {
+          name: "Financial summary",
+          columns: [
+            { header: "Event", key: "title", width: 28 },
+            { header: "Tickets sold", key: "tickets", width: 14 },
+            { header: `Revenue (${displayCcy})`, key: "revenue", width: 20 },
+            { header: "Avg ticket", key: "avg", width: 14 },
+            { header: "Fill rate", key: "fill", width: 12 },
+            { header: "Check-in rate", key: "checkin", width: 14 },
+          ],
+          rows: analytics.revenueByEvent.map((row) => ({
+            title: row.title,
+            tickets: row.tickets,
+            revenue: formatMoney(row.revenue, displayCcy),
+            avg: formatMoney(row.tickets ? row.revenue / row.tickets : 0, displayCcy),
+            fill: row.fillRate !== null ? `${Math.round(row.fillRate)}%` : "—",
+            checkin: `${Math.round(row.checkInRate)}%`,
+          })),
+        },
+      ]);
+    } finally {
+      setExporting("none");
+    }
+  };
+
+  // ── PDF report ───────────────────────────────────────────────────────────
+  const exportPdf = () => {
+    if (events.length === 0) return;
+    setExporting("pdf");
+    try {
+      const filterContext = `${eventFilter === "all" ? "All events" : eventById.get(eventFilter)?.title ?? "Event"} · ${RANGE_LABELS[range]} · ${statusFilter === "all" ? "All statuses" : statusFilter}`;
+
+      const sponsorRowsForCurrentScope = eventFilter === "all"
+        ? sponsors
+        : sponsors.filter((s) => {
+            const ev = eventById.get(eventFilter);
+            return ev ? s.event_title === ev.title : true;
+          });
+      const speakerRowsForCurrentScope = eventFilter === "all"
+        ? speakers
+        : speakers.filter((s) => {
+            const ev = eventById.get(eventFilter);
+            return ev ? s.event_title === ev.title : true;
+          });
+
+      downloadReportPdf({
+        title: "illuxus — Event report",
+        subtitle: org?.name ?? undefined,
+        meta: [
+          `Generated: ${new Date().toLocaleString()}`,
+          `Filters: ${filterContext}`,
+          `Display currency: ${displayCcy}`,
+        ],
+        kpis: [
+          { label: "Total registrations", value: analytics.totalRegs.toLocaleString() },
+          { label: "Active (confirmed)", value: analytics.activeRegs.toLocaleString() },
+          { label: "Total revenue", value: formatMoney(analytics.currRevenue, displayCcy) },
+          { label: "Avg. ticket", value: formatMoney(analytics.avgTicket, displayCcy) },
+          { label: "Conversion rate", value: `${analytics.conversionRate.toFixed(1)}%` },
+          { label: "Check-in rate", value: `${analytics.checkInRate.toFixed(1)}%` },
+          { label: "Total events", value: analytics.totalEvents.toLocaleString() },
+          { label: "Upcoming events", value: analytics.upcomingCount.toLocaleString() },
+        ],
+        tables: [
+          {
+            title: "Revenue by event",
+            head: ["Event", "Tickets", `Revenue (${displayCcy})`, "Avg ticket", "Fill rate", "Check-in"],
+            body: analytics.revenueByEvent.map((row) => [
+              row.title,
+              row.tickets,
+              formatMoney(row.revenue, displayCcy),
+              formatMoney(row.tickets ? row.revenue / row.tickets : 0, displayCcy),
+              row.fillRate !== null ? `${Math.round(row.fillRate)}%` : "—",
+              `${Math.round(row.checkInRate)}%`,
+            ]),
+          },
+          {
+            title: "Registration status",
+            head: ["Status", "Count"],
+            body: analytics.statusPie.map((s) => [s.name, s.value]),
+          },
+          {
+            title: "Speakers",
+            head: ["Name", "Company", "Event", "Attended"],
+            body: speakerRowsForCurrentScope.map((s) => [
+              s.name,
+              s.company ?? "—",
+              s.event_title,
+              s.checked_in ? "Yes" : "No",
+            ]),
+          },
+          {
+            title: "Sponsors",
+            head: ["Name", "Tier", "Email", "Event"],
+            body: sponsorRowsForCurrentScope.map((s) => [
+              s.name,
+              s.tier ?? "—",
+              s.email ?? "—",
+              s.event_title,
+            ]),
+          },
+        ],
+        filename: `illuxus-report-${new Date().toISOString().slice(0, 10)}.pdf`,
+      });
+    } finally {
+      setExporting("none");
+    }
   };
 
   const allStatuses = useMemo(
@@ -609,11 +856,27 @@ const ReportsPage = () => {
             </Button>
             <Button
               size="sm"
+              variant="outline"
               className="h-8 text-[13px] gap-1.5"
-              onClick={exportFullReport}
-              disabled={events.length === 0}
+              onClick={exportWorkbook}
+              disabled={events.length === 0 || exporting !== "none"}
+              title="Workbook covering registrations, speakers, sponsors, and financial summary"
             >
-              <Download className="h-3.5 w-3.5" /> Full Report (.txt)
+              {exporting === "xlsx"
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <FileSpreadsheet className="h-3.5 w-3.5" />}
+              Workbook (.xlsx)
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-[13px] gap-1.5"
+              onClick={exportPdf}
+              disabled={events.length === 0 || exporting !== "none"}
+            >
+              {exporting === "pdf"
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <FileDown className="h-3.5 w-3.5" />}
+              Full Report (.pdf)
             </Button>
           </div>
         </div>
@@ -940,6 +1203,65 @@ const ReportsPage = () => {
                                 <span className="text-[12px] text-muted-foreground">—</span>
                               )}
                             </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Section>
+
+              <Section title="Sponsors" icon={Award} full
+                action={
+                  <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={exportSponsors} disabled={sponsors.length === 0}>
+                    <Download className="h-3 w-3" /> Export CSV
+                  </Button>
+                }
+              >
+                {sponsors.length === 0 ? (
+                  <p className="text-[13px] text-muted-foreground text-center py-8">
+                    No sponsors attached to any event yet.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border text-left">
+                          <th className="py-2 pr-4 font-medium">Sponsor</th>
+                          <th className="py-2 pr-4 font-medium">Tier</th>
+                          <th className="py-2 pr-4 font-medium">Email</th>
+                          <th className="py-2 pr-4 font-medium">Website</th>
+                          <th className="py-2 font-medium">Event</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {(eventFilter === "all"
+                          ? sponsors
+                          : sponsors.filter((s) => {
+                              const ev = eventById.get(eventFilter);
+                              return ev ? s.event_title === ev.title : true;
+                            })
+                        ).map((s, i) => (
+                          <tr key={`${s.email ?? s.name}-${i}`}>
+                            <td className="py-2.5 pr-4 font-medium">{s.name}</td>
+                            <td className="py-2.5 pr-4">
+                              {s.tier ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-secondary text-[11px] font-medium capitalize">
+                                  {s.tier}
+                                </span>
+                              ) : (
+                                <span className="text-[12px] text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 pr-4 text-muted-foreground">{s.email ?? "—"}</td>
+                            <td className="py-2.5 pr-4 text-muted-foreground truncate max-w-[200px]">
+                              {s.website ? (
+                                <a href={s.website} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                                  {s.website.replace(/^https?:\/\//, "")}
+                                </a>
+                              ) : "—"}
+                            </td>
+                            <td className="py-2.5 text-muted-foreground">{s.event_title}</td>
                           </tr>
                         ))}
                       </tbody>
