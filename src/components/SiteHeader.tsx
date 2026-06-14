@@ -190,6 +190,9 @@ export default function SiteHeader({
                   <Link to="/u/me/applications"><ClipboardList className="h-3.5 w-3.5 mr-2" /> My applications</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
+                  <Link to="/u/me/communities"><Users2 className="h-3.5 w-3.5 mr-2" /> My communities</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
                   <Link to="/community"><Users2 className="h-3.5 w-3.5 mr-2" /> Community</Link>
                 </DropdownMenuItem>
                 {(accountType === "organizer" || isAdmin) && (

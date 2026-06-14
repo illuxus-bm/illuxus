@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   LogOut, Bell, ChevronDown, ClipboardList, Menu, Search, Ticket,
-  CalendarDays, Mic, Building2, Settings as SettingsIcon, X,
+  CalendarDays, Mic, Building2, Settings as SettingsIcon, X, Users2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -423,6 +423,9 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link to="/u/me/applications"><ClipboardList className="h-3.5 w-3.5 mr-2" /> My applications</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to="/u/me/communities"><Users2 className="h-3.5 w-3.5 mr-2" /> My communities</Link>
               </DropdownMenuItem>
               {(accountType === "organizer" || isAdmin) && (
                 <DropdownMenuItem asChild>

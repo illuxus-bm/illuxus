@@ -73,6 +73,7 @@ const DiscoverFeed = lazyWithLog("DiscoverFeed", () => import("./pages/DiscoverF
 const ProfilePage = lazyWithLog("ProfilePage", () => import("./pages/u/ProfilePage.tsx"));
 const MyEventsPage = lazyWithLog("MyEventsPage", () => import("./pages/u/MyEventsPage.tsx"));
 const MyApplicationsPage = lazyWithLog("MyApplicationsPage", () => import("./pages/u/MyApplicationsPage.tsx"));
+const MyCommunitiesPage = lazyWithLog("MyCommunitiesPage", () => import("./pages/u/MyCommunitiesPage.tsx"));
 const TicketDetailPage = lazyWithLog("TicketDetailPage", () => import("./pages/t/TicketDetailPage.tsx"));
 const EventQuickCreatePage = lazyWithLog("EventQuickCreatePage", () => import("./pages/dashboard/EventQuickCreatePage.tsx"));
 const GuestListPage = lazyWithLog("GuestListPage", () => import("./pages/dashboard/event/GuestListPage.tsx"));
@@ -210,6 +211,7 @@ const App = () => (
                 <Route path="/u/me" element={<RouteErrorBoundary><AttendeeRoute><ProfilePage /></AttendeeRoute></RouteErrorBoundary>} />
                 <Route path="/u/me/events" element={<RouteErrorBoundary><AttendeeRoute><MyEventsPage /></AttendeeRoute></RouteErrorBoundary>} />
                 <Route path="/u/me/applications" element={<RouteErrorBoundary><AttendeeRoute><MyApplicationsPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/u/me/communities" element={<RouteErrorBoundary><AttendeeRoute><MyCommunitiesPage /></AttendeeRoute></RouteErrorBoundary>} />
                 <Route path="/u/me/settings" element={<RouteErrorBoundary><AttendeeRoute><SettingsPage /></AttendeeRoute></RouteErrorBoundary>} />
                 <Route path="/t/:id" element={<RouteErrorBoundary><AttendeeRoute><TicketDetailPage /></AttendeeRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard" element={<RouteErrorBoundary><Navigate to="/dashboard/events" replace /></RouteErrorBoundary>} />
