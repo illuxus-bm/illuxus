@@ -998,6 +998,7 @@ function BannerCard({
           eventId={eventId}
           userId={userId}
           imageUrl={imageUrl ?? ""}
+          label=""
           onChange={(url) => onBannerChange("cover", url || null)}
         />
       </div>

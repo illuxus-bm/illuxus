@@ -128,7 +128,7 @@ export default function EventCoverPicker({
 
   return (
     <div className="space-y-2">
-      <Label className="text-[12px]">{label}</Label>
+      {label ? <Label className="text-[12px]">{label}</Label> : null}
       <div
         className={`group relative ${aspectClass} w-full rounded-xl overflow-hidden bg-secondary border border-dashed border-border cursor-pointer hover:border-muted-foreground/40`}
         onClick={() => !uploading && inputRef.current?.click()}
