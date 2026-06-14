@@ -225,7 +225,7 @@ recordings stored in Supabase Storage.
 landing pages.
 
 - Code: `src/pages/dashboard/MarketingPage.tsx`, `src/pages/dashboard/event/BroadcastPage.tsx`,
-  `src/pages/dashboard/LandingBuilderPage.tsx`, `src/pages/dashboard/DomainsPage.tsx`,
+  `src/pages/dashboard/LandingBuilderPage.tsx`,
   `src/components/event/CommunicationSection.tsx`
 - Edge: `send-event-email` (Resend removed; needs a sender)
 - Open work: pick email transport, fix `event_emails` types, harden domain

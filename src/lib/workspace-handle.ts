@@ -3,7 +3,7 @@
  *
  * The handle lives at `organizations.subdomain` and is used as the public
  * URL path: `host/<handle>`. Keeping all validation here ensures the
- * onboarding flow, the Domains page, and the admin panel agree on rules.
+ * onboarding flow and the org page builder agree on rules.
  */
 
 export const HANDLE_MIN_LEN = 2;

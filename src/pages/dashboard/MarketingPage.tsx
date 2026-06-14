@@ -750,7 +750,7 @@ function LandingPagesTab() {
           </Badge>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[
             {
               icon: Layout,
@@ -758,13 +758,6 @@ function LandingPagesTab() {
               desc: "Customize colors, layout, and content",
               to: "/dashboard/landing-builder",
               variant: "default" as const,
-            },
-            {
-              icon: Globe,
-              label: "Manage Domain",
-              desc: "Set workspace handle and custom domain",
-              to: "/dashboard/domains",
-              variant: "outline" as const,
             },
             {
               icon: BarChart3,

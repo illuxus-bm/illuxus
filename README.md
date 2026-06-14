@@ -199,7 +199,7 @@ Organizer dashboard (gated by `OrganizerRoute` + `OnboardingGuard`):
 - `/dashboard/events/:id/guests`, `/dashboard/events/:id/broadcast`
 - `/dashboard/attendees`, `/dashboard/tickets`, `/dashboard/analytics`,
   `/dashboard/reports`, `/dashboard/marketing`, `/dashboard/landing-builder`,
-  `/dashboard/domains`, `/dashboard/settings`, `/dashboard/billing`, `/dashboard/help`
+  `/dashboard/settings`, `/dashboard/billing`, `/dashboard/help`
 
 Community (per organizer):
 

@@ -58,10 +58,6 @@ const FAQ_ITEMS = [
     q: "What happens if I downgrade my plan?",
     a: "Your existing events and data are never deleted. Features beyond your new plan's limits (e.g., additional events, team members) become read-only until you upgrade again.",
   },
-  {
-    q: "How do I set a custom domain for my organization page?",
-    a: "Go to Domains in the sidebar. Set a workspace handle (used as the public URL path) and optionally configure a custom domain by pointing a CNAME record to our servers. The Domains page shows the exact DNS records you need.",
-  },
 ];
 
 // ─── Docs links ───────────────────────────────────────────────────────────────
