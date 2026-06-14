@@ -344,6 +344,9 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
           </div>
           <Switch
             checked={form.requires_approval}
+            onCheckedChange={(v) => update("requires_approval", v)}
+            disabled={Number(form.price) > 0}
+          />
         </div>
 
         {/* Live ticket total preview — recomputes on every keystroke. */}
