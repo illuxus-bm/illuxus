@@ -46,7 +46,6 @@ const ResetPasswordPage = lazyWithLog("ResetPasswordPage", () => import("./pages
 const OnboardingPage = lazyWithLog("OnboardingPage", () => import("./pages/OnboardingPage.tsx"));
 const Dashboard = lazyWithLog("Dashboard", () => import("./pages/Dashboard.tsx"));
 const EventsPage = lazyWithLog("EventsPage", () => import("./pages/dashboard/EventsPage.tsx"));
-const AttendeesPage = lazyWithLog("AttendeesPage", () => import("./pages/dashboard/AttendeesPage.tsx"));
 const TicketsPage = lazyWithLog("TicketsPage", () => import("./pages/dashboard/TicketsPage.tsx"));
 const AnalyticsPage = lazyWithLog("AnalyticsPage", () => import("./pages/dashboard/AnalyticsPage.tsx"));
 const SettingsPage = lazyWithLog("SettingsPage", () => import("./pages/dashboard/SettingsPage.tsx"));
@@ -230,7 +229,6 @@ const App = () => (
                   <Route path="/__preview/quick-views" element={<RouteErrorBoundary><QuickViewsPreviewPage /></RouteErrorBoundary>} />
                 )}
                 <Route path="/dashboard/events/:id" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><EventDetailPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/attendees" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><AttendeesPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/tickets" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><TicketsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/analytics" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><AnalyticsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/settings" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><SettingsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />

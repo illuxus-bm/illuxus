@@ -266,7 +266,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           body: `${r.name} registered for ${r.events?.title ?? "an event"}`,
           read: false,
           created_at: r.created_at,
-          url: `/dashboard/attendees`,
+          // Deep-link to the originating event detail page; the per-event
+          // Registrations tab is now the canonical place to manage attendees.
+          url: `/dashboard/events/${r.event_id}`,
         }))
       );
     };
@@ -385,9 +387,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 <div className="border-t border-border px-4 py-2">
                   <button
                     className="text-[12px] text-primary hover:underline"
-                    onClick={() => { navigate("/dashboard/attendees"); setNotifOpen(false); }}
+                    onClick={() => { navigate("/dashboard/events"); setNotifOpen(false); }}
                   >
-                    View all attendees →
+                    View all events →
                   </button>
                 </div>
               </PopoverContent>

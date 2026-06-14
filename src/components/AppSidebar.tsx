@@ -1,5 +1,5 @@
 import {
-  Calendar, Users, Settings, Ticket, BarChart3,
+  Calendar, Settings, Ticket, BarChart3,
   Megaphone, FileText, HelpCircle, CreditCard, Shield, Layout, Users2,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
@@ -27,7 +27,6 @@ const mainItems = [
 ];
 
 const attendeeItems = [
-  { title: "Attendees", url: "/dashboard/attendees", icon: Users   },
   { title: "Tickets",   url: "/dashboard/tickets",   icon: Ticket  },
 ];
 
