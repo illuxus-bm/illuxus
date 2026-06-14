@@ -339,29 +339,6 @@ export default function EventQuickCreatePage() {
             );
           })()}
 
-          {pastEvents.length > 0 && (
-            <div className="rounded-xl border border-border bg-background p-3 space-y-2">
-              <div>
-                <p className="text-[13px] font-medium">Follow-up event (optional)</p>
-                <p className="text-[12px] text-muted-foreground">
-                  Carry every member of the previous event's community over to this one.
-                </p>
-              </div>
-              <Select value={previousEventId} onValueChange={setPreviousEventId}>
-                <SelectTrigger className="h-9 text-[13px]">
-                  <SelectValue placeholder="None — fresh community" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None — fresh community</SelectItem>
-                  {pastEvents.map((e) => (
-                    <SelectItem key={e.id} value={e.id} className="text-[13px]">
-                      {e.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
 
           <div className="flex items-center justify-between rounded-xl border border-border bg-background p-3">
             <div className="min-w-0">

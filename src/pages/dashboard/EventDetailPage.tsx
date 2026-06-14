@@ -53,7 +53,6 @@ const sidebarNav = [
   { label: "Speakers", icon: ClipboardList, key: "manage" },
   { label: "Registrations", icon: Users, key: "registrations" },
   { label: "Sponsors", icon: Award, key: "exhibitors" },
-  { label: "Applications", icon: ClipboardList, key: "applications" },
   { label: "Agenda", icon: CalendarCheck, key: "agenda" },
   { label: "Design", icon: Palette, key: "design" },
   { label: "Communicate", icon: Mail, key: "communicate" },
@@ -798,8 +797,6 @@ function NumberCard({ icon, label, value }: { icon: React.ReactNode; label: stri
 // ─── EventSearch ──────────────────────────────────────────────────────────────
 // Full-text search across registrations for a single event.
 
-type Registration = Tables<"registrations">;
-
 function EventSearch({
   eventId,
   registrations,
@@ -895,13 +892,12 @@ function EventSearch({
                     </td>
                     <td className="py-2.5 px-4">
                       <span
-                        className={`text-[11px] font-medium capitalize px-1.5 py-0.5 rounded ${
-                          r.approval_status === "approved"
-                            ? "bg-green-500/10 text-green-600"
-                            : r.approval_status === "pending"
+                        className={`text-[11px] font-medium capitalize px-1.5 py-0.5 rounded ${r.approval_status === "approved"
+                          ? "bg-green-500/10 text-green-600"
+                          : r.approval_status === "pending"
                             ? "bg-amber-500/10 text-amber-600"
                             : "bg-muted text-muted-foreground"
-                        }`}
+                          }`}
                       >
                         {r.approval_status}
                       </span>
