@@ -975,33 +975,33 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
   const hasStarted = now >= targetMs;
   const hasEnded = endMs !== null && now >= endMs;
 
-  // Status copy when countdown isn't running.
-  if (hasEnded) {
-    return (
-      <Section theme={theme} tone="primary" id="countdown">
-        <div className="text-center text-white">
-          {data.title && <p className="text-[11px] font-semibold tracking-widest uppercase opacity-80">{data.title}</p>}
-          <p className="text-3xl sm:text-4xl font-extrabold mt-2">This event has ended</p>
-          <p className="text-[12px] sm:text-sm opacity-80 mt-1">
-            Thanks for joining us — see you next time.
+  const title = data.title || "Starts in";
+  const stateMessage = (label: string, body: string) => (
+    <Section theme={theme} tone="tinted" id="countdown">
+      <div className="text-center">
+        {data.title && (
+          <p
+            className="text-[11px] font-semibold tracking-[0.22em] uppercase mb-3"
+            style={{ color: theme.primaryColor }}
+          >
+            {data.title}
           </p>
-        </div>
-      </Section>
-    );
-  }
-  if (hasStarted) {
-    return (
-      <Section theme={theme} tone="primary" id="countdown">
-        <div className="text-center text-white">
-          {data.title && <p className="text-[11px] font-semibold tracking-widest uppercase opacity-80">{data.title}</p>}
-          <p className="text-3xl sm:text-4xl font-extrabold mt-2">Live now</p>
-          <p className="text-[12px] sm:text-sm opacity-80 mt-1">
-            {event.title} is happening right now.
-          </p>
-        </div>
-      </Section>
-    );
-  }
+        )}
+        <p
+          className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight"
+          style={{ color: theme.textColor }}
+        >
+          {label}
+        </p>
+        <p className="text-sm sm:text-base opacity-70 mt-2" style={{ color: theme.textColor }}>
+          {body}
+        </p>
+      </div>
+    </Section>
+  );
+
+  if (hasEnded) return stateMessage("This event has ended", "Thanks for joining us — see you next time.");
+  if (hasStarted) return stateMessage("Live now", `${event.title} is happening right now.`);
 
   // Decompose remaining ms into days / hours / minutes / seconds.
   const totalSec = Math.floor(remainingMs / 1000);
@@ -1010,9 +1010,7 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
   const minutes = Math.floor((totalSec % 3600) / 60);
   const seconds = totalSec % 60;
 
-  // Static label for screen readers (changes once per second alongside the
-  // visible boxes; keeps the announcement low-noise vs reading individual
-  // digits).
+  // Static label for screen readers.
   const srLabel = `${days} days, ${hours} hours, ${minutes} minutes, ${seconds} seconds until ${event.title}`;
 
   const cells: { value: number; label: string }[] = [
@@ -1023,25 +1021,51 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
   ];
 
   return (
-    <Section theme={theme} tone="primary" id="countdown">
-      <div className="text-center text-white">
-        {data.title && <p className="text-[11px] font-semibold tracking-widest uppercase opacity-80">{data.title}</p>}
-        <p className="text-[12px] sm:text-sm opacity-80 mt-1">until {event.title}</p>
+    <Section theme={theme} tone="tinted" id="countdown">
+      <div className="text-center">
+        <p
+          className="text-[11px] font-semibold tracking-[0.22em] uppercase mb-3"
+          style={{ color: theme.primaryColor }}
+        >
+          {title}
+        </p>
+        <p
+          className="text-base sm:text-lg opacity-70 mb-5 sm:mb-6"
+          style={{ color: theme.textColor }}
+        >
+          until <span className="font-semibold" style={{ color: theme.textColor }}>{event.title}</span>
+        </p>
         <div
           role="timer"
           aria-live="off"
           aria-label={srLabel}
-          className="mt-4 grid grid-cols-4 gap-2 sm:gap-3 max-w-2xl mx-auto"
+          // 4 cells in a single row across all breakpoints; uses fluid
+          // gap + clamp()-style font sizing to stay readable from 320px
+          // viewports up to 1400px+ without horizontal scroll.
+          className="grid grid-cols-4 gap-2 sm:gap-3 md:gap-4 max-w-3xl mx-auto"
         >
           {cells.map((cell) => (
             <div
               key={cell.label}
-              className="rounded-2xl py-3 sm:py-5 bg-white/10 backdrop-blur-sm border border-white/15"
+              className="rounded-xl sm:rounded-2xl py-3 px-1 sm:py-4 sm:px-2 md:py-6 border min-w-0"
+              style={{
+                backgroundColor: `${theme.primaryColor}0D`,
+                borderColor: `${theme.primaryColor}26`,
+              }}
             >
-              <p className="text-2xl sm:text-5xl font-extrabold font-mono tabular-nums leading-none">
+              <p
+                className="font-extrabold font-mono tabular-nums leading-none"
+                style={{
+                  color: theme.primaryColor,
+                  fontSize: "clamp(1.5rem, 7vw, 3.25rem)",
+                }}
+              >
                 {String(cell.value).padStart(2, "0")}
               </p>
-              <p className="text-[10px] sm:text-[11px] uppercase tracking-widest opacity-70 mt-1.5 sm:mt-2">
+              <p
+                className="text-[9px] sm:text-[10px] md:text-[11px] uppercase tracking-widest mt-1.5 sm:mt-2 truncate"
+                style={{ color: theme.textColor, opacity: 0.6 }}
+              >
                 {cell.label}
               </p>
             </div>
