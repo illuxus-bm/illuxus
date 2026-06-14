@@ -886,7 +886,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                       onCheckedChange={toggleSelectAll}
                     />
                   </th>
-                  <SortHeader label="Attendee" k="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="w-[240px] md:w-[260px]" />
+                  <SortHeader label="Attendee" k="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="" />
                   <th className="text-left p-2 sm:p-3 font-medium text-muted-foreground hidden md:table-cell w-[110px]">Role</th>
                   <th className="text-left p-2 sm:p-3 font-medium text-muted-foreground hidden lg:table-cell w-[130px]">Reg. status</th>
                   <th className="p-2 sm:p-3 w-[44px]"></th>
