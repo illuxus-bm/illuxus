@@ -6,6 +6,8 @@ import {
   useRejectSpeakerApplication,
   useApproveSponsorApplication,
   useRejectSponsorApplication,
+  useChangeSpeakerApplicationStatus,
+  useChangeSponsorApplicationStatus,
 } from "@/hooks/useApplications";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,11 +15,15 @@ import { toast } from "sonner";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   Mic, Building2, CheckCircle2, XCircle, Clock, Mail, Linkedin, Globe,
-  Briefcase, ExternalLink,
+  Briefcase, ExternalLink, MoreHorizontal, RotateCcw,
 } from "lucide-react";
 import type {
   ApplicationStatus, SpeakerApplication, SponsorApplication,
@@ -113,6 +119,7 @@ function SpeakerApplicationsList({
   const { data: apps = [], isLoading } = useEventSpeakerApplications(eventId);
   const approve = useApproveSpeakerApplication();
   const reject = useRejectSpeakerApplication();
+  const change = useChangeSpeakerApplicationStatus();
   const [selected, setSelected] = useState<SpeakerApplication | null>(null);
   const [rejectTarget, setRejectTarget] = useState<SpeakerApplication | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -141,6 +148,16 @@ function SpeakerApplicationsList({
     }
   };
 
+  const handleChangeStatus = async (app: SpeakerApplication, newStatus: ApplicationStatus) => {
+    if (newStatus === app.status) return;
+    try {
+      await change.mutateAsync({ appId: app.id, newStatus });
+      toast.success(`Status changed to ${prettyStatus(newStatus)}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
   return (
     <>
       <StatusTabs tab={tab} setTab={setTab} counts={counts} />
@@ -161,7 +178,8 @@ function SpeakerApplicationsList({
               onView={() => setSelected(app)}
               onApprove={() => handleApprove(app)}
               onReject={() => setRejectTarget(app)}
-              busy={approve.isPending}
+              onChangeStatus={(s) => handleChangeStatus(app, s)}
+              busy={approve.isPending || change.isPending}
             />
           ))}
         </div>
@@ -190,12 +208,13 @@ function SpeakerApplicationsList({
 }
 
 function SpeakerApplicationRow({
-  app, onView, onApprove, onReject, busy,
+  app, onView, onApprove, onReject, onChangeStatus, busy,
 }: {
   app: SpeakerApplication;
   onView: () => void;
   onApprove: () => void;
   onReject: () => void;
+  onChangeStatus: (status: ApplicationStatus) => void;
   busy: boolean;
 }) {
   return (
@@ -225,7 +244,7 @@ function SpeakerApplicationRow({
           <Button size="sm" variant="outline" className="h-8 text-[12px]" onClick={onView}>
             View
           </Button>
-          {app.status === "pending" && (
+          {app.status === "pending" ? (
             <>
               <Button
                 size="sm"
@@ -244,7 +263,12 @@ function SpeakerApplicationRow({
                 <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
               </Button>
             </>
-          )}
+          ) : null}
+          <StatusChangeMenu
+            currentStatus={app.status}
+            onChange={onChangeStatus}
+            busy={busy}
+          />
         </div>
       </div>
     </div>
@@ -342,6 +366,7 @@ function SponsorApplicationsList({
   const { data: apps = [], isLoading } = useEventSponsorApplications(eventId);
   const approve = useApproveSponsorApplication();
   const reject = useRejectSponsorApplication();
+  const change = useChangeSponsorApplicationStatus();
   const [selected, setSelected] = useState<SponsorApplication | null>(null);
   const [rejectTarget, setRejectTarget] = useState<SponsorApplication | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -370,6 +395,16 @@ function SponsorApplicationsList({
     }
   };
 
+  const handleChangeStatus = async (app: SponsorApplication, newStatus: ApplicationStatus) => {
+    if (newStatus === app.status) return;
+    try {
+      await change.mutateAsync({ appId: app.id, newStatus });
+      toast.success(`Status changed to ${prettyStatus(newStatus)}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
   return (
     <>
       <StatusTabs tab={tab} setTab={setTab} counts={counts} />
@@ -390,7 +425,8 @@ function SponsorApplicationsList({
               onView={() => setSelected(app)}
               onApprove={() => handleApprove(app)}
               onReject={() => setRejectTarget(app)}
-              busy={approve.isPending}
+              onChangeStatus={(s) => handleChangeStatus(app, s)}
+              busy={approve.isPending || change.isPending}
             />
           ))}
         </div>
@@ -419,12 +455,13 @@ function SponsorApplicationsList({
 }
 
 function SponsorApplicationRow({
-  app, onView, onApprove, onReject, busy,
+  app, onView, onApprove, onReject, onChangeStatus, busy,
 }: {
   app: SponsorApplication;
   onView: () => void;
   onApprove: () => void;
   onReject: () => void;
+  onChangeStatus: (status: ApplicationStatus) => void;
   busy: boolean;
 }) {
   return (
@@ -457,7 +494,7 @@ function SponsorApplicationRow({
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" className="h-8 text-[12px]" onClick={onView}>View</Button>
-          {app.status === "pending" && (
+          {app.status === "pending" ? (
             <>
               <Button
                 size="sm"
@@ -476,7 +513,12 @@ function SponsorApplicationRow({
                 <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
               </Button>
             </>
-          )}
+          ) : null}
+          <StatusChangeMenu
+            currentStatus={app.status}
+            onChange={onChangeStatus}
+            busy={busy}
+          />
         </div>
       </div>
     </div>
@@ -627,6 +669,81 @@ function StatusPill({ status }: { status: ApplicationStatus }) {
       <x.icon className="h-2.5 w-2.5" />
       {x.label}
     </span>
+  );
+}
+
+/**
+ * Pretty label for an ApplicationStatus, used in toast confirmations
+ * after a status change.
+ */
+function prettyStatus(s: ApplicationStatus): string {
+  return s === "under_review" ? "Under review" : s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * Status-change dropdown shown on every application row. Lets organisers
+ * revise a previously made decision (approve ↔ reject, or back to pending /
+ * under review). The currently active status is highlighted and disabled
+ * so the menu is a no-op when the user re-selects it.
+ */
+function StatusChangeMenu({
+  currentStatus,
+  onChange,
+  busy,
+}: {
+  currentStatus: ApplicationStatus;
+  onChange: (next: ApplicationStatus) => void;
+  busy: boolean;
+}) {
+  const targets: Array<{
+    status: ApplicationStatus;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    cls?: string;
+  }> = [
+    { status: "pending", label: "Mark as pending", icon: RotateCcw },
+    { status: "under_review", label: "Mark under review", icon: Clock, cls: "text-blue-600 dark:text-blue-400" },
+    { status: "approved", label: "Approve", icon: CheckCircle2, cls: "text-emerald-600 dark:text-emerald-400" },
+    { status: "rejected", label: "Reject", icon: XCircle, cls: "text-destructive" },
+  ];
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 w-8 p-0 text-[12px]"
+          disabled={busy}
+          aria-label="Change application status"
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground">
+          Change status
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {targets.map(({ status, label, icon: Icon, cls }) => {
+          const isCurrent = currentStatus === status;
+          return (
+            <DropdownMenuItem
+              key={status}
+              disabled={isCurrent}
+              onClick={() => onChange(status)}
+              className={cls}
+            >
+              <Icon className="h-3.5 w-3.5 mr-2" />
+              <span className="flex-1">{label}</span>
+              {isCurrent && (
+                <span className="text-[10px] text-muted-foreground">Current</span>
+              )}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
