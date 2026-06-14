@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import SiteHeader from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, CalendarDays, MapPin, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, CalendarDays, MapPin, CheckCircle2, Copy, Check } from "lucide-react";
 import { eventPublicPath } from "@/lib/event-routes";
 
 interface TicketRow {
@@ -107,6 +107,13 @@ export default function TicketDetailPage() {
                       <CheckCircle2 className="h-3.5 w-3.5" /> Checked in
                     </div>
                   )}
+                  {/*
+                    Plain-text ticket code under the QR. Lets staff type
+                    the code into the scanner's manual entry field if the
+                    camera can't focus, or for the attendee to read out
+                    at a desk.
+                  */}
+                  <TicketCodeDisplay code={row.qr_code || row.id} />
                 </div>
               ) : (
                 <div className="rounded-xl border border-dashed border-border p-5 text-center text-[13px] text-muted-foreground">
@@ -123,6 +130,51 @@ export default function TicketDetailPage() {
           </article>
         )}
       </main>
+    </div>
+  );
+}
+
+/**
+ * Plain-text ticket code shown under the QR. Staff at the door can read
+ * it out or copy it into the scanner's manual entry field when the
+ * camera won't focus.
+ */
+function TicketCodeDisplay({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API can fail in non-secure contexts; the code text
+      // is still selectable so the user can copy it manually.
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 w-full">
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/70 text-center mb-1.5">
+        Ticket code
+      </p>
+      <div className="flex items-stretch gap-1.5">
+        <div className="flex-1 px-2.5 py-1.5 rounded-md border border-border bg-muted/40 font-mono text-[11px] tracking-tight break-all select-all text-center">
+          {code}
+        </div>
+        <button
+          type="button"
+          onClick={onCopy}
+          aria-label={copied ? "Copied" : "Copy ticket code"}
+          className="shrink-0 inline-flex items-center justify-center w-8 rounded-md border border-border bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+      <p className="text-[10px] text-muted-foreground/70 text-center mt-1.5">
+        Use this if the QR scanner can't read the code.
+      </p>
     </div>
   );
 }
