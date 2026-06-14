@@ -16,7 +16,7 @@ export default function CommunityModerationPage() {
   const moderate = useModerate();
 
   if (!data?.community) return null;
-  if (!canModerate(role)) return <Navigate to={`/dashboard/community/${slug}/feed`} replace />;
+  if (!canModerate(role)) return <Navigate to={`/community/${slug}/feed`} replace />;
 
   const list = reports.data ?? [];
 

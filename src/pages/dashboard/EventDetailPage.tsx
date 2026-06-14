@@ -404,9 +404,9 @@ const EventDetailPage = () => {
             if (cid) {
               const { data: comm } = await supabase.from("communities" as never).select("slug").eq("id", cid as string).maybeSingle();
               const slug = (comm as { slug?: string } | null)?.slug;
-              if (slug) { navigate(`/dashboard/community/${slug}/feed`); return; }
+              if (slug) { navigate(`/community/${slug}/feed`); return; }
             }
-            navigate("/dashboard/community");
+            navigate("/community");
             return;
           }
           setActiveSection(k);

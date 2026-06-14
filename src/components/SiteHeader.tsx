@@ -15,7 +15,7 @@ import {
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useTheme } from "@/contexts/ThemeContext";
 import { SiteContainer } from "@/components/layout/SiteContainer";
-import { CalendarDays, ChevronDown, ClipboardList, Compass, LogOut, Mic, Building2, Settings as SettingsIcon, Ticket } from "lucide-react";
+import { CalendarDays, ChevronDown, ClipboardList, Compass, LogOut, Mic, Building2, Settings as SettingsIcon, Ticket, Users2 } from "lucide-react";
 
 /**
  * Centralized site header used across every public segment
@@ -194,6 +194,9 @@ export default function SiteHeader({
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link to="/u/me/applications"><ClipboardList className="h-3.5 w-3.5 mr-2" /> My applications</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/community"><Users2 className="h-3.5 w-3.5 mr-2" /> Community</Link>
                 </DropdownMenuItem>
                 {(accountType === "organizer" || isAdmin) && (
                   <DropdownMenuItem asChild>

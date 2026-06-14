@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { DashboardLayout } from "@/components/DashboardLayout";
+import { CommunityShell } from "@/components/community/layout/CommunityShell";
 import { useMyCommunities, usePublicCommunities } from "@/hooks/community/useCommunity";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Users, Sparkles } from "lucide-react";
@@ -11,7 +11,7 @@ export default function CommunityHubPage() {
   const [tab, setTab] = useState<"mine" | "explore">("mine");
 
   return (
-    <DashboardLayout>
+    <CommunityShell>
       <div className="space-y-4">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -65,7 +65,7 @@ export default function CommunityHubPage() {
           </TabsContent>
         </Tabs>
       </div>
-    </DashboardLayout>
+    </CommunityShell>
   );
 }
 
@@ -78,7 +78,7 @@ function CommunityTile({
 }) {
   return (
     <Link
-      to={`/dashboard/community/${community.slug}/feed`}
+      to={`/community/${community.slug}/feed`}
       className="border border-border rounded-xl bg-card p-4 hover:border-foreground/30 transition-colors flex flex-col gap-2"
     >
       <div className="flex items-center gap-2">

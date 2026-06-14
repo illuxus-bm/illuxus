@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import {
-  CalendarDays, CheckCircle2, Hourglass, XCircle, ShieldCheck, UserPlus, MailWarning, Video, Copy,
+  CalendarDays, CheckCircle2, Hourglass, XCircle, ShieldCheck, UserPlus, MailWarning, Video, Copy, Users2,
 } from "lucide-react";
 import { formatMoney } from "@/lib/currency";
 import { publicUrl } from "@/lib/publicUrl";
@@ -45,6 +45,7 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
   const [registrationId, setRegistrationId] = useState<string | null>(null);
   const [joinToken, setJoinToken] = useState<string | null>(null);
   const [hasWebinar, setHasWebinar] = useState(false);
+  const [communitySlug, setCommunitySlug] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const emailVerified = !!user?.email_confirmed_at;
 
@@ -94,6 +95,29 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
       .then(({ data }) => { if (!cancelled) setHasWebinar(!!data); });
     return () => { cancelled = true; };
   }, [event.id, event.event_format]);
+
+  // Resolve this event's community slug once the user is registered. The
+  // SECURITY DEFINER `community_resolve_event` RPC works for any signed-in
+  // user, and the auto-join trigger has already added them as a member.
+  useEffect(() => {
+    if (!user || state !== "approved") return;
+    let cancelled = false;
+    (async () => {
+      const { data: cid } = await supabase.rpc("community_resolve_event" as never, {
+        _event_id: event.id,
+      } as never);
+      if (cancelled || !cid) return;
+      const { data: comm } = await supabase
+        .from("communities" as never)
+        .select("slug")
+        .eq("id", cid as string)
+        .maybeSingle();
+      if (cancelled) return;
+      const slug = (comm as { slug?: string } | null)?.slug ?? null;
+      setCommunitySlug(slug);
+    })();
+    return () => { cancelled = true; };
+  }, [event.id, user, state]);
 
   const isFull = !!event.capacity && (event.tickets_sold ?? 0) >= event.capacity;
 
@@ -284,6 +308,14 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
               {registrationId && (
                 <Button asChild className="flex-1 h-9 text-[13px]" variant="default">
                   <a href={`/t/${registrationId}`}>View ticket</a>
+                </Button>
+              )}
+              {communitySlug && (
+                <Button asChild variant="outline" className="h-9 text-[13px] gap-1.5">
+                  <a href={`/community/${communitySlug}/feed`}>
+                    <Users2 className="h-3.5 w-3.5" />
+                    Community
+                  </a>
                 </Button>
               )}
               <Button onClick={cancelRsvp} variant="outline" className="h-9 text-[13px]" disabled={submitting}>

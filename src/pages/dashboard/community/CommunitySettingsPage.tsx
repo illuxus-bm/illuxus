@@ -37,7 +37,7 @@ export default function CommunitySettingsPage() {
   }, [data?.community]);
 
   if (!data?.community) return null;
-  if (!canManageSettings(role)) return <Navigate to={`/dashboard/community/${slug}/feed`} replace />;
+  if (!canManageSettings(role)) return <Navigate to={`/community/${slug}/feed`} replace />;
 
   const save = async () => {
     setSaving(true);

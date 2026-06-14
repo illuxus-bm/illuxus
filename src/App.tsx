@@ -65,7 +65,6 @@ const CommunityAnnouncementsPage = lazyWithLog("CommunityAnnouncementsPage", () 
 const CommunityCalendarPage = lazyWithLog("CommunityCalendarPage", () => import("./pages/dashboard/community/CommunityCalendarPage.tsx"));
 const CommunityResourcesPage = lazyWithLog("CommunityResourcesPage", () => import("./pages/dashboard/community/CommunityResourcesPage.tsx"));
 const CommunityChatPage = lazyWithLog("CommunityChatPage", () => import("./pages/dashboard/community/CommunityChatPage.tsx"));
-const CommunityLeaderboardPage = lazyWithLog("CommunityLeaderboardPage", () => import("./pages/dashboard/community/CommunityLeaderboardPage.tsx"));
 const CommunityModerationPage = lazyWithLog("CommunityModerationPage", () => import("./pages/dashboard/community/CommunityModerationPage.tsx"));
 const CommunitySettingsPage = lazyWithLog("CommunitySettingsPage", () => import("./pages/dashboard/community/CommunitySettingsPage.tsx"));
 const PublicOrgPage = lazyWithLog("PublicOrgPage", () => import("./pages/PublicOrgPage.tsx"));
@@ -241,17 +240,20 @@ const App = () => (
                 <Route path="/dashboard/admin" element={<RouteErrorBoundary><SuperAdminRoute><AdminPanelPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/site" element={<RouteErrorBoundary><SuperAdminRoute><SiteEditorPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/audit" element={<RouteErrorBoundary><SuperAdminRoute><AuditLogPage /></SuperAdminRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/community" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityHubPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/community/:slug" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityHomePage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/community/:slug/feed" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityFeedPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/community/:slug/members" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityMembersPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/community/:slug/announcements" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityAnnouncementsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/community/:slug/calendar" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityCalendarPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/community/:slug/resources" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityResourcesPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/community/:slug/chat" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityChatPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/community/:slug/leaderboard" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityLeaderboardPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/community/:slug/moderation" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunityModerationPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/community/:slug/settings" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><CommunitySettingsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                {/* Standalone /community area — no OnboardingGuard so attendees can reach it. */}
+                <Route path="/community" element={<RouteErrorBoundary><ProtectedRoute><CommunityHubPage /></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug" element={<RouteErrorBoundary><ProtectedRoute><CommunityHomePage /></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/feed" element={<RouteErrorBoundary><ProtectedRoute><CommunityFeedPage /></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/members" element={<RouteErrorBoundary><ProtectedRoute><CommunityMembersPage /></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/announcements" element={<RouteErrorBoundary><ProtectedRoute><CommunityAnnouncementsPage /></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/calendar" element={<RouteErrorBoundary><ProtectedRoute><CommunityCalendarPage /></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/resources" element={<RouteErrorBoundary><ProtectedRoute><CommunityResourcesPage /></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/chat" element={<RouteErrorBoundary><ProtectedRoute><CommunityChatPage /></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/moderation" element={<RouteErrorBoundary><ProtectedRoute><CommunityModerationPage /></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/settings" element={<RouteErrorBoundary><ProtectedRoute><CommunitySettingsPage /></ProtectedRoute></RouteErrorBoundary>} />
+                {/* Backward-compat: any old /dashboard/community link still resolves */}
+                <Route path="/dashboard/community" element={<RouteErrorBoundary><Navigate to="/community" replace /></RouteErrorBoundary>} />
+                <Route path="/dashboard/community/*" element={<RouteErrorBoundary><DashboardCommunityRedirect /></RouteErrorBoundary>} />
                 <Route path="*" element={<RouteErrorBoundary><NotFound /></RouteErrorBoundary>} />
                 </Routes>
                 </Suspense>
@@ -333,4 +335,14 @@ function LegacyOrgRedirect() {
 function LegacyEventRedirect() {
   const { orgSlug, eventSlug } = useParams<{ orgSlug: string; eventSlug: string }>();
   return <Navigate to={`/org/${orgSlug || ""}/events/${eventSlug || ""}`} replace />;
+}
+
+/**
+ * Backward-compat: anything under `/dashboard/community/...` now lives at
+ * `/community/...`. Forward to the new location preserving sub-paths.
+ */
+function DashboardCommunityRedirect() {
+  const location = useLocation();
+  const target = location.pathname.replace(/^\/dashboard\/community/, "/community") + location.search + location.hash;
+  return <Navigate to={target} replace />;
 }
