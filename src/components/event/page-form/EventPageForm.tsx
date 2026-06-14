@@ -28,7 +28,6 @@ import {
 } from "./PublicEventRenderer";
 import EventPagePreview from "./EventPagePreview";
 import EventBannerPicker from "@/components/event/EventBannerPicker";
-import EventCoverPicker from "@/components/event/EventCoverPicker";
 import { useAuth } from "@/contexts/AuthContext";
 import { THEME_PRESETS, COLOR_SWATCHES, FONT_OPTIONS } from "./presets";
 import { useOrg } from "@/contexts/OrgContext";
@@ -323,17 +322,11 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
                   userId={user?.id ?? ""}
                   bannerLandscapeUrl={(event as RendererEvent & { banner_landscape_url?: string | null }).banner_landscape_url ?? null}
                   bannerPortraitUrl={(event as RendererEvent & { banner_portrait_url?: string | null }).banner_portrait_url ?? null}
-                  imageUrl={(event as RendererEvent & { image_url?: string | null }).image_url ?? null}
                   onBannerChange={async (variant, url) => {
-                    // Each picker writes ONLY its own column. Previously the
-                    // landscape picker also clobbered image_url, leaving the
-                    // square listing thumbnail with a stretched 16:9 image.
                     const patch: Record<string, string | null> =
                       variant === "landscape"
                         ? { banner_landscape_url: url }
-                        : variant === "portrait"
-                          ? { banner_portrait_url: url }
-                          : { image_url: url };
+                        : { banner_portrait_url: url };
                     const { error } = await supabase
                       .from("events")
                       .update(patch as never)
@@ -343,9 +336,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
                       return;
                     }
                     setEvent((prev) => (prev ? { ...prev, ...(patch as object) } as RendererEvent : prev));
-                    const label =
-                      variant === "landscape" ? "Landscape banner" :
-                      variant === "portrait" ? "Portrait banner" : "Listing thumbnail";
+                    const label = variant === "landscape" ? "Landscape banner" : "Portrait banner";
                     toast({ title: url ? `${label} updated` : `${label} removed` });
                   }}
                 />
@@ -942,22 +933,20 @@ function ListEditor<T>({ label, items, onChange, newItem, renderItem }: {
 }
 /* ─── Always-visible Banner card (top of editor) ─── */
 function BannerCard({
-  eventId, userId, bannerLandscapeUrl, bannerPortraitUrl, imageUrl, onBannerChange,
+  eventId, userId, bannerLandscapeUrl, bannerPortraitUrl, onBannerChange,
 }: {
   eventId: string;
   userId: string;
   bannerLandscapeUrl: string | null;
   bannerPortraitUrl: string | null;
-  imageUrl: string | null;
-  onBannerChange: (variant: "landscape" | "portrait" | "cover", url: string | null) => void | Promise<void>;
+  onBannerChange: (variant: "landscape" | "portrait", url: string | null) => void | Promise<void>;
 }) {
   return (
     <section className="mb-6 rounded-xl border border-border bg-card p-4">
       <div className="mb-3">
-        <h3 className="text-sm font-semibold">Banner &amp; Cover</h3>
+        <h3 className="text-sm font-semibold">Banners</h3>
         <p className="text-[11px] text-muted-foreground mt-0.5">
           Landscape shows on desktop &amp; tablet. Portrait shows on phones — optional, landscape is used as fallback.
-          The square cover is what shows in the events listing and social cards.
         </p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -984,22 +973,6 @@ function BannerCard({
           variant="portrait"
           imageUrl={bannerPortraitUrl ?? ""}
           onChange={(url) => onBannerChange("portrait", url || null)}
-        />
-      </div>
-      <div className="mt-4 pt-4 border-t border-border">
-        <div className="mb-3">
-          <h4 className="text-[12px] font-semibold">Listing thumbnail (1:1)</h4>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            Square cover used in event lists, profile previews, and social cards. Independent
-            of the banners above so it doesn't get cropped from a 16:9 image.
-          </p>
-        </div>
-        <EventCoverPicker
-          eventId={eventId}
-          userId={userId}
-          imageUrl={imageUrl ?? ""}
-          label=""
-          onChange={(url) => onBannerChange("cover", url || null)}
         />
       </div>
     </section>
