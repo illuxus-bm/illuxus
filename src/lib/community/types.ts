@@ -175,15 +175,6 @@ export interface CalendarItem {
   session_id: string | null;
 }
 
-export interface LeaderboardRow {
-  community_id: string;
-  user_id: string;
-  posts: number;
-  comments: number;
-  resources: number;
-  points: number;
-}
-
 export interface AppNotification {
   id: string;
   user_id: string;

@@ -13,7 +13,6 @@ import type {
   CommunityPoll,
   CommunityPollVote,
   CommunityReport,
-  LeaderboardRow,
 } from "@/lib/community/types";
 
 // ── Polls ─────────────────────────────────────────────────────────────────
@@ -97,33 +96,6 @@ export function useCommunityCalendar(communityId: string | undefined) {
   });
 }
 
-// ── Leaderboard ───────────────────────────────────────────────────────────
-export function useLeaderboard(communityId: string | undefined) {
-  return useQuery({
-    queryKey: ["community", "leaderboard", communityId],
-    enabled: !!communityId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("community_leaderboard" as never)
-        .select("*")
-        .eq("community_id", communityId as string)
-        .order("points", { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      const rows = (data ?? []) as unknown as LeaderboardRow[];
-      const ids = rows.map((r) => r.user_id);
-      if (ids.length === 0) return rows.map((r) => ({ ...r, profile: null }));
-      const { data: profs } = await supabase
-        .from("profiles")
-        .select("user_id, display_name, avatar_url")
-        .in("user_id", ids);
-      const byUser = new Map<string, { display_name: string | null; avatar_url: string | null }>();
-      (profs ?? []).forEach((p) => byUser.set(p.user_id, p as never));
-      return rows.map((r) => ({ ...r, profile: byUser.get(r.user_id) ?? null }));
-    },
-  });
-}
-
 // ── Reports / Moderation ──────────────────────────────────────────────────
 export function useReports(communityId: string | undefined) {
   return useQuery({
@@ -183,6 +155,24 @@ export function useSetMemberStatus(communityId: string | undefined) {
         _user_id: input.userId,
         _status: input.status,
         _reason: input.reason ?? null,
+      } as never);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["community", "members", communityId] });
+    },
+  });
+}
+
+export function useSetMemberRole(communityId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { userId: string; role: "member" | "speaker" | "sponsor" | "organizer" | "moderator" | "manager" | "mentor" }) => {
+      if (!communityId) throw new Error("No community");
+      const { error } = await supabase.rpc("community_set_member_role" as never, {
+        _community_id: communityId,
+        _user_id: input.userId,
+        _role: input.role,
       } as never);
       if (error) throw error;
     },

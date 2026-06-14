@@ -3,10 +3,18 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { CommunityLayout } from "@/components/community/layout/CommunityLayout";
 import { useCommunityBySlug } from "@/hooks/community/useCommunity";
+import { useSetMemberRole, useSetMemberStatus } from "@/hooks/community/useCommunityExtras";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
-import type { CommunityRole } from "@/lib/community/rbac";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
+import { MoreHorizontal, Search, Shield, ShieldOff, UserCog, UserX } from "lucide-react";
+import { canManageSettings, canModerate, type CommunityRole } from "@/lib/community/rbac";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const ROLE_BADGE: Record<string, string> = {
   member:    "bg-muted text-muted-foreground",
@@ -21,6 +29,7 @@ const ROLE_BADGE: Record<string, string> = {
 interface MemberRow {
   user_id: string;
   role: CommunityRole;
+  status: "active" | "suspended" | "banned" | "left";
   joined_at: string;
   profile: {
     user_id: string;
@@ -34,20 +43,31 @@ interface MemberRow {
 export default function CommunityMembersPage() {
   const { slug } = useParams<{ slug: string }>();
   const { data } = useCommunityBySlug(slug);
+  const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<CommunityRole | "all">("all");
+
+  const viewerRole = data?.membership?.role ?? null;
+  const isModerator = canModerate(viewerRole);
+  const isManager = canManageSettings(viewerRole);
+
+  const setStatus = useSetMemberStatus(data?.community?.id);
+  const setRole = useSetMemberRole(data?.community?.id);
 
   const members = useQuery({
     queryKey: ["community", "members", data?.community?.id],
     enabled: !!data?.community?.id,
     queryFn: async () => {
-      const { data: rows, error } = await supabase
+      // Moderators see suspended/banned too so they can reactivate; others
+      // only see active members.
+      let q = supabase
         .from("community_members" as never)
-        .select("user_id, role, joined_at")
-        .eq("community_id", data!.community!.id)
-        .eq("status", "active");
+        .select("user_id, role, status, joined_at")
+        .eq("community_id", data!.community!.id);
+      if (!isModerator) q = q.eq("status", "active");
+      const { data: rows, error } = await q;
       if (error) throw error;
-      const list = (rows ?? []) as unknown as { user_id: string; role: CommunityRole; joined_at: string }[];
+      const list = (rows ?? []) as unknown as { user_id: string; role: CommunityRole; status: MemberRow["status"]; joined_at: string }[];
       if (list.length === 0) return [] as MemberRow[];
       const ids = list.map((r) => r.user_id);
       const { data: profs } = await supabase
@@ -108,6 +128,44 @@ export default function CommunityMembersPage() {
             {filtered.map((m) => {
               const name = m.profile?.display_name || "Anonymous";
               const initials = name.slice(0, 2).toUpperCase();
+              const isSelf = user?.id === m.user_id;
+              const targetIsManager = m.role === "manager";
+              const showMenu = isModerator && !isSelf && !targetIsManager;
+
+              const handleRemove = async () => {
+                if (!confirm(`Remove ${name} from the community? They will be banned and can't rejoin unless re-activated.`)) return;
+                try {
+                  await setStatus.mutateAsync({ userId: m.user_id, status: "banned" });
+                  toast.success(`${name} removed`);
+                } catch (err: unknown) {
+                  toast.error(err instanceof Error ? err.message : "Failed");
+                }
+              };
+              const handleSuspend = async () => {
+                try {
+                  await setStatus.mutateAsync({ userId: m.user_id, status: "suspended" });
+                  toast.success(`${name} suspended`);
+                } catch (err: unknown) {
+                  toast.error(err instanceof Error ? err.message : "Failed");
+                }
+              };
+              const handleReactivate = async () => {
+                try {
+                  await setStatus.mutateAsync({ userId: m.user_id, status: "active" });
+                  toast.success(`${name} restored`);
+                } catch (err: unknown) {
+                  toast.error(err instanceof Error ? err.message : "Failed");
+                }
+              };
+              const handleSetRole = async (next: CommunityRole) => {
+                try {
+                  await setRole.mutateAsync({ userId: m.user_id, role: next });
+                  toast.success(`${name} is now ${next}`);
+                } catch (err: unknown) {
+                  toast.error(err instanceof Error ? err.message : "Failed");
+                }
+              };
+
               return (
                 <div key={m.user_id} className="border border-border rounded-xl bg-card p-3 flex items-center gap-3">
                   <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[12px] font-semibold shrink-0 overflow-hidden">
@@ -119,6 +177,11 @@ export default function CommunityMembersPage() {
                       <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider ${ROLE_BADGE[m.role] || ""}`}>
                         {m.role}
                       </span>
+                      {m.status !== "active" && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider bg-destructive/10 text-destructive">
+                          {m.status}
+                        </span>
+                      )}
                     </div>
                     {(m.profile?.designation || m.profile?.company) && (
                       <p className="text-[11px] text-muted-foreground truncate">
@@ -126,6 +189,43 @@ export default function CommunityMembersPage() {
                       </p>
                     )}
                   </div>
+                  {showMenu && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" aria-label="Member actions">
+                          <MoreHorizontal className="h-3.5 w-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-52">
+                        {isManager && (
+                          <>
+                            <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground">Change role</DropdownMenuLabel>
+                            {(["member","speaker","sponsor","organizer","moderator","mentor"] as CommunityRole[]).map((r) => (
+                              <DropdownMenuItem key={r} disabled={r === m.role} onClick={() => handleSetRole(r)}>
+                                <UserCog className="h-3.5 w-3.5 mr-2" />
+                                <span className="capitalize">{r}</span>
+                              </DropdownMenuItem>
+                            ))}
+                            <DropdownMenuSeparator />
+                          </>
+                        )}
+                        <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground">Status</DropdownMenuLabel>
+                        {m.status === "active" && (
+                          <DropdownMenuItem onClick={handleSuspend}>
+                            <Shield className="h-3.5 w-3.5 mr-2" /> Suspend
+                          </DropdownMenuItem>
+                        )}
+                        {m.status !== "active" && (
+                          <DropdownMenuItem onClick={handleReactivate}>
+                            <ShieldOff className="h-3.5 w-3.5 mr-2" /> Reactivate
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={handleRemove}>
+                          <UserX className="h-3.5 w-3.5 mr-2" /> Remove from community
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               );
             })}
