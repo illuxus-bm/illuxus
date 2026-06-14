@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { useOrg } from "@/contexts/OrgContext";
@@ -6,18 +7,18 @@ import { formatMoney, DEFAULT_EVENT_CURRENCY } from "@/lib/currency";
 import { convert, useFxRates } from "@/lib/fx";
 import { CurrencySwitcher, getStoredDisplayCurrency } from "@/components/CurrencySwitcher";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area,
+  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line,
+  AreaChart, Area, Legend,
 } from "recharts";
 import {
   Download, FileText, Users, DollarSign, Ticket, TrendingUp,
-  CheckCircle2, XCircle, Loader2, Calendar, BarChart3, Target,
-  ArrowUpRight, Percent, RefreshCw,
+  CheckCircle2, Loader2, Calendar, BarChart3, Target,
+  Percent, RefreshCw, ArrowUpRight, ArrowDownRight, CalendarClock,
 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
@@ -51,6 +52,26 @@ const CHART_COLORS = [
 // Statuses that represent a completed/paying registration
 const ACTIVE_STATUSES = new Set(["confirmed", "approved", "registered", "paid", "checked_in"]);
 
+type RangeKey = "7d" | "30d" | "90d" | "ytd" | "all";
+const RANGE_LABELS: Record<RangeKey, string> = {
+  "7d": "7d", "30d": "30d", "90d": "90d", ytd: "YTD", all: "All",
+};
+
+function rangeStart(range: RangeKey): Date | null {
+  const now = new Date();
+  if (range === "all") return null;
+  if (range === "ytd") return new Date(now.getFullYear(), 0, 1);
+  const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
+  const d = new Date(now);
+  d.setDate(d.getDate() - days);
+  return d;
+}
+
+function pctChange(curr: number, prev: number): number | null {
+  if (!prev) return curr > 0 ? 100 : null;
+  return ((curr - prev) / prev) * 100;
+}
+
 // ─── CSV helper ───────────────────────────────────────────────────────────────
 
 function downloadCsv(filename: string, header: string[], rows: (string | number | null | undefined)[][]) {
@@ -59,7 +80,7 @@ function downloadCsv(filename: string, header: string[], rows: (string | number 
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const csv = [header, ...rows].map((r) => r.map(esc).join(",")).join("\n");
-  const blob = new Blob(["\uFEFF" + csv, ""], { type: "text/csv;charset=utf-8;" });
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
   a.href     = url;
@@ -68,26 +89,65 @@ function downloadCsv(filename: string, header: string[], rows: (string | number 
   URL.revokeObjectURL(url);
 }
 
-// ─── Stat card ────────────────────────────────────────────────────────────────
+// ─── UI atoms ─────────────────────────────────────────────────────────────────
 
-function StatCard({
-  icon: Icon, label, value, sub, color = "text-foreground",
-}: {
-  icon: React.ElementType; label: string; value: string; sub?: string; color?: string;
-}) {
+function DeltaChip({ value }: { value: number | null }) {
+  if (value === null || !Number.isFinite(value)) {
+    return <span className="text-[10px] text-muted-foreground font-mono">—</span>;
+  }
+  const positive = value >= 0;
+  const Icon = positive ? ArrowUpRight : ArrowDownRight;
   return (
-    <div className="bg-card border border-border rounded-xl p-4">
+    <span className={cn(
+      "inline-flex items-center gap-0.5 text-[10px] font-mono px-1.5 py-0.5 rounded-md",
+      positive ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-red-500/10 text-red-600 dark:text-red-400"
+    )}>
+      <Icon className="h-2.5 w-2.5" />
+      {Math.abs(value).toFixed(1)}%
+    </span>
+  );
+}
+
+interface KpiCardProps {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  sub?: string;
+  delta?: number | null;
+  spark?: { i: number; v: number }[];
+  color?: string;
+  index?: number;
+}
+
+function KpiCard({ icon: Icon, label, value, sub, delta, spark, color = "text-foreground", index = 0 }: KpiCardProps) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.03 }}
+      className="bg-card border border-border rounded-xl p-4 select-none"
+    >
       <div className="flex items-center justify-between mb-2">
         <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">{label}</span>
         <Icon className="h-3.5 w-3.5 text-muted-foreground" />
       </div>
-      <p className={`text-xl font-semibold font-mono tabular-nums ${color}`}>{value}</p>
+      <div className="flex items-end justify-between gap-2">
+        <p className={`text-xl font-semibold font-mono tabular-nums ${color}`}>{value}</p>
+        {delta !== undefined && <DeltaChip value={delta ?? null} />}
+      </div>
       {sub && <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>}
-    </div>
+      {spark && spark.some((p) => p.v > 0) && (
+        <div className="h-7 mt-2 -mx-1">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={spark}>
+              <Line type="monotone" dataKey="v" stroke="hsl(var(--primary))" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </motion.div>
   );
 }
-
-// ─── Section wrapper ──────────────────────────────────────────────────────────
 
 function Section({
   title, icon: Icon, action, children, full,
@@ -130,6 +190,7 @@ const ReportsPage = () => {
   // Filters
   const [eventFilter, setEventFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [range, setRange] = useState<RangeKey>("30d");
 
   // ── Fetch ────────────────────────────────────────────────────────────────
 
@@ -150,7 +211,6 @@ const ReportsPage = () => {
 
     const eventIds = eventList.map((e) => e.id);
 
-    // Registrations scoped to org events
     const { data: regs } = await supabase
       .from("registrations")
       .select("*")
@@ -159,7 +219,6 @@ const ReportsPage = () => {
 
     setRegistrations((regs ?? []) as RegRow[]);
 
-    // Speaker attendance — join event_speakers → speakers → registrations by email
     const { data: esRows } = await supabase
       .from("event_speakers")
       .select("speaker_id, event_id, speakers(name, email, company)")
@@ -198,7 +257,7 @@ const ReportsPage = () => {
     setLoading(false);
   };
 
-  useEffect(() => { fetchAll(); }, [org?.id]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchAll(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [org?.id]);
 
   // ── Derived data ─────────────────────────────────────────────────────────
 
@@ -207,88 +266,171 @@ const ReportsPage = () => {
     [events],
   );
 
-  const toDisplay = (amount: number, ccy: string) =>
-    convert(amount, ccy, displayCcy, rates) ?? amount;
+  // Reports filters narrow down both pools. The time range narrows the
+  // _registrations_ pool but never the events list (which is for selection
+  // dropdown + speaker join).
+  const eventScopedRegs = useMemo(
+    () => (eventFilter === "all" ? registrations : registrations.filter((r) => r.event_id === eventFilter)),
+    [registrations, eventFilter],
+  );
 
   const filteredRegs = useMemo(() => {
-    let r = registrations;
-    if (eventFilter  !== "all") r = r.filter((x) => x.event_id === eventFilter);
-    if (statusFilter !== "all") r = r.filter((x) => x.status   === statusFilter);
+    let r = eventScopedRegs;
+    if (statusFilter !== "all") r = r.filter((x) => x.status === statusFilter);
+    const start = rangeStart(range);
+    if (start) r = r.filter((x) => new Date(x.created_at) >= start);
     return r;
-  }, [registrations, eventFilter, statusFilter]);
+  }, [eventScopedRegs, statusFilter, range]);
 
   const filteredEvents = useMemo(
     () => (eventFilter === "all" ? events : events.filter((e) => e.id === eventFilter)),
     [events, eventFilter],
   );
 
-  // ── KPIs ──────────────────────────────────────────────────────────────────
+  const eventById = useMemo(() => new Map(events.map((e) => [e.id, e])), [events]);
 
-  const kpis = useMemo(() => {
-    const activeRegs   = filteredRegs.filter((r) => ACTIVE_STATUSES.has(r.status));
-    const checkedIn    = filteredRegs.filter((r) => r.checked_in).length;
-    const totalRevDisp = activeRegs.reduce((s, r) => {
-      const ev  = events.find((e) => e.id === r.event_id);
+  // ── KPIs (current period) + period-over-period deltas ────────────────────
+
+  const analytics = useMemo(() => {
+    const toDisplay = (amount: number, ccy: string) =>
+      convert(amount, ccy, displayCcy, rates) ?? amount;
+
+    const start = rangeStart(range);
+    const now = new Date();
+    const periodMs = start ? now.getTime() - start.getTime() : 0;
+    const prevStart = start ? new Date(start.getTime() - periodMs) : null;
+
+    let currRevenue = 0, currTickets = 0;
+    let prevRevenue = 0, prevTickets = 0;
+    let totalRegs = 0, activeRegs = 0, checkedIn = 0;
+
+    const dayOfWeek = [0, 0, 0, 0, 0, 0, 0];
+    const dailyMap = new Map<string, { revenue: number; tickets: number; date: Date; label: string }>();
+    const statusCounts = new Map<string, number>();
+    const perEvent = new Map<string, {
+      title: string;
+      tickets: number;
+      revenue: number;
+      checkedIn: number;
+      capacity: number | null;
+    }>();
+
+    for (const r of eventScopedRegs) {
+      const d = new Date(r.created_at);
+      const inCurr = !start || d >= start;
+      const inPrev = prevStart && d >= prevStart && start && d < start;
+      const ev = eventById.get(r.event_id);
       const ccy = (ev?.currency || DEFAULT_EVENT_CURRENCY).toUpperCase();
-      return s + toDisplay(Number(r.amount_paid || 0), ccy);
-    }, 0);
-    const avgTicket = activeRegs.length ? totalRevDisp / activeRegs.length : 0;
-    const convRate  = filteredRegs.length
-      ? (activeRegs.length / filteredRegs.length) * 100
-      : 0;
-    const checkRate = activeRegs.length ? (checkedIn / activeRegs.length) * 100 : 0;
+      const display = toDisplay(Number(r.amount_paid || 0), ccy);
 
-    return { totalRegs: filteredRegs.length, activeRegs: activeRegs.length, totalRevDisp, avgTicket, convRate, checkRate, checkedIn };
-  }, [filteredRegs, events, displayCcy, rates]);   // eslint-disable-line react-hooks/exhaustive-deps
+      // Status filter (narrows to user-picked status; KPIs respect it)
+      if (statusFilter !== "all" && r.status !== statusFilter) continue;
 
-  // ── Chart data ────────────────────────────────────────────────────────────
+      statusCounts.set(r.status, (statusCounts.get(r.status) || 0) + 1);
 
-  const dailyTrend = useMemo(() => {
-    const map = new Map<string, { tickets: number; revenue: number }>();
-    for (const r of filteredRegs) {
-      if (!ACTIVE_STATUSES.has(r.status)) continue;
-      const day = new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-      const ev  = events.find((e) => e.id === r.event_id);
-      const ccy = (ev?.currency || DEFAULT_EVENT_CURRENCY).toUpperCase();
-      const rev = toDisplay(Number(r.amount_paid || 0), ccy);
-      const cur = map.get(day) ?? { tickets: 0, revenue: 0 };
-      map.set(day, { tickets: cur.tickets + 1, revenue: cur.revenue + rev });
+      if (inCurr) {
+        totalRegs++;
+        if (ACTIVE_STATUSES.has(r.status)) {
+          activeRegs++;
+          currRevenue += display;
+          currTickets++;
+          dayOfWeek[d.getDay()]++;
+          const key = d.toISOString().slice(0, 10);
+          const existing = dailyMap.get(key);
+          const label = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          if (existing) {
+            existing.revenue += display;
+            existing.tickets++;
+          } else {
+            dailyMap.set(key, { revenue: display, tickets: 1, date: new Date(d.getFullYear(), d.getMonth(), d.getDate()), label });
+          }
+          if (r.checked_in) checkedIn++;
+        }
+      }
+      if (inPrev && ACTIVE_STATUSES.has(r.status)) {
+        prevRevenue += display;
+        prevTickets++;
+      }
+
+      if (ACTIVE_STATUSES.has(r.status) && ev) {
+        const agg = perEvent.get(ev.id) || {
+          title: ev.title,
+          tickets: 0,
+          revenue: 0,
+          checkedIn: 0,
+          capacity: ev.capacity ?? null,
+        };
+        agg.tickets++;
+        agg.revenue += display;
+        if (r.checked_in) agg.checkedIn++;
+        perEvent.set(ev.id, agg);
+      }
     }
-    return Array.from(map.entries()).map(([date, v]) => ({ date, ...v }));
-  }, [filteredRegs, events, displayCcy, rates]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const statusPie = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const r of filteredRegs) map.set(r.status, (map.get(r.status) ?? 0) + 1);
-    return Array.from(map.entries())
+    const totalEvents = filteredEvents.length;
+    const publishedCount = filteredEvents.filter((e) => e.status === "published").length;
+    const upcomingCount = filteredEvents.filter((e) => new Date(e.date) > now && e.status !== "cancelled").length;
+    const checkInRate = activeRegs > 0 ? (checkedIn / activeRegs) * 100 : 0;
+    const conversionRate = totalRegs > 0 ? (activeRegs / totalRegs) * 100 : 0;
+    const avgTicket = currTickets > 0 ? currRevenue / currTickets : 0;
+
+    // Daily trend (sorted)
+    const dailyData = Array.from(dailyMap.values())
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+      .map((d) => ({ label: d.label, date: d.date.getTime(), revenue: d.revenue, tickets: d.tickets }));
+
+    let cum = 0;
+    const cumulativeData = dailyData.map((d) => {
+      cum += d.revenue;
+      return { label: d.label, cumulative: cum };
+    });
+
+    // Day of week
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const dowData = dayOfWeek.map((v, i) => ({ name: dayNames[i], tickets: v }));
+
+    // Sparklines per KPI (12 buckets across the visible range)
+    const sparkBuckets = 12;
+    const sparkStart = start ?? (dailyData[0] ? new Date(dailyData[0].date) : new Date(now.getTime() - 30 * 86400000));
+    const bucketSize = Math.max(1, (now.getTime() - sparkStart.getTime()) / sparkBuckets);
+    const revSpark = Array.from({ length: sparkBuckets }, (_, i) => ({ i, v: 0 }));
+    const ticketSpark = Array.from({ length: sparkBuckets }, (_, i) => ({ i, v: 0 }));
+    dailyData.forEach((d) => {
+      const idx = Math.min(sparkBuckets - 1, Math.max(0, Math.floor((d.date - sparkStart.getTime()) / bucketSize)));
+      revSpark[idx].v += d.revenue;
+      ticketSpark[idx].v += d.tickets;
+    });
+
+    // Status pie (within selection)
+    const statusPie = Array.from(statusCounts.entries())
       .map(([name, value]) => ({ name: name.charAt(0).toUpperCase() + name.slice(1), value }))
       .sort((a, b) => b.value - a.value);
-  }, [filteredRegs]);
 
-  const revenueByEvent = useMemo(() => {
-    const map = new Map<string, { title: string; revenue: number; tickets: number }>();
-    for (const r of filteredRegs) {
-      if (!ACTIVE_STATUSES.has(r.status)) continue;
-      const ev  = events.find((e) => e.id === r.event_id);
-      if (!ev)  continue;
-      const ccy = (ev.currency || DEFAULT_EVENT_CURRENCY).toUpperCase();
-      const rev = toDisplay(Number(r.amount_paid || 0), ccy);
-      const cur = map.get(ev.id) ?? { title: ev.title, revenue: 0, tickets: 0 };
-      map.set(ev.id, { ...cur, revenue: cur.revenue + rev, tickets: cur.tickets + 1 });
-    }
-    return Array.from(map.values())
+    // Revenue by event
+    const revenueByEvent = Array.from(perEvent.values())
       .sort((a, b) => b.revenue - a.revenue)
-      .map((d) => ({ ...d, name: d.title.length > 18 ? d.title.slice(0, 18) + "…" : d.title }));
-  }, [filteredRegs, events, displayCcy, rates]);   // eslint-disable-line react-hooks/exhaustive-deps
+      .map((d) => ({
+        ...d,
+        name: d.title.length > 18 ? d.title.slice(0, 18) + "…" : d.title,
+        fillRate: d.capacity && d.capacity > 0 ? Math.min(100, (d.tickets / d.capacity) * 100) : null,
+        checkInRate: d.tickets > 0 ? (d.checkedIn / d.tickets) * 100 : 0,
+      }));
 
-  const checkInByEvent = useMemo(() =>
-    filteredEvents.map((ev) => {
-      const evRegs     = filteredRegs.filter((r) => r.event_id === ev.id && ACTIVE_STATUSES.has(r.status));
-      const checkedIn  = evRegs.filter((r) => r.checked_in).length;
-      const rate       = evRegs.length ? Math.round((checkedIn / evRegs.length) * 100) : 0;
-      return { name: ev.title.length > 18 ? ev.title.slice(0, 18) + "…" : ev.title, rate, checkedIn, total: evRegs.length };
-    }).filter((d) => d.total > 0),
-  [filteredEvents, filteredRegs]);
+    const checkInByEvent = revenueByEvent
+      .filter((d) => d.tickets > 0)
+      .map((d) => ({ name: d.name, rate: Math.round(d.checkInRate), checkedIn: d.checkedIn, total: d.tickets }));
+
+    const topEvents = revenueByEvent.slice(0, 5);
+
+    return {
+      totalRegs, activeRegs, checkedIn, currRevenue, currTickets,
+      prevRevenue, prevTickets, avgTicket, conversionRate, checkInRate,
+      totalEvents, publishedCount, upcomingCount,
+      dailyData, cumulativeData, dowData,
+      revSpark, ticketSpark,
+      statusPie, revenueByEvent, checkInByEvent, topEvents,
+    };
+  }, [eventScopedRegs, statusFilter, range, eventById, filteredEvents, displayCcy, rates]);
 
   // ── Export handlers ───────────────────────────────────────────────────────
 
@@ -297,7 +439,7 @@ const ReportsPage = () => {
       `registrations-${new Date().toISOString().slice(0, 10)}.csv`,
       ["Name", "Email", "Event", "Ticket Type", "Status", "Approval", "Amount Paid", "Checked In", "Checked In At", "Registered At"],
       filteredRegs.map((r) => {
-        const ev = events.find((e) => e.id === r.event_id);
+        const ev = eventById.get(r.event_id);
         return [
           r.name, r.email, ev?.title ?? r.event_id, r.ticket_type,
           r.status, r.approval_status,
@@ -313,7 +455,7 @@ const ReportsPage = () => {
     const rows = eventFilter === "all"
       ? speakers
       : speakers.filter((s) => {
-          const ev = events.find((e) => e.id === eventFilter);
+          const ev = eventById.get(eventFilter);
           return ev ? s.event_title === ev.title : true;
         });
     downloadCsv(
@@ -326,18 +468,15 @@ const ReportsPage = () => {
   const exportFinancial = () => {
     downloadCsv(
       `financial-summary-${new Date().toISOString().slice(0, 10)}.csv`,
-      ["Event", "Tickets Sold", `Revenue (${displayCcy})`, "Avg Ticket", "Fill Rate"],
-      revenueByEvent.map((row) => {
-        const ev  = events.find((e) => e.title === row.title || e.title.startsWith(row.name.replace("…", "")));
-        const cap = ev?.capacity ?? null;
-        return [
-          row.title,
-          row.tickets,
-          formatMoney(row.revenue, displayCcy),
-          formatMoney(row.tickets ? row.revenue / row.tickets : 0, displayCcy),
-          cap ? `${Math.round((row.tickets / cap) * 100)}%` : "—",
-        ];
-      }),
+      ["Event", "Tickets Sold", `Revenue (${displayCcy})`, "Avg Ticket", "Fill Rate", "Check-in Rate"],
+      analytics.revenueByEvent.map((row) => [
+        row.title,
+        row.tickets,
+        formatMoney(row.revenue, displayCcy),
+        formatMoney(row.tickets ? row.revenue / row.tickets : 0, displayCcy),
+        row.fillRate !== null ? `${Math.round(row.fillRate)}%` : "—",
+        `${Math.round(row.checkInRate)}%`,
+      ]),
     );
   };
 
@@ -347,23 +486,24 @@ const ReportsPage = () => {
       `Generated: ${new Date().toLocaleString()}`,
       `Organization: ${org?.name ?? "—"}`,
       `Currency: ${displayCcy}`,
+      `Range: ${RANGE_LABELS[range]} · Event: ${eventFilter === "all" ? "All" : eventById.get(eventFilter)?.title ?? eventFilter} · Status: ${statusFilter === "all" ? "All" : statusFilter}`,
       "",
       "── SUMMARY ──",
-      `Total Registrations : ${kpis.totalRegs}`,
-      `Active (confirmed)  : ${kpis.activeRegs}`,
-      `Total Revenue       : ${formatMoney(kpis.totalRevDisp, displayCcy)}`,
-      `Avg. Ticket Price   : ${formatMoney(kpis.avgTicket, displayCcy)}`,
-      `Conversion Rate     : ${kpis.convRate.toFixed(1)}%`,
-      `Check-in Rate       : ${kpis.checkRate.toFixed(1)}%`,
+      `Total Registrations : ${analytics.totalRegs}`,
+      `Active (confirmed)  : ${analytics.activeRegs}`,
+      `Total Revenue       : ${formatMoney(analytics.currRevenue, displayCcy)}`,
+      `Avg. Ticket Price   : ${formatMoney(analytics.avgTicket, displayCcy)}`,
+      `Conversion Rate     : ${analytics.conversionRate.toFixed(1)}%`,
+      `Check-in Rate       : ${analytics.checkInRate.toFixed(1)}%`,
       "",
       "── REVENUE BY EVENT ──",
-      ...revenueByEvent.map((r) => `  ${r.title}: ${formatMoney(r.revenue, displayCcy)} (${r.tickets} tickets)`),
+      ...analytics.revenueByEvent.map((r) => `  ${r.title}: ${formatMoney(r.revenue, displayCcy)} (${r.tickets} tickets)`),
       "",
       "── CHECK-IN BY EVENT ──",
-      ...checkInByEvent.map((r) => `  ${r.name}: ${r.checkedIn}/${r.total} (${r.rate}%)`),
+      ...analytics.checkInByEvent.map((r) => `  ${r.name}: ${r.checkedIn}/${r.total} (${r.rate}%)`),
       "",
       "── REGISTRATION STATUS ──",
-      ...statusPie.map((s) => `  ${s.name}: ${s.value}`),
+      ...analytics.statusPie.map((s) => `  ${s.name}: ${s.value}`),
       "",
       "── SPEAKERS ──",
       ...speakers.map((s) => `  [${s.checked_in ? "✓" : " "}] ${s.name}${s.company ? ` (${s.company})` : ""} — ${s.event_title}`),
@@ -377,25 +517,75 @@ const ReportsPage = () => {
     URL.revokeObjectURL(url);
   };
 
-  // ── Unique statuses for filter dropdown ───────────────────────────────────
-
   const allStatuses = useMemo(
     () => Array.from(new Set(registrations.map((r) => r.status))).sort(),
     [registrations],
   );
 
+  // ── KPI list ──────────────────────────────────────────────────────────────
+
+  const kpis: KpiCardProps[] = [
+    {
+      icon: DollarSign, label: "Revenue",
+      value: formatMoney(analytics.currRevenue, displayCcy),
+      delta: pctChange(analytics.currRevenue, analytics.prevRevenue),
+      spark: analytics.revSpark,
+      color: "text-primary",
+    },
+    {
+      icon: Ticket, label: "Tickets Sold",
+      value: analytics.currTickets.toLocaleString(),
+      delta: pctChange(analytics.currTickets, analytics.prevTickets),
+      spark: analytics.ticketSpark,
+    },
+    {
+      icon: TrendingUp, label: "Avg. Ticket",
+      value: formatMoney(analytics.avgTicket, displayCcy),
+      delta: null,
+    },
+    {
+      icon: Users, label: "Total Regs",
+      value: analytics.totalRegs.toLocaleString(),
+      delta: null,
+    },
+    {
+      icon: Percent, label: "Conversion",
+      value: `${analytics.conversionRate.toFixed(1)}%`,
+      delta: null,
+      color: analytics.conversionRate >= 70 ? "text-emerald-600" : analytics.conversionRate >= 40 ? "text-amber-600" : "text-red-500",
+    },
+    {
+      icon: CheckCircle2, label: "Check-in Rate",
+      value: `${analytics.checkInRate.toFixed(1)}%`,
+      sub: `${analytics.checkedIn} checked in`,
+      delta: null,
+      color: analytics.checkInRate >= 70 ? "text-emerald-600" : "text-foreground",
+    },
+    {
+      icon: Calendar, label: "Total Events",
+      value: analytics.totalEvents.toLocaleString(),
+      delta: null,
+    },
+    {
+      icon: CalendarClock, label: "Upcoming",
+      value: analytics.upcomingCount.toLocaleString(),
+      sub: `${analytics.publishedCount} published`,
+      delta: null,
+    },
+  ];
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <DashboardLayout>
-      <div className="space-y-5 max-w-[1200px]">
+      <div className="space-y-5 max-w-[1280px]">
 
         {/* ── Header ── */}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold tracking-tight">Reports</h1>
             <p className="text-[13px] text-muted-foreground">
-              Organisation-wide data, exports, and attendance summaries
+              Performance, attendance, and exportable data for your organization
               {uniqueCurrencies.length > 1 && (
                 <span className="ml-2 font-mono text-[11px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
                   mixed: {uniqueCurrencies.join(" · ")}
@@ -430,6 +620,21 @@ const ReportsPage = () => {
 
         {/* ── Filters ── */}
         <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex items-center rounded-md border border-border bg-card p-0.5">
+            {(Object.keys(RANGE_LABELS) as RangeKey[]).map((k) => (
+              <button
+                key={k}
+                onClick={() => setRange(k)}
+                className={cn(
+                  "px-2.5 py-1 text-[11px] font-mono rounded transition-colors",
+                  range === k ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {RANGE_LABELS[k]}
+              </button>
+            ))}
+          </div>
+
           <Select value={eventFilter} onValueChange={setEventFilter}>
             <SelectTrigger className="h-8 w-[200px] text-[13px]">
               <SelectValue placeholder="All events" />
@@ -458,19 +663,18 @@ const ReportsPage = () => {
 
           <CurrencySwitcher value={displayCcy} onChange={setDisplayCcy} extra={uniqueCurrencies} />
 
-          {(eventFilter !== "all" || statusFilter !== "all") && (
+          {(eventFilter !== "all" || statusFilter !== "all" || range !== "30d") && (
             <Button
               size="sm"
               variant="ghost"
               className="h-8 text-[13px] text-muted-foreground"
-              onClick={() => { setEventFilter("all"); setStatusFilter("all"); }}
+              onClick={() => { setEventFilter("all"); setStatusFilter("all"); setRange("30d"); }}
             >
               Clear filters
             </Button>
           )}
         </div>
 
-        {/* ── Loading / empty state ── */}
         {loading ? (
           <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
@@ -486,82 +690,63 @@ const ReportsPage = () => {
           </div>
         ) : (
           <>
-            {/* ── KPI cards ── */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <StatCard icon={Users}       label="Total Regs"   value={kpis.totalRegs.toLocaleString()} />
-              <StatCard icon={Ticket}      label="Confirmed"    value={kpis.activeRegs.toLocaleString()}  color="text-green-600" />
-              <StatCard icon={DollarSign}  label="Revenue"      value={formatMoney(kpis.totalRevDisp, displayCcy)} color="text-primary" />
-              <StatCard icon={TrendingUp}  label="Avg. Ticket"  value={formatMoney(kpis.avgTicket, displayCcy)} />
-              <StatCard
-                icon={Percent}
-                label="Conversion"
-                value={`${kpis.convRate.toFixed(1)}%`}
-                color={kpis.convRate >= 70 ? "text-green-600" : kpis.convRate >= 40 ? "text-amber-600" : "text-red-500"}
-              />
-              <StatCard
-                icon={CheckCircle2}
-                label="Check-in"
-                value={`${kpis.checkRate.toFixed(1)}%`}
-                sub={`${kpis.checkedIn} checked in`}
-                color={kpis.checkRate >= 70 ? "text-green-600" : "text-muted-foreground"}
-              />
+            {/* ── KPI grid ── */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 select-none">
+              {kpis.map((k, i) => <KpiCard key={k.label} {...k} index={i} />)}
             </div>
 
             {/* ── Charts grid ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 select-none">
 
-              {/* Registration trend — full width */}
-              <Section title="Registration Trend" icon={Calendar} full
+              <Section title="Revenue & Tickets Trend" icon={TrendingUp} full
                 action={
-                  <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={exportRegistrations}>
-                    <Download className="h-3 w-3" /> Export CSV
-                  </Button>
+                  <span className="text-[11px] text-muted-foreground font-mono">{RANGE_LABELS[range]}</span>
                 }
               >
-                {dailyTrend.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground text-center py-10">No registration data in the selected filters.</p>
+                {analytics.dailyData.length === 0 ? (
+                  <p className="text-[13px] text-muted-foreground text-center py-10">No data in the selected range.</p>
                 ) : (
-                  <ResponsiveContainer width="100%" height={220}>
-                    <AreaChart data={dailyTrend}>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <AreaChart data={analytics.dailyData}>
                       <defs>
-                        <linearGradient id="tickFill" x1="0" y1="0" x2="0" y2="1">
+                        <linearGradient id="revFill" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%"   stopColor="hsl(var(--primary))" stopOpacity={0.35} />
                           <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0}    />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis dataKey="date"    tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                      <YAxis yAxisId="t"       tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                      <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))"
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                      <YAxis yAxisId="rev" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))"
                         tickFormatter={(v) => formatMoney(v, displayCcy, { notation: "compact", maximumFractionDigits: 1 } as Intl.NumberFormatOptions)} />
+                      <YAxis yAxisId="tix" orientation="right" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
                       <Tooltip
                         contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }}
-                        formatter={(v: unknown, name: unknown) =>
-                          name === "revenue"
-                            ? [formatMoney(Number(v), displayCcy), "Revenue"]
-                            : [v, "Tickets"]
-                        }
+                        formatter={(v: unknown, name: unknown) => {
+                          if (name === "revenue") return [formatMoney(Number(v), displayCcy), "Revenue"];
+                          if (name === "tickets") return [v, "Tickets"];
+                          return [v, name];
+                        }}
                       />
-                      <Area yAxisId="t" type="monotone" dataKey="tickets" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#tickFill)" name="tickets" />
-                      <Line  yAxisId="r" type="monotone" dataKey="revenue" stroke="hsl(var(--accent))"  strokeWidth={2} dot={false} name="revenue" />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Area yAxisId="rev" type="monotone" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#revFill)" name="revenue" />
+                      <Line yAxisId="tix" type="monotone" dataKey="tickets" stroke="hsl(var(--accent))" strokeWidth={2} dot={false} name="tickets" />
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
               </Section>
 
-              {/* Revenue by event */}
               <Section title="Revenue by Event" icon={DollarSign}
                 action={
-                  <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={exportFinancial}>
+                  <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={exportFinancial} disabled={analytics.revenueByEvent.length === 0}>
                     <Download className="h-3 w-3" /> Export CSV
                   </Button>
                 }
               >
-                {revenueByEvent.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground text-center py-10">No revenue data yet.</p>
+                {analytics.revenueByEvent.length === 0 ? (
+                  <p className="text-[13px] text-muted-foreground text-center py-10">No revenue yet.</p>
                 ) : (
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={revenueByEvent} layout="vertical">
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={analytics.revenueByEvent.slice(0, 10)} layout="vertical">
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
                       <XAxis type="number" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))"
                         tickFormatter={(v) => formatMoney(v, displayCcy, { notation: "compact", maximumFractionDigits: 0 } as Intl.NumberFormatOptions)} />
@@ -576,29 +761,28 @@ const ReportsPage = () => {
                 )}
               </Section>
 
-              {/* Registration status breakdown */}
-              <Section title="Registration Status Breakdown" icon={BarChart3}>
-                {statusPie.length === 0 ? (
+              <Section title="Registration Status" icon={BarChart3}>
+                {analytics.statusPie.length === 0 ? (
                   <p className="text-[13px] text-muted-foreground text-center py-10">No data.</p>
                 ) : (
                   <div className="flex items-center gap-6">
                     <ResponsiveContainer width={160} height={160}>
                       <PieChart>
                         <Pie
-                          data={statusPie} cx="50%" cy="50%"
+                          data={analytics.statusPie} cx="50%" cy="50%"
                           innerRadius={45} outerRadius={70}
                           dataKey="value" paddingAngle={2}
                           style={{ outline: "none" }}
                         >
-                          {statusPie.map((_, i) => (
+                          {analytics.statusPie.map((_, i) => (
                             <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} style={{ outline: "none" }} />
                           ))}
                         </Pie>
                         <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
                       </PieChart>
                     </ResponsiveContainer>
-                    <div className="space-y-2">
-                      {statusPie.map((d, i) => (
+                    <div className="space-y-2 flex-1">
+                      {analytics.statusPie.map((d, i) => (
                         <div key={d.name} className="flex items-center gap-2 text-[13px]">
                           <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
                           <span className="text-muted-foreground capitalize">{d.name}</span>
@@ -610,13 +794,54 @@ const ReportsPage = () => {
                 )}
               </Section>
 
-              {/* Check-in rate by event */}
+              <Section title="Registrations by Day of Week" icon={Calendar}>
+                {analytics.dowData.every((d) => d.tickets === 0) ? (
+                  <p className="text-[13px] text-muted-foreground text-center py-10">No data in the selected range.</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={analytics.dowData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                      <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                      <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
+                      <Bar dataKey="tickets" fill="hsl(var(--accent))" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </Section>
+
+              <Section title="Cumulative Revenue" icon={TrendingUp}>
+                {analytics.cumulativeData.length === 0 ? (
+                  <p className="text-[13px] text-muted-foreground text-center py-10">No revenue in the selected range.</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={240}>
+                    <AreaChart data={analytics.cumulativeData}>
+                      <defs>
+                        <linearGradient id="cumFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%"   stopColor="hsl(var(--primary))" stopOpacity={0.4} />
+                          <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0}    />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                      <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))"
+                        tickFormatter={(v) => formatMoney(v, displayCcy, { notation: "compact", maximumFractionDigits: 1 } as Intl.NumberFormatOptions)} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }}
+                        formatter={(v: unknown) => [formatMoney(Number(v), displayCcy), "Total"]}
+                      />
+                      <Area type="monotone" dataKey="cumulative" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#cumFill)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </Section>
+
               <Section title="Check-in Rate by Event" icon={CheckCircle2}>
-                {checkInByEvent.length === 0 ? (
+                {analytics.checkInByEvent.length === 0 ? (
                   <p className="text-[13px] text-muted-foreground text-center py-10">No check-in data yet.</p>
                 ) : (
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={checkInByEvent}>
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={analytics.checkInByEvent}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                       <XAxis dataKey="name"  tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
                       <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" tickFormatter={(v) => `${v}%`} />
@@ -633,7 +858,45 @@ const ReportsPage = () => {
                 )}
               </Section>
 
-              {/* Speaker attendance — full width */}
+              <Section title="Top Events" icon={Users} full>
+                {analytics.topEvents.length === 0 ? (
+                  <p className="text-[13px] text-muted-foreground text-center py-8">No paid registrations in scope.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border">
+                          <th className="py-2 font-medium">Event</th>
+                          <th className="py-2 font-medium text-right">Tickets</th>
+                          <th className="py-2 font-medium text-right">Revenue</th>
+                          <th className="py-2 font-medium text-right">Avg ticket</th>
+                          <th className="py-2 font-medium text-right">Fill rate</th>
+                          <th className="py-2 font-medium text-right">Check-in</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {analytics.topEvents.map((e) => (
+                          <tr key={e.title} className="border-b border-border last:border-0">
+                            <td className="py-2.5 font-medium">{e.title}</td>
+                            <td className="py-2.5 text-right font-mono tabular-nums">{e.tickets}</td>
+                            <td className="py-2.5 text-right font-mono tabular-nums">{formatMoney(e.revenue, displayCcy)}</td>
+                            <td className="py-2.5 text-right font-mono tabular-nums text-muted-foreground">
+                              {e.tickets > 0 ? formatMoney(e.revenue / e.tickets, displayCcy) : "—"}
+                            </td>
+                            <td className="py-2.5 text-right font-mono tabular-nums text-muted-foreground">
+                              {e.fillRate !== null ? `${Math.round(e.fillRate)}%` : "—"}
+                            </td>
+                            <td className="py-2.5 text-right font-mono tabular-nums text-muted-foreground">
+                              {Math.round(e.checkInRate)}%
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Section>
+
               <Section title="Speaker Attendance" icon={Target} full
                 action={
                   <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={exportSpeakers} disabled={speakers.length === 0}>
@@ -660,28 +923,21 @@ const ReportsPage = () => {
                         {(eventFilter === "all"
                           ? speakers
                           : speakers.filter((s) => {
-                              const ev = events.find((e) => e.id === eventFilter);
+                              const ev = eventById.get(eventFilter);
                               return ev ? s.event_title === ev.title : true;
                             })
                         ).map((s, i) => (
-                          <tr key={i} className="hover:bg-muted/20 transition-colors">
-                            <td className="py-2.5 pr-4">
-                              <p className="font-medium">{s.name}</p>
-                              {s.email && <p className="text-[11px] text-muted-foreground">{s.email}</p>}
-                            </td>
-                            <td className="py-2.5 pr-4 text-muted-foreground text-[13px]">{s.company ?? "—"}</td>
-                            <td className="py-2.5 pr-4 text-[13px]">
-                              <Badge variant="outline" className="text-[11px] font-normal">{s.event_title}</Badge>
-                            </td>
+                          <tr key={`${s.email ?? s.name}-${i}`}>
+                            <td className="py-2.5 pr-4 font-medium">{s.name}</td>
+                            <td className="py-2.5 pr-4 text-muted-foreground">{s.company ?? "—"}</td>
+                            <td className="py-2.5 pr-4 text-muted-foreground">{s.event_title}</td>
                             <td className="py-2.5">
                               {s.checked_in ? (
-                                <span className="inline-flex items-center gap-1 text-[12px] font-medium text-green-600">
-                                  <CheckCircle2 className="h-3.5 w-3.5" /> Attended
+                                <span className="inline-flex items-center gap-1 text-[12px] font-medium text-emerald-600">
+                                  <CheckCircle2 className="h-3 w-3" /> Checked in
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground">
-                                  <XCircle className="h-3.5 w-3.5" /> Not attended
-                                </span>
+                                <span className="text-[12px] text-muted-foreground">—</span>
                               )}
                             </td>
                           </tr>
@@ -692,85 +948,17 @@ const ReportsPage = () => {
                 )}
               </Section>
 
-              {/* All registrations table — full width */}
-              <Section title="All Registrations" icon={Users} full
+              <Section title="Registrations" icon={FileText} full
                 action={
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-muted-foreground">{filteredRegs.length} records</span>
-                    <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={exportRegistrations}>
-                      <Download className="h-3 w-3" /> Export CSV
-                    </Button>
-                  </div>
+                  <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={exportRegistrations} disabled={filteredRegs.length === 0}>
+                    <Download className="h-3 w-3" /> Export CSV
+                  </Button>
                 }
               >
-                {filteredRegs.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground text-center py-8">
-                    No registrations match the current filters.
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto max-h-96 overflow-y-auto">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-card z-10">
-                        <tr className="text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border text-left">
-                          <th className="py-2 pr-3 font-medium">Name</th>
-                          <th className="py-2 pr-3 font-medium">Email</th>
-                          <th className="py-2 pr-3 font-medium">Event</th>
-                          <th className="py-2 pr-3 font-medium">Ticket</th>
-                          <th className="py-2 pr-3 font-medium">Status</th>
-                          <th className="py-2 pr-3 font-medium">Amount</th>
-                          <th className="py-2 font-medium">Checked In</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {filteredRegs.slice(0, 200).map((r) => {
-                          const ev  = events.find((e) => e.id === r.event_id);
-                          const ccy = (ev?.currency || DEFAULT_EVENT_CURRENCY).toUpperCase();
-                          const amt = Number(r.amount_paid || 0);
-                          return (
-                            <tr key={r.id} className="hover:bg-muted/20 transition-colors">
-                              <td className="py-2 pr-3 font-medium whitespace-nowrap">{r.name}</td>
-                              <td className="py-2 pr-3 text-[12px] text-muted-foreground whitespace-nowrap">{r.email}</td>
-                              <td className="py-2 pr-3 text-[12px] max-w-[140px] truncate">{ev?.title ?? "—"}</td>
-                              <td className="py-2 pr-3 text-[12px] capitalize">{r.ticket_type}</td>
-                              <td className="py-2 pr-3">
-                                <span className={cn(
-                                  "inline-block px-1.5 py-0.5 rounded text-[10px] font-medium capitalize",
-                                  ACTIVE_STATUSES.has(r.status) ? "bg-green-500/10 text-green-600" : "bg-muted text-muted-foreground",
-                                )}>
-                                  {r.status}
-                                </span>
-                              </td>
-                              <td className="py-2 pr-3 font-mono text-[12px] tabular-nums whitespace-nowrap">
-                                {amt > 0 ? formatMoney(toDisplay(amt, ccy), displayCcy) : "—"}
-                              </td>
-                              <td className="py-2 text-[12px]">
-                                {r.checked_in ? (
-                                  <span className="flex items-center gap-1 text-green-600">
-                                    <CheckCircle2 className="h-3 w-3" /> Yes
-                                  </span>
-                                ) : (
-                                  <span className="text-muted-foreground">—</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                    {filteredRegs.length > 200 && (
-                      <div className="flex items-center justify-between px-2 py-2 border-t border-border mt-1">
-                        <p className="text-[12px] text-muted-foreground">
-                          Showing first 200 of {filteredRegs.length} records.
-                        </p>
-                        <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={exportRegistrations}>
-                          <Download className="h-3 w-3" /> Export all as CSV
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                )}
+                <p className="text-[13px] text-muted-foreground">
+                  {filteredRegs.length.toLocaleString()} registration{filteredRegs.length === 1 ? "" : "s"} match the current filters.
+                </p>
               </Section>
-
             </div>
           </>
         )}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { logger, supabaseRpc } from "@/lib/observability";
-import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, Link2, History, ListChecks, Undo2, Stethoscope, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX } from "lucide-react";
+import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { Tables } from "@/integrations/supabase/types";
 import QRScannerDialog, { type ScanResult, type ScannerTab } from "./registrations/QRScannerDialog";
+import SelfServiceCheckDialog from "./registrations/SelfServiceCheckDialog";
 import { useEventCheckinCounters } from "@/hooks/useEventCheckinCounters";
 import AddParticipantDialog from "./AddParticipantDialog";
 import PrintBadgesDialog from "./registrations/PrintBadgesDialog";
@@ -23,11 +24,9 @@ import BulkCheckInDialog from "./registrations/BulkCheckInDialog";
 import RegistrantQuickView, { type QuickViewRow } from "./registrations/RegistrantQuickView";
 import AttendanceHistoryDialog from "./attendance/AttendanceHistoryDialog";
 import EventAttendanceHistoryDialog from "./attendance/EventAttendanceHistoryDialog";
-import AttendanceDiagnosticsDialog from "./attendance/AttendanceDiagnosticsDialog";
 import type { BadgeData, PrintMode } from "@/lib/print-badges";
 import { formatMoney } from "@/lib/currency";
 import { REGISTRATION_STATUSES } from "@/lib/ticket-categories";
-import { publicUrl } from "@/lib/publicUrl";
 
 type Registration = Tables<"registrations">;
 
@@ -112,13 +111,13 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [kindFilter, setKindFilter] = useState<RowKind | "all">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [qrOpen, setQrOpen] = useState(false);
+  const [selfKioskOpen, setSelfKioskOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [printState, setPrintState] = useState<{ open: boolean; badges: BadgeData[]; mode: PrintMode }>({ open: false, badges: [], mode: "badge" });
   const [eventInfo, setEventInfo] = useState<{ event_format: string | null; slug: string; title: string; user_id: string } | null>(null);
   const [quickView, setQuickView] = useState<QuickViewRow | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [attTab, setAttTab] = useState<"all" | "inside" | "outside" | "never">("all");
-  const [diagOpen, setDiagOpen] = useState(false);
   const [historyFor, setHistoryFor] = useState<{ id: string; name: string } | null>(null);
   const [eventHistoryOpen, setEventHistoryOpen] = useState(false);
   const [sortKey, setSortKey] = useState<"name" | "state" | "last_in" | "last_out" | "minutes" | "ticket">("name");
@@ -679,11 +678,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     setPrintState({ open: true, badges: toBadges(rows), mode });
   };
 
-  const copySelfCheckInLink = () => {
-    const url = publicUrl(`/checkin/${eventId}`);
-    navigator.clipboard.writeText(url);
-    toast.success("Self check-in link copied", { description: url });
-  };
+  const openSelfServiceKiosk = () => setSelfKioskOpen(true);
 
   return (
     <div className="space-y-4">
@@ -725,11 +720,8 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
               <DropdownMenuItem onClick={() => setBulkOpen(true)}>
                 <ListChecks className="h-3.5 w-3.5 mr-2" /> Bulk check-in
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setDiagOpen(true)}>
-                <Stethoscope className="h-3.5 w-3.5 mr-2" /> Diagnose issues
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={copySelfCheckInLink}>
-                <Link2 className="h-3.5 w-3.5 mr-2" /> Copy self check-in link
+              <DropdownMenuItem onClick={openSelfServiceKiosk}>
+                <ScanLine className="h-3.5 w-3.5 mr-2" /> Self-service kiosk
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={exportCSV}>
@@ -1010,6 +1002,13 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
 
       <BulkCheckInDialog open={bulkOpen} onOpenChange={setBulkOpen} eventId={eventId} />
 
+      <SelfServiceCheckDialog
+        open={selfKioskOpen}
+        onOpenChange={setSelfKioskOpen}
+        eventId={eventId}
+        registrations={registrations}
+      />
+
       <PrintBadgesDialog
         open={printState.open}
         onOpenChange={(o) => setPrintState((s) => ({ ...s, open: o }))}
@@ -1028,7 +1027,6 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         onSaved={() => { reload(); reloadExtras(); }}
       />
 
-      <AttendanceDiagnosticsDialog open={diagOpen} onOpenChange={setDiagOpen} eventId={eventId} />
       <AttendanceHistoryDialog
         open={!!historyFor}
         onOpenChange={(o) => { if (!o) setHistoryFor(null); }}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -42,6 +42,25 @@ export default function EventQuickCreatePage() {
   const [eventFormat, setEventFormat] = useState<"physical" | "virtual" | "hybrid">("physical");
   const [virtualProvider, setVirtualProvider] = useState<"builtin" | "zoom" | "meet" | "youtube" | "external">("builtin");
   const [virtualUrl, setVirtualUrl] = useState("");
+  const [previousEventId, setPreviousEventId] = useState<string>("none");
+  const [pastEvents, setPastEvents] = useState<Array<{ id: string; title: string; date: string }>>([]);
+
+  // Load this org's previous events so the user can mark this one as a follow-up.
+  useEffect(() => {
+    if (!org?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("events")
+        .select("id, title, date")
+        .eq("org_id", org.id)
+        .order("date", { ascending: false })
+        .limit(50);
+      if (cancelled) return;
+      setPastEvents((data ?? []) as Array<{ id: string; title: string; date: string }>);
+    })();
+    return () => { cancelled = true; };
+  }, [org?.id]);
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,8 +96,9 @@ export default function EventQuickCreatePage() {
       event_format: eventFormat,
       virtual_provider: eventFormat === "physical" ? null : virtualProvider,
       virtual_url: eventFormat !== "physical" && virtualProvider !== "builtin" ? (virtualUrl || null) : null,
+      previous_event_id: previousEventId === "none" ? null : previousEventId,
     };
-    const { data, error } = await supabase.from("events").insert(payload).select("id, slug").single();
+    const { data, error } = await supabase.from("events").insert(payload as never).select("id, slug").single();
     setSaving(false);
     if (error) {
       toast({ title: "Could not create event", description: error.message, variant: "destructive" });
@@ -318,6 +338,30 @@ export default function EventQuickCreatePage() {
               </div>
             );
           })()}
+
+          {pastEvents.length > 0 && (
+            <div className="rounded-xl border border-border bg-background p-3 space-y-2">
+              <div>
+                <p className="text-[13px] font-medium">Follow-up event (optional)</p>
+                <p className="text-[12px] text-muted-foreground">
+                  Carry every member of the previous event's community over to this one.
+                </p>
+              </div>
+              <Select value={previousEventId} onValueChange={setPreviousEventId}>
+                <SelectTrigger className="h-9 text-[13px]">
+                  <SelectValue placeholder="None — fresh community" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None — fresh community</SelectItem>
+                  {pastEvents.map((e) => (
+                    <SelectItem key={e.id} value={e.id} className="text-[13px]">
+                      {e.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="flex items-center justify-between rounded-xl border border-border bg-background p-3">
             <div className="min-w-0">

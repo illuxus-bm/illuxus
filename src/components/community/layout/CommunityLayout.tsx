@@ -1,12 +1,11 @@
 import { ReactNode } from "react";
 import { NavLink, useLocation, useParams } from "react-router-dom";
-import { DashboardLayout } from "@/components/DashboardLayout";
+import { CommunityShell } from "./CommunityShell";
 import { useCommunityBySlug } from "@/hooks/community/useCommunity";
 import { Button } from "@/components/ui/button";
 import { useJoinCommunity, useLeaveCommunity } from "@/hooks/community/useCommunityFeed";
-import { Users, Newspaper, BookOpen, MessageSquare, Calendar, Settings, ShieldAlert, Megaphone, Crown } from "lucide-react";
+import { Users, Newspaper, BookOpen, MessageSquare, Calendar, Settings, ShieldAlert, Megaphone } from "lucide-react";
 import { canManageSettings, canModerate } from "@/lib/community/rbac";
-import { NotificationBell } from "@/components/community/notifications/NotificationBell";
 import { toast } from "sonner";
 
 const tabs = [
@@ -16,7 +15,6 @@ const tabs = [
   { to: "members",       label: "Members",       icon: Users          },
   { to: "resources",     label: "Resources",     icon: BookOpen       },
   { to: "chat",          label: "Chat",          icon: MessageSquare  },
-  { to: "leaderboard",   label: "Leaderboard",   icon: Crown          },
 ] as const;
 
 export function CommunityLayout({ children }: { children: ReactNode }) {
@@ -28,17 +26,17 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
 
   if (isLoading) {
     return (
-      <DashboardLayout>
+      <CommunityShell>
         <div className="text-sm text-muted-foreground py-12 text-center">Loading community…</div>
-      </DashboardLayout>
+      </CommunityShell>
     );
   }
 
   if (!data?.community) {
     return (
-      <DashboardLayout>
+      <CommunityShell>
         <div className="text-sm text-muted-foreground py-12 text-center">Community not found.</div>
-      </DashboardLayout>
+      </CommunityShell>
     );
   }
 
@@ -64,7 +62,7 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
   };
 
   return (
-    <DashboardLayout>
+    <CommunityShell>
       <div className="space-y-4">
         {/* Banner + header */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -102,7 +100,6 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <NotificationBell />
               {!isMember && (
                 <Button size="sm" onClick={handleJoin} disabled={join.isPending} className="h-8 text-[12px]">
                   {join.isPending ? "Joining…" : "Join community"}
@@ -121,7 +118,7 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
         <div className="flex items-center gap-1 border-b border-border overflow-x-auto -mx-1 px-1">
           {tabs.map((t) => {
               const Icon = t.icon;
-              const to = `/dashboard/community/${community.slug}/${t.to}`;
+              const to = `/community/${community.slug}/${t.to}`;
               const active = location.pathname.startsWith(to);
               return (
                 <NavLink
@@ -140,7 +137,7 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
             })}
           {canModerate(role) && (
             <NavLink
-              to={`/dashboard/community/${community.slug}/moderation`}
+              to={`/community/${community.slug}/moderation`}
               className={({ isActive }) =>
                 `shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-[12px] font-medium border-b-2 -mb-px transition-colors ${
                   isActive
@@ -155,7 +152,7 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
           )}
           {canManageSettings(role) && (
             <NavLink
-              to={`/dashboard/community/${community.slug}/settings`}
+              to={`/community/${community.slug}/settings`}
               className={({ isActive }) =>
                 `shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-[12px] font-medium border-b-2 -mb-px transition-colors ${
                   isActive
@@ -172,6 +169,6 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
 
         <div>{children}</div>
       </div>
-    </DashboardLayout>
+    </CommunityShell>
   );
 }

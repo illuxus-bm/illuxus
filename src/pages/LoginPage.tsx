@@ -134,7 +134,7 @@ const LoginPage = () => {
 
           const { data: profile } = await supabaseRpc("get_my_profile");
           const p = profile as { account_type?: string; two_factor_enabled?: boolean } | null;
-          const next = p?.account_type === "attendee" ? "/u/me/events" : "/dashboard";
+          const next = p?.account_type === "attendee" ? "/discover" : "/dashboard";
           if (p?.two_factor_enabled) {
             // Pause and require an OTP before letting them through.
             setTwoFactor({ open: true, email: user.email ?? email, nextRoute: next });
@@ -237,8 +237,8 @@ const LoginPage = () => {
                 setMustChangePassword(false);
                 setNewPassword("");
                 setConfirmPassword("");
-                // Navigate to the attendee dashboard
-                navigate("/u/me/events");
+                // Navigate to the attendee discover feed
+                navigate("/discover");
                 setLoading(false);
               }}
               className="space-y-4"

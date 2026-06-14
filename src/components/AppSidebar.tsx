@@ -1,6 +1,6 @@
 import {
-  Calendar, Settings, Ticket, BarChart3,
-  Megaphone, FileText, HelpCircle, CreditCard, Shield, Layout, Users2,
+  Calendar, Settings, Ticket,
+  Megaphone, FileText, HelpCircle, CreditCard, Shield, Layout,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -22,7 +22,6 @@ import {
 
 const mainItems = [
   { title: "Events",    url: "/dashboard/events",    icon: Calendar   },
-  { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3  },
   { title: "Reports",   url: "/dashboard/reports",   icon: FileText   },
 ];
 
@@ -32,7 +31,6 @@ const attendeeItems = [
 
 const manageItems = [
   { title: "Marketing",    url: "/dashboard/marketing",       icon: Megaphone },
-  { title: "Community",    url: "/dashboard/community",       icon: Users2    },
   { title: "Landing Page", url: "/dashboard/landing-builder", icon: Layout    },
 ];
 

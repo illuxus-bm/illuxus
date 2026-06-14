@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { format, formatDistanceToNowStrict, isSameDay } from "date-fns";
+import { format, isSameDay } from "date-fns";
 import {
   CalendarDays, MapPin, Mail, Phone, Twitter, Linkedin, Globe, Mic2,
   Building2, Ticket, Users, ExternalLink, ChevronRight,
@@ -942,19 +942,111 @@ function CfpSec({ data, theme }: { data: CfpData; theme: ThemeConfig }) {
 }
 
 function CountdownSec({ data, theme, event }: { data: CountdownData; theme: ThemeConfig; event: RendererEvent }) {
-  const target = data.targetDate || event.date;
-  let label = "";
-  try {
-    const t = new Date(target);
-    label = t.getTime() > Date.now()
-      ? `${formatDistanceToNowStrict(t)} until ${event.title}`
-      : "Happening now";
-  } catch { label = ""; }
+  // Resolve target & end timestamps once per data change.
+  const targetMs = useMemo(() => {
+    const raw = data.targetDate || event.date;
+    if (!raw) return NaN;
+    const t = new Date(raw).getTime();
+    return Number.isFinite(t) ? t : NaN;
+  }, [data.targetDate, event.date]);
+
+  const endMs = useMemo(() => {
+    const raw = (event as RendererEvent & { end_date?: string | null }).end_date ?? null;
+    if (!raw) return null;
+    const t = new Date(raw).getTime();
+    return Number.isFinite(t) ? t : null;
+  }, [event]);
+
+  // Tick every second while the countdown is in the future. We stop the
+  // interval once the target has passed so we don't keep re-rendering for
+  // events that are live or already finished.
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (!Number.isFinite(targetMs)) return;
+    if (now >= targetMs) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [now, targetMs]);
+
+  // Don't render the section at all when the target is unknown.
+  if (!Number.isFinite(targetMs)) return null;
+
+  const remainingMs = Math.max(0, targetMs - now);
+  const hasStarted = now >= targetMs;
+  const hasEnded = endMs !== null && now >= endMs;
+
+  // Status copy when countdown isn't running.
+  if (hasEnded) {
+    return (
+      <Section theme={theme} tone="primary" id="countdown">
+        <div className="text-center text-white">
+          {data.title && <p className="text-[11px] font-semibold tracking-widest uppercase opacity-80">{data.title}</p>}
+          <p className="text-3xl sm:text-4xl font-extrabold mt-2">This event has ended</p>
+          <p className="text-[12px] sm:text-sm opacity-80 mt-1">
+            Thanks for joining us — see you next time.
+          </p>
+        </div>
+      </Section>
+    );
+  }
+  if (hasStarted) {
+    return (
+      <Section theme={theme} tone="primary" id="countdown">
+        <div className="text-center text-white">
+          {data.title && <p className="text-[11px] font-semibold tracking-widest uppercase opacity-80">{data.title}</p>}
+          <p className="text-3xl sm:text-4xl font-extrabold mt-2">Live now</p>
+          <p className="text-[12px] sm:text-sm opacity-80 mt-1">
+            {event.title} is happening right now.
+          </p>
+        </div>
+      </Section>
+    );
+  }
+
+  // Decompose remaining ms into days / hours / minutes / seconds.
+  const totalSec = Math.floor(remainingMs / 1000);
+  const days = Math.floor(totalSec / 86_400);
+  const hours = Math.floor((totalSec % 86_400) / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+
+  // Static label for screen readers (changes once per second alongside the
+  // visible boxes; keeps the announcement low-noise vs reading individual
+  // digits).
+  const srLabel = `${days} days, ${hours} hours, ${minutes} minutes, ${seconds} seconds until ${event.title}`;
+
+  const cells: { value: number; label: string }[] = [
+    { value: days,    label: days === 1 ? "Day" : "Days" },
+    { value: hours,   label: "Hours" },
+    { value: minutes, label: "Minutes" },
+    { value: seconds, label: "Seconds" },
+  ];
+
   return (
     <Section theme={theme} tone="primary" id="countdown">
       <div className="text-center text-white">
         {data.title && <p className="text-[11px] font-semibold tracking-widest uppercase opacity-80">{data.title}</p>}
-        <p className="text-3xl sm:text-4xl font-extrabold mt-2">{label}</p>
+        <p className="text-[12px] sm:text-sm opacity-80 mt-1">until {event.title}</p>
+        <div
+          role="timer"
+          aria-live="off"
+          aria-label={srLabel}
+          className="mt-4 grid grid-cols-4 gap-2 sm:gap-3 max-w-2xl mx-auto"
+        >
+          {cells.map((cell) => (
+            <div
+              key={cell.label}
+              className="rounded-2xl py-3 sm:py-5 bg-white/10 backdrop-blur-sm border border-white/15"
+            >
+              <p className="text-2xl sm:text-5xl font-extrabold font-mono tabular-nums leading-none">
+                {String(cell.value).padStart(2, "0")}
+              </p>
+              <p className="text-[10px] sm:text-[11px] uppercase tracking-widest opacity-70 mt-1.5 sm:mt-2">
+                {cell.label}
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
     </Section>
   );
