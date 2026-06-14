@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { logger } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +28,7 @@ import {
 } from "./PublicEventRenderer";
 import EventPagePreview from "./EventPagePreview";
 import EventBannerPicker from "@/components/event/EventBannerPicker";
+import EventCoverPicker from "@/components/event/EventCoverPicker";
 import { useAuth } from "@/contexts/AuthContext";
 import { THEME_PRESETS, COLOR_SWATCHES, FONT_OPTIONS } from "./presets";
 import { useOrg } from "@/contexts/OrgContext";
@@ -50,7 +52,6 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
   const [view, setView] = useState<"edit" | "preview">("edit");
   const { toast } = useToast();
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoSavingRef = useRef(false);
   const { org } = useOrg();
   const orgHandle =
     (org as { subdomain?: string | null } | null)?.subdomain || org?.slug || null;
@@ -95,6 +96,12 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
   }, []);
 
   const handleSave = async () => {
+    // Cancel any pending auto-save so we don't double-write the same payload.
+    if (autoSaveTimer.current) {
+      clearTimeout(autoSaveTimer.current);
+      autoSaveTimer.current = null;
+    }
+    pendingConfigRef.current = null;
     setSaving(true);
     const { error } = await supabase
       .from("events")
@@ -114,14 +121,12 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
   const pendingConfigRef = useRef<EventPageConfig | null>(null);
 
   const persistConfig = useCallback(async (next: EventPageConfig) => {
-    autoSavingRef.current = true;
     setSaving(true);
     const { error } = await supabase
       .from("events")
       .update({ page_config: next as never })
       .eq("id", eventId);
     setSaving(false);
-    autoSavingRef.current = false;
     pendingConfigRef.current = null;
     if (error) {
       toast({ title: "Auto-save failed", description: error.message, variant: "destructive" });
@@ -159,7 +164,18 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
     }
     const pending = pendingConfigRef.current;
     if (pending) {
-      void supabase.from("events").update({ page_config: pending as never }).eq("id", eventId);
+      void supabase
+        .from("events")
+        .update({ page_config: pending as never })
+        .eq("id", eventId)
+        .then(({ error }) => {
+          if (error) {
+            logger.warn("event page-config unmount save failed", {
+              event_id: eventId,
+              error_message: error.message,
+            });
+          }
+        });
       pendingConfigRef.current = null;
     }
   }, [eventId]);
@@ -260,7 +276,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
             variant="outline"
             size="sm"
             className="h-7 text-[12px] gap-1"
-            onClick={async (e) => {
+            onClick={async () => {
               const href = eventPublicUrl({ id: eventId, slug: event?.slug ?? null }, orgHandle);
               // Open a tab synchronously so popup blockers don't block it,
               // then flush any pending save and navigate the new tab.
@@ -307,11 +323,17 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
                   userId={user?.id ?? ""}
                   bannerLandscapeUrl={(event as RendererEvent & { banner_landscape_url?: string | null }).banner_landscape_url ?? null}
                   bannerPortraitUrl={(event as RendererEvent & { banner_portrait_url?: string | null }).banner_portrait_url ?? null}
+                  imageUrl={(event as RendererEvent & { image_url?: string | null }).image_url ?? null}
                   onBannerChange={async (variant, url) => {
+                    // Each picker writes ONLY its own column. Previously the
+                    // landscape picker also clobbered image_url, leaving the
+                    // square listing thumbnail with a stretched 16:9 image.
                     const patch: Record<string, string | null> =
                       variant === "landscape"
-                        ? { banner_landscape_url: url, image_url: url ?? (event as RendererEvent & { banner_landscape_url?: string | null }).banner_landscape_url ?? null }
-                        : { banner_portrait_url: url };
+                        ? { banner_landscape_url: url }
+                        : variant === "portrait"
+                          ? { banner_portrait_url: url }
+                          : { image_url: url };
                     const { error } = await supabase
                       .from("events")
                       .update(patch as never)
@@ -321,7 +343,10 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
                       return;
                     }
                     setEvent((prev) => (prev ? { ...prev, ...(patch as object) } as RendererEvent : prev));
-                    toast({ title: url ? `${variant === "landscape" ? "Landscape" : "Portrait"} banner updated` : "Banner removed" });
+                    const label =
+                      variant === "landscape" ? "Landscape banner" :
+                      variant === "portrait" ? "Portrait banner" : "Listing thumbnail";
+                    toast({ title: url ? `${label} updated` : `${label} removed` });
                   }}
                 />
               ) : (
@@ -864,6 +889,23 @@ function SectionForm({ section, onUpdate, eventId }: {
 
 /* ─── Generic list editor with add/remove ─── */
 
+/**
+ * Stable React key for each item.
+ *  - If the item is an object with an `id` field (string/number), use it.
+ *  - Otherwise fall back to a positional key derived from the row's content
+ *    + index so React still gets a deterministic-per-render key, but typing
+ *    in row N doesn't bleed into row N+1 after adding a row above it.
+ */
+function listItemKey<T>(item: T, index: number): string {
+  if (item && typeof item === "object" && "id" in item) {
+    const candidate = (item as { id?: unknown }).id;
+    if (typeof candidate === "string" || typeof candidate === "number") {
+      return String(candidate);
+    }
+  }
+  return `idx-${index}`;
+}
+
 function ListEditor<T>({ label, items, onChange, newItem, renderItem }: {
   label: string;
   items: T[];
@@ -884,7 +926,7 @@ function ListEditor<T>({ label, items, onChange, newItem, renderItem }: {
       ) : (
         <div className="space-y-2">
           {items.map((item, i) => (
-            <div key={i} className="rounded-md border border-border bg-background p-3">
+            <div key={listItemKey(item, i)} className="rounded-md border border-border bg-background p-3">
               <div className="flex justify-end mb-2">
                 <button onClick={() => onChange(items.filter((_, j) => j !== i))} className="h-5 w-5 inline-flex items-center justify-center rounded text-muted-foreground hover:text-destructive">
                   <Trash2 className="h-3 w-3" />
@@ -900,13 +942,14 @@ function ListEditor<T>({ label, items, onChange, newItem, renderItem }: {
 }
 /* ─── Always-visible Banner card (top of editor) ─── */
 function BannerCard({
-  eventId, userId, bannerLandscapeUrl, bannerPortraitUrl, onBannerChange,
+  eventId, userId, bannerLandscapeUrl, bannerPortraitUrl, imageUrl, onBannerChange,
 }: {
   eventId: string;
   userId: string;
   bannerLandscapeUrl: string | null;
   bannerPortraitUrl: string | null;
-  onBannerChange: (variant: "landscape" | "portrait", url: string | null) => void | Promise<void>;
+  imageUrl: string | null;
+  onBannerChange: (variant: "landscape" | "portrait" | "cover", url: string | null) => void | Promise<void>;
 }) {
   return (
     <section className="mb-6 rounded-xl border border-border bg-card p-4">
@@ -914,6 +957,7 @@ function BannerCard({
         <h3 className="text-sm font-semibold">Banner &amp; Cover</h3>
         <p className="text-[11px] text-muted-foreground mt-0.5">
           Landscape shows on desktop &amp; tablet. Portrait shows on phones — optional, landscape is used as fallback.
+          The square cover is what shows in the events listing and social cards.
         </p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -940,6 +984,21 @@ function BannerCard({
           variant="portrait"
           imageUrl={bannerPortraitUrl ?? ""}
           onChange={(url) => onBannerChange("portrait", url || null)}
+        />
+      </div>
+      <div className="mt-4 pt-4 border-t border-border">
+        <div className="mb-3">
+          <h4 className="text-[12px] font-semibold">Listing thumbnail (1:1)</h4>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Square cover used in event lists, profile previews, and social cards. Independent
+            of the banners above so it doesn't get cropped from a 16:9 image.
+          </p>
+        </div>
+        <EventCoverPicker
+          eventId={eventId}
+          userId={userId}
+          imageUrl={imageUrl ?? ""}
+          onChange={(url) => onBannerChange("cover", url || null)}
         />
       </div>
     </section>
