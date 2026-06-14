@@ -297,6 +297,8 @@ const PublicEventPage = () => {
           <EventApplicationButtons
             eventId={event.id}
             eventOwnerId={(event as { user_id?: string }).user_id ?? null}
+            speakerEnabled={(event as { speaker_applications_enabled?: boolean | null }).speaker_applications_enabled ?? true}
+            sponsorEnabled={(event as { sponsor_applications_enabled?: boolean | null }).sponsor_applications_enabled ?? true}
           />
         </div>
       )}

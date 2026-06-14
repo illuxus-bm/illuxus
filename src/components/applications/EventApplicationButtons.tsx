@@ -11,13 +11,17 @@ import type { ApplicationStatus } from "@/types/applications";
 interface Props {
   eventId: string;
   eventOwnerId?: string | null;
+  /** When false, hides the speaker CTA entirely. Default true. */
+  speakerEnabled?: boolean;
+  /** When false, hides the sponsor CTA entirely. Default true. */
+  sponsorEnabled?: boolean;
 }
 
 /**
  * "Apply as Speaker" / "Become a Sponsor" buttons shown on the public event page.
  * Hides automatically if the user is the organizer or already has an approved assignment.
  */
-export function EventApplicationButtons({ eventId, eventOwnerId }: Props) {
+export function EventApplicationButtons({ eventId, eventOwnerId, speakerEnabled = true, sponsorEnabled = true }: Props) {
   const { user, accountType, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [speakerOpen, setSpeakerOpen] = useState(false);
@@ -33,6 +37,12 @@ export function EventApplicationButtons({ eventId, eventOwnerId }: Props) {
   const canApply = !isEventOwner && !isAdmin;
 
   if (!canApply) return null;
+
+  // Show the speaker CTA when its flag is on OR when the user already has an
+  // application (so the status badge stays visible after applications close).
+  const showSpeaker = speakerEnabled || !!speakerApp;
+  const showSponsor = sponsorEnabled || !!sponsorApp;
+  if (!showSpeaker && !showSponsor) return null;
 
   const handleSpeakerClick = () => {
     if (!user) {
@@ -54,21 +64,29 @@ export function EventApplicationButtons({ eventId, eventOwnerId }: Props) {
     <>
       <div className="grid sm:grid-cols-2 gap-3 my-6">
         {/* Speaker application */}
-        <ApplicationCard
-          icon={Mic}
-          title="Apply as Speaker"
-          description="Propose a session and join the lineup."
-          existingStatus={speakerApp?.status}
-          onClick={handleSpeakerClick}
-        />
+        {showSpeaker && (
+          <ApplicationCard
+            icon={Mic}
+            title="Apply as Speaker"
+            description="Propose a session and join the lineup."
+            existingStatus={speakerApp?.status}
+            disabled={!speakerEnabled}
+            disabledLabel="Applications closed"
+            onClick={handleSpeakerClick}
+          />
+        )}
         {/* Sponsor application */}
-        <ApplicationCard
-          icon={Building2}
-          title="Become a Sponsor"
-          description="Sponsor this event and reach the audience."
-          existingStatus={sponsorApp?.status}
-          onClick={handleSponsorClick}
-        />
+        {showSponsor && (
+          <ApplicationCard
+            icon={Building2}
+            title="Become a Sponsor"
+            description="Sponsor this event and reach the audience."
+            existingStatus={sponsorApp?.status}
+            disabled={!sponsorEnabled}
+            disabledLabel="Applications closed"
+            onClick={handleSponsorClick}
+          />
+        )}
       </div>
 
       {user && (
@@ -97,12 +115,16 @@ function ApplicationCard({
   title,
   description,
   existingStatus,
+  disabled,
+  disabledLabel,
   onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   description: string;
   existingStatus?: ApplicationStatus;
+  disabled?: boolean;
+  disabledLabel?: string;
   onClick: () => void;
 }) {
   if (existingStatus) {
@@ -112,6 +134,21 @@ function ApplicationCard({
         <div className="min-w-0 flex-1">
           <p className="text-[14px] font-semibold">{title}</p>
           <ApplicationStatusBadge status={existingStatus} />
+        </div>
+      </div>
+    );
+  }
+
+  if (disabled) {
+    return (
+      <div className="border border-border rounded-lg p-4 bg-card/50 flex items-start gap-3 opacity-70">
+        <Icon className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px] font-semibold text-muted-foreground">{title}</p>
+          <p className="text-[12px] text-muted-foreground mt-0.5">{description}</p>
+          <span className="text-[11px] font-medium text-muted-foreground mt-1.5 inline-block">
+            {disabledLabel ?? "Closed"}
+          </span>
         </div>
       </div>
     );
