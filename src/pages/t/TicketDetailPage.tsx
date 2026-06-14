@@ -7,8 +7,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import SiteHeader from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, CalendarDays, MapPin, CheckCircle2, Copy, Check } from "lucide-react";
+import { ArrowLeft, CalendarDays, MapPin, CheckCircle2, Copy, Check, Download, Loader2 } from "lucide-react";
 import { eventPublicPath } from "@/lib/event-routes";
+import { downloadTicketPdf } from "@/lib/ticket-pdf";
+import { logger } from "@/lib/observability";
+import { toast } from "sonner";
 
 interface TicketRow {
   id: string;
@@ -17,6 +20,8 @@ interface TicketRow {
   checked_in: boolean;
   ticket_type: string;
   amount_paid: number | null;
+  name: string | null;
+  email: string | null;
   events: {
     id: string;
     title: string;
@@ -37,6 +42,36 @@ export default function TicketDetailPage() {
   const { user } = useAuth();
   const [row, setRow] = useState<TicketRow | null>(null);
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    if (!row || !row.events) return;
+    setDownloading(true);
+    try {
+      await downloadTicketPdf({
+        attendeeName: row.name ?? "",
+        attendeeEmail: row.email ?? "",
+        eventTitle: row.events.title,
+        eventDate: row.events.date,
+        venue: row.events.venue,
+        location: row.events.location,
+        ticketType: row.ticket_type,
+        qrCodeValue: row.qr_code || row.id,
+        registrationId: row.id,
+        organizerName: row.events.organizations?.name ?? null,
+      });
+    } catch (err) {
+      logger.error("ticket pdf download failed", {
+        registration_id: row.id,
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+      toast.error("Could not download ticket", {
+        description: "Please try again in a moment.",
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   useEffect(() => {
     if (!id || !user) return;
@@ -44,7 +79,7 @@ export default function TicketDetailPage() {
     (async () => {
       const { data } = await supabase
         .from("registrations")
-        .select("id, qr_code, approval_status, checked_in, ticket_type, amount_paid, events:events(id, title, slug, date, venue, location, image_url, banner_landscape_url, banner_portrait_url, timezone, organizations(name, slug, subdomain))")
+        .select("id, qr_code, approval_status, checked_in, ticket_type, amount_paid, name, email, events:events(id, title, slug, date, venue, location, image_url, banner_landscape_url, banner_portrait_url, timezone, organizations(name, slug, subdomain))")
         .eq("id", id)
         .maybeSingle();
       if (cancel) return;
@@ -125,6 +160,23 @@ export default function TicketDetailPage() {
                 <Button asChild variant="outline" className="flex-1 h-9 text-[13px]">
                   <Link to={eventPublicPath(row.events, row.events.organizations?.subdomain || row.events.organizations?.slug || null)}>Event page</Link>
                 </Button>
+                {row.approval_status === "approved" && (
+                  <Button
+                    onClick={handleDownload}
+                    disabled={downloading}
+                    className="flex-1 h-9 text-[13px] gap-1.5"
+                  >
+                    {downloading ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…
+                      </>
+                    ) : (
+                      <>
+                        <Download className="h-3.5 w-3.5" /> Download
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
             </div>
           </article>
