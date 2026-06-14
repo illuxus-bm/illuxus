@@ -33,10 +33,11 @@ export function EventApplicationButtons({ eventId, eventOwnerId, speakerEnabled 
   // Hide entirely from organizers of this specific event
   const isEventOwner = user && eventOwnerId && user.id === eventOwnerId;
 
-  // Organizers (with their own org) viewing other events can still apply
-  const canApply = !isEventOwner && !isAdmin;
-
-  if (!canApply) return null;
+  // Organizers (with their own org) viewing other events can still apply.
+  // Owners and platform admins see a non-interactive preview so they can
+  // verify the Call-for-Speakers / Call-for-Sponsors toggles on their own
+  // event without having to log out as a visitor.
+  const previewOnly = !!isEventOwner || isAdmin;
 
   // Show the speaker CTA when its flag is on OR when the user already has an
   // application (so the status badge stays visible after applications close).
@@ -45,6 +46,7 @@ export function EventApplicationButtons({ eventId, eventOwnerId, speakerEnabled 
   if (!showSpeaker && !showSponsor) return null;
 
   const handleSpeakerClick = () => {
+    if (previewOnly) return;
     if (!user) {
       navigate(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
@@ -53,6 +55,7 @@ export function EventApplicationButtons({ eventId, eventOwnerId, speakerEnabled 
   };
 
   const handleSponsorClick = () => {
+    if (previewOnly) return;
     if (!user) {
       navigate(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
@@ -62,6 +65,13 @@ export function EventApplicationButtons({ eventId, eventOwnerId, speakerEnabled 
 
   return (
     <>
+      {previewOnly && (
+        <div className="rounded-lg border border-dashed border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground mt-4 -mb-2">
+          Organizer preview — this is what attendees see when the
+          “Call for Speakers” / “Call for Sponsors” toggles are on.
+        </div>
+      )}
+
       <div className="grid sm:grid-cols-2 gap-3 my-6">
         {/* Speaker application */}
         {showSpeaker && (
@@ -72,6 +82,7 @@ export function EventApplicationButtons({ eventId, eventOwnerId, speakerEnabled 
             existingStatus={speakerApp?.status}
             disabled={!speakerEnabled}
             disabledLabel="Applications closed"
+            preview={previewOnly}
             onClick={handleSpeakerClick}
           />
         )}
@@ -84,12 +95,13 @@ export function EventApplicationButtons({ eventId, eventOwnerId, speakerEnabled 
             existingStatus={sponsorApp?.status}
             disabled={!sponsorEnabled}
             disabledLabel="Applications closed"
+            preview={previewOnly}
             onClick={handleSponsorClick}
           />
         )}
       </div>
 
-      {user && (
+      {user && !previewOnly && (
         <>
           <SpeakerApplicationDialog
             eventId={eventId}
@@ -117,6 +129,7 @@ function ApplicationCard({
   existingStatus,
   disabled,
   disabledLabel,
+  preview,
   onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>;
@@ -125,6 +138,7 @@ function ApplicationCard({
   existingStatus?: ApplicationStatus;
   disabled?: boolean;
   disabledLabel?: string;
+  preview?: boolean;
   onClick: () => void;
 }) {
   if (existingStatus) {
@@ -148,6 +162,32 @@ function ApplicationCard({
           <p className="text-[12px] text-muted-foreground mt-0.5">{description}</p>
           <span className="text-[11px] font-medium text-muted-foreground mt-1.5 inline-block">
             {disabledLabel ?? "Closed"}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // Owner / admin preview — render the actionable card visually but make it
+  // non-interactive and tag it with a small "Preview" chip so the organiser
+  // can verify the public surface without leaving their dashboard.
+  if (preview) {
+    return (
+      <div
+        aria-disabled
+        className="border border-border rounded-lg p-4 bg-card flex items-start gap-3 cursor-not-allowed"
+      >
+        <Icon className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="text-[14px] font-semibold">{title}</p>
+            <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-border bg-muted text-muted-foreground">
+              Preview
+            </span>
+          </div>
+          <p className="text-[12px] text-muted-foreground mt-0.5">{description}</p>
+          <span className="text-[12px] text-muted-foreground mt-1.5 inline-block">
+            Apply →
           </span>
         </div>
       </div>
