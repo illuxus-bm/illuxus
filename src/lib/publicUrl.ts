@@ -1,16 +1,35 @@
 // Canonical public-facing origin for shareable links (attendee/speaker join URLs,
-// event landing pages, etc). Falls back to the current origin in dev/staging so
-// localhost still works, but in production we always hand out the branded domain
-// instead of a lovable.app preview URL.
-const PRODUCTION_ORIGIN = "https://illuxus.com";
+// event landing pages, etc).
+//
+// Resolution order:
+//   1. `import.meta.env.VITE_PUBLIC_ORIGIN` (e.g. `https://illuxus.com`) when set
+//      — used to pin every share URL to a fixed canonical domain regardless of
+//      which Vercel preview / staging host the dashboard is rendered on.
+//   2. The current `window.location.origin` — works correctly on production,
+//      preview deploys, and localhost without configuration.
+//   3. Hardcoded `https://illuxus.com` for SSR / non-browser contexts only.
+//
+// We intentionally do NOT prefer a hardcoded production domain over
+// `window.location.origin`. If you copy a link while on a Vercel preview
+// deployment, you get a preview link — that is the correct behavior. To force
+// every link onto the production domain, set `VITE_PUBLIC_ORIGIN` in the
+// production env.
+
+const FALLBACK_ORIGIN = "https://illuxus.com";
+
+function envOrigin(): string {
+  const raw = import.meta.env.VITE_PUBLIC_ORIGIN as string | undefined;
+  if (!raw) return "";
+  return raw.replace(/\/+$/, "");
+}
 
 export function publicOrigin(): string {
-  if (typeof window === "undefined") return PRODUCTION_ORIGIN;
-  const host = window.location.hostname;
-  if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".local")) {
+  const env = envOrigin();
+  if (env) return env;
+  if (typeof window !== "undefined" && window.location?.origin) {
     return window.location.origin;
   }
-  return PRODUCTION_ORIGIN;
+  return FALLBACK_ORIGIN;
 }
 
 export function publicUrl(path: string): string {

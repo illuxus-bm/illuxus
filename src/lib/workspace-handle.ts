@@ -90,6 +90,8 @@ export function isHandleReserved(raw: string): boolean {
 
 // ─── Host helpers ──────────────────────────────────────────────────────────
 
+// Legacy preview-host pattern. Kept defensive — returns false for any host
+// that isn't a recognized sandbox/preview pattern, so it's safe on Vercel.
 const SANDBOX_HOST_RE =
   /(\.lovableproject\.com|\.lovable\.dev|^id-preview--|^preview--)/i;
 
@@ -99,24 +101,32 @@ export function isSandboxHost(host: string): boolean {
   return SANDBOX_HOST_RE.test(host);
 }
 
-/** True for the published *.lovable.app hostnames. */
+/** True when the current host matches the configured public domain. */
 export function isLovableAppHost(host: string): boolean {
+  // Kept for backward compatibility with any callers that still import this.
+  // Returns false on any modern (non-Lovable) host.
   return /\.lovable\.app$/i.test(host || "");
 }
 
 export interface HostInfo {
   /** The host the browser is currently on. */
   current: string;
-  /** Friendly label: "Sandbox preview" / "Published" / "Custom domain". */
+  /** Friendly label for the current host. */
   label: "Sandbox preview" | "Published" | "Custom domain";
   /** True when current === sandbox preview (URL is not shareable). */
   isSandbox: boolean;
 }
 
-export function describeCurrentHost(host: string): HostInfo {
+/**
+ * Label the current browser host. The `publishedHost` argument lets callers
+ * pass in the configured canonical domain so we can label production-vs-other
+ * without hardcoding any platform name in this module.
+ */
+export function describeCurrentHost(host: string, publishedHost?: string): HostInfo {
   if (isSandboxHost(host))
     return { current: host, label: "Sandbox preview", isSandbox: true };
-  if (isLovableAppHost(host))
+  const pub = (publishedHost || "").trim().toLowerCase();
+  if (pub && host.toLowerCase() === pub)
     return { current: host, label: "Published", isSandbox: false };
   return { current: host, label: "Custom domain", isSandbox: false };
 }

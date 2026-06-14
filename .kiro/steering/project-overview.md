@@ -41,6 +41,10 @@ Edge Functions), Sentry-compatible observability.
 - **Don't edit `src/integrations/supabase/types.ts` by hand** — regenerate after a
   migration.
 - **Don't string-concat org/event URLs.** Use the builders in `src/lib/event-routes.ts`.
+- **Don't hardcode public domains.** Share/preview URL builders read from
+  `VITE_PUBLIC_DOMAIN` / `VITE_PUBLIC_PUBLISHED_HOST` / `VITE_PUBLIC_ORIGIN` and
+  fall back to `window.location.origin`. Never inline `illuxus.com` or any other
+  host into a component.
 - **Money never uses raw `Intl.NumberFormat`** at the call site. Use `formatMoney`
   from `@/lib/currency`. It already handles invalid currency codes.
 - **Datetimes are stored UTC and rendered in event-local time** via helpers in

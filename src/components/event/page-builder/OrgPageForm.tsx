@@ -8,16 +8,13 @@ import { useToast } from "@/hooks/use-toast";
 import { Save, ExternalLink, Rocket, Upload, Loader2, X, Code2, Copy, Check, AtSign, AlertCircle } from "lucide-react";
 import { useOrg } from "@/contexts/OrgContext";
 import type { ThemeConfig, PageBuilderState } from "./types";
-import { orgPublicUrl } from "@/lib/event-routes";
+import { orgPublicUrl, PROJECT_CUSTOM_DOMAIN, PROJECT_PUBLISHED_HOST } from "@/lib/event-routes";
 import {
   sanitizeHandleInput,
   validateHandle,
   preferredPublicHost,
   publicUrlFor,
 } from "@/lib/workspace-handle";
-
-const PROJECT_CUSTOM_DOMAIN = "www.illuxus.com";
-const PROJECT_PUBLISHED_HOST = "illuxus.com";
 
 /**
  * Lu.ma-style organization landing page customization.

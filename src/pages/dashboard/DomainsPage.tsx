@@ -16,15 +16,10 @@ import {
   preferredPublicHost,
   publicUrlFor,
 } from "@/lib/workspace-handle";
-
-/**
- * Hosts we can advertise as the user's "real" public URL when they're
- * editing inside an internal preview. Order = priority.
- *  1. Custom domain attached at the project level
- *  2. Default published host
- */
-const PROJECT_CUSTOM_DOMAIN = "www.illuxus.com";
-const PROJECT_PUBLISHED_HOST = "illuxus.com";
+import {
+  PROJECT_CUSTOM_DOMAIN,
+  PROJECT_PUBLISHED_HOST,
+} from "@/lib/event-routes";
 
 const DomainsPage = () => {
   const { org, refreshOrg } = useOrg();
@@ -46,7 +41,10 @@ const DomainsPage = () => {
   const currentHost = typeof window !== "undefined" ? window.location.host : "";
   const protocol = typeof window !== "undefined" ? window.location.protocol : "https:";
 
-  const hostInfo = useMemo(() => describeCurrentHost(currentHost), [currentHost]);
+  const hostInfo = useMemo(
+    () => describeCurrentHost(currentHost, PROJECT_PUBLISHED_HOST),
+    [currentHost],
+  );
 
   const preferred = useMemo(
     () =>

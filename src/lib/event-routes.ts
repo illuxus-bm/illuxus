@@ -37,17 +37,28 @@ export function eventDashboardPath(event: EventLike): string {
 // ─── Public absolute URL builder ───────────────────────────────────────────
 
 /**
- * The customer-facing host we always want dashboard "Copy URL" / "Open"
- * buttons to point at, regardless of whether the user is currently editing
- * inside the Lovable sandbox (`*.lovableproject.com`) or on a preview host.
+ * Optional pinned public host. When set (`VITE_PUBLIC_DOMAIN`), every share
+ * URL ("Copy URL", "Open", "Preview") points at this host regardless of where
+ * the dashboard is currently rendered. When unset, share URLs use the host
+ * the user is already on — which is the correct behavior on Vercel preview
+ * deploys, on localhost, and on production.
  *
- * Priority when building a shareable URL:
- *   1. Custom domain (PROJECT_CUSTOM_DOMAIN)
- *   2. Published lovable.app host (PROJECT_PUBLISHED_HOST)
- *   3. The current browser host (last-resort fallback)
+ * Set this in the production environment when you want share links to
+ * always advertise a fixed canonical domain (e.g. `illuxus.com`) even when
+ * organizers happen to be visiting a preview deployment.
  */
-export const PROJECT_CUSTOM_DOMAIN = "www.illuxus.com";
-export const PROJECT_PUBLISHED_HOST = "biz-meet.lovable.app";
+export const PROJECT_CUSTOM_DOMAIN = (
+  (import.meta.env.VITE_PUBLIC_DOMAIN as string | undefined) || ""
+).trim();
+
+/**
+ * Optional secondary public host. Reserved for the case where a project has
+ * both a preferred custom domain and a fallback published host (e.g. a
+ * branded domain that may not always be reachable). Empty by default.
+ */
+export const PROJECT_PUBLISHED_HOST = (
+  (import.meta.env.VITE_PUBLIC_PUBLISHED_HOST as string | undefined) || ""
+).trim();
 
 const SANDBOX_HOST_RE =
   /(\.lovableproject\.com|\.lovable\.dev|^id-preview--|^preview--)/i;
@@ -64,36 +75,39 @@ export function preferredPublicEventHost(currentHost?: string): string {
   return currentHost || "";
 }
 
+function resolveOrigin(): { protocol: string; host: string } {
+  if (typeof window !== "undefined" && window.location) {
+    const host = preferredPublicEventHost(window.location.host);
+    return { protocol: window.location.protocol || "https:", host };
+  }
+  return { protocol: "https:", host: preferredPublicEventHost() };
+}
+
 /**
  * Build an absolute, shareable URL for an event using the preferred public
  * host. Always use this in dashboard "Copy URL" / "Open" / "Preview" buttons
  * so what the user copies matches what they'd share publicly.
+ *
+ * If no pinned domain is configured, this returns a URL on the same host the
+ * user is currently on. That avoids the "Copy URL takes me to a dead domain"
+ * footgun when DNS for a hardcoded canonical domain isn't set up yet.
  */
 export function eventPublicUrl(event: EventLike, orgSlug?: string | null): string {
-  const host =
-    typeof window !== "undefined"
-      ? preferredPublicEventHost(window.location.host)
-      : preferredPublicEventHost();
-  const protocol =
-    typeof window !== "undefined" ? window.location.protocol : "https:";
+  const { protocol, host } = resolveOrigin();
+  if (!host) return eventPublicPath(event, orgSlug);
   return `${protocol}//${host}${eventPublicPath(event, orgSlug)}`;
 }
 
 /**
  * Build an absolute, shareable URL for an organization's public landing
- * page (the "/<handle>" page). Mirrors `eventPublicUrl` so dashboard
- * "Open" / "Copy URL" buttons always advertise the customer-facing host
- * (custom domain → published host → current host) rather than the
- * Lovable sandbox preview URL.
+ * page (the `/<handle>` page). Mirrors `eventPublicUrl` so dashboard
+ * "Open" / "Copy URL" buttons always advertise the same host (configured
+ * canonical domain → current host).
  */
 export function orgPublicUrl(handle: string): string {
-  const host =
-    typeof window !== "undefined"
-      ? preferredPublicEventHost(window.location.host)
-      : preferredPublicEventHost();
-  const protocol =
-    typeof window !== "undefined" ? window.location.protocol : "https:";
+  const { protocol, host } = resolveOrigin();
   const clean = (handle || "").replace(/^\/+|\/+$/g, "");
+  if (!host) return `/org/${clean}`;
   return `${protocol}//${host}/org/${clean}`;
 }
 
@@ -147,7 +161,11 @@ export function checkRouteParam(
   }
 }
 
-/** Detect login-gated Lovable preview hosts (id-preview / preview--*). */
+/**
+ * Detect login-gated preview hosts (legacy Lovable preview pattern).
+ * Returns false for everything that isn't a `preview--*` / `id-preview--*`
+ * host, so this is safe to keep on a Vercel deployment.
+ */
 export function isLoginGatedPreviewHost(host: string): boolean {
   const h = host.toLowerCase();
   return h.startsWith("id-preview--") || h.startsWith("preview--");
@@ -155,12 +173,11 @@ export function isLoginGatedPreviewHost(host: string): boolean {
 
 /**
  * Resolve the published host equivalent of a preview host, if recognizable.
- * `preview--biz-meet.lovable.app` -> `biz-meet.lovable.app`.
+ * Currently handles the legacy `preview--<name>` pattern only.
  * Returns null when no safe mapping exists.
  */
 export function publishedHostFor(host: string): string | null {
   const h = host.toLowerCase();
   if (h.startsWith("preview--")) return h.replace(/^preview--/, "");
-  // id-preview--<uuid>.lovable.app has no deterministic public mapping
   return null;
 }
