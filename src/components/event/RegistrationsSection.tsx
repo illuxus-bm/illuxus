@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { logger, supabaseRpc } from "@/lib/observability";
-import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, Link2, History, ListChecks, Undo2, Stethoscope, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX } from "lucide-react";
+import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, Link2, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,6 @@ import BulkCheckInDialog from "./registrations/BulkCheckInDialog";
 import RegistrantQuickView, { type QuickViewRow } from "./registrations/RegistrantQuickView";
 import AttendanceHistoryDialog from "./attendance/AttendanceHistoryDialog";
 import EventAttendanceHistoryDialog from "./attendance/EventAttendanceHistoryDialog";
-import AttendanceDiagnosticsDialog from "./attendance/AttendanceDiagnosticsDialog";
 import type { BadgeData, PrintMode } from "@/lib/print-badges";
 import { formatMoney } from "@/lib/currency";
 import { REGISTRATION_STATUSES } from "@/lib/ticket-categories";
@@ -120,7 +119,6 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [quickView, setQuickView] = useState<QuickViewRow | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [attTab, setAttTab] = useState<"all" | "inside" | "outside" | "never">("all");
-  const [diagOpen, setDiagOpen] = useState(false);
   const [historyFor, setHistoryFor] = useState<{ id: string; name: string } | null>(null);
   const [eventHistoryOpen, setEventHistoryOpen] = useState(false);
   const [sortKey, setSortKey] = useState<"name" | "state" | "last_in" | "last_out" | "minutes" | "ticket">("name");
@@ -729,9 +727,6 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
               <DropdownMenuItem onClick={() => setBulkOpen(true)}>
                 <ListChecks className="h-3.5 w-3.5 mr-2" /> Bulk check-in
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setDiagOpen(true)}>
-                <Stethoscope className="h-3.5 w-3.5 mr-2" /> Diagnose issues
-              </DropdownMenuItem>
               <DropdownMenuItem onClick={openSelfServiceKiosk}>
                 <ScanLine className="h-3.5 w-3.5 mr-2" /> Self-service kiosk
               </DropdownMenuItem>
@@ -1042,7 +1037,6 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         onSaved={() => { reload(); reloadExtras(); }}
       />
 
-      <AttendanceDiagnosticsDialog open={diagOpen} onOpenChange={setDiagOpen} eventId={eventId} />
       <AttendanceHistoryDialog
         open={!!historyFor}
         onOpenChange={(o) => { if (!o) setHistoryFor(null); }}
