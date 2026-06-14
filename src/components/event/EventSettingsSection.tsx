@@ -29,7 +29,6 @@ interface EventForm {
   image_url: string;
   timezone: string;
   attendance_target_pct: number | null;
-  previous_event_id: string | null;
   org_id: string | null;
 }
 
@@ -77,51 +76,12 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
         timezone: data.timezone ?? detectBrowserTimezone(),
         attendance_target_pct:
           (data as { attendance_target_pct?: number | null }).attendance_target_pct ?? null,
-        previous_event_id: (data as { previous_event_id?: string | null }).previous_event_id ?? null,
         org_id: (data as { org_id?: string | null }).org_id ?? null,
       });
       setLoading(false);
     })();
     return () => { cancelled = true; };
   }, [eventId, toast]);
-
-  // Past-events list for the "Follow-up to" select. Re-fetches when org_id is known.
-  const [pastEvents, setPastEvents] = useState<Array<{ id: string; title: string }>>([]);
-  useEffect(() => {
-    const orgId = form?.org_id;
-    if (!orgId) return;
-    let cancelled = false;
-    (async () => {
-      const { data } = await supabase
-        .from("events")
-        .select("id, title, date")
-        .eq("org_id", orgId)
-        .neq("id", eventId)
-        .order("date", { ascending: false })
-        .limit(50);
-      if (cancelled) return;
-      setPastEvents((data ?? []).map((e) => ({ id: e.id, title: e.title })));
-    })();
-    return () => { cancelled = true; };
-  }, [form?.org_id, eventId]);
-
-  const [resyncing, setResyncing] = useState(false);
-  const resyncMembers = async () => {
-    setResyncing(true);
-    const { data, error } = await supabase.rpc("community_resync_from_previous" as never, {
-      _event_id: eventId,
-    } as never);
-    setResyncing(false);
-    if (error) {
-      toast({ title: "Re-sync failed", description: error.message, variant: "destructive" });
-      return;
-    }
-    const copied = Number(data) || 0;
-    toast({
-      title: copied > 0 ? `Carried over ${copied} member${copied === 1 ? "" : "s"}` : "Already in sync",
-      description: copied > 0 ? "They were added to this event's community." : "No new members to add.",
-    });
-  };
 
   const update = <K extends keyof EventForm>(k: K, v: EventForm[K]) => {
     setForm((prev) => (prev ? { ...prev, [k]: v } : prev));
@@ -168,7 +128,6 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
         image_url: form.image_url || null,
         timezone: form.timezone || null,
         attendance_target_pct: form.attendance_target_pct,
-        previous_event_id: form.previous_event_id,
       } as never)
       .eq("id", eventId);
     setSaving(false);
@@ -385,49 +344,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
           </div>
           <Switch
             checked={form.requires_approval}
-            onCheckedChange={(v) => update("requires_approval", v)}
-            disabled={Number(form.price) > 0}
-          />
         </div>
-
-        {pastEvents.length > 0 && (
-          <div className="rounded-md border border-border p-3 space-y-2">
-            <div>
-              <p className="text-[13px] font-medium">Follow-up to (optional)</p>
-              <p className="text-[12px] text-muted-foreground">
-                Members of the previous event's community are added to this one. Only events from your organization show up here.
-              </p>
-            </div>
-            <Select
-              value={form.previous_event_id ?? "none"}
-              onValueChange={(v) => update("previous_event_id", v === "none" ? null : v)}
-            >
-              <SelectTrigger className="h-9 text-[13px]">
-                <SelectValue placeholder="None — fresh community" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">None — fresh community</SelectItem>
-                {pastEvents.map((e) => (
-                  <SelectItem key={e.id} value={e.id} className="text-[13px]">
-                    {e.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {form.previous_event_id && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 text-[12px]"
-                onClick={resyncMembers}
-                disabled={resyncing}
-                type="button"
-              >
-                {resyncing ? "Syncing…" : "Re-sync members from previous"}
-              </Button>
-            )}
-          </div>
-        )}
 
         {/* Live ticket total preview — recomputes on every keystroke. */}
         <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
