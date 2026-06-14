@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { logger, supabaseRpc } from "@/lib/observability";
-import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, Link2, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX } from "lucide-react";
+import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,6 @@ import EventAttendanceHistoryDialog from "./attendance/EventAttendanceHistoryDia
 import type { BadgeData, PrintMode } from "@/lib/print-badges";
 import { formatMoney } from "@/lib/currency";
 import { REGISTRATION_STATUSES } from "@/lib/ticket-categories";
-import { publicUrl } from "@/lib/publicUrl";
 
 type Registration = Tables<"registrations">;
 
@@ -679,12 +678,6 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     setPrintState({ open: true, badges: toBadges(rows), mode });
   };
 
-  const copySelfCheckInLink = () => {
-    const url = publicUrl(`/checkin/${eventId}`);
-    navigator.clipboard.writeText(url);
-    toast.success("Self check-in link copied", { description: url });
-  };
-
   const openSelfServiceKiosk = () => setSelfKioskOpen(true);
 
   return (
@@ -729,9 +722,6 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
               </DropdownMenuItem>
               <DropdownMenuItem onClick={openSelfServiceKiosk}>
                 <ScanLine className="h-3.5 w-3.5 mr-2" /> Self-service kiosk
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={copySelfCheckInLink}>
-                <Link2 className="h-3.5 w-3.5 mr-2" /> Copy self check-in link
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={exportCSV}>
