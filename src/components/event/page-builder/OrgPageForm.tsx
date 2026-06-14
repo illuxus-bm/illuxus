@@ -71,8 +71,8 @@ async function uploadOrgAsset(file: File, prefix: string): Promise<string> {
   const path = `${prefix}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { error } = await supabase.storage
     .from("site-assets")
-    .upload(path, file, { cacheControl: "3600", upsert: false, contentType: file.type });
-  if (error) throw error;
+    .upload(path, file, { cacheControl: "3600", upsert: true, contentType: file.type });
+  if (error) throw new Error(`${error.message} (path: ${path})`);
   const { data } = supabase.storage.from("site-assets").getPublicUrl(path);
   return data.publicUrl;
 }
@@ -729,10 +729,10 @@ function ImageUploadField({
             <span className="text-[10px] text-muted-foreground">No image</span>
           )}
         </div>
-        <div className="flex-1 min-w-0 space-y-1.5">
-          <label className="inline-flex items-center justify-center h-8 px-3 rounded-md border border-input bg-background hover:bg-muted cursor-pointer text-[12px] font-medium gap-1.5">
+        <div className="flex-1 min-w-0 flex items-center">
+          <label className="inline-flex items-center justify-center h-8 px-3 rounded-md border border-input bg-background hover:bg-muted cursor-pointer text-[12px] font-medium gap-1.5 w-full">
             {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-            {uploading ? "Uploading…" : value ? "Replace" : "Upload"}
+            {uploading ? "Uploading…" : value ? "Replace Image" : "Upload Image"}
             <input
               type="file"
               accept="image/*"
@@ -741,12 +741,6 @@ function ImageUploadField({
               onChange={e => { onFile(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }}
             />
           </label>
-          <Input
-            value={value}
-            placeholder="…or paste an image URL"
-            onChange={e => onChange(e.target.value)}
-            className="h-7 text-[11px] font-mono"
-          />
         </div>
       </div>
     </div>

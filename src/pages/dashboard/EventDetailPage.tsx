@@ -58,8 +58,8 @@ const sidebarNav = [
   { label: "Communicate", icon: Mail, key: "communicate" },
   { label: "Community", icon: Users2, key: "community" },
   { label: "Reports", icon: BarChart3, key: "reports" },
-  { label: "Search", icon: Search, key: "search" },
 ];
+
 
 const CHART_COLORS = {
   registered: "hsl(142 72% 45%)",
