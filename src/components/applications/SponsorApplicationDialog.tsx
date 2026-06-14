@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useMyProfile, profileFullName } from "@/hooks/useMyProfile";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -54,6 +55,7 @@ const initialForm = (defaults: Partial<FormData> = {}): FormData => ({
 export function SponsorApplicationDialog({ eventId, open, onOpenChange, onSubmitted }: Props) {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const { data: profile } = useMyProfile();
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState<FormData>(() =>
@@ -62,6 +64,27 @@ export function SponsorApplicationDialog({ eventId, open, onOpenChange, onSubmit
       contact_email: user?.email ?? "",
     })
   );
+
+  // Prefill empty form fields from the user's profile once it loads.
+  // Only fills fields the user has not yet typed into so manual edits
+  // are never clobbered.
+  useEffect(() => {
+    if (!open || !profile) return;
+    const composedMobile = [profile.mobile_country_code, profile.mobile_number]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    setForm((prev) => ({
+      ...prev,
+      contact_name: prev.contact_name || profileFullName(profile),
+      contact_email: prev.contact_email || user?.email || "",
+      contact_mobile_number: prev.contact_mobile_number || composedMobile,
+      contact_designation: prev.contact_designation || profile.designation || "",
+      company_name: prev.company_name || profile.company || "",
+      company_website: prev.company_website || profile.company_website || "",
+      industry: prev.industry || profile.industry || "",
+    }));
+  }, [open, profile, user?.email]);
 
   const update = <K extends keyof FormData>(key: K, value: FormData[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -136,6 +159,13 @@ export function SponsorApplicationDialog({ eventId, open, onOpenChange, onSubmit
             Step {step} of 3 — {step === 1 ? "Company info" : step === 2 ? "Contact & Sponsorship" : "Marketing assets"}
           </DialogDescription>
         </DialogHeader>
+
+        {profile && (
+          <div className="rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+            We've pre-filled fields from your profile — tweak anything before
+            submitting.
+          </div>
+        )}
 
         <div className="flex gap-1.5 my-2">
           {[1, 2, 3].map((s) => (
