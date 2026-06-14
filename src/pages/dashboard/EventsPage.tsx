@@ -38,7 +38,7 @@ const EventsPage = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
+  const [timeFilter, setTimeFilter] = useState("upcoming");
 
   // Form state
   const [title, setTitle] = useState("");
@@ -138,8 +138,20 @@ const EventsPage = () => {
   const filteredEvents = events.filter((e) => {
     const matchesSearch = e.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (e.venue || "").toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = filterStatus === "all" || e.status === filterStatus;
-    return matchesSearch && matchesStatus;
+    
+    const now = new Date();
+    const eventDate = new Date(e.date);
+    let matchesTime = true;
+    
+    if (timeFilter === "upcoming") {
+      matchesTime = eventDate >= now && e.status !== "draft" && e.status !== "cancelled";
+    } else if (timeFilter === "past") {
+      matchesTime = eventDate < now && e.status !== "draft" && e.status !== "cancelled";
+    } else if (timeFilter === "pending") {
+      matchesTime = e.status === "draft" || e.status === "pending";
+    }
+
+    return matchesSearch && matchesTime;
   });
 
   return (
@@ -150,7 +162,7 @@ const EventsPage = () => {
             <h1 className="text-2xl font-bold">Events</h1>
             <p className="text-muted-foreground text-sm">Manage all your events in one place</p>
           </div>
-          <Button onClick={() => { resetForm(); setShowForm(true); }} className="hero-gradient text-primary-foreground font-semibold">
+          <Button onClick={() => navigate("/dashboard/events/new")} className="hero-gradient text-primary-foreground font-semibold">
             <Plus className="h-4 w-4 mr-1" /> Create Event
           </Button>
         </div>
@@ -166,17 +178,28 @@ const EventsPage = () => {
               className="pl-9"
             />
           </div>
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm min-w-[140px]"
+        </div>
+
+        {/* Tabs Above Grid */}
+        <div className="flex bg-muted/40 p-1 rounded-full w-fit border border-border/50 shadow-sm">
+          <button 
+            onClick={() => setTimeFilter("upcoming")} 
+            className={`px-5 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 ${timeFilter === 'upcoming' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
           >
-            <option value="all">All Status</option>
-            <option value="draft">Draft</option>
-            <option value="published">Published</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="completed">Completed</option>
-          </select>
+            Upcoming
+          </button>
+          <button 
+            onClick={() => setTimeFilter("pending")} 
+            className={`px-5 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 ${timeFilter === 'pending' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
+          >
+            Pending
+          </button>
+          <button 
+            onClick={() => setTimeFilter("past")} 
+            className={`px-5 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 ${timeFilter === 'past' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
+          >
+            Past
+          </button>
         </div>
 
         {/* Event Form */}
@@ -330,7 +353,7 @@ const EventsPage = () => {
             <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">No events found</h3>
             <p className="text-muted-foreground mb-4">
-              {searchQuery || filterStatus !== "all" ? "Try adjusting your filters." : "Create your first event to get started."}
+              {searchQuery || timeFilter !== "upcoming" ? "Try adjusting your filters." : "Create your first event to get started."}
             </p>
           </div>
         ) : (
@@ -347,7 +370,7 @@ const EventsPage = () => {
                   className="bg-card border border-border rounded-xl overflow-hidden card-shadow hover:shadow-lg hover:border-primary/30 transition-all cursor-pointer group"
                 >
                   {/* Cover image */}
-                  <div className="h-32 bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center relative overflow-hidden">
+                  <div className="aspect-video bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center relative overflow-hidden">
                     {event.image_url ? (
                       <img src={event.image_url} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                     ) : (

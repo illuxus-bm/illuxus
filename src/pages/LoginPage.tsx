@@ -327,11 +327,23 @@ const LoginPage = () => {
             </div>
           )}
           {!isForgot && (!isSignUp || signUpStep === 1) && (
-            <p className="text-[11px] text-muted-foreground mb-4 -mt-1">
-              {accountType === "attendee"
-                ? "Attend events and manage your tickets."
-                : "Run an organization and host events."}
-            </p>
+            <div className={`rounded-lg border px-3 py-2.5 mb-4 -mt-1 text-[12px] leading-relaxed ${
+              accountType === "attendee"
+                ? "border-blue-500/20 bg-blue-500/5 text-blue-700 dark:text-blue-400"
+                : "border-violet-500/20 bg-violet-500/5 text-violet-700 dark:text-violet-400"
+            }`}>
+              {accountType === "attendee" ? (
+                <span>
+                  <span className="font-semibold">For attendees, members, sponsors & speakers.</span>
+                  {" "}Use this login to access events you've registered for, manage your tickets, and connect with organizers.
+                </span>
+              ) : (
+                <span>
+                  <span className="font-semibold">For organizers, admins & super admins.</span>
+                  {" "}Use this login to create and manage events, handle registrations, and access your organization dashboard.
+                </span>
+              )}
+            </div>
           )}
           {isSignUp && signUpStep === 2 && (
             <button
