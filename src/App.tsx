@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes, Navigate, useParams, useLocation } from "
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Analytics } from "@vercel/analytics/react";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { OrgProvider, useOrg } from "@/contexts/OrgContext";
 import { SiteContentProvider } from "@/hooks/useSiteContent";
@@ -173,6 +174,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
+        <Analytics />
         <BrowserRouter>
           <RootErrorBoundary>
             <AuthProvider>
