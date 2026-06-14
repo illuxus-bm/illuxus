@@ -96,7 +96,6 @@ export default function EventQuickCreatePage() {
       event_format: eventFormat,
       virtual_provider: eventFormat === "physical" ? null : virtualProvider,
       virtual_url: eventFormat !== "physical" && virtualProvider !== "builtin" ? (virtualUrl || null) : null,
-      previous_event_id: previousEventId === "none" ? null : previousEventId,
     };
     const { data, error } = await supabase.from("events").insert(payload as never).select("id, slug").single();
     setSaving(false);
