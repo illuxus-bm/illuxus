@@ -69,6 +69,7 @@ const CommunityResourcesPage = lazyWithLog("CommunityResourcesPage", () => impor
 const CommunityChatPage = lazyWithLog("CommunityChatPage", () => import("./pages/dashboard/community/CommunityChatPage.tsx"));
 const CommunityModerationPage = lazyWithLog("CommunityModerationPage", () => import("./pages/dashboard/community/CommunityModerationPage.tsx"));
 const CommunitySettingsPage = lazyWithLog("CommunitySettingsPage", () => import("./pages/dashboard/community/CommunitySettingsPage.tsx"));
+const CommunityCommunicationsPage = lazyWithLog("CommunityCommunicationsPage", () => import("./pages/dashboard/community/CommunityCommunicationsPage.tsx"));
 const PublicOrgPage = lazyWithLog("PublicOrgPage", () => import("./pages/PublicOrgPage.tsx"));
 const LandingBuilderPage = lazyWithLog("LandingBuilderPage", () => import("./pages/dashboard/LandingBuilderPage.tsx"));
 const DiscoverFeed = lazyWithLog("DiscoverFeed", () => import("./pages/DiscoverFeed.tsx"));
@@ -255,6 +256,7 @@ const App = () => (
                 <Route path="/community/:slug/resources" element={<RouteErrorBoundary><ProtectedRoute><CommunityResourcesPage /></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/community/:slug/chat" element={<RouteErrorBoundary><ProtectedRoute><CommunityChatPage /></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/community/:slug/moderation" element={<RouteErrorBoundary><ProtectedRoute><CommunityModerationPage /></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/communications" element={<RouteErrorBoundary><ProtectedRoute><CommunityCommunicationsPage /></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/community/:slug/settings" element={<RouteErrorBoundary><ProtectedRoute><CommunitySettingsPage /></ProtectedRoute></RouteErrorBoundary>} />
                 {/* Backward-compat: any old /dashboard/community link still resolves */}
                 <Route path="/dashboard/community" element={<RouteErrorBoundary><Navigate to="/community" replace /></RouteErrorBoundary>} />

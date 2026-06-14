@@ -4,7 +4,7 @@ import { CommunityShell } from "./CommunityShell";
 import { useCommunityBySlug } from "@/hooks/community/useCommunity";
 import { Button } from "@/components/ui/button";
 import { useJoinCommunity, useLeaveCommunity } from "@/hooks/community/useCommunityFeed";
-import { Users, Newspaper, BookOpen, MessageSquare, Calendar, Settings, ShieldAlert, Megaphone } from "lucide-react";
+import { Users, Newspaper, BookOpen, MessageSquare, Calendar, Settings, ShieldAlert, Megaphone, Send } from "lucide-react";
 import { canManageSettings, canModerate } from "@/lib/community/rbac";
 import { toast } from "sonner";
 
@@ -135,6 +135,21 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
                 </NavLink>
               );
             })}
+          {canModerate(role) && (
+            <NavLink
+              to={`/community/${community.slug}/communications`}
+              className={({ isActive }) =>
+                `shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-[12px] font-medium border-b-2 -mb-px transition-colors ${
+                  isActive
+                    ? "text-foreground border-foreground"
+                    : "text-muted-foreground border-transparent hover:text-foreground"
+                }`
+              }
+            >
+              <Send className="h-3.5 w-3.5" />
+              Communicate
+            </NavLink>
+          )}
           {canModerate(role) && (
             <NavLink
               to={`/community/${community.slug}/moderation`}

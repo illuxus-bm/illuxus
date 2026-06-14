@@ -30,7 +30,7 @@ import SessionManagement from "@/components/event/SessionManagement";
 import SponsorManagement from "@/components/event/SponsorManagement";
 import EventPageForm from "@/components/event/page-form/EventPageForm";
 import RegistrationsSection from "@/components/event/RegistrationsSection";
-import CommunicationSection from "@/components/event/CommunicationSection";
+import { CommunicationsSection } from "@/components/communications/CommunicationsSection";
 import ReportsSection from "@/components/event/ReportsSection";
 import EventSettingsSection from "@/components/event/EventSettingsSection";
 import { DashboardTopBar } from "@/components/DashboardTopBar";
@@ -742,7 +742,7 @@ const EventDetailPage = () => {
             )}
 
             {activeSection === "registrations" && <RegistrationsSection eventId={event.id} />}
-            {activeSection === "communicate" && <CommunicationSection eventId={event.id} />}
+            {activeSection === "communicate" && <CommunicationsSection eventId={event.id} />}
             {activeSection === "reports" && <ReportsSection eventId={event.id} />}
             {activeSection === "search" && <EventSearch eventId={event.id} registrations={registrations} />}
 

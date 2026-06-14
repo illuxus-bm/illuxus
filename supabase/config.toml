@@ -1,4 +1,4 @@
-project_id = "dcfygmgjqldvynbvmwdy"
+project_id = "xhjdcimginceibzcwzlk"
 
 [functions.livekit-webhook]
 verify_jwt = false
@@ -11,3 +11,14 @@ verify_jwt = true
 
 [functions.create-participant-account]
 verify_jwt = true
+
+
+[functions.send-whatsapp]
+verify_jwt = true
+
+[functions.whatsapp-sync-templates]
+verify_jwt = true
+
+# Public webhook — Meta calls this directly with no Supabase JWT.
+[functions.whatsapp-webhook]
+verify_jwt = false

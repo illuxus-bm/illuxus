@@ -47,6 +47,14 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
   const [hasWebinar, setHasWebinar] = useState(false);
   const [communitySlug, setCommunitySlug] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  /**
+   * Live count of non-cancelled registrations for this event. The
+   * `events.tickets_sold` column is not maintained by any trigger, so we
+   * compute capacity usage from the `registrations` table directly. A
+   * realtime subscription keeps this in sync if someone else registers
+   * while the page is open.
+   */
+  const [goingCount, setGoingCount] = useState<number>(0);
   const emailVerified = !!user?.email_confirmed_at;
 
   useEffect(() => {
@@ -119,7 +127,36 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
     return () => { cancelled = true; };
   }, [event.id, user, state]);
 
-  const isFull = !!event.capacity && (event.tickets_sold ?? 0) >= event.capacity;
+  // Live registration count → drives the "X tickets left" / "Sold out" UI.
+  // We count rows that aren't cancelled / declined; this matches what an
+  // organizer would consider "going" capacity.
+  useEffect(() => {
+    let cancelled = false;
+    const loadCount = async () => {
+      const { count } = await supabase
+        .from("registrations")
+        .select("id", { count: "exact", head: true })
+        .eq("event_id", event.id)
+        .neq("status", "cancelled")
+        .neq("approval_status", "declined")
+        .neq("approval_status", "waitlisted");
+      if (!cancelled && typeof count === "number") setGoingCount(count);
+    };
+    loadCount();
+    const channel = supabase
+      .channel(`rsvp-count-${event.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "registrations", filter: `event_id=eq.${event.id}` },
+        loadCount,
+      )
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(channel); };
+  }, [event.id]);
+
+  const hasCapacity = !!event.capacity && event.capacity > 0;
+  const remaining = hasCapacity ? Math.max(0, (event.capacity ?? 0) - goingCount) : null;
+  const isFull = hasCapacity && remaining === 0;
 
   const handleRsvp = async () => {
     if (!user) {
@@ -130,6 +167,16 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
       toast({
         title: "Verify your email first",
         description: "Open the link we sent to your inbox, then try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Defense-in-depth: if the live count says we're at capacity, refuse the
+    // submit even though the button should already be disabled.
+    if (isFull) {
+      toast({
+        title: "Sold out",
+        description: "All tickets for this event have been claimed.",
         variant: "destructive",
       });
       return;
@@ -241,8 +288,23 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
             </div>
           </div>
         )}
-        {/* State pill — mirrors Lu.ma's "Approval Required" header */}
-        {isApprovalFlow && state === "idle" && (
+        {/* State pill — mirrors Lu.ma's "Approval Required" header.
+            When the event is sold out we show a single sold-out card
+            regardless of the approval flow. */}
+        {state === "idle" && isFull && (
+          <div className="flex items-start gap-3">
+            <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
+              <XCircle className="h-4 w-4 text-foreground/70" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[14px] font-semibold leading-tight">Sold Out</div>
+              <div className="text-[12.5px] text-muted-foreground mt-0.5">
+                All {event.capacity} tickets have been claimed for this event.
+              </div>
+            </div>
+          </div>
+        )}
+        {isApprovalFlow && state === "idle" && !isFull && (
           <div className="flex items-start gap-3">
             <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
               <ShieldCheck className="h-4 w-4 text-foreground/70" />
@@ -252,10 +314,18 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
               <div className="text-[12.5px] text-muted-foreground mt-0.5">
                 Your registration is subject to host approval.
               </div>
+              {hasCapacity && remaining !== null && remaining > 0 && (
+                <div className="text-[11.5px] font-medium text-foreground/80 mt-1.5">
+                  {remaining} {remaining === 1 ? "spot" : "spots"} left
+                  <span className="text-muted-foreground font-normal">
+                    {" "}· {goingCount}/{event.capacity} registered
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
-        {!isApprovalFlow && state === "idle" && (
+        {!isApprovalFlow && state === "idle" && !isFull && (
           <div className="flex items-start gap-3">
             <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
               <UserPlus className="h-4 w-4 text-foreground/70" />
@@ -267,6 +337,15 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
               <div className="text-[12.5px] text-muted-foreground mt-0.5">
                 Welcome! To join the event, please register below.
               </div>
+              {/* Capacity indicator — only when the organizer set a hard cap. */}
+              {hasCapacity && remaining !== null && remaining > 0 && (
+                <div className="text-[11.5px] font-medium text-foreground/80 mt-1.5">
+                  {remaining} {remaining === 1 ? "ticket" : "tickets"} left
+                  <span className="text-muted-foreground font-normal">
+                    {" "}· {goingCount}/{event.capacity} registered
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -350,12 +429,12 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
         ) : (
           <Button
             onClick={handleRsvp}
-            disabled={submitting}
+            disabled={submitting || isFull}
             className="w-full h-11 text-[14px] font-semibold"
-            style={accentColor ? { backgroundColor: accentColor, color: "#fff" } : undefined}
+            style={accentColor && !isFull ? { backgroundColor: accentColor, color: "#fff" } : undefined}
           >
             {isFull
-              ? "Join Waitlist"
+              ? "Sold Out"
               : event.requires_approval
                 ? "Request to Join"
                 : event.price && Number(event.price) > 0
