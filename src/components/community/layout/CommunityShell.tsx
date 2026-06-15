@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Users2 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSiteContent } from "@/hooks/useSiteContent";
@@ -14,22 +14,30 @@ import { NotificationBell } from "@/components/community/notifications/Notificat
 export function CommunityShell({ children }: { children: ReactNode }) {
   const { content } = useSiteContent();
   const { theme: appTheme } = useTheme();
+  const navigate = useNavigate();
   const { brandName, logoUrl, logoUrlDark } = content.navbar;
   const activeLogoUrl = appTheme === "dark" ? (logoUrlDark || logoUrl) : logoUrl;
+
+  const handleBack = () => {
+    if (window.history.length > 2) {
+      navigate(-1);
+    } else {
+      navigate("/dashboard");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Top bar */}
       <header className="sticky top-0 z-30 border-b border-border bg-card/80 backdrop-blur supports-[backdrop-filter]:bg-card/60">
         <div className="mx-auto max-w-7xl flex items-center gap-3 px-3 sm:px-4 h-12">
-          <Link
-            to="/dashboard"
+          <button
+            onClick={handleBack}
             className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors shrink-0"
-            aria-label="Back to dashboard"
+            aria-label="Go back"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Dashboard</span>
-          </Link>
+          </button>
           <span className="h-4 w-px bg-border" aria-hidden />
           <Link to="/community" className="inline-flex items-center gap-2 min-w-0">
             {activeLogoUrl ? (

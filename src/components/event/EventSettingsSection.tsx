@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, Trash2 } from "lucide-react";
+import { Loader2, Save, Trash2, Users2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { SUPPORTED_CURRENCIES, formatMoney, formatPriceOrFree } from "@/lib/currency";
 import { COMMON_TIMEZONES, detectBrowserTimezone, isValidTimezone } from "@/lib/timezones";
@@ -29,7 +29,10 @@ interface EventForm {
   image_url: string;
   timezone: string;
   attendance_target_pct: number | null;
+  previous_event_id: string | null;
   org_id: string | null;
+  create_community: boolean;
+  community_category: string;
 }
 
 function toLocalInput(v: string | null): string {
@@ -76,12 +79,53 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
         timezone: data.timezone ?? detectBrowserTimezone(),
         attendance_target_pct:
           (data as { attendance_target_pct?: number | null }).attendance_target_pct ?? null,
+        previous_event_id: (data as { previous_event_id?: string | null }).previous_event_id ?? null,
         org_id: (data as { org_id?: string | null }).org_id ?? null,
+        create_community: (data as { create_community?: boolean | null }).create_community ?? true,
+        community_category: (data as { community_category?: string | null }).community_category ?? "other",
       });
       setLoading(false);
     })();
     return () => { cancelled = true; };
   }, [eventId, toast]);
+
+  // Past-events list for the "Follow-up to" select. Re-fetches when org_id is known.
+  const [pastEvents, setPastEvents] = useState<Array<{ id: string; title: string }>>([]);
+  useEffect(() => {
+    const orgId = form?.org_id;
+    if (!orgId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("events")
+        .select("id, title, date")
+        .eq("org_id", orgId)
+        .neq("id", eventId)
+        .order("date", { ascending: false })
+        .limit(50);
+      if (cancelled) return;
+      setPastEvents((data ?? []).map((e) => ({ id: e.id, title: e.title })));
+    })();
+    return () => { cancelled = true; };
+  }, [form?.org_id, eventId]);
+
+  const [resyncing, setResyncing] = useState(false);
+  const resyncMembers = async () => {
+    setResyncing(true);
+    const { data, error } = await supabase.rpc("community_resync_from_previous" as never, {
+      _event_id: eventId,
+    } as never);
+    setResyncing(false);
+    if (error) {
+      toast({ title: "Re-sync failed", description: error.message, variant: "destructive" });
+      return;
+    }
+    const copied = Number(data) || 0;
+    toast({
+      title: copied > 0 ? `Carried over ${copied} member${copied === 1 ? "" : "s"}` : "Already in sync",
+      description: copied > 0 ? "They were added to this event's community." : "No new members to add.",
+    });
+  };
 
   const update = <K extends keyof EventForm>(k: K, v: EventForm[K]) => {
     setForm((prev) => (prev ? { ...prev, [k]: v } : prev));
@@ -111,25 +155,69 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
       return;
     }
     setSaving(true);
-    const { error } = await supabase
+
+    // Full payload — includes columns added in migrations 008 + 009.
+    const fullPayload = {
+      title: form.title.trim(),
+      description: form.description || null,
+      date: form.date ? new Date(form.date).toISOString() : null,
+      end_date: form.end_date ? new Date(form.end_date).toISOString() : null,
+      venue: form.venue || null,
+      location: form.location || null,
+      capacity: Number(form.capacity) || 0,
+      price: Number(form.price) || 0,
+      currency: form.currency || "INR",
+      requires_approval: form.requires_approval,
+      status: form.status,
+      image_url: form.image_url || null,
+      timezone: form.timezone || null,
+      attendance_target_pct: form.attendance_target_pct,
+      previous_event_id: form.previous_event_id,
+      create_community: form.create_community,
+      community_category: form.create_community ? form.community_category : null,
+    };
+
+    // Core-only payload — safe for schemas that haven't had migrations 008/009 applied yet.
+    const corePayload = {
+      title: form.title.trim(),
+      description: form.description || null,
+      date: form.date ? new Date(form.date).toISOString() : null,
+      end_date: form.end_date ? new Date(form.end_date).toISOString() : null,
+      venue: form.venue || null,
+      location: form.location || null,
+      capacity: Number(form.capacity) || 0,
+      price: Number(form.price) || 0,
+      currency: form.currency || "INR",
+      requires_approval: form.requires_approval,
+      status: form.status,
+      image_url: form.image_url || null,
+      timezone: form.timezone || null,
+    };
+
+    let { error } = await supabase
       .from("events")
-      .update({
-        title: form.title.trim(),
-        description: form.description || null,
-        date: form.date ? new Date(form.date).toISOString() : null,
-        end_date: form.end_date ? new Date(form.end_date).toISOString() : null,
-        venue: form.venue || null,
-        location: form.location || null,
-        capacity: Number(form.capacity) || 0,
-        price: Number(form.price) || 0,
-        currency: form.currency || "INR",
-        requires_approval: form.requires_approval,
-        status: form.status,
-        image_url: form.image_url || null,
-        timezone: form.timezone || null,
-        attendance_target_pct: form.attendance_target_pct,
-      } as never)
+      .update(fullPayload as never)
       .eq("id", eventId);
+
+    // If the full save fails due to a missing column (migrations not yet applied),
+    // fall back to the core-only save so the user isn't completely blocked.
+    if (error && error.message?.includes("column")) {
+      const fallback = await supabase
+        .from("events")
+        .update(corePayload as never)
+        .eq("id", eventId);
+      error = fallback.error;
+      if (!fallback.error) {
+        toast({
+          title: "Event updated (partial)",
+          description: "Core details saved. Community / series options need a DB migration — apply migrations 008 and 009 in your Supabase dashboard to enable them.",
+        });
+        setSaving(false);
+        onSaved?.();
+        return;
+      }
+    }
+
     setSaving(false);
     if (error) {
       toast({ title: "Save failed", description: error.message, variant: "destructive" });
@@ -349,6 +437,45 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
           />
         </div>
 
+        {pastEvents.length > 0 && (
+          <div className="rounded-md border border-border p-3 space-y-2">
+            <div>
+              <p className="text-[13px] font-medium">Follow-up to (optional)</p>
+              <p className="text-[12px] text-muted-foreground">
+                Members of the previous event's community are added to this one. Only events from your organization show up here.
+              </p>
+            </div>
+            <Select
+              value={form.previous_event_id ?? "none"}
+              onValueChange={(v) => update("previous_event_id", v === "none" ? null : v)}
+            >
+              <SelectTrigger className="h-9 text-[13px]">
+                <SelectValue placeholder="None — fresh community" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None — fresh community</SelectItem>
+                {pastEvents.map((e) => (
+                  <SelectItem key={e.id} value={e.id} className="text-[13px]">
+                    {e.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {form.previous_event_id && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-[12px]"
+                onClick={resyncMembers}
+                disabled={resyncing}
+                type="button"
+              >
+                {resyncing ? "Syncing…" : "Re-sync members from previous"}
+              </Button>
+            )}
+          </div>
+        )}
+
         {/* Live ticket total preview — recomputes on every keystroke. */}
         <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
           <div className="flex items-center justify-between gap-3">
@@ -381,6 +508,59 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
             </p>
           )}
         </div>
+      </section>
+
+      {/* Community */}
+      <section className="bg-card border border-border rounded-lg p-4 space-y-4">
+        <div className="flex items-center gap-2">
+          <Users2 className="h-4 w-4 text-primary" />
+          <h3 className="text-[13px] font-semibold">Community</h3>
+        </div>
+        <div className="flex items-center justify-between rounded-md border border-border p-3">
+          <div>
+            <p className="text-[13px] font-medium">Enable community</p>
+            <p className="text-[12px] text-muted-foreground">
+              {form.create_community
+                ? "Community is active for this event."
+                : "Community is disabled. Members won't have a discussion space."}
+            </p>
+          </div>
+          <Switch
+            id="settings-create-community-toggle"
+            checked={form.create_community}
+            onCheckedChange={(v) => update("create_community", v)}
+          />
+        </div>
+        {form.create_community && (
+          <div>
+            <Label className="text-[12px] mb-1.5 block">Community category</Label>
+            <Select
+              value={form.community_category}
+              onValueChange={(v) => update("community_category", v)}
+            >
+              <SelectTrigger className="h-9 text-[13px]">
+                <SelectValue placeholder="Select a category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tech">🖥️ Tech</SelectItem>
+                <SelectItem value="ai">🤖 AI</SelectItem>
+                <SelectItem value="startup">🚀 Startup</SelectItem>
+                <SelectItem value="hackathon">🏆 Hackathon</SelectItem>
+                <SelectItem value="cybersecurity">🔐 Cybersecurity</SelectItem>
+                <SelectItem value="finance">💰 Finance</SelectItem>
+                <SelectItem value="education">📚 Education</SelectItem>
+                <SelectItem value="design">🎨 Design</SelectItem>
+                <SelectItem value="marketing">📣 Marketing</SelectItem>
+                <SelectItem value="health">🏥 Health</SelectItem>
+                <SelectItem value="sustainability">🌱 Sustainability</SelectItem>
+                <SelectItem value="other">🌐 Other</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Changing the category will move the community under a different industry hub. Takes effect after saving.
+            </p>
+          </div>
+        )}
       </section>
 
       {/* Actions */}

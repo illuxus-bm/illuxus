@@ -30,10 +30,9 @@ import SessionManagement from "@/components/event/SessionManagement";
 import SponsorManagement from "@/components/event/SponsorManagement";
 import EventPageForm from "@/components/event/page-form/EventPageForm";
 import RegistrationsSection from "@/components/event/RegistrationsSection";
-import { CommunicationsSection } from "@/components/communications/CommunicationsSection";
+import CommunicationSection from "@/components/event/CommunicationSection";
 import ReportsSection from "@/components/event/ReportsSection";
 import EventSettingsSection from "@/components/event/EventSettingsSection";
-import { DashboardTopBar } from "@/components/DashboardTopBar";
 import { checkRouteParam, eventPublicPath, eventPublicUrl } from "@/lib/event-routes";
 import { useOrg } from "@/contexts/OrgContext";
 import { formatMoney, DEFAULT_EVENT_CURRENCY } from "@/lib/currency";
@@ -42,6 +41,7 @@ import { CurrencySwitcher, getStoredDisplayCurrency } from "@/components/Currenc
 import { FullPageLoader } from "@/components/FullPageLoader";
 
 const BroadcastPageLazy = lazy(() => import("./event/BroadcastPage"));
+const ApplicationsSectionLazy = lazy(() => import("@/components/event/ApplicationsSection").then((m) => ({ default: m.ApplicationsSection })));
 
 type Event = Tables<"events">;
 
@@ -52,6 +52,7 @@ const sidebarNav = [
   { label: "Speakers", icon: ClipboardList, key: "manage" },
   { label: "Registrations", icon: Users, key: "registrations" },
   { label: "Sponsors", icon: Award, key: "exhibitors" },
+  { label: "Applications", icon: ClipboardList, key: "applications" },
   { label: "Agenda", icon: CalendarCheck, key: "agenda" },
   { label: "Design", icon: Palette, key: "design" },
   { label: "Communicate", icon: Mail, key: "communicate" },
@@ -394,34 +395,27 @@ const EventDetailPage = () => {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex flex-col w-full bg-background">
-        {/* Main brand top bar — sticky at the very top of every organizer
-            page. The per-event header (title + slug + Preview/Update) lives
-            BELOW this so users always see the global nav first. The event
-            header carries its own SidebarTrigger for EventSidebar, so we
-            hide the duplicate one in the top bar here. */}
-        <DashboardTopBar showSidebarTrigger={false} />
-
-        <div className="flex flex-1 min-w-0 w-full">
-          <EventSidebar active={activeSection} onSelect={async (k) => {
-            if (k === "broadcast") { setActiveSection("broadcast"); return; }
-            if (k === "community") {
-              // Resolve this event's community and jump to its feed.
-              const { data: cid } = await supabaseRpc("community_resolve_event" as never, { _event_id: event.id } as never);
-              if (cid) {
-                const { data: comm } = await supabase.from("communities" as never).select("slug").eq("id", cid as string).maybeSingle();
-                const slug = (comm as { slug?: string } | null)?.slug;
-                if (slug) { navigate(`/community/${slug}/feed`); return; }
-              }
-              navigate("/community");
-              return;
+      <div className="flex min-h-screen w-full bg-background">
+        <EventSidebar active={activeSection} onSelect={async (k) => {
+          if (k === "broadcast") { setActiveSection("broadcast"); return; }
+          if (k === "community") {
+            // Resolve this event's community and jump to its feed.
+            const { data: cid } = await supabaseRpc("community_resolve_event" as never, { _event_id: event.id } as never);
+            if (cid) {
+              const { data: comm } = await supabase.from("communities" as never).select("slug").eq("id", cid as string).maybeSingle();
+              const slug = (comm as { slug?: string } | null)?.slug;
+              if (slug) { navigate(`/community/${slug}/feed`); return; }
             }
-            setActiveSection(k);
-          }} eventTitle={event.title} eventFormat={(event as any).event_format} />
+            // If the community hasn't been created yet, stay on the dashboard and show the fallback UI
+            setActiveSection("community");
+            return;
+          }
+          setActiveSection(k);
+        }} eventTitle={event.title} eventFormat={(event as any).event_format} />
 
-          <div className="flex-1 flex flex-col min-w-0">
-          {/* Per-event header — sits directly below the main brand top bar. */}
-          <header className="border-b border-border bg-card/80 glass px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 min-w-0">
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Header */}
+          <header className="sticky top-0 z-30 border-b border-border bg-card/80 glass px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 min-w-0">
             <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
               <SidebarTrigger className="h-7 w-7" aria-label="Toggle event sidebar" />
               <button
@@ -742,9 +736,23 @@ const EventDetailPage = () => {
             )}
 
             {activeSection === "registrations" && <RegistrationsSection eventId={event.id} />}
-            {activeSection === "communicate" && <CommunicationsSection eventId={event.id} />}
+            {activeSection === "communicate" && <CommunicationSection eventId={event.id} />}
             {activeSection === "reports" && <ReportsSection eventId={event.id} />}
             {activeSection === "search" && <EventSearch eventId={event.id} registrations={registrations} />}
+            {activeSection === "community" && (
+              <div className="flex flex-col items-center justify-center h-[50vh] text-center space-y-4">
+                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Users2 className="h-6 w-6 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold tracking-tight">No Community Setup</h3>
+                  <p className="text-[13px] text-muted-foreground mt-1 max-w-sm">This event does not have an active community yet. You can enable it in the event settings.</p>
+                </div>
+                <Button onClick={() => setActiveSection("settings")} className="mt-2" variant="outline">
+                   Go to Settings
+                </Button>
+              </div>
+            )}
 
             {activeSection === "broadcast" && (
               <Suspense fallback={<FullPageLoader label="Loading webinar studio…" />}>
@@ -752,13 +760,18 @@ const EventDetailPage = () => {
               </Suspense>
             )}
 
-            {!["dashboard", "settings", "manage", "agenda", "exhibitors", "design", "registrations", "communicate", "reports", "broadcast", "search", "community"].includes(activeSection) && (
+            {activeSection === "applications" && (
+              <Suspense fallback={<FullPageLoader label="Loading applications…" />}>
+                <ApplicationsSectionLazy eventId={event.id} />
+              </Suspense>
+            )}
+
+            {!["dashboard", "settings", "manage", "agenda", "exhibitors", "design", "registrations", "communicate", "reports", "broadcast", "search", "applications", "community"].includes(activeSection) && (
               <div className="flex items-center justify-center h-64 text-muted-foreground">
                 <p className="text-sm">{sidebarNav.find(n => n.key === activeSection)?.label} — Coming soon</p>
               </div>
             )}
           </main>
-        </div>
         </div>
       </div>
     </SidebarProvider>
@@ -789,6 +802,8 @@ function NumberCard({ icon, label, value }: { icon: React.ReactNode; label: stri
 
 // ─── EventSearch ──────────────────────────────────────────────────────────────
 // Full-text search across registrations for a single event.
+
+type Registration = Tables<"registrations">;
 
 function EventSearch({
   eventId,
@@ -885,12 +900,13 @@ function EventSearch({
                     </td>
                     <td className="py-2.5 px-4">
                       <span
-                        className={`text-[11px] font-medium capitalize px-1.5 py-0.5 rounded ${r.approval_status === "approved"
-                          ? "bg-green-500/10 text-green-600"
-                          : r.approval_status === "pending"
+                        className={`text-[11px] font-medium capitalize px-1.5 py-0.5 rounded ${
+                          r.approval_status === "approved"
+                            ? "bg-green-500/10 text-green-600"
+                            : r.approval_status === "pending"
                             ? "bg-amber-500/10 text-amber-600"
                             : "bg-muted text-muted-foreground"
-                          }`}
+                        }`}
                       >
                         {r.approval_status}
                       </span>

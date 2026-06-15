@@ -1,11 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Suspense, lazy } from "react";
 import { BrowserRouter, Route, Routes, Navigate, useParams, useLocation } from "react-router-dom";
-import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Analytics } from "@vercel/analytics/react";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { OrgProvider, useOrg } from "@/contexts/OrgContext";
 import { SiteContentProvider } from "@/hooks/useSiteContent";
@@ -69,14 +67,12 @@ const CommunityResourcesPage = lazyWithLog("CommunityResourcesPage", () => impor
 const CommunityChatPage = lazyWithLog("CommunityChatPage", () => import("./pages/dashboard/community/CommunityChatPage.tsx"));
 const CommunityModerationPage = lazyWithLog("CommunityModerationPage", () => import("./pages/dashboard/community/CommunityModerationPage.tsx"));
 const CommunitySettingsPage = lazyWithLog("CommunitySettingsPage", () => import("./pages/dashboard/community/CommunitySettingsPage.tsx"));
-const CommunityCommunicationsPage = lazyWithLog("CommunityCommunicationsPage", () => import("./pages/dashboard/community/CommunityCommunicationsPage.tsx"));
 const PublicOrgPage = lazyWithLog("PublicOrgPage", () => import("./pages/PublicOrgPage.tsx"));
 const LandingBuilderPage = lazyWithLog("LandingBuilderPage", () => import("./pages/dashboard/LandingBuilderPage.tsx"));
 const DiscoverFeed = lazyWithLog("DiscoverFeed", () => import("./pages/DiscoverFeed.tsx"));
 const ProfilePage = lazyWithLog("ProfilePage", () => import("./pages/u/ProfilePage.tsx"));
 const MyEventsPage = lazyWithLog("MyEventsPage", () => import("./pages/u/MyEventsPage.tsx"));
 const MyApplicationsPage = lazyWithLog("MyApplicationsPage", () => import("./pages/u/MyApplicationsPage.tsx"));
-const MyCommunitiesPage = lazyWithLog("MyCommunitiesPage", () => import("./pages/u/MyCommunitiesPage.tsx"));
 const TicketDetailPage = lazyWithLog("TicketDetailPage", () => import("./pages/t/TicketDetailPage.tsx"));
 const EventQuickCreatePage = lazyWithLog("EventQuickCreatePage", () => import("./pages/dashboard/EventQuickCreatePage.tsx"));
 const GuestListPage = lazyWithLog("GuestListPage", () => import("./pages/dashboard/event/GuestListPage.tsx"));
@@ -176,7 +172,6 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <Analytics />
         <BrowserRouter>
           <RootErrorBoundary>
             <AuthProvider>
@@ -215,7 +210,6 @@ const App = () => (
                 <Route path="/u/me" element={<RouteErrorBoundary><AttendeeRoute><ProfilePage /></AttendeeRoute></RouteErrorBoundary>} />
                 <Route path="/u/me/events" element={<RouteErrorBoundary><AttendeeRoute><MyEventsPage /></AttendeeRoute></RouteErrorBoundary>} />
                 <Route path="/u/me/applications" element={<RouteErrorBoundary><AttendeeRoute><MyApplicationsPage /></AttendeeRoute></RouteErrorBoundary>} />
-                <Route path="/u/me/communities" element={<RouteErrorBoundary><AttendeeRoute><MyCommunitiesPage /></AttendeeRoute></RouteErrorBoundary>} />
                 <Route path="/u/me/settings" element={<RouteErrorBoundary><AttendeeRoute><SettingsPage /></AttendeeRoute></RouteErrorBoundary>} />
                 <Route path="/t/:id" element={<RouteErrorBoundary><AttendeeRoute><TicketDetailPage /></AttendeeRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard" element={<RouteErrorBoundary><Navigate to="/dashboard/events" replace /></RouteErrorBoundary>} />
@@ -246,18 +240,17 @@ const App = () => (
                 <Route path="/dashboard/admin" element={<RouteErrorBoundary><SuperAdminRoute><AdminPanelPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/site" element={<RouteErrorBoundary><SuperAdminRoute><SiteEditorPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/audit" element={<RouteErrorBoundary><SuperAdminRoute><AuditLogPage /></SuperAdminRoute></RouteErrorBoundary>} />
-                {/* Standalone /community area — no OnboardingGuard so attendees can reach it. */}
-                <Route path="/community" element={<RouteErrorBoundary><ProtectedRoute><CommunityHubPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug" element={<RouteErrorBoundary><ProtectedRoute><CommunityHomePage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/feed" element={<RouteErrorBoundary><ProtectedRoute><CommunityFeedPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/members" element={<RouteErrorBoundary><ProtectedRoute><CommunityMembersPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/announcements" element={<RouteErrorBoundary><ProtectedRoute><CommunityAnnouncementsPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/calendar" element={<RouteErrorBoundary><ProtectedRoute><CommunityCalendarPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/resources" element={<RouteErrorBoundary><ProtectedRoute><CommunityResourcesPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/chat" element={<RouteErrorBoundary><ProtectedRoute><CommunityChatPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/moderation" element={<RouteErrorBoundary><ProtectedRoute><CommunityModerationPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/communications" element={<RouteErrorBoundary><ProtectedRoute><CommunityCommunicationsPage /></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/settings" element={<RouteErrorBoundary><ProtectedRoute><CommunitySettingsPage /></ProtectedRoute></RouteErrorBoundary>} />
+                {/* Standalone /community area — restricted to OrganizerRoute as requested */}
+                <Route path="/community" element={<RouteErrorBoundary><OrganizerRoute><CommunityHubPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug" element={<RouteErrorBoundary><OrganizerRoute><CommunityHomePage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/feed" element={<RouteErrorBoundary><OrganizerRoute><CommunityFeedPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/members" element={<RouteErrorBoundary><OrganizerRoute><CommunityMembersPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/announcements" element={<RouteErrorBoundary><OrganizerRoute><CommunityAnnouncementsPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/calendar" element={<RouteErrorBoundary><OrganizerRoute><CommunityCalendarPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/resources" element={<RouteErrorBoundary><OrganizerRoute><CommunityResourcesPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/chat" element={<RouteErrorBoundary><OrganizerRoute><CommunityChatPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/moderation" element={<RouteErrorBoundary><OrganizerRoute><CommunityModerationPage /></OrganizerRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/settings" element={<RouteErrorBoundary><OrganizerRoute><CommunitySettingsPage /></OrganizerRoute></RouteErrorBoundary>} />
                 {/* Backward-compat: any old /dashboard/community link still resolves */}
                 <Route path="/dashboard/community" element={<RouteErrorBoundary><Navigate to="/community" replace /></RouteErrorBoundary>} />
                 <Route path="/dashboard/community/*" element={<RouteErrorBoundary><DashboardCommunityRedirect /></RouteErrorBoundary>} />
@@ -271,7 +264,6 @@ const App = () => (
             </AuthProvider>
           </RootErrorBoundary>
         </BrowserRouter>
-        <SpeedInsights />
       </TooltipProvider>
     </ThemeProvider>
   </QueryClientProvider>
