@@ -736,7 +736,17 @@ const EventDetailPage = () => {
             )}
 
             {activeSection === "registrations" && <RegistrationsSection eventId={event.id} />}
-            {activeSection === "communicate" && <CommunicationSection eventId={event.id} />}
+            {activeSection === "communicate" && (
+              <div className="flex flex-col items-center justify-center h-[50vh] text-center space-y-4">
+                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Mail className="h-6 w-6 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold tracking-tight">Coming Soon</h3>
+                  <p className="text-[13px] text-muted-foreground mt-1 max-w-sm">The Communication feature is currently under development. Stay tuned for updates!</p>
+                </div>
+              </div>
+            )}
             {activeSection === "reports" && <ReportsSection eventId={event.id} />}
             {activeSection === "search" && <EventSearch eventId={event.id} registrations={registrations} />}
             {activeSection === "community" && (
