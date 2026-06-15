@@ -1,6 +1,6 @@
 -- Add community options to events table
-ALTER TABLE public.events ADD COLUMN create_community boolean NOT NULL DEFAULT true;
-ALTER TABLE public.events ADD COLUMN community_category text DEFAULT 'other';
+ALTER TABLE public.events ADD COLUMN IF NOT EXISTS create_community boolean NOT NULL DEFAULT true;
+ALTER TABLE public.events ADD COLUMN IF NOT EXISTS community_category text DEFAULT 'other';
 
 -- Update ensure_event_community to use the new category
 CREATE OR REPLACE FUNCTION public.ensure_event_community(_event_id uuid)
@@ -48,6 +48,9 @@ BEGIN
   INSERT INTO community_members (community_id, user_id, role, status, auto)
   VALUES (_new_id, _evt.user_id, 'manager', 'active', true)
   ON CONFLICT (community_id, user_id) DO NOTHING;
+
+  -- Increment member count for the newly created event community
+  UPDATE communities SET member_count = member_count + 1 WHERE id = _new_id;
 
   RETURN _new_id;
 END;

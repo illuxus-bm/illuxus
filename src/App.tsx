@@ -290,6 +290,7 @@ function GlobalFooter() {
     "/sponsor",
     "/speaker",
     "/checkin",
+    "/community",
     "/e/", // live event
     "/__preview",
   ];

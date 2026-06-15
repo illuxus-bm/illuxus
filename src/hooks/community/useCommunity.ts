@@ -93,7 +93,7 @@ export function useChildCommunities(parentId: string | null) {
         .from("communities" as never)
         .select("*")
         .eq("parent_id", parentId)
-        .eq("visibility", "public")
+        // Removed visibility filter so organizers see private event communities
         .order("member_count", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as Community[];

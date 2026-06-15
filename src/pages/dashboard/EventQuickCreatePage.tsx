@@ -43,6 +43,8 @@ export default function EventQuickCreatePage() {
   const [virtualProvider, setVirtualProvider] = useState<"builtin" | "zoom" | "meet" | "youtube" | "external">("builtin");
   const [virtualUrl, setVirtualUrl] = useState("");
   const [previousEventId, setPreviousEventId] = useState<string>("none");
+  const [createCommunity, setCreateCommunity] = useState(true);
+  const [communityCategory, setCommunityCategory] = useState("other");
   const [pastEvents, setPastEvents] = useState<Array<{ id: string; title: string; date: string }>>([]);
 
   // Load this org's previous events so the user can mark this one as a follow-up.
@@ -96,6 +98,9 @@ export default function EventQuickCreatePage() {
       event_format: eventFormat,
       virtual_provider: eventFormat === "physical" ? null : virtualProvider,
       virtual_url: eventFormat !== "physical" && virtualProvider !== "builtin" ? (virtualUrl || null) : null,
+      previous_event_id: previousEventId === "none" ? null : previousEventId,
+      create_community: createCommunity,
+      community_category: communityCategory,
     };
     const { data, error } = await supabase.from("events").insert(payload as never).select("id, slug").single();
     setSaving(false);
@@ -338,6 +343,44 @@ export default function EventQuickCreatePage() {
             );
           })()}
 
+
+          <div className="space-y-4 rounded-xl border border-border bg-background p-4">
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium">Create Event Community</p>
+                <p className="text-[12px] text-muted-foreground">Give attendees a space to discuss this event.</p>
+              </div>
+              <Switch checked={createCommunity} onCheckedChange={setCreateCommunity} />
+            </div>
+            
+            {createCommunity && (
+              <div className="pt-2 border-t border-border">
+                <Label className="text-[12px]">Community Category</Label>
+                <Select value={communityCategory} onValueChange={setCommunityCategory}>
+                  <SelectTrigger className="h-9 mt-1 text-[13px]">
+                    <SelectValue placeholder="Select a category hub" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tech">Tech</SelectItem>
+                    <SelectItem value="ai">AI</SelectItem>
+                    <SelectItem value="startup">Startup</SelectItem>
+                    <SelectItem value="hackathon">Hackathon</SelectItem>
+                    <SelectItem value="cybersecurity">Cybersecurity</SelectItem>
+                    <SelectItem value="finance">Finance</SelectItem>
+                    <SelectItem value="education">Education</SelectItem>
+                    <SelectItem value="design">Design</SelectItem>
+                    <SelectItem value="marketing">Marketing</SelectItem>
+                    <SelectItem value="health">Health</SelectItem>
+                    <SelectItem value="sustainability">Sustainability</SelectItem>
+                    <SelectItem value="other">Other / General</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Your event community will be linked to this industry hub.
+                </p>
+              </div>
+            )}
+          </div>
 
           <div className="flex items-center justify-between rounded-xl border border-border bg-background p-3">
             <div className="min-w-0">

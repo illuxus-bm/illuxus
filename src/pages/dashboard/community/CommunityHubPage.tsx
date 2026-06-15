@@ -44,11 +44,11 @@ export default function CommunityHubPage() {
       if (!user.user) throw new Error("Not logged in");
       
       const hubsToCreate = [
-        { slug: 'hub-tech', name: 'Tech', kind: 'parent', visibility: 'public', created_by: user.user.id },
-        { slug: 'hub-ai', name: 'AI', kind: 'parent', visibility: 'public', created_by: user.user.id },
-        { slug: 'hub-startup', name: 'Startup', kind: 'parent', visibility: 'public', created_by: user.user.id },
-        { slug: 'hub-hackathon', name: 'Hackathon', kind: 'parent', visibility: 'public', created_by: user.user.id },
-        { slug: 'hub-health', name: 'Health', kind: 'parent', visibility: 'public', created_by: user.user.id }
+        { slug: 'hub-tech', name: 'Tech', kind: 'parent', category: 'tech', visibility: 'public', created_by: user.user.id },
+        { slug: 'hub-ai', name: 'AI', kind: 'parent', category: 'ai', visibility: 'public', created_by: user.user.id },
+        { slug: 'hub-startup', name: 'Startup', kind: 'parent', category: 'startup', visibility: 'public', created_by: user.user.id },
+        { slug: 'hub-hackathon', name: 'Hackathon', kind: 'parent', category: 'hackathon', visibility: 'public', created_by: user.user.id },
+        { slug: 'hub-health', name: 'Health', kind: 'parent', category: 'health', visibility: 'public', created_by: user.user.id }
       ];
       
       const { error } = await supabase.from('communities').insert(hubsToCreate);
@@ -85,14 +85,50 @@ export default function CommunityHubPage() {
                 {[1, 2, 3, 4].map(i => <div key={i} className="h-24 w-48 shrink-0 bg-muted rounded-xl animate-pulse" />)}
               </div>
             ) : !explore.data?.length ? (
-              <div className="border border-dashed border-border rounded-xl p-8 text-center bg-muted/10">
-                <p className="text-[13px] text-muted-foreground mb-3">No hubs available yet in your database.</p>
-                <Button variant="outline" size="sm" onClick={seedHubs} disabled={seeding}>
-                  {seeding ? "Initializing..." : "Initialize Default Hubs"}
-                </Button>
-              </div>
+                <div className="border border-dashed border-border rounded-xl p-8 text-center bg-muted/10 space-y-4 max-w-full">
+                  <p className="text-[13px] text-muted-foreground">No hubs available yet in your database.</p>
+                  <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={seedHubs} disabled={seeding}>
+                    {seeding ? "Initializing..." : "Initialize Default Hubs"}
+                  </Button>
+                  <div className="space-y-4 rounded-xl border border-border bg-background p-4 text-left w-full">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-medium">Create Event Community</p>
+                          <p className="text-[12px] text-muted-foreground">Give attendees a space to discuss this event.</p>
+                        </div>
+                        <Switch checked={createCommunity} onCheckedChange={setCreateCommunity} />
+                      </div>
+                      {createCommunity && (
+                        <div className="pt-2 border-t border-border">
+                          <Label className="text-[12px]">Community Category</Label>
+                          <Select value={communityCategory} onValueChange={setCommunityCategory}>
+                            <SelectTrigger className="h-9 mt-1 text-[13px] w-full">
+                              <SelectValue placeholder="Select a category hub" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="tech">Tech</SelectItem>
+                              <SelectItem value="ai">AI</SelectItem>
+                              <SelectItem value="startup">Startup</SelectItem>
+                              <SelectItem value="hackathon">Hackathon</SelectItem>
+                              <SelectItem value="cybersecurity">Cybersecurity</SelectItem>
+                              <SelectItem value="finance">Finance</SelectItem>
+                              <SelectItem value="education">Education</SelectItem>
+                              <SelectItem value="design">Design</SelectItem>
+                              <SelectItem value="marketing">Marketing</SelectItem>
+                              <SelectItem value="health">Health</SelectItem>
+                              <SelectItem value="sustainability">Sustainability</SelectItem>
+                              <SelectItem value="other">Other / General</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-[11px] text-muted-foreground mt-1">Your event community will be linked to this industry hub.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
             ) : (
-              <div className="flex gap-3 overflow-x-auto pb-4 snap-x no-scrollbar">
+              <div className="flex gap-3 overflow-x-auto pb-5 pt-1 px-1 -mx-1 snap-x no-scrollbar">
                 {explore.data?.map(hub => {
                   const meta = getCategoryMeta(hub.name);
                   const Icon = meta.icon;
@@ -103,7 +139,7 @@ export default function CommunityHubPage() {
                       key={hub.id}
                       onClick={() => setSelectedHub(isSelected ? null : { id: hub.id, name: hub.name })}
                       className={cn(
-                        "shrink-0 w-48 rounded-xl border p-4 flex flex-col items-start gap-3 transition-all snap-start text-left group relative overflow-hidden",
+                        "shrink-0 w-48 rounded-xl border p-4 flex flex-col items-start gap-3 transition-all snap-start text-left group relative",
                         isSelected 
                           ? "border-primary bg-primary/5 ring-1 ring-primary/20 shadow-md scale-[1.02]" 
                           : `border-border hover:border-foreground/20 bg-gradient-to-br ${meta.gradient} hover:shadow-sm`
@@ -114,10 +150,11 @@ export default function CommunityHubPage() {
                       </div>
                       <div className="z-10">
                         <div className="font-semibold text-[14px] truncate">{hub.name}</div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5">{hub.member_count} members</div>
                       </div>
                       {/* Decorative background icon */}
-                      <Icon className={cn("absolute -bottom-4 -right-4 h-24 w-24 opacity-[0.03] rotate-12 transition-transform group-hover:scale-110", meta.color)} />
+                      <div className="absolute inset-0 overflow-hidden rounded-xl pointer-events-none">
+                        <Icon className={cn("absolute -bottom-4 -right-4 h-24 w-24 opacity-[0.03] rotate-12 transition-transform group-hover:scale-110", meta.color)} />
+                      </div>
                     </button>
                   );
                 })}
