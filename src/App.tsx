@@ -67,6 +67,7 @@ const CommunityResourcesPage = lazyWithLog("CommunityResourcesPage", () => impor
 const CommunityChatPage = lazyWithLog("CommunityChatPage", () => import("./pages/dashboard/community/CommunityChatPage.tsx"));
 const CommunityModerationPage = lazyWithLog("CommunityModerationPage", () => import("./pages/dashboard/community/CommunityModerationPage.tsx"));
 const CommunitySettingsPage = lazyWithLog("CommunitySettingsPage", () => import("./pages/dashboard/community/CommunitySettingsPage.tsx"));
+const CommunityCommunicationsPage = lazyWithLog("CommunityCommunicationsPage", () => import("./pages/dashboard/community/CommunityCommunicationsPage.tsx"));
 const PublicOrgPage = lazyWithLog("PublicOrgPage", () => import("./pages/PublicOrgPage.tsx"));
 const LandingBuilderPage = lazyWithLog("LandingBuilderPage", () => import("./pages/dashboard/LandingBuilderPage.tsx"));
 const DiscoverFeed = lazyWithLog("DiscoverFeed", () => import("./pages/DiscoverFeed.tsx"));
@@ -240,17 +241,19 @@ const App = () => (
                 <Route path="/dashboard/admin" element={<RouteErrorBoundary><SuperAdminRoute><AdminPanelPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/site" element={<RouteErrorBoundary><SuperAdminRoute><SiteEditorPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/audit" element={<RouteErrorBoundary><SuperAdminRoute><AuditLogPage /></SuperAdminRoute></RouteErrorBoundary>} />
-                {/* Standalone /community area — restricted to OrganizerRoute as requested */}
-                <Route path="/community" element={<RouteErrorBoundary><OrganizerRoute><CommunityHubPage /></OrganizerRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug" element={<RouteErrorBoundary><OrganizerRoute><CommunityHomePage /></OrganizerRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/feed" element={<RouteErrorBoundary><OrganizerRoute><CommunityFeedPage /></OrganizerRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/members" element={<RouteErrorBoundary><OrganizerRoute><CommunityMembersPage /></OrganizerRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/announcements" element={<RouteErrorBoundary><OrganizerRoute><CommunityAnnouncementsPage /></OrganizerRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/calendar" element={<RouteErrorBoundary><OrganizerRoute><CommunityCalendarPage /></OrganizerRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/resources" element={<RouteErrorBoundary><OrganizerRoute><CommunityResourcesPage /></OrganizerRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/chat" element={<RouteErrorBoundary><OrganizerRoute><CommunityChatPage /></OrganizerRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/moderation" element={<RouteErrorBoundary><OrganizerRoute><CommunityModerationPage /></OrganizerRoute></RouteErrorBoundary>} />
-                <Route path="/community/:slug/settings" element={<RouteErrorBoundary><OrganizerRoute><CommunitySettingsPage /></OrganizerRoute></RouteErrorBoundary>} />
+                {/* Standalone /community area — open to any authenticated user (AttendeeRoute);
+                    community-level RBAC is handled inside CommunityLayout via useCommunityBySlug */}
+                <Route path="/community" element={<RouteErrorBoundary><AttendeeRoute><CommunityHubPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug" element={<RouteErrorBoundary><AttendeeRoute><CommunityHomePage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/feed" element={<RouteErrorBoundary><AttendeeRoute><CommunityFeedPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/members" element={<RouteErrorBoundary><AttendeeRoute><CommunityMembersPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/announcements" element={<RouteErrorBoundary><AttendeeRoute><CommunityAnnouncementsPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/calendar" element={<RouteErrorBoundary><AttendeeRoute><CommunityCalendarPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/resources" element={<RouteErrorBoundary><AttendeeRoute><CommunityResourcesPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/chat" element={<RouteErrorBoundary><AttendeeRoute><CommunityChatPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/communications" element={<RouteErrorBoundary><AttendeeRoute><CommunityCommunicationsPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/moderation" element={<RouteErrorBoundary><AttendeeRoute><CommunityModerationPage /></AttendeeRoute></RouteErrorBoundary>} />
+                <Route path="/community/:slug/settings" element={<RouteErrorBoundary><AttendeeRoute><CommunitySettingsPage /></AttendeeRoute></RouteErrorBoundary>} />
                 {/* Backward-compat: any old /dashboard/community link still resolves */}
                 <Route path="/dashboard/community" element={<RouteErrorBoundary><Navigate to="/community" replace /></RouteErrorBoundary>} />
                 <Route path="/dashboard/community/*" element={<RouteErrorBoundary><DashboardCommunityRedirect /></RouteErrorBoundary>} />
