@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Save, ExternalLink, Rocket, Upload, Loader2, X, Code2, Copy, Check, AtSign, AlertCircle } from "lucide-react";
+import { Save, ExternalLink, Rocket, Upload, Loader2, X, Code2, Copy, Check, AtSign, AlertCircle, Crop } from "lucide-react";
 import { useOrg } from "@/contexts/OrgContext";
 import type { ThemeConfig, PageBuilderState } from "./types";
 import { orgPublicUrl, PROJECT_CUSTOM_DOMAIN, PROJECT_PUBLISHED_HOST } from "@/lib/event-routes";
@@ -15,6 +15,7 @@ import {
   preferredPublicHost,
   publicUrlFor,
 } from "@/lib/workspace-handle";
+import CoverCropDialog from "@/components/event/CoverCropDialog";
 
 /**
  * Lu.ma-style organization landing page customization.
@@ -66,12 +67,12 @@ function buildDefaultState(): ExtendedConfig {
  * Upload a file to the public `site-assets` bucket and return its public URL.
  * Same pattern used by the Site Editor — keeps cache-busting via unique paths.
  */
-async function uploadOrgAsset(file: File, prefix: string): Promise<string> {
-  const ext = file.name.split(".").pop()?.toLowerCase() || "bin";
+async function uploadOrgAsset(file: File | Blob, prefix: string, forceExt?: string): Promise<string> {
+  const ext = forceExt || (file instanceof File ? (file.name.split(".").pop()?.toLowerCase() || "jpg") : "jpg");
   const path = `${prefix}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { error } = await supabase.storage
     .from("site-assets")
-    .upload(path, file, { cacheControl: "3600", upsert: true, contentType: file.type });
+    .upload(path, file, { cacheControl: "3600", upsert: true, contentType: file.type || "image/jpeg" });
   if (error) throw new Error(`${error.message} (path: ${path})`);
   const { data } = supabase.storage.from("site-assets").getPublicUrl(path);
   return data.publicUrl;
@@ -668,6 +669,16 @@ function ImageUploadField({
 }) {
   const { toast } = useToast();
   const [uploading, setUploading] = useState(false);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+
+  const fileToDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result as string);
+      fr.onerror = () => reject(new Error("Could not read file"));
+      fr.readAsDataURL(file);
+    });
 
   const onFile = async (file: File | null) => {
     if (!file) return;
@@ -683,16 +694,36 @@ function ImageUploadField({
       });
       return;
     }
+    
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setCropSrc(dataUrl);
+      setCropOpen(true);
+    } catch (err) {
+      toast({ title: "Read failed", description: "Could not read image file.", variant: "destructive" });
+    }
+  };
+
+  const handleCropConfirm = async (blob: Blob) => {
     setUploading(true);
     try {
-      const url = await uploadOrgAsset(file, prefix);
+      const url = await uploadOrgAsset(blob, prefix, "jpg");
       onChange(url);
+      setCropOpen(false);
+      setCropSrc(null);
       toast({ title: "Uploaded", description: "Remember to save your changes." });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Upload failed";
       toast({ title: "Upload failed", description: msg, variant: "destructive" });
     } finally {
       setUploading(false);
+    }
+  };
+
+  const onCropClick = () => {
+    if (value) {
+      setCropSrc(value);
+      setCropOpen(true);
     }
   };
 
@@ -729,7 +760,7 @@ function ImageUploadField({
             <span className="text-[10px] text-muted-foreground">No image</span>
           )}
         </div>
-        <div className="flex-1 min-w-0 flex items-center">
+        <div className="flex-1 min-w-0 flex items-center gap-2">
           <label className="inline-flex items-center justify-center h-8 px-3 rounded-md border border-input bg-background hover:bg-muted cursor-pointer text-[12px] font-medium gap-1.5 w-full">
             {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
             {uploading ? "Uploading…" : value ? "Replace Image" : "Upload Image"}
@@ -741,8 +772,27 @@ function ImageUploadField({
               onChange={e => { onFile(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }}
             />
           </label>
+          {value && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 text-[12px] gap-1.5"
+              onClick={onCropClick}
+            >
+              <Crop className="h-3.5 w-3.5" /> Crop
+            </Button>
+          )}
         </div>
       </div>
+      <CoverCropDialog
+        open={cropOpen}
+        src={cropSrc}
+        aspect={aspect === "square" ? 1 : 4}
+        onCancel={() => { setCropOpen(false); setCropSrc(null); }}
+        onConfirm={handleCropConfirm}
+        busy={uploading}
+      />
     </div>
   );
 }
