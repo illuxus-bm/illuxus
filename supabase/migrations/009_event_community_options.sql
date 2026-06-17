@@ -40,7 +40,7 @@ BEGIN
     'event', _parent_id, _evt.id, _evt.org_id, _slug,
     _evt.title || ' — Community',
     'Discussion space for attendees, speakers and sponsors of ' || _evt.title || '.',
-    'members_only',
+    'public',
     _evt.user_id
   ) RETURNING id INTO _new_id;
 

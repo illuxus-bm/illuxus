@@ -148,8 +148,8 @@ export default function CommunityHubPage() {
                       <div className={cn("p-2 rounded-lg bg-background/80 shadow-sm backdrop-blur-sm z-10", meta.color)}>
                         <Icon className="h-4 w-4" />
                       </div>
-                      <div className="z-10">
-                        <div className="font-semibold text-[14px] truncate">{hub.name}</div>
+                      <div className="z-10 w-full min-w-0">
+                        <div className="font-semibold text-[14px] truncate w-full">{hub.name}</div>
                       </div>
                       {/* Decorative background icon */}
                       <div className="absolute inset-0 overflow-hidden rounded-xl pointer-events-none">

@@ -33,7 +33,19 @@ export function useCommunityBySlug(slug: string | undefined) {
           .maybeSingle();
         membership = (data as CommunityMember | null) ?? null;
       }
-      return { community: community as Community, membership };
+      let isAttendee = false;
+      if (user?.id && (community as Community).kind === 'event') {
+        const { data: reg } = await supabase
+          .from("registrations" as never)
+          .select("id")
+          .eq("event_id", (community as Community).event_id)
+          .eq("user_id", user.id)
+          .eq("approval_status", "approved")
+          .maybeSingle();
+        if (reg) isAttendee = true;
+      }
+
+      return { community: community as Community, membership, isAttendee };
     },
   });
 }

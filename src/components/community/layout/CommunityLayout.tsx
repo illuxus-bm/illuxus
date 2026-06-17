@@ -40,7 +40,7 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  const { community, membership } = data;
+  const { community, membership, isAttendee } = data;
   const isMember = membership?.status === "active";
   const role = membership?.role ?? null;
 
@@ -100,7 +100,17 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {!isMember && (
+              {!isMember && community.kind === 'event' && !isAttendee && (
+                <Button size="sm" disabled className="h-8 text-[12px]">
+                  Registration required
+                </Button>
+              )}
+              {!isMember && community.kind === 'event' && isAttendee && (
+                <Button size="sm" onClick={handleJoin} disabled={join.isPending} className="h-8 text-[12px]">
+                  {join.isPending ? "Joining…" : "Join as Attendee"}
+                </Button>
+              )}
+              {!isMember && community.kind !== 'event' && (
                 <Button size="sm" onClick={handleJoin} disabled={join.isPending} className="h-8 text-[12px]">
                   {join.isPending ? "Joining…" : "Join community"}
                 </Button>

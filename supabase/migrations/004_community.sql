@@ -542,7 +542,7 @@ BEGIN
     'event', _parent_id, _evt.id, _evt.org_id, _slug,
     _evt.title || ' — Community',
     'Discussion space for attendees, speakers and sponsors of ' || _evt.title || '.',
-    'members_only',
+    'public',
     _evt.user_id
   ) RETURNING id INTO _new_id;
 
@@ -660,9 +660,17 @@ FOR EACH ROW EXECUTE FUNCTION public._event_sponsors_join_community();
 -- ── RPCs ────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.community_join(_community_id uuid)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE _id uuid;
+DECLARE 
+  _id uuid;
+  _kind community_kind;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Must be signed in'; END IF;
+  
+  SELECT kind INTO _kind FROM public.communities WHERE id = _community_id;
+  IF _kind = 'event' THEN
+    RAISE EXCEPTION 'Event communities can only be joined by registering for the event.';
+  END IF;
+
   INSERT INTO community_members (community_id, user_id, role, status, auto)
   VALUES (_community_id, auth.uid(), 'member', 'active', false)
   ON CONFLICT (community_id, user_id) DO UPDATE
