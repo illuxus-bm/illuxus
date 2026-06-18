@@ -1022,18 +1022,12 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
 
   return (
     <Section theme={theme} tone="tinted" id="countdown">
-      <div className="text-center">
+      <div className="max-w-3xl mx-auto text-left">
         <p
-          className="text-[11px] font-semibold tracking-[0.22em] uppercase mb-3"
+          className="text-xs sm:text-sm font-semibold tracking-[0.2em] uppercase mb-4"
           style={{ color: theme.primaryColor }}
         >
           {title}
-        </p>
-        <p
-          className="text-base sm:text-lg opacity-70 mb-5 sm:mb-6"
-          style={{ color: theme.textColor }}
-        >
-          until <span className="font-semibold" style={{ color: theme.textColor }}>{event.title}</span>
         </p>
         <div
           role="timer"
@@ -1042,7 +1036,7 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
           // 4 cells in a single row across all breakpoints; uses fluid
           // gap + clamp()-style font sizing to stay readable from 320px
           // viewports up to 1400px+ without horizontal scroll.
-          className="grid grid-cols-4 gap-2 sm:gap-3 md:gap-4 max-w-3xl mx-auto"
+          className="grid grid-cols-4 gap-2 sm:gap-3 md:gap-4 max-w-3xl mb-4"
         >
           {cells.map((cell) => (
             <div
@@ -1071,6 +1065,12 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
             </div>
           ))}
         </div>
+        <p
+          className="text-lg sm:text-xl opacity-80 mt-4 animate-fade-in"
+          style={{ color: theme.textColor }}
+        >
+          until <span className="font-semibold text-xl sm:text-2xl" style={{ color: theme.textColor }}>{event.title}</span>
+        </p>
       </div>
     </Section>
   );

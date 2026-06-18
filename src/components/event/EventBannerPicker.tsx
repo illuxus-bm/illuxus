@@ -149,6 +149,17 @@ export default function EventBannerPicker({
                 </button>
                 <button
                   type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCropSrc(imageUrl);
+                    setCropOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-white text-black text-[12px] font-medium shadow"
+                >
+                  <Crop className="h-3.5 w-3.5" /> Crop
+                </button>
+                <button
+                  type="button"
                   onClick={(e) => { e.stopPropagation(); onChange(""); }}
                   className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-white/90 text-destructive text-[12px] font-medium shadow"
                 >

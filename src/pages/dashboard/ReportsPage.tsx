@@ -825,7 +825,7 @@ const ReportsPage = () => {
 
   return (
     <DashboardLayout>
-      <div className="space-y-5 max-w-[1280px]">
+      <div className="space-y-5 w-full">
 
         {/* ── Header ── */}
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -984,7 +984,7 @@ const ReportsPage = () => {
                       <YAxis yAxisId="tix" orientation="right" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
                       <Tooltip
                         contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }}
-                        formatter={(v: unknown, name: unknown) => {
+                        formatter={(v: any, name: any) => {
                           if (name === "revenue") return [formatMoney(Number(v), displayCcy), "Revenue"];
                           if (name === "tickets") return [v, "Tickets"];
                           return [v, name];

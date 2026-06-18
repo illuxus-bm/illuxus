@@ -42,7 +42,7 @@ const TicketsPage = () => {
 
   return (
     <DashboardLayout>
-      <div className="space-y-5 max-w-[1200px]">
+      <div className="space-y-5 w-full">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Tickets</h1>
           <p className="text-[13px] text-muted-foreground">Track ticket sales across all events</p>
