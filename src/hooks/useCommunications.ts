@@ -238,6 +238,21 @@ export async function syncWhatsAppTemplates(orgId: string): Promise<{ synced: nu
 }
 
 /**
+ * sendEmail — invokes the `send-email` edge function for the comm.
+ * The edge function reads fan-out rows in `communication_recipients` and
+ * delivers via Resend. Call this AFTER `dispatchCommunication` returns.
+ */
+export async function sendEmail(communicationId: string): Promise<{
+  sent: number; failed: number; errors: Array<{ recipient_id: string; error: string }>;
+}> {
+  const { data, error } = await supabase.functions.invoke("send-email", {
+    body: { communication_id: communicationId },
+  });
+  if (error) throw new Error(error.message);
+  return data as { sent: number; failed: number; errors: Array<{ recipient_id: string; error: string }> };
+}
+
+/**
  * sendWhatsApp — invokes the `send-whatsapp` edge function for the comm.
  * The edge function reads pending recipient rows and pushes them to Meta.
  * Call this AFTER `dispatchCommunication` returns successfully.
@@ -255,9 +270,8 @@ export async function sendWhatsApp(communicationId: string): Promise<{
 
 /**
  * retryFailedRecipients — resets failed recipient rows for a given channel
- * back to `pending`, then (for whatsapp) re-invokes the send-whatsapp edge
- * function to ship them again. Email retry only resets state for now —
- * the email provider integration is layered on top in a later phase.
+ * back to `pending`, then re-invokes the send-email / send-whatsapp edge
+ * function to ship them again.
  */
 export async function retryFailedRecipients(
   communicationId: string,
@@ -275,5 +289,6 @@ export async function retryFailedRecipients(
     const wa = await sendWhatsApp(communicationId);
     return { reset, sent: wa.sent, failed: wa.failed };
   }
-  return { reset };
+  const em = await sendEmail(communicationId);
+  return { reset, sent: em.sent, failed: em.failed };
 }

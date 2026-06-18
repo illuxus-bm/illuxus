@@ -1,22 +1,26 @@
 /**
  * send-event-email
  *
- * Records an event email as sent in the database. Provider integration is
- * intentionally absent — wire your provider in the marked block below when
- * ready. Until then, the call still succeeds so the UI flow (record campaign
- * → mark as sent in `event_emails`) keeps working end-to-end.
+ * Sends bulk event / system emails via Resend.
+ * Reads org context from `events` + `organizations`; honours the singleton
+ * `email_settings` row for feature toggles.
  *
  * Expected request body (JSON):
  * {
- *   event_id:        string   — UUID of the event (or "support" / "invite" for system mails)
- *   email_id:        string   — UUID of the event_emails row (for audit/update)
- *   subject:         string   — Email subject line
- *   body:            string   — Plain-text email body
- *   recipient_emails: string[] — List of recipient email addresses
+ *   event_id:         string   — UUID of the event, or "support" / "invite"
+ *   email_id:         string   — UUID of the event_emails row (audit/update)
+ *   subject:          string
+ *   body:             string   — plain-text body
+ *   recipient_emails: string[]
  * }
+ *
+ * Required Supabase secrets:
+ *   RESEND_API_KEY       — from https://resend.com/api-keys
+ *   RESEND_FROM_EMAIL    — optional, e.g. "Illuxus <noreply@yourdomain.com>"
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { defaultFromAddress, sendViaResend, textToHtml } from "../_shared/resend.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -35,7 +39,6 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // ── Parse body ────────────────────────────────────────────────────────────
     const {
       event_id,
       email_id,
@@ -57,16 +60,13 @@ Deno.serve(async (req) => {
       return json({ error: "recipient_emails must be a non-empty array" }, 400);
     }
 
-    // ── Supabase service-role client ──────────────────────────────────────────
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // ── Verify the email_id belongs to the event_id (security check) ──────────
-    // System sends use sentinel event_ids ("support", "invite") that won't
-    // have a matching event_emails row — those skip this check.
     const isSystem = event_id === "support" || event_id === "invite";
+
     if (!isSystem) {
       const { data: emailRecord, error: fetchErr } = await supabase
         .from("event_emails")
@@ -80,25 +80,101 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // TODO: integrate your email provider here.
-    //
-    // Inputs available at this point:
-    //   subject, emailBody, recipient_emails  — content + recipients
-    //   event_id, email_id                    — DB linkage for status updates
-    //
-    // Expected behavior:
-    //   - Send `emailBody` (plus an HTML version, if you build one) to each
-    //     recipient via your provider's transactional API
-    //   - On full failure, set event_emails.status='draft' and return 500
-    //   - On partial/full success, fall through to the DB update below
-    //
-    // No provider is wired right now, so we record the campaign as sent in DB
-    // and return success. Recipients do not receive an actual email yet.
-    // ─────────────────────────────────────────────────────────────────────────
-    console.log("[send-event-email] No provider wired. Recording as sent in DB only.");
-    console.log(`  Subject: ${subject}`);
-    console.log(`  Recipients (${recipient_emails.length}): ${recipient_emails.slice(0, 5).join(", ")}${recipient_emails.length > 5 ? "…" : ""}`);
+    // ── email_settings singleton (001_tables.sql) ───────────────────────────
+    const { data: emailSettings } = await supabase
+      .from("email_settings")
+      .select("domain_configured, send_ticket_emails, send_approval_emails")
+      .eq("singleton", true)
+      .maybeSingle();
+
+    if (!emailSettings?.domain_configured) {
+      console.warn("[send-event-email] email_settings.domain_configured is false — verify your domain in Resend first.");
+    }
+
+    // ── Resolve From / Reply-To from org context ────────────────────────────
+    let fromName = "Illuxus";
+    let replyTo: string | undefined;
+
+    if (!isSystem) {
+      const { data: eventRow } = await supabase
+        .from("events")
+        .select("title, org_id")
+        .eq("id", event_id)
+        .maybeSingle();
+
+      fromName = eventRow?.title ?? fromName;
+
+      if (eventRow?.org_id) {
+        const { data: org } = await supabase
+          .from("organizations")
+          .select("name, billing_email")
+          .eq("id", eventRow.org_id)
+          .maybeSingle();
+        if (org?.name) fromName = org.name;
+        if (org?.billing_email) replyTo = org.billing_email;
+      }
+    }
+
+    const resendApiKey = Deno.env.get("RESEND_API_KEY");
+    const from = defaultFromAddress(fromName);
+    const htmlContent = textToHtml(emailBody);
+    const normalizedRecipients = [
+      ...new Set(recipient_emails.map((e) => e.trim().toLowerCase()).filter(Boolean)),
+    ];
+
+    if (!resendApiKey) {
+      console.log("[send-event-email] No RESEND_API_KEY configured. Email not delivered.");
+      console.log(`  Subject: ${subject}`);
+      console.log(`  Recipients (${normalizedRecipients.length}): ${normalizedRecipients.slice(0, 5).join(", ")}`);
+
+      if (!isSystem) {
+        await supabase
+          .from("event_emails")
+          .update({ status: "sent", sent_at: new Date().toISOString() })
+          .eq("id", email_id);
+      }
+
+      return json({
+        success: true,
+        sent: normalizedRecipients.length,
+        failed: 0,
+        provider: "console",
+        note: "RESEND_API_KEY not set — email logged only. Add the secret in Supabase Dashboard → Edge Functions → Secrets.",
+      });
+    }
+
+    const BATCH_SIZE = 50;
+    const failures: string[] = [];
+
+    for (let i = 0; i < normalizedRecipients.length; i += BATCH_SIZE) {
+      const batch = normalizedRecipients.slice(i, i + BATCH_SIZE);
+      const result = await sendViaResend(resendApiKey, {
+        from,
+        to: batch,
+        subject,
+        html: htmlContent,
+        text: emailBody,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+      });
+
+      if (!result.ok) {
+        console.error(`[send-event-email] Resend batch ${i / BATCH_SIZE + 1} failed:`, result.error);
+        failures.push(...batch);
+      }
+    }
+
+    if (failures.length > 0 && failures.length === normalizedRecipients.length) {
+      if (!isSystem) {
+        await supabase
+          .from("event_emails")
+          .update({ status: "draft", sent_at: null })
+          .eq("id", email_id);
+      }
+      return json({
+        error: "All email batches failed. Check RESEND_API_KEY and domain verification in Resend.",
+        failed_count: failures.length,
+      }, 500);
+    }
 
     if (!isSystem) {
       await supabase
@@ -109,12 +185,10 @@ Deno.serve(async (req) => {
 
     return json({
       success: true,
-      sent: recipient_emails.length,
-      failed: 0,
-      provider: "none",
-      note: "No email provider configured — campaign recorded in DB only. Wire a provider in send-event-email/index.ts to enable actual delivery.",
+      sent: normalizedRecipients.length - failures.length,
+      failed: failures.length,
+      provider: "resend",
     });
-
   } catch (err) {
     console.error("[send-event-email] Unexpected error:", err);
     return json({ error: err instanceof Error ? err.message : String(err) }, 500);

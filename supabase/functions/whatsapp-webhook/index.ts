@@ -1,34 +1,14 @@
 /**
  * whatsapp-webhook
  *
- * Receives Meta's WhatsApp Cloud API delivery callbacks. Handles:
- *   - GET (verification handshake from Meta — `hub.verify_token` flow)
- *   - POST (message status events: sent / delivered / read / failed)
+ * Receives Meta's WhatsApp Cloud API delivery callbacks.
+ *
+ *   GET  → verification handshake (`hub.mode=subscribe` + `hub.verify_token`)
+ *   POST → message status events: sent / delivered / read / failed
  *
  * Required env (Supabase secrets):
- *   WHATSAPP_VERIFY_TOKEN  — random string you also paste into Meta's
- *                            webhook config so Meta proves it's us.
- *
- * Status events arrive shaped like:
- *   {
- *     entry: [{
- *       changes: [{
- *         value: {
- *           statuses: [{
- *             id: "wamid....",
- *             status: "sent" | "delivered" | "read" | "failed",
- *             recipient_id: "919...",
- *             timestamp: "1700000000",
- *             errors?: [{ code, title, message }]
- *           }],
- *           ...
- *         }
- *       }]
- *     }]
- *   }
- *
- * We match each event to a `communication_recipients` row by phone number
- * (normalised) and update its whatsapp_status / timestamp columns.
+ *   WHATSAPP_VERIFY_TOKEN  — random string you also paste into Meta's webhook
+ *                            config so Meta proves it's us.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -57,9 +37,19 @@ Deno.serve(async (req) => {
     const challenge = url.searchParams.get("hub.challenge");
     const expected  = Deno.env.get("WHATSAPP_VERIFY_TOKEN");
 
-    if (mode === "subscribe" && token && expected && token === expected) {
+    if (!expected) {
+      console.error("[whatsapp-webhook] WHATSAPP_VERIFY_TOKEN not set");
+      return new Response("verify token not configured on server", {
+        status: 500, headers: corsHeaders,
+      });
+    }
+
+    if (mode === "subscribe" && token && token === expected) {
+      console.log("[whatsapp-webhook] verification successful");
       return new Response(challenge ?? "", { status: 200, headers: corsHeaders });
     }
+    console.warn("[whatsapp-webhook] verification rejected",
+      { hasMode: !!mode, hasToken: !!token, match: token === expected });
     return new Response("forbidden", { status: 403, headers: corsHeaders });
   }
 
@@ -88,6 +78,7 @@ Deno.serve(async (req) => {
       };
 
       let processed = 0;
+      let unmatched = 0;
       for (const entry of payload.entry ?? []) {
         for (const change of entry.changes ?? []) {
           const statuses = change.value?.statuses ?? [];
@@ -96,7 +87,7 @@ Deno.serve(async (req) => {
             if (!phone) continue;
 
             // Match by digit-suffix to be tolerant of leading +/spaces in our
-            // stored phone column. We narrow by recent rows (last 7 days) to
+            // stored phone column. Narrow by recent rows (last 7 days) to
             // avoid stamping unrelated historical sends.
             const { data: candidates } = await supabase
               .from("communication_recipients")
@@ -108,7 +99,7 @@ Deno.serve(async (req) => {
             const target = (candidates ?? []).find(
               (c) => normalisePhone(c.phone as string | null) === phone,
             );
-            if (!target) continue;
+            if (!target) { unmatched += 1; continue; }
 
             const errMsg = s.errors && s.errors.length > 0
               ? `${s.errors[0].code}: ${s.errors[0].title}${s.errors[0].message ? ` — ${s.errors[0].message}` : ""}`
@@ -123,12 +114,15 @@ Deno.serve(async (req) => {
           }
         }
       }
-      return new Response(JSON.stringify({ processed }), {
+      console.log(`[whatsapp-webhook] processed=${processed} unmatched=${unmatched}`);
+      return new Response(JSON.stringify({ processed, unmatched }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     } catch (err) {
-      return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[whatsapp-webhook] POST failed:", msg);
+      return new Response(JSON.stringify({ error: msg }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

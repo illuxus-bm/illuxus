@@ -1,11 +1,11 @@
 /**
  * send-whatsapp
  *
- * Reads `pending` whatsapp recipient rows for a communication and pushes
- * each through Meta's WhatsApp Cloud API as a template message.
+ * Reads `whatsapp_status='pending'` recipient rows for a communication and
+ * pushes each through Meta's WhatsApp Cloud API as a template message.
  *
  * Required env (Supabase secrets):
- *   WHATSAPP_PHONE_NUMBER_ID  — the registered phone number's ID (numeric)
+ *   WHATSAPP_PHONE_NUMBER_ID  — the registered phone number's ID (numeric, ~15 digits)
  *   WHATSAPP_TOKEN            — long-lived system-user access token
  *   WHATSAPP_API_VERSION      — optional, defaults to 'v20.0'
  *
@@ -13,11 +13,7 @@
  *   { communication_id: string }
  *
  * Returns:
- *   {
- *     sent: number,
- *     failed: number,
- *     errors: Array<{ recipient_id, error }>
- *   }
+ *   { sent: number, failed: number, errors: Array<{ recipient_id, error }> }
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -64,66 +60,78 @@ function normalisePhone(raw: string | null): string | null {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  let step = "init";
   try {
+    step = "read-secrets";
     const phoneId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID");
     const token   = Deno.env.get("WHATSAPP_TOKEN");
     const version = Deno.env.get("WHATSAPP_API_VERSION") ?? "v20.0";
 
     if (!phoneId || !token) {
+      console.error("[send-whatsapp] missing secrets",
+        { hasPhoneId: !!phoneId, hasToken: !!token });
       return json({
         error: "WhatsApp not configured: set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TOKEN secrets first.",
+        step,
       }, 500);
     }
 
-    const { communication_id } = await req.json() as { communication_id: string };
-    if (!communication_id) return json({ error: "communication_id is required" }, 400);
+    step = "parse-body";
+    const body = await req.json() as { communication_id?: string };
+    const communication_id = body.communication_id;
+    if (!communication_id) {
+      return json({ error: "communication_id is required", step }, 400);
+    }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    step = "create-client";
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceKey) {
+      return json({ error: "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing", step }, 500);
+    }
+    const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Pull the parent comm + its template config.
+    step = "read-comm";
     const { data: commRaw, error: commErr } = await supabase
       .from("communications")
       .select("id, org_id, whatsapp_template_name, whatsapp_template_language, whatsapp_template_variables")
       .eq("id", communication_id)
       .maybeSingle();
 
-    if (commErr || !commRaw) return json({ error: "Communication not found" }, 404);
+    if (commErr) {
+      console.error("[send-whatsapp] read-comm failed", commErr);
+      return json({ error: `Read comm failed: ${commErr.message}`, step }, 500);
+    }
+    if (!commRaw) return json({ error: "Communication not found", step }, 404);
 
     const comm = commRaw as unknown as CommunicationRow;
     if (!comm.whatsapp_template_name) {
-      return json({ error: "This communication has no WhatsApp template configured" }, 400);
+      return json({ error: "This communication has no WhatsApp template configured", step }, 400);
     }
 
-    // Pull pending recipient rows.
-    const { data: rowsRaw } = await supabase
+    step = "read-pending-rows";
+    const { data: rowsRaw, error: rowsErr } = await supabase
       .from("communication_recipients")
       .select("id, phone, name")
       .eq("communication_id", communication_id)
       .eq("whatsapp_status", "pending");
 
+    if (rowsErr) {
+      console.error("[send-whatsapp] read-pending-rows failed", rowsErr);
+      return json({ error: `Read recipients failed: ${rowsErr.message}`, step }, 500);
+    }
     const rows = (rowsRaw ?? []) as RecipientRow[];
+    console.log(`[send-whatsapp] found ${rows.length} pending rows for ${communication_id}`);
 
-    let sent = 0;
-    let failed = 0;
-    const errors: Array<{ recipient_id: string; error: string }> = [];
+    if (rows.length === 0) {
+      return json({ sent: 0, failed: 0, errors: [] });
+    }
 
-    // Build the template body parameters from the saved variables JSON.
+    step = "build-components";
     // Shape persisted by the UI: { body: ["v1", "v2"], header: ["v1"] }
     const vars = comm.whatsapp_template_variables ?? {};
     const buildComponents = () => {
       const components: Array<Record<string, unknown>> = [];
-      const bodyVars = Array.isArray((vars as Record<string, unknown>).body)
-        ? ((vars as { body: unknown[] }).body as string[])
-        : [];
-      if (bodyVars.length > 0) {
-        components.push({
-          type: "body",
-          parameters: bodyVars.map((v) => ({ type: "text", text: String(v) })),
-        });
-      }
       const headerVars = Array.isArray((vars as Record<string, unknown>).header)
         ? ((vars as { header: unknown[] }).header as string[])
         : [];
@@ -133,8 +141,22 @@ Deno.serve(async (req) => {
           parameters: headerVars.map((v) => ({ type: "text", text: String(v) })),
         });
       }
+      const bodyVars = Array.isArray((vars as Record<string, unknown>).body)
+        ? ((vars as { body: unknown[] }).body as string[])
+        : [];
+      if (bodyVars.length > 0) {
+        components.push({
+          type: "body",
+          parameters: bodyVars.map((v) => ({ type: "text", text: String(v) })),
+        });
+      }
       return components;
     };
+
+    step = "send-loop";
+    let sent = 0;
+    let failed = 0;
+    const errors: Array<{ recipient_id: string; error: string }> = [];
 
     for (const row of rows) {
       const to = normalisePhone(row.phone);
@@ -176,13 +198,16 @@ Deno.serve(async (req) => {
           },
         );
 
+        const respText = await resp.text();
         if (!resp.ok) {
-          const txt = await resp.text();
+          console.error(`[send-whatsapp] Meta ${resp.status}: ${respText.slice(0, 300)}`);
           await supabase.rpc("_whatsapp_recipient_update" as never, {
-            _recipient_id: row.id, _status: "failed", _error: txt.slice(0, 500),
+            _recipient_id: row.id,
+            _status: "failed",
+            _error: `Meta ${resp.status}: ${respText.slice(0, 400)}`,
           } as never);
           failed += 1;
-          errors.push({ recipient_id: row.id, error: `${resp.status} ${txt.slice(0, 200)}` });
+          errors.push({ recipient_id: row.id, error: `${resp.status} ${respText.slice(0, 200)}` });
           continue;
         }
 
@@ -192,6 +217,7 @@ Deno.serve(async (req) => {
         sent += 1;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[send-whatsapp] fetch threw for recipient ${row.id}:`, msg);
         await supabase.rpc("_whatsapp_recipient_update" as never, {
           _recipient_id: row.id, _status: "failed", _error: msg.slice(0, 500),
         } as never);
@@ -202,6 +228,9 @@ Deno.serve(async (req) => {
 
     return json({ sent, failed, errors });
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    const msg = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error(`[send-whatsapp] unhandled error at step="${step}":`, msg, stack);
+    return json({ error: msg, step }, 500);
   }
 });

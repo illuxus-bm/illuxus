@@ -30,7 +30,7 @@ import SessionManagement from "@/components/event/SessionManagement";
 import SponsorManagement from "@/components/event/SponsorManagement";
 import EventPageForm from "@/components/event/page-form/EventPageForm";
 import RegistrationsSection from "@/components/event/RegistrationsSection";
-import CommunicationSection from "@/components/event/CommunicationSection";
+import EventCommunicate from "@/components/event/EventCommunicate";
 import ReportsSection from "@/components/event/ReportsSection";
 import EventSettingsSection from "@/components/event/EventSettingsSection";
 import { checkRouteParam, eventPublicPath, eventPublicUrl } from "@/lib/event-routes";
@@ -736,17 +736,7 @@ const EventDetailPage = () => {
             )}
 
             {activeSection === "registrations" && <RegistrationsSection eventId={event.id} />}
-            {activeSection === "communicate" && (
-              <div className="flex flex-col items-center justify-center h-[50vh] text-center space-y-4">
-                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Mail className="h-6 w-6 text-primary" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold tracking-tight">Coming Soon</h3>
-                  <p className="text-[13px] text-muted-foreground mt-1 max-w-sm">The Communication feature is currently under development. Stay tuned for updates!</p>
-                </div>
-              </div>
-            )}
+            {activeSection === "communicate" && <EventCommunicate eventId={event.id} />}
             {activeSection === "reports" && <ReportsSection eventId={event.id} />}
             {activeSection === "search" && <EventSearch eventId={event.id} registrations={registrations} />}
             {activeSection === "community" && (

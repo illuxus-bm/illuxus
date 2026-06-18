@@ -9,6 +9,9 @@ verify_jwt = false
 [functions.send-event-email]
 verify_jwt = true
 
+[functions.send-email]
+verify_jwt = true
+
 [functions.create-participant-account]
 verify_jwt = true
 
@@ -22,3 +25,7 @@ verify_jwt = true
 # Public webhook — Meta calls this directly with no Supabase JWT.
 [functions.whatsapp-webhook]
 verify_jwt = false
+
+
+[functions.send-communication-email]
+verify_jwt = true

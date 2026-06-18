@@ -30,6 +30,7 @@ import {
   updateDraft,
   listWhatsAppTemplates,
   syncWhatsAppTemplates,
+  sendEmail,
   sendWhatsApp,
 } from "@/hooks/useCommunications";
 import { applyVariables, invalidTokensForScope, type SubstitutionContext } from "@/lib/communications/substitute";
@@ -488,6 +489,22 @@ export function ComposeMessageDialog({
       // Phase 1+2 dispatch — fans out recipient rows + marks email as sent.
       const result = await dispatchCommunication(id!);
 
+      let emailSent = 0;
+      let emailFailed = 0;
+
+      // Deliver email via Resend (reads communication_recipients rows).
+      if (wantsEmail) {
+        try {
+          const em = await sendEmail(id!);
+          emailSent = em.sent;
+          emailFailed = em.failed;
+        } catch (err) {
+          toast.error(
+            `Recipients resolved but email delivery failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+
       // Phase 3 — push WhatsApp template messages to Meta for any pending rows.
       if (wantsWhatsapp) {
         try {
@@ -495,17 +512,34 @@ export function ComposeMessageDialog({
           if (wa.failed > 0) {
             toast.error(
               `Sent to ${result.recipient_count} recipient${result.recipient_count === 1 ? "" : "s"} — ` +
-              `${wa.sent} WhatsApp delivered, ${wa.failed} failed`,
+              `${wa.sent} WhatsApp delivered, ${wa.failed} failed` +
+              (wantsEmail ? `; ${emailSent} email delivered, ${emailFailed} failed` : ""),
             );
           } else {
             toast.success(
               `Sent to ${result.recipient_count} recipient${result.recipient_count === 1 ? "" : "s"} ` +
-              `(${wa.sent} via WhatsApp)`,
+              `(${wa.sent} via WhatsApp` +
+              (wantsEmail ? `, ${emailSent} via email` : "") +
+              ")",
             );
           }
         } catch (err) {
           toast.error(
-            `Email dispatched but WhatsApp send failed: ${err instanceof Error ? err.message : String(err)}`,
+            wantsEmail && emailSent > 0
+              ? `Email delivered (${emailSent}) but WhatsApp send failed: ${err instanceof Error ? err.message : String(err)}`
+              : `Email dispatched but WhatsApp send failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      } else if (wantsEmail) {
+        if (emailFailed > 0) {
+          toast.error(
+            `Sent to ${result.recipient_count} recipient${result.recipient_count === 1 ? "" : "s"} — ` +
+            `${emailSent} email delivered, ${emailFailed} failed`,
+          );
+        } else {
+          toast.success(
+            `Sent to ${result.recipient_count} recipient${result.recipient_count === 1 ? "" : "s"} ` +
+            `(${emailSent} via email)`,
           );
         }
       } else {
