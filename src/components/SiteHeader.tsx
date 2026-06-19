@@ -205,7 +205,7 @@ export default function SiteHeader({
                     <Link to="/speaker"><Mic className="h-3.5 w-3.5 mr-2" /> Speaker dashboard</Link>
                   </DropdownMenuItem>
                 )}
-                {portalAccess?.has_sponsor && (
+                {(portalAccess?.has_sponsor || accountType === "organizer" || accountType === "attendee" || isAdmin) && (
                   <DropdownMenuItem asChild>
                     <Link to="/sponsor"><Building2 className="h-3.5 w-3.5 mr-2" /> Sponsor dashboard</Link>
                   </DropdownMenuItem>

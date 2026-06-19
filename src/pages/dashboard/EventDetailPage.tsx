@@ -39,6 +39,7 @@ import { formatMoney, DEFAULT_EVENT_CURRENCY } from "@/lib/currency";
 import { useFxRates, formatConverted } from "@/lib/fx";
 import { CurrencySwitcher, getStoredDisplayCurrency } from "@/components/CurrencySwitcher";
 import { FullPageLoader } from "@/components/FullPageLoader";
+import { DashboardTopBar } from "@/components/DashboardTopBar";
 
 const BroadcastPageLazy = lazy(() => import("./event/BroadcastPage"));
 const ApplicationsSectionLazy = lazy(() => import("@/components/event/ApplicationsSection").then((m) => ({ default: m.ApplicationsSection })));
@@ -52,7 +53,6 @@ const sidebarNav = [
   { label: "Speakers", icon: ClipboardList, key: "manage" },
   { label: "Registrations", icon: Users, key: "registrations" },
   { label: "Sponsors", icon: Award, key: "exhibitors" },
-  { label: "Applications", icon: ClipboardList, key: "applications" },
   { label: "Agenda", icon: CalendarCheck, key: "agenda" },
   { label: "Design", icon: Palette, key: "design" },
   { label: "Communicate", icon: Mail, key: "communicate" },
@@ -395,8 +395,10 @@ const EventDetailPage = () => {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-background">
-        <EventSidebar active={activeSection} onSelect={async (k) => {
+      <div className="min-h-screen flex flex-col w-full bg-background">
+        <DashboardTopBar showSidebarTrigger={false} />
+        <div className="flex flex-1 w-full min-w-0">
+          <EventSidebar active={activeSection} onSelect={async (k) => {
           if (k === "broadcast") { setActiveSection("broadcast"); return; }
           if (k === "community") {
             // Resolve this event's community and jump to its feed.
@@ -415,7 +417,7 @@ const EventDetailPage = () => {
 
         <div className="flex-1 flex flex-col min-w-0">
           {/* Header */}
-          <header className="sticky top-0 z-30 border-b border-border bg-card/80 glass px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 min-w-0">
+          <header className="border-b border-border bg-card/80 glass px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 min-w-0">
             <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
               <SidebarTrigger className="h-7 w-7" aria-label="Toggle event sidebar" />
               <button
@@ -772,6 +774,7 @@ const EventDetailPage = () => {
               </div>
             )}
           </main>
+        </div>
         </div>
       </div>
     </SidebarProvider>

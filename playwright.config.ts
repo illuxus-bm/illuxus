@@ -25,7 +25,7 @@ export default defineConfig({
     ? undefined
     : {
       command: "bun run dev",
-      url: "http://localhost:8082",
+      url: "http://localhost:8080",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },

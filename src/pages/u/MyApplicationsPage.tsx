@@ -142,7 +142,7 @@ function SpeakerApplicationRow({ app }: { app: MyApplicationsSpeaker }) {
             <p className="text-[12px] text-muted-foreground flex items-center gap-1.5">
               <ClipboardList className="h-3 w-3" />
               <Link
-                to={`/events/${app.event_id}`}
+                to={app.status === "approved" ? `/speaker/events/${app.event_id}` : `/events/${app.event_id}`}
                 className="hover:text-foreground hover:underline"
               >
                 {app.event_title}
@@ -187,7 +187,7 @@ function SponsorApplicationRow({ app }: { app: MyApplicationsSponsor }) {
             <p className="text-[12px] text-muted-foreground flex items-center gap-1.5">
               <Building2 className="h-3 w-3" />
               <Link
-                to={`/events/${app.event_id}`}
+                to={app.status === "approved" ? `/sponsor/events/${app.event_id}` : `/events/${app.event_id}`}
                 className="hover:text-foreground hover:underline"
               >
                 {app.event_title}
