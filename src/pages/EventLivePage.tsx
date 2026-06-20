@@ -65,6 +65,34 @@ export default function EventLivePage() {
   }>({ title: null, banner: null, videoProvider: null });
   const branding = useSessionBranding(session?.id);
 
+  // ── Refresh-safe session persistence ─────────────────────────────────────
+  // When a participant is inside the room we save their join state to
+  // sessionStorage so that a hard refresh (F5, Cmd-R) auto-rejoins them
+  // without showing the waiting lobby again.
+  //
+  // Key layout:  `webinar-joined-${eventId}`
+  // Value:       JSON { token, wsUrl, canPublish, provider }
+  //
+  // The entry is written the moment a token is set and cleared when the user
+  // explicitly leaves (onDisconnect / Leave button).
+  const persistJoinState = (t: string, ws: string, pub: boolean) => {
+    try {
+      sessionStorage.setItem(
+        `webinar-joined-${eventId}`,
+        JSON.stringify({ token: t, wsUrl: ws, canPublish: pub }),
+      );
+    } catch { /* storage full / private mode */ }
+  };
+
+  const clearJoinState = () => {
+    try { sessionStorage.removeItem(`webinar-joined-${eventId}`); } catch { /* ignore */ }
+  };
+
+  const wrappedSetToken = (t: string | null) => {
+    if (!t) clearJoinState();
+    setToken(t);
+  };
+
   // Stable, low-entropy device fingerprint used as a server-side fallback when
   // localStorage is cleared. Not for tracking — only matched within a single
   // registration_id to avoid self-kick.
@@ -80,12 +108,35 @@ export default function EventLivePage() {
     if (!eventId) return;
     const load = () => supabase.from("webinar_sessions").select("*").eq("event_id", eventId)
       .order("created_at", { ascending: false }).limit(1).maybeSingle()
-      .then(({ data }) => setSession(data));
+      .then(({ data }) => {
+        setSession(data);
+        // Auto-rejoin after a refresh if we have a persisted join state and
+        // the session is still live / scheduled.
+        if (data && (data.status === "live" || data.status === "scheduled")) {
+          try {
+            const saved = sessionStorage.getItem(`webinar-joined-${eventId}`);
+            if (saved) {
+              const { token: t, wsUrl: ws, canPublish: pub } = JSON.parse(saved) as {
+                token: string; wsUrl: string; canPublish: boolean;
+              };
+              if (t && ws) {
+                setToken(t);
+                setWsUrl(ws);
+                setCanPublish(pub ?? false);
+              }
+            }
+          } catch { /* corrupted entry — ignore, user will re-join manually */ }
+        } else if (!data || data.status === "ended") {
+          // Session ended while user was away — clear the stale join state.
+          clearJoinState();
+        }
+      });
     load();
     const ch = supabase.channel(`session-${eventId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "webinar_sessions" }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
   // Fetch event title + landscape banner for the empty-stage placeholder.
@@ -206,22 +257,23 @@ export default function EventLivePage() {
           // Ignore null/empty and our own id (defensive against echoes / remounts).
           if (!newId) return;
           if (newId === browserSessionId) return;
-          setKicked(true); setToken(null);
+          clearJoinState();
+          setKicked(true); wrappedSetToken(null);
         }).subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [registrationId, browserSessionId]);
 
   const handleJoinClick = async () => {
+    if (!session) {
+      setError("Webinar room is not ready yet. Refresh in a moment, or ask the host to create / start the session.");
+      return;
+    }
     const provider: WebinarProvider = getWebinarProvider({
       eventOverride: eventMeta.videoProvider,
     }).provider;
     if (provider === "agora") {
-      // Agora path: AgoraWebinarStage fetches its own RTC token from the
-      // agora-token edge function. We just need to flip the stage on with
-      // a placeholder ws/token so the existing render gating opens.
-      // Publish-capable when (a) we arrived via a speaker invite link, or
-      // (b) the signed-in user is a registered speaker for this event.
       const canPub = !!speakerToken || isEventSpeaker;
+      persistJoinState("agora", "agora", canPub);
       setWsUrl("agora");
       setCanPublish(canPub);
       setToken("agora");
@@ -236,13 +288,17 @@ export default function EventLivePage() {
       sessionStorage.setItem(`lk-token-${session.id}`, data.token);
       setShowPrejoin(true);
     } else {
+      persistJoinState(data.token, data.ws_url, false);
       setToken(data.token);
     }
   };
 
   const confirmJoin = () => {
     const t = sessionStorage.getItem(`lk-token-${session.id}`);
-    if (t) setToken(t);
+    if (t) {
+      persistJoinState(t, wsUrl ?? "", canPublish);
+      setToken(t);
+    }
     setShowPrejoin(false);
   };
 
@@ -318,7 +374,7 @@ export default function EventLivePage() {
           isHost={false}
           eventBannerUrl={eventMeta.banner}
           eventTitle={eventMeta.title}
-          onDisconnect={() => setToken(null)}
+          onDisconnect={() => { clearJoinState(); wrappedSetToken(null); }}
         />
       </Suspense>
     );
@@ -362,14 +418,14 @@ export default function EventLivePage() {
                 </div>
                 <div className="absolute top-3 right-3 flex gap-2 z-20">
                   <Button size="sm" variant="secondary" onClick={() => setMinimized(true)}><Minimize2 className="h-4 w-4 mr-1.5" />Minimize</Button>
-                  <Button size="sm" variant="secondary" onClick={() => setToken(null)}><LogOut className="h-4 w-4 mr-1.5" />Leave</Button>
+                  <Button size="sm" variant="secondary" onClick={() => { clearJoinState(); wrappedSetToken(null); }}><LogOut className="h-4 w-4 mr-1.5" />Leave</Button>
                 </div>
               </>
             )}
             {minimized && (
               <div className="absolute top-1 right-1 z-30 flex gap-1">
                 <Button size="icon" variant="secondary" className="h-6 w-6" onClick={() => setMinimized(false)}><Maximize2 className="h-3 w-3" /></Button>
-                <Button size="icon" variant="destructive" className="h-6 w-6" onClick={() => setToken(null)}><X className="h-3 w-3" /></Button>
+                <Button size="icon" variant="destructive" className="h-6 w-6" onClick={() => { clearJoinState(); wrappedSetToken(null); }}><X className="h-3 w-3" /></Button>
               </div>
             )}
           </div>

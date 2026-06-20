@@ -113,7 +113,29 @@ export default function BroadcastPage() {
     if (!eventId) return;
     const load = () => supabase.from("webinar_sessions").select("*").eq("event_id", eventId)
       .order("created_at", { ascending: false }).limit(1).maybeSingle()
-      .then(({ data }) => { if (data) { setSession(data); } });
+      .then(({ data }) => {
+        if (data) {
+          setSession(data);
+          // Auto-rejoin after a host refresh if the session is still live.
+          if (data.status === "live" || data.status === "scheduled") {
+            try {
+              const saved = sessionStorage.getItem(`webinar-host-joined-${eventId}`);
+              if (saved) {
+                const { token: t, wsUrl: ws, canPublish: pub } = JSON.parse(saved) as {
+                  token: string; wsUrl: string; canPublish: boolean;
+                };
+                if (t && ws) {
+                  setToken(t);
+                  setWsUrl(ws);
+                  setCanPublish(pub ?? true);
+                }
+              }
+            } catch { /* ignore */ }
+          } else if (data.status === "ended") {
+            try { sessionStorage.removeItem(`webinar-host-joined-${eventId}`); } catch { /* ignore */ }
+          }
+        }
+      });
     load();
     const ch = supabase.channel(`bcast-session-${eventId}`)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "webinar_sessions" }, () => load())
@@ -266,6 +288,7 @@ export default function BroadcastPage() {
     if (provider === "agora") {
       // Agora path: AgoraWebinarStage fetches its own RTC token via the
       // agora-token edge function; we just unblock the stage render.
+      try { sessionStorage.setItem(`webinar-host-joined-${eventId}`, JSON.stringify({ token: "agora", wsUrl: "agora", canPublish: true })); } catch { /* ignore */ }
       setToken("agora");
       setWsUrl("agora");
       setCanPublish(true);
@@ -274,6 +297,7 @@ export default function BroadcastPage() {
     try {
       const { data, error } = await supabase.functions.invoke("livekit-token", { body: { session_id: session.id } });
       if (error || !data?.token) { toast.error("LiveKit not configured — streaming requires LiveKit secrets in Supabase dashboard."); return false; }
+      try { sessionStorage.setItem(`webinar-host-joined-${eventId}`, JSON.stringify({ token: data.token, wsUrl: data.ws_url, canPublish: data.can_publish })); } catch { /* ignore */ }
       setToken(data.token); setWsUrl(data.ws_url); setCanPublish(data.can_publish);
       return true;
     } catch {
@@ -288,12 +312,18 @@ export default function BroadcastPage() {
       await supabase.functions.invoke("livekit-room-end", { body: { session_id: session.id } });
     } catch { /* edge fn unavailable */ }
     await supabase.from("webinar_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", session.id);
+    try { sessionStorage.removeItem(`webinar-host-joined-${eventId}`); } catch { /* ignore */ }
     setToken(null);
     setSession({ ...session, status: "ended" });
     toast.success("Stream ended");
   };
 
-  const leaveStage = useCallback(() => { setToken(null); toast.info("You left the stage"); }, []);
+  const leaveStage = useCallback(() => {
+    try { sessionStorage.removeItem(`webinar-host-joined-${eventId}`); } catch { /* ignore */ }
+    setToken(null);
+    toast.info("You left the stage");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId]);
 
   const toggleFullscreen = useCallback(async () => {
     try {
