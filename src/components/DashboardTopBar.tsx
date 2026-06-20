@@ -1,13 +1,12 @@
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useAuth } from "@/contexts/AuthContext";
-import { usePortalAccess } from "@/hooks/usePortalAccess";
 import { useOrg } from "@/contexts/OrgContext";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   LogOut, Bell, ChevronDown, ClipboardList, Menu, Search, Ticket,
-  CalendarDays, Mic, Building2, Settings as SettingsIcon, X, Users2,
+  CalendarDays, Settings as SettingsIcon, X, Users2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -193,7 +192,6 @@ export interface DashboardTopBarProps {
  */
 export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarProps) {
   const { user, isAdmin, accountType, signOut } = useAuth();
-  const { data: portalAccess } = usePortalAccess();
   const { org } = useOrg();
   const navigate = useNavigate();
   const { content } = useSiteContent();
@@ -430,16 +428,6 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
               {(accountType === "organizer" || isAdmin) && (
                 <DropdownMenuItem asChild>
                   <Link to="/dashboard"><CalendarDays className="h-3.5 w-3.5 mr-2" /> Organizer dashboard</Link>
-                </DropdownMenuItem>
-              )}
-              {portalAccess?.has_speaker && (
-                <DropdownMenuItem asChild>
-                  <Link to="/speaker"><Mic className="h-3.5 w-3.5 mr-2" /> Speaker dashboard</Link>
-                </DropdownMenuItem>
-              )}
-              {(portalAccess?.has_sponsor || accountType === "organizer" || accountType === "attendee" || isAdmin) && (
-                <DropdownMenuItem asChild>
-                  <Link to="/sponsor"><Building2 className="h-3.5 w-3.5 mr-2" /> Sponsor dashboard</Link>
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem asChild>
