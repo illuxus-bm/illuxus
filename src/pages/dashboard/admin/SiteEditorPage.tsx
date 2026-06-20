@@ -1003,7 +1003,7 @@ export default function SiteEditorPage() {
     // ignores the DB (not possible without rewriting). So we use a CSS-scaled
     // preview using *live* content for now and a "live preview" button.
     return null;
-  }, [draft]);
+  }, []);
 
   if (authLoading) return null;
   if (!isAdmin) return <Navigate to="/dashboard" replace />;

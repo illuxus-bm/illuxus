@@ -122,7 +122,8 @@ export default function BroadcastPage() {
   }, [eventId]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session?.id || !eventId) return;
+    const sessionId = session.id;
     // Backfill: ensure every event speaker has a webinar_speakers row (with a unique invite_token).
     (async () => {
       const { data: rel } = await supabase.from("event_speakers")
@@ -132,21 +133,21 @@ export default function BroadcastPage() {
       const { data: spks } = await supabase.from("speakers")
         .select("id, name, email").in("id", speakerIds);
       const { data: existing } = await supabase.from("webinar_speakers")
-        .select("email").eq("session_id", session.id);
+        .select("email").eq("session_id", sessionId);
       const have = new Set((existing || []).map((e: any) => (e.email || "").toLowerCase()));
       const toInsert = (spks || [])
         .filter((s: any) => s.email && !have.has(s.email.toLowerCase()))
-        .map((s: any) => ({ session_id: session.id, email: s.email, display_name: s.name, role: "speaker" }));
+        .map((s: any) => ({ session_id: sessionId, email: s.email, display_name: s.name, role: "speaker" }));
       if (toInsert.length) await supabase.from("webinar_speakers").insert(toInsert);
     })();
-    supabase.from("webinar_speakers").select("*").eq("session_id", session.id).order("created_at")
+    supabase.from("webinar_speakers").select("*").eq("session_id", sessionId).order("created_at")
       .then(({ data }) => setSpeakers(data || []));
-    const ch = supabase.channel(`speakers-${session.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "webinar_speakers", filter: `session_id=eq.${session.id}` },
-        () => supabase.from("webinar_speakers").select("*").eq("session_id", session.id).order("created_at").then(({ data }) => setSpeakers(data || [])))
+    const ch = supabase.channel(`speakers-${sessionId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "webinar_speakers", filter: `session_id=eq.${sessionId}` },
+        () => supabase.from("webinar_speakers").select("*").eq("session_id", sessionId).order("created_at").then(({ data }) => setSpeakers(data || [])))
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [session?.id]);
+  }, [session?.id, eventId]);
 
   const createSession = async () => {
     // Clean up old ended/error sessions for this event to prevent row accumulation.

@@ -428,7 +428,11 @@ that doesn't refresh when its inputs change. Most are benign
 (fetch helpers stable across renders) but a few are real.
 **Fix**: per-warning, either add the dep or wrap the helper in
 `useCallback` with the right deps.
-**Status**: open — 2h triage, low risk.
+**Status**: **done in commit pending** — `useCallback`-wrapped fetch
+helpers across the dashboard pages, with the callback listed in the
+consuming `useEffect` dep array. Three hot-spots fixed: `ReportsPage`,
+`SiteEditorPage`, `BroadcastPage`. Inline `eslint-disable-next-line`
+suppressions removed.
 
 ### LINT-004 — 19 `react-refresh/only-export-components` warnings
 
@@ -573,3 +577,11 @@ broken). Items 3-5 require infra not in the repo today.
   `X-Frame-Options: DENY` for clickjacking defence. Layer 2 (a
   server-side route returning the read-only event JSON with the
   same cache policy) is deferred to its own spec.
+- `2026-06-21` — **LINT-003 done**. The 18 react-hooks/exhaustive-deps
+  warnings are resolved across the management components and the three
+  hot-spot pages (ReportsPage, SiteEditorPage, BroadcastPage). The
+  pattern is `useCallback`-wrapping fetch helpers and listing the
+  callback in the consuming `useEffect` dep array, instead of using
+  `eslint-disable-next-line`. CI lint warning count drops to 19 (all
+  remaining warnings are `react-refresh/only-export-components`,
+  tracked separately as LINT-004).

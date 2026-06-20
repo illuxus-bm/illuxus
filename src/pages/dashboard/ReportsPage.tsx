@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
@@ -207,7 +207,7 @@ const ReportsPage = () => {
 
   // ── Fetch ────────────────────────────────────────────────────────────────
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     if (!org?.id) return;
     setLoading(true);
 
@@ -301,9 +301,11 @@ const ReportsPage = () => {
     setSponsors(sponsorRows);
 
     setLoading(false);
-  };
+  }, [org?.id]);
 
-  useEffect(() => { fetchAll(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [org?.id]);
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
 
   // ── Derived data ─────────────────────────────────────────────────────────
 
