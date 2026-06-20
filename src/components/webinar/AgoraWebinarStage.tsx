@@ -36,6 +36,8 @@ import {
 import { Mic, MicOff, Video, VideoOff, LogOut, Loader2, Wifi, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { logger } from "@/lib/observability";
+import { supabase } from "@/integrations/supabase/client";
+import { setSessionParticipants } from "./participantStore";
 
 interface Props {
   sessionId: string;
@@ -112,6 +114,88 @@ export function AgoraWebinarStage({
   // useAgoraClient handles the in-place renewToken via opts.token in its
   // effect deps so we don't need extra glue here.
 
+  // ── Participant store sync ────────────────────────────────────────────────
+  // Mirrors local + remote Agora users into the shared participantStore so
+  // the WebinarSidebar People panel shows the live roster for Agora sessions
+  // the same way it does for LiveKit (via ParticipantsBridge in WebinarStage).
+  useEffect(() => {
+    const list = [
+      // Local user (only when publishing)
+      ...(canPublish
+        ? [
+            {
+              identity: userId,
+              name: isHost ? "You (Host)" : "You",
+              isLocal: true,
+              isHost,
+              canPublish,
+              micOn: true,   // reflects control-bar default; ControlBar manages actual mute
+              camOn: true,
+              isSpeaking: false,
+            },
+          ]
+        : []),
+      // Remote users
+      ...client.remoteUsers.map((u) => ({
+        identity: String(u.uid),
+        name: `User ${shortUid(u.uid)}`,
+        isLocal: false,
+        isHost: false,
+        canPublish: !!u.audioTrack || !!u.videoTrack,
+        micOn: !!u.audioTrack && !u.audioTrack.muted,
+        camOn: !!u.videoTrack,
+        isSpeaking: false,
+      })),
+    ];
+    setSessionParticipants(sessionId, list);
+  }, [client.remoteUsers, canPublish, isHost, userId, sessionId]);
+
+  // Clear the participant list when unmounting so the People panel goes empty
+  // rather than showing stale entries after the user leaves.
+  useEffect(() => () => setSessionParticipants(sessionId, []), [sessionId]);
+
+  // ── Floating reactions ────────────────────────────────────────────────────
+  // Listen for reaction inserts in real time and float them up the stage.
+  const [reactionFloats, setReactionFloats] = useState<
+    { id: string; emoji: string; left: number }[]
+  >([]);
+
+  useEffect(() => {
+    const ch = supabase
+      .channel(`agora-reactions-${sessionId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "webinar_reactions", filter: `session_id=eq.${sessionId}` },
+        (p: { new: { id: string; emoji: string } }) => {
+          const id = p.new.id;
+          const emoji = p.new.emoji;
+          const left = 10 + Math.random() * 80;
+          setReactionFloats((f) => [...f, { id, emoji, left }]);
+          setTimeout(() => setReactionFloats((f) => f.filter((x) => x.id !== id)), 3000);
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [sessionId]);
+
+  // ── Announcement banner ───────────────────────────────────────────────────
+  const [announcement, setAnnouncement] = useState<string | null>(null);
+
+  useEffect(() => {
+    const ch = supabase
+      .channel(`agora-announce-${sessionId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "webinar_announcements", filter: `session_id=eq.${sessionId}` },
+        (p: { new: { message: string } }) => {
+          setAnnouncement(p.new.message);
+          setTimeout(() => setAnnouncement(null), 6000);
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [sessionId]);
+
   // Surface the most useful errors to the user as overlay messages.
   const fatalError = useMemo(() => {
     if (!appId) return "Agora is not configured. Set VITE_AGORA_APP_ID in your build env.";
@@ -174,6 +258,26 @@ export function AgoraWebinarStage({
           </Button>
         </Overlay>
       )}
+
+      {/* Announcement banner */}
+      {announcement && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-foreground text-background px-4 py-2 rounded-md text-sm shadow-lg">
+          📣 {announcement}
+        </div>
+      )}
+
+      {/* Floating reaction emojis */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden z-20">
+        {reactionFloats.map((f) => (
+          <div
+            key={f.id}
+            className="absolute bottom-20 text-2xl sm:text-3xl lg:text-4xl animate-float"
+            style={{ left: `${f.left}%` }}
+          >
+            {f.emoji}
+          </div>
+        ))}
+      </div>
 
       {/* Bottom control bar */}
       <div className="absolute left-1/2 -translate-x-1/2 bottom-4 sm:bottom-6 z-30">
