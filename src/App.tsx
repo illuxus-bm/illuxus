@@ -90,7 +90,46 @@ const SponsorAcceptInvitePage = lazyWithLog("SponsorAcceptInvitePage", () => imp
 const SpeakerEventsPage = lazyWithLog("SpeakerEventsPage", () => import("./pages/speaker/SpeakerEventsPage.tsx"));
 const SpeakerEventDetailPage = lazyWithLog("SpeakerEventDetailPage", () => import("./pages/speaker/SpeakerEventDetailPage.tsx"));
 const QuickViewsPreviewPage = lazyWithLog("QuickViewsPreviewPage", () => import("./pages/dev/QuickViewsPreviewPage.tsx"));
-const queryClient = new QueryClient();
+/**
+ * Global TanStack Query client.
+ *
+ * Defaults are tuned for an event platform that's expected to handle at
+ * least 50k concurrent users at peak:
+ *
+ * - staleTime: 30s — cuts the burst of identical refetches when an
+ *   organiser hops between Speakers / Sponsors / Reports tabs that
+ *   each render their own card lists. Hooks that need stricter
+ *   freshness (live counters, webinar state) override per-query.
+ * - gcTime: 5min — keeps inactive query data in memory for fast tab
+ *   resume, then drops to limit the heap growth a single tab can
+ *   accumulate over a long session.
+ * - refetchOnWindowFocus: false — too noisy on a laptop with the tab
+ *   in the background. Surfaces that genuinely need fresh data on
+ *   focus (e.g. attendance counters) opt back in per-query.
+ * - refetchOnReconnect: true — recovers cleanly after a flaky
+ *   connection without needing a manual refresh.
+ * - retry: 1 — one network retry is enough for transient blips. More
+ *   amplifies the load when the backend is already struggling.
+ * - retryDelay: exponential backoff capped at 8s.
+ *
+ * Per-query overrides live in their own hooks (`@/hooks/...`) and stay
+ * the source of truth when the global default isn't appropriate.
+ */
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: true,
+      retry: 1,
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+    },
+    mutations: {
+      retry: 0,
+    },
+  },
+});
 
 /**
  * Block access to authenticated routes until the user has completed
