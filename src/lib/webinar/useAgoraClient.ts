@@ -289,6 +289,16 @@ export function useAgoraClient(opts: UseAgoraClientOptions): UseAgoraClientRetur
       setUid(null);
       setConnectionState("DISCONNECTED");
     };
+    // opts.token and opts.onTokenWillExpire are intentionally excluded
+    // from the dep array — we join with the token that's set when this
+    // effect runs and from then on rotate exclusively via the SDK's
+    // token-privilege-will-expire event so the channel never reconnects
+    // mid-session. To force a fresh join, change one of the identity
+    // props (appId, channel, uid, role) above. The
+    // `opts.onTokenWillExpire` callback is read through a ref via the
+    // closure inside `onTokenWillExpire`, so changes are picked up
+    // without the effect re-running.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     enabled,
     opts.appId,
@@ -298,12 +308,6 @@ export function useAgoraClient(opts: UseAgoraClientOptions): UseAgoraClientRetur
     opts.audienceLatencyLevel,
     codec,
     recordError,
-    // opts.token is intentionally excluded — we join with the token that
-    // happens to be set when this effect runs and from then on rotate
-    // exclusively via the SDK's token-privilege-will-expire event so
-    // the channel never reconnects mid-session. To force a fresh join,
-    // change one of the identity props above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   ]);
 
   const publish = useCallback(
