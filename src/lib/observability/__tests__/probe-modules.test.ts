@@ -1,19 +1,40 @@
-import { test, vi, beforeEach, afterEach, expect } from 'vitest';
+/**
+ * Probe test for the env-mode helper.
+ *
+ * Originally this test relied on `vi.stubEnv('DEV', false)` flipping
+ * `import.meta.env.DEV` for a freshly-imported probe-helper. Vite's
+ * define plugin inlines `import.meta.env.DEV` at transform time, so
+ * no runtime stub can change what the imported function sees.
+ *
+ * The fix: tests mock the centralised `env-mode` module instead, and
+ * production code delegates env reads through it.
+ */
 
-beforeEach(() => { vi.resetModules(); });
-afterEach(() => { vi.unstubAllEnvs(); });
+import { test, vi, beforeEach, expect } from "vitest";
 
-test('rpc-style isDev/isProd respects vi.stubEnv', async () => {
-  vi.stubEnv('PROD', true);
-  vi.stubEnv('DEV', false);
-  
-  const { isDev, isProd } = await import('./probe-helper');
-  expect(isDev()).toBe(false);
-  expect(isProd()).toBe(true);
+beforeEach(() => {
+  vi.resetModules();
+  vi.unstubAllEnvs();
 });
 
-test('default mode: isDev=true, isProd=false', async () => {
-  const { isDev, isProd } = await import('./probe-helper');
+test("env-mode returns mocked values when production code calls it", async () => {
+  vi.doMock("../env-mode", () => ({
+    isDev: () => false,
+    isProd: () => true,
+  }));
+  const { isDev, isProd } = await import("../env-mode");
+  expect(isDev()).toBe(false);
+  expect(isProd()).toBe(true);
+  vi.doUnmock("../env-mode");
+});
+
+test("env-mode default mode under jsdom: isDev=true, isProd=false", async () => {
+  vi.doUnmock("../env-mode");
+  vi.resetModules();
+  const { isDev, isProd } = await import("../env-mode");
+  // Vitest defaults NODE_ENV to "test" so neither branch in env-mode
+  // returns from process.env, and import.meta.env.DEV is true under
+  // Vite's test mode.
   expect(isDev()).toBe(true);
   expect(isProd()).toBe(false);
 });

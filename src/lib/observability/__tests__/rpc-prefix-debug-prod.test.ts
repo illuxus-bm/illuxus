@@ -24,16 +24,15 @@
 //     in cleartext in devtools, even in dev.
 //
 // ─────────────────────────────────────────────────────────────────────────
-// Strategy — controlling `import.meta.env.PROD` / `import.meta.env.DEV`
+// Strategy — controlling DEV/PROD branches via env-mode mock
 // ─────────────────────────────────────────────────────────────────────────
-// `rpc.ts` reads `import.meta.env.DEV` (lazily, at every emit) and
-// `logger.ts` reads `import.meta.env.PROD` (lazily, at sink selection
-// time). Vitest's `vi.stubEnv(...)` only writes to `process.env` (see
-// `_envBooleans` in vitest's `vi` chunk), so it does NOT flip
-// `import.meta.env.PROD/DEV`. The reliable seam is direct mutation of
-// the `import.meta.env` object — Vite exposes it as a regular mutable
-// object during dev / test mode. We save the original values in
-// `beforeEach`, mutate per test, and restore in `afterEach`.
+// `rpc.ts` reads its DEV / PROD signal from `./env-mode` (delegated).
+// `logger.ts` reads its PROD signal the same way. Vite inlines
+// `import.meta.env.DEV` / `.PROD` at transform time, so runtime stubs
+// (vi.stubEnv, direct import.meta.env mutation) can't change what an
+// already-transformed module sees. By mocking the env-mode module the
+// tests inject controlled return values into the production code path
+// without touching its surface.
 //
 // Mocks:
 //   - `@/integrations/supabase/client` is mocked so the real Supabase
@@ -42,31 +41,25 @@
 //     wrapper reads the session's access_token and falls back to
 //     `apikey` when null.
 //   - `globalThis.fetch` is stubbed via `vi.stubGlobal` so the network
-//     call is intercepted. The mock returns a minimal Response-shaped
-//     object (jsdom's `Response` is not constructed here to keep the
-//     mock dependency-free).
+//     call is intercepted.
 //   - `console.debug` is spied so the test can directly observe what
 //     the Console_Sink fans out for level 'debug'.
 //
 // Module isolation:
 //   - `vi.resetModules()` in `beforeEach` ensures every test re-imports
-//     `rpc.ts` (and transitively `logger.ts`) into a fresh state. The
-//     Logger keeps module-scoped init flags and a memoized opt-out cell;
-//     resetting the module cache avoids cross-test pollution.
+//     `rpc.ts` (and transitively `logger.ts`) into a fresh state.
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
-// Hoisted mocks for `@/integrations/supabase/client`
+// Hoisted mocks
 // ---------------------------------------------------------------------------
-// `vi.mock` factories are hoisted above all imports; ordinary file-scope
-// `const`s are not yet initialised when the factory runs. `vi.hoisted`
-// hoists this object alongside the mock so both refer to the same
-// reference.
 
 const mocks = vi.hoisted(() => ({
   /** Captures every `supabase.auth.getSession()` invocation. */
   getSession: vi.fn(),
+  /** Controls what `isDev`/`isProd` return inside rpc.ts and logger.ts. */
+  envMode: { isDev: vi.fn(() => true), isProd: vi.fn(() => false) },
 }));
 
 vi.mock('@/integrations/supabase/client', () => ({
@@ -77,16 +70,12 @@ vi.mock('@/integrations/supabase/client', () => ({
   },
 }));
 
+vi.mock('../env-mode', () => mocks.envMode);
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Build a minimal Response-shape for the fetch mock. Only the fields the
- * `postRpc` helper actually reads (`status`, `ok`, `text()`) are populated;
- * passing a real `Response` instance through jsdom is slower and brings
- * no additional coverage.
- */
 function fakeResponse(
   body: unknown = { ok: true },
   init: { status?: number; ok?: boolean } = {},
@@ -101,31 +90,6 @@ function fakeResponse(
   } as unknown as Response;
 }
 
-/**
- * Snapshot + mutate `import.meta.env` so tests can flip PROD/DEV without
- * relying on `vi.stubEnv` (which only touches `process.env` — see header
- * comment for the full reasoning).
- */
-function withEnv(overrides: { DEV?: boolean; PROD?: boolean }): {
-  restore: () => void;
-} {
-  const env = (import.meta as { env: Record<string, unknown> }).env;
-  const originals: Record<string, unknown> = {};
-  for (const key of Object.keys(overrides) as Array<keyof typeof overrides>) {
-    originals[key] = env[key];
-    env[key] = overrides[key];
-  }
-  return {
-    restore() {
-      for (const key of Object.keys(originals)) {
-        env[key] = originals[key];
-      }
-    },
-  };
-}
-
-/** Call counts for `console.debug` invocations whose first arg includes the
- *  given substring (the Console_Sink prefixes every line as `[<level>] <msg>`). */
 function dispatchCalls(
   spy: ReturnType<typeof vi.spyOn>,
   substr: string,
@@ -139,17 +103,17 @@ function dispatchCalls(
 // Per-test fixture
 // ---------------------------------------------------------------------------
 
-let restoreEnv: () => void = () => {};
-
 beforeEach(() => {
   vi.resetModules();
   mocks.getSession.mockReset();
   // Default: a session-less response (the wrapper falls back to apikey).
   mocks.getSession.mockResolvedValue({ data: { session: null } });
+  // Default: dev mode, not prod. Each test overrides via mocks.envMode.
+  mocks.envMode.isDev.mockReturnValue(true);
+  mocks.envMode.isProd.mockReturnValue(false);
 });
 
 afterEach(() => {
-  restoreEnv();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -160,7 +124,8 @@ afterEach(() => {
 
 describe('supabaseRpc — DEV pre-dispatch debug (REQ 10.1, 10.5)', () => {
   test('emits debug "rpc dispatch" BEFORE the fetch fires, and redacts params', async () => {
-    ({ restore: restoreEnv } = withEnv({ DEV: true, PROD: false }));
+    mocks.envMode.isDev.mockReturnValue(true);
+    mocks.envMode.isProd.mockReturnValue(false);
 
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
 
@@ -225,8 +190,9 @@ describe('supabaseRpc — DEV pre-dispatch debug (REQ 10.1, 10.5)', () => {
 // ---------------------------------------------------------------------------
 
 describe('supabaseRpc — PROD pre-dispatch debug suppressed (REQ 10.4)', () => {
-  test('no debug "rpc dispatch" record is emitted under import.meta.env.PROD', async () => {
-    ({ restore: restoreEnv } = withEnv({ DEV: false, PROD: true }));
+  test('no debug "rpc dispatch" record is emitted under prod env-mode', async () => {
+    mocks.envMode.isDev.mockReturnValue(false);
+    mocks.envMode.isProd.mockReturnValue(true);
 
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     // Also spy on info / warn to confirm the post-dispatch records still
@@ -254,16 +220,15 @@ describe('supabaseRpc — PROD pre-dispatch debug suppressed (REQ 10.4)', () => 
 
     // REQ 10.4 — zero `rpc dispatch` debug records.
     expect(dispatchCalls(debugSpy, 'rpc dispatch')).toHaveLength(0);
-    // Belt-and-braces: zero `rpc dispatch` records at any level. The
-    // wrapper must not have routed the dispatch line to info / warn /
-    // error either.
+    // Belt-and-braces: zero `rpc dispatch` records at any level.
     expect(dispatchCalls(infoSpy, 'rpc dispatch')).toHaveLength(0);
     expect(dispatchCalls(warnSpy, 'rpc dispatch')).toHaveLength(0);
     expect(dispatchCalls(debugSpy, 'rpc resolved')).toHaveLength(0);
   });
 
   test('no debug "rpc dispatch" record is emitted even when the fetch fails under PROD', async () => {
-    ({ restore: restoreEnv } = withEnv({ DEV: false, PROD: true }));
+    mocks.envMode.isDev.mockReturnValue(false);
+    mocks.envMode.isProd.mockReturnValue(true);
 
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     // Suppress the warn that the rejection branch will produce so the
@@ -285,3 +250,4 @@ describe('supabaseRpc — PROD pre-dispatch debug suppressed (REQ 10.4)', () => 
     expect(dispatchCalls(debugSpy, 'rpc dispatch')).toHaveLength(0);
   });
 });
+

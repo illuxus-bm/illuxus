@@ -24,6 +24,7 @@
 //      neutralized with `.catch(() => {})` (REQ 4.1, 4.2)
 
 import { getCorrelationId } from './correlation';
+import { isProd as readIsProd } from './env-mode';
 import { OfflineQueue } from './offline-queue';
 import { safeRedact } from './redaction';
 import { consoleSink } from './sinks/console';
@@ -82,11 +83,9 @@ function readEnvString(key: string): string | undefined {
 }
 
 function isProd(): boolean {
-  try {
-    return (import.meta as { env?: { PROD?: boolean } }).env?.PROD === true;
-  } catch {
-    return false;
-  }
+  // Delegates to ./env-mode so tests can mock the prod-vs-dev branch
+  // without trying to override Vite's compile-time-inlined import.meta.env.
+  return readIsProd();
 }
 
 function getRoute(): string {

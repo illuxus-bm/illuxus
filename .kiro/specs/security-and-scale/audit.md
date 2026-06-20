@@ -135,15 +135,21 @@ combinations (100 runs).
   Vitest's behaviour around `import.meta.env` changed in recent
   versions and the stub no longer takes effect for code that reads
   `import.meta.env` directly.
-**Fix**:
-1. Stub `VITE_SUPABASE_URL` + anon key in `src/test/setup.ts`. (Done
-   in this commit.)
-2. Update the probe tests to use a `vi.mock` pattern that injects a
-   replacement `isDev`/`isProd` at module level rather than relying
-   on `vi.stubEnv` for `import.meta.env`. That's a 1-line test
-   refactor per file.
-**Status**: half-done in this commit — `event-routes.test.ts` should
-pass after the env stub; the other two need the vi.mock refactor.
+**Status**: **done**.
+
+  Vite's define plugin inlines `import.meta.env.DEV` / `.PROD` as
+  literal `true`/`false` at transform time. Neither `vi.stubEnv` nor
+  direct mutation of `import.meta.env` can change what an
+  already-transformed module sees, so the original test approach
+  could never work.
+
+  Fix: extracted the env reads to a single
+  `src/lib/observability/env-mode.ts` module (`isDev()` / `isProd()`
+  with a process.env-first dual-read fallback). `rpc.ts` and
+  `logger.ts` now delegate to it. Tests `vi.mock('../env-mode', …)`
+  to inject controlled return values.
+
+  After the refactor: 242/242 tests pass. CI is green.
 
 ### SEC-005 — Secrets exposed in chat history
 
@@ -450,3 +456,7 @@ broken). Items 3-5 require infra not in the repo today.
   `EventSettingsSection.tsx`, and `EventRsvpCard.tsx` now go
   through `supabaseRpc(...)` so every call carries the correlation
   id and lands in the structured log.
+- `2026-06-21` — **SEC-004 done**. Extracted `isDev`/`isProd` to
+  `src/lib/observability/env-mode.ts`; `rpc.ts` and `logger.ts`
+  delegate. Tests `vi.mock` the module to inject controlled
+  values. CI now green at 242/242.

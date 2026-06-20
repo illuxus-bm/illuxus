@@ -19,6 +19,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { runWithCorrelationId } from './correlation';
 import { logger } from './logger';
+import { isDev as readIsDev } from './env-mode';
 import type { SupabaseRpcOpts } from './sinks/types';
 
 // ---------------------------------------------------------------------------
@@ -49,11 +50,10 @@ function readEnvString(key: string): string | undefined {
 }
 
 function isDev(): boolean {
-  try {
-    return (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true;
-  } catch {
-    return false;
-  }
+  // Delegates to ./env-mode so tests can vi.mock the env-mode module
+  // and inject controlled true/false values. Vite's import.meta.env
+  // is inlined at transform time so it's not mockable in place.
+  return readIsDev();
 }
 
 /**
