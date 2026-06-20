@@ -73,8 +73,26 @@ export function AgoraWebinarStage({
     uid: tokenState.data?.uid ?? "",
     token: tokenState.data?.token ?? "",
     role: agoraRole,
+    audienceLatencyLevel: "ultra-low",
     enabled: !!tokenState.data && !!appId,
+    onTokenWillExpire: async () => {
+      // Force a fresh fetch and return the new token. useAgoraSessionToken
+      // already caches the most recent value in `tokenState.data`, but
+      // we explicitly call refresh() so the new token round-trips through
+      // the edge function and we never feed the SDK a stale token.
+      await tokenState.refresh();
+      // After refresh resolves, tokenState.data has been updated. Read
+      // it from the closure-stable ref.
+      return tokenStateRef.current?.token ?? tokenState.data?.token ?? "";
+    },
   });
+
+  // Keep the latest tokenState.data accessible to the onTokenWillExpire
+  // closure without putting tokenState in useAgoraClient's identity tuple.
+  const tokenStateRef = useRef(tokenState);
+  useEffect(() => {
+    tokenStateRef.current = tokenState;
+  }, [tokenState]);
 
   // Auto-publish for hosts the moment we're connected.
   const publishStartedRef = useRef(false);

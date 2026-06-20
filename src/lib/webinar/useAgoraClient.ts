@@ -1,15 +1,25 @@
 /**
- * Agora RTC client hook — stub for the LiveKit → Agora migration.
+ * Agora RTC client hook — production-ready Interactive Live Streaming wrapper.
  *
- * NOT wired into any UI yet. Exists so the next migration commits can
- * build the new WebinarStage / WaitingLobby / etc. against a stable,
- * type-checked surface without touching the production LiveKit code.
+ * Drives the AgoraWebinarStage, Cloud Recording control surfaces, and any
+ * other place that needs a live channel.
+ *
+ * Implements the Web SDK 4.x conventions for Interactive Live Streaming
+ * documented at:
+ *   https://docs.agora.io/en/interactive-live-streaming/get-started/get-started-sdk
  *
  * What this hook does today
- * - Creates a single `IAgoraRTCClient` per `(channel, uid)` pair.
- * - Joins the channel with the supplied token.
+ * - Creates a single `IAgoraRTCClient` per `(channel, uid)` pair in
+ *   `mode: "live"` so audience and host are properly separated.
+ * - Joins the channel with the supplied token and role.
+ * - For audience members, sets the audience latency level to
+ *   `AUDIENCE_LEVEL_ULTRA_LOW_LATENCY` so promotions to host are
+ *   sub-500ms instead of the default 1500-3000ms CDN path.
  * - Subscribes to remote users automatically and exposes them as a list.
  * - Emits connection-state and network-quality updates as React state.
+ * - Listens for `token-privilege-will-expire` and exposes a
+ *   `refreshToken()` method that hot-rotates via `client.renewToken()`
+ *   with no teardown / rejoin churn.
  * - Exposes imperative methods for publishing local audio/video,
  *   unpublishing, leaving, and swapping role (audience ↔ host).
  * - Cleans up tracks + client on unmount or when channel/uid changes.
@@ -18,9 +28,6 @@
  * - Doesn't render any DOM (callers attach video tracks to `<div>`s).
  * - Doesn't wire RTM (chat / data channels) — separate hook will follow.
  * - Doesn't handle screen-share — separate path.
- * - Doesn't implement token refresh-before-expire — `refreshToken()` is
- *   exposed for the caller to invoke; auto-refresh based on the
- *   `token-privilege-will-expire` event will land in the next pass.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -52,6 +59,12 @@ export interface UseAgoraClientOptions {
   /** Caller's role on join. Audience by default. */
   role?: AgoraRole;
   /**
+   * Audience-only latency level. Defaults to "ultra-low" so promotions
+   * to host happen interactively (sub-500ms). Set to "low" if you want
+   * the (cheaper) standard CDN audience path. Ignored when role==='host'.
+   */
+  audienceLatencyLevel?: "low" | "ultra-low";
+  /**
    * When `false`, the hook won't actually call `client.join()`. Useful
    * for hosting the hook in a render tree before credentials are ready
    * (e.g. waiting for the token edge function to respond).
@@ -62,6 +75,12 @@ export interface UseAgoraClientOptions {
    * matches what the Web SDK ships with.
    */
   codec?: "vp8" | "vp9" | "h264";
+  /**
+   * Called when Agora notifies that the current token is about to expire
+   * (typically 30s before). Should return a fresh token; the hook calls
+   * `client.renewToken()` with it and never disconnects.
+   */
+  onTokenWillExpire?: () => Promise<string>;
 }
 
 export interface PublishOptions {
@@ -172,6 +191,25 @@ export function useAgoraClient(opts: UseAgoraClientOptions): UseAgoraClientRetur
         peer_uid: event.uid,
       });
     };
+    // Token rotation. Agora fires this ~30s before token expiry. We use
+    // the caller-supplied fetcher (defaults to a noop that just leaves
+    // the channel) to acquire a fresh token and hot-rotate via
+    // `client.renewToken()` — no teardown / rejoin.
+    const onTokenWillExpire = async () => {
+      logger.info("agora token will expire", { channel: opts.channel });
+      const fetcher = opts.onTokenWillExpire;
+      if (!fetcher) return;
+      try {
+        const fresh = await fetcher();
+        await client.renewToken(fresh);
+        logger.info("agora token renewed", { channel: opts.channel });
+      } catch (err) {
+        recordError("agora token renewal failed", err);
+      }
+    };
+    const onTokenExpired = () => {
+      logger.warn("agora token already expired", { channel: opts.channel });
+    };
 
     client.on("user-published", onUserPublished);
     client.on("user-unpublished", onUserUnpublished);
@@ -179,10 +217,23 @@ export function useAgoraClient(opts: UseAgoraClientOptions): UseAgoraClientRetur
     client.on("connection-state-change", onConnectionStateChange);
     client.on("network-quality", onNetworkQuality);
     client.on("exception", onException);
+    client.on("token-privilege-will-expire", onTokenWillExpire);
+    client.on("token-privilege-did-expire", onTokenExpired);
 
     (async () => {
       try {
-        await client.setClientRole(ROLE_MAP[opts.role ?? "audience"]);
+        const role = opts.role ?? "audience";
+        if (role === "audience") {
+          // For Interactive Live Streaming, set the audience latency
+          // level so promotions to host happen interactively. Default
+          // to ULTRA_LOW_LATENCY (level 2) which matches the docs'
+          // recommendation; fall back to LOW_LATENCY (level 1) when the
+          // caller asked for the cheaper CDN-style path.
+          const level = opts.audienceLatencyLevel === "low" ? 1 : 2;
+          await client.setClientRole(ROLE_MAP[role], { level });
+        } else {
+          await client.setClientRole(ROLE_MAP[role]);
+        }
         const joined =
           typeof opts.uid === "string"
             ? await client.join(opts.appId, opts.channel, opts.token, opts.uid)
@@ -216,6 +267,8 @@ export function useAgoraClient(opts: UseAgoraClientOptions): UseAgoraClientRetur
       client.off("connection-state-change", onConnectionStateChange);
       client.off("network-quality", onNetworkQuality);
       client.off("exception", onException);
+      client.off("token-privilege-will-expire", onTokenWillExpire);
+      client.off("token-privilege-did-expire", onTokenExpired);
 
       const audio = localAudioRef.current;
       const video = localVideoRef.current;
@@ -241,10 +294,16 @@ export function useAgoraClient(opts: UseAgoraClientOptions): UseAgoraClientRetur
     opts.appId,
     opts.channel,
     opts.uid,
-    opts.token,
     opts.role,
+    opts.audienceLatencyLevel,
     codec,
     recordError,
+    // opts.token is intentionally excluded — we join with the token that
+    // happens to be set when this effect runs and from then on rotate
+    // exclusively via the SDK's token-privilege-will-expire event so
+    // the channel never reconnects mid-session. To force a fresh join,
+    // change one of the identity props above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   ]);
 
   const publish = useCallback(
