@@ -1778,3 +1778,542 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.communications          TO servic
 GRANT EXECUTE ON FUNCTION public._whatsapp_recipient_update(uuid, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.whatsapp_templates_list(uuid)                TO service_role;
 
+
+-- ============================================================================
+-- Section: 013_communications_cron_invoke.sql
+-- (Originally a separate migration; merged here for repo tidiness.
+--  Contents are verbatim — no SQL changes.)
+-- ============================================================================
+
+-- ============================================================================
+-- Make the scheduled-communications cron actually deliver
+-- ----------------------------------------------------------------------------
+-- The Phase 2 cron tick (`communications_run_scheduled`) calls
+-- `_communications_dispatch_impl` to fan a scheduled communication out to
+-- recipient rows, but it never tells the `send-communication-email` /
+-- `send-whatsapp` edge functions to ship those rows. The pending rows sit
+-- forever unless someone clicks "Send now" again from the UI.
+--
+-- This migration replaces the cron worker with a version that also POSTs to
+-- the edge functions via `pg_net.http_post`, mirroring what the frontend does
+-- on a manual send.
+--
+-- Settings storage: hosted Supabase doesn't let non-superusers run
+-- `ALTER DATABASE ... SET app.settings.*`, so we use a small `app_settings`
+-- table instead. RLS is enabled with no policies — `authenticated` and `anon`
+-- can't read it, but the cron worker runs as SECURITY DEFINER (function owner)
+-- and bypasses RLS, so it can read the values just fine.
+--
+-- One-time setup AFTER running this migration (run in SQL Editor):
+--
+--   INSERT INTO app_settings (key, value) VALUES
+--     ('supabase_url',     'https://<project_ref>.supabase.co'),
+--     ('service_role_key', '<your service_role JWT>')
+--   ON CONFLICT (key) DO UPDATE
+--     SET value = EXCLUDED.value, updated_at = now();
+-- ============================================================================
+
+-- ── 1. Ensure pg_net is available (HTTP-from-Postgres)
+CREATE EXTENSION IF NOT EXISTS pg_net;
+
+-- ── 2. Settings table (locked down via RLS, readable by SECURITY DEFINER)
+CREATE TABLE IF NOT EXISTS public.app_settings (
+  key        text PRIMARY KEY,
+  value      text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+-- Intentionally no policies — `authenticated` and `anon` cannot read this.
+-- service_role bypasses RLS implicitly. The SECURITY DEFINER cron function
+-- below also bypasses RLS by virtue of running as the function owner.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.app_settings TO service_role;
+
+-- ── 3. Drop the old worker (returns `int`) so we can replace with one that
+--      returns `jsonb`. Postgres rejects `CREATE OR REPLACE FUNCTION` if the
+--      return type changes.
+DROP FUNCTION IF EXISTS public.communications_run_scheduled();
+
+-- ── 4. Create the replacement worker
+CREATE OR REPLACE FUNCTION public.communications_run_scheduled()
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+DECLARE
+  _comm        RECORD;
+  _processed   INT := 0;
+  _failed      INT := 0;
+  _invoked     INT := 0;
+  _supabase_url text;
+  _service_key  text;
+BEGIN
+  -- Pull credentials from the locked-down settings table.
+  SELECT value INTO _supabase_url FROM public.app_settings WHERE key = 'supabase_url';
+  SELECT value INTO _service_key  FROM public.app_settings WHERE key = 'service_role_key';
+
+  FOR _comm IN
+    SELECT id, channels
+      FROM communications
+     WHERE status = 'scheduled'
+       AND scheduled_for <= now()
+     ORDER BY scheduled_for
+     LIMIT 50
+  LOOP
+    BEGIN
+      -- Fan out the recipient rows (sets the parent row to "sent" and creates
+      -- per-recipient `pending` rows that the edge functions will pick up).
+      PERFORM _communications_dispatch_impl(_comm.id);
+      _processed := _processed + 1;
+
+      -- Fire the edge functions via pg_net so the pending rows actually ship.
+      -- We POST per channel and per communication; the edge functions are
+      -- idempotent (they only pick up `pending` rows).
+      IF _supabase_url IS NOT NULL AND _service_key IS NOT NULL THEN
+        IF 'email' = ANY(_comm.channels) THEN
+          PERFORM net.http_post(
+            url     := _supabase_url || '/functions/v1/send-communication-email',
+            headers := jsonb_build_object(
+              'Authorization', 'Bearer ' || _service_key,
+              'Content-Type',  'application/json'
+            ),
+            body    := jsonb_build_object('communication_id', _comm.id)
+          );
+          _invoked := _invoked + 1;
+        END IF;
+
+        IF 'whatsapp' = ANY(_comm.channels) THEN
+          PERFORM net.http_post(
+            url     := _supabase_url || '/functions/v1/send-whatsapp',
+            headers := jsonb_build_object(
+              'Authorization', 'Bearer ' || _service_key,
+              'Content-Type',  'application/json'
+            ),
+            body    := jsonb_build_object('communication_id', _comm.id)
+          );
+          _invoked := _invoked + 1;
+        END IF;
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      _failed := _failed + 1;
+      -- Parent `communications` row has no `error_message` column — per-recipient
+      -- errors live on `communication_recipients.error_message`. Just flip the
+      -- envelope to `failed` here so the UI can surface a retry button.
+      UPDATE communications
+         SET status        = 'failed',
+             updated_at    = now()
+       WHERE id = _comm.id;
+    END;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'processed', _processed,
+    'failed',    _failed,
+    'invoked',   _invoked,
+    'has_url',   _supabase_url IS NOT NULL,
+    'has_key',   _service_key  IS NOT NULL
+  );
+END;
+$$;
+
+-- The worker is private — only the pg_cron job (running as table owner via
+-- SECURITY DEFINER) and the SQL Editor (for manual catch-up) should call it.
+REVOKE EXECUTE ON FUNCTION public.communications_run_scheduled() FROM PUBLIC, authenticated, anon;
+
+-- ── 5. Re-register the pg_cron job (idempotent)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'communications-tick') THEN
+      PERFORM cron.unschedule('communications-tick');
+    END IF;
+    PERFORM cron.schedule(
+      'communications-tick',
+      '* * * * *',
+      $cron$ SELECT public.communications_run_scheduled() $cron$
+    );
+    RAISE NOTICE 'communications-tick re-registered (runs every minute)';
+  ELSE
+    RAISE NOTICE 'pg_cron is not installed — enable it in Dashboard -> Database -> Extensions, then re-run this migration.';
+  END IF;
+END $$;
+
+-- ============================================================================
+-- Section: 014_communications_diagnostics.sql
+-- (Originally a separate migration; merged here for repo tidiness.
+--  Contents are verbatim — no SQL changes.)
+-- ============================================================================
+
+-- ============================================================================
+-- Communications scheduling diagnostics
+-- ----------------------------------------------------------------------------
+-- The cron tick from 013 caught an exception on the most recent run but
+-- swallowed the reason, leaving the comm flipped to `status='failed'` with
+-- no clue why. This migration:
+--
+--   1. Adds a `last_error` column on `communications` so failures persist
+--      a human-readable reason that the UI can surface.
+--   2. Replaces `communications_run_scheduled()` so its EXCEPTION handler
+--      writes SQLERRM into `last_error` instead of dropping it.
+--   3. Adds a `communications_diagnose(_id)` RPC that runs the dispatch
+--      pipeline against ONE communication and returns the result/error
+--      directly, so an organiser can ask "why didn't this send?" from SQL
+--      Editor without trawling postgres logs.
+--
+-- Apply this AFTER 013 has been applied. Safe to re-run.
+-- ============================================================================
+
+-- ── 1. Persistent error column on the parent envelope.
+ALTER TABLE public.communications
+  ADD COLUMN IF NOT EXISTS last_error text;
+
+-- ── 2. Replace the cron worker so failures are captured properly.
+DROP FUNCTION IF EXISTS public.communications_run_scheduled();
+
+CREATE OR REPLACE FUNCTION public.communications_run_scheduled()
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+DECLARE
+  _comm        RECORD;
+  _processed   INT := 0;
+  _failed      INT := 0;
+  _invoked     INT := 0;
+  _last_error  text;
+  _supabase_url text;
+  _service_key  text;
+BEGIN
+  SELECT value INTO _supabase_url FROM public.app_settings WHERE key = 'supabase_url';
+  SELECT value INTO _service_key  FROM public.app_settings WHERE key = 'service_role_key';
+
+  FOR _comm IN
+    SELECT id, channels
+      FROM communications
+     WHERE status = 'scheduled'
+       AND scheduled_for <= now()
+     ORDER BY scheduled_for
+     LIMIT 50
+  LOOP
+    BEGIN
+      PERFORM _communications_dispatch_impl(_comm.id);
+      _processed := _processed + 1;
+
+      IF _supabase_url IS NOT NULL AND _service_key IS NOT NULL THEN
+        IF 'email' = ANY(_comm.channels) THEN
+          PERFORM net.http_post(
+            url     := _supabase_url || '/functions/v1/send-communication-email',
+            headers := jsonb_build_object(
+              'Authorization', 'Bearer ' || _service_key,
+              'Content-Type',  'application/json'
+            ),
+            body    := jsonb_build_object('communication_id', _comm.id)
+          );
+          _invoked := _invoked + 1;
+        END IF;
+
+        IF 'whatsapp' = ANY(_comm.channels) THEN
+          PERFORM net.http_post(
+            url     := _supabase_url || '/functions/v1/send-whatsapp',
+            headers := jsonb_build_object(
+              'Authorization', 'Bearer ' || _service_key,
+              'Content-Type',  'application/json'
+            ),
+            body    := jsonb_build_object('communication_id', _comm.id)
+          );
+          _invoked := _invoked + 1;
+        END IF;
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      _failed := _failed + 1;
+      _last_error := SQLERRM;
+      UPDATE communications
+         SET status     = 'failed',
+             last_error = LEFT(SQLERRM, 1000),
+             updated_at = now()
+       WHERE id = _comm.id;
+      -- Also raise as a postgres LOG so it shows up in cron.job_run_details.
+      RAISE LOG 'communications_run_scheduled failed for %: %', _comm.id, SQLERRM;
+    END;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'processed',   _processed,
+    'failed',      _failed,
+    'invoked',     _invoked,
+    'has_url',     _supabase_url IS NOT NULL,
+    'has_key',     _service_key  IS NOT NULL,
+    'last_error',  _last_error
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.communications_run_scheduled() FROM PUBLIC, authenticated, anon;
+
+-- ── 3. Diagnostic RPC — run dispatch on a single comm and return the result
+--      or the error verbatim. Usable from SQL Editor for self-troubleshooting.
+CREATE OR REPLACE FUNCTION public.communications_diagnose(_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+DECLARE
+  _row        RECORD;
+  _result     jsonb;
+  _err        text;
+  _err_state  text;
+BEGIN
+  SELECT id, status, channels, recipient_filter, event_id, community_id,
+         scheduled_for, sent_at, last_error
+    INTO _row
+    FROM communications
+   WHERE id = _id;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('error', 'communication not found', 'id', _id);
+  END IF;
+
+  BEGIN
+    _result := _communications_dispatch_impl(_id);
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS _err_state = RETURNED_SQLSTATE;
+    _err := SQLERRM;
+    UPDATE communications
+       SET status = 'failed', last_error = LEFT(_err, 1000), updated_at = now()
+     WHERE id = _id;
+    RETURN jsonb_build_object(
+      'ok',         false,
+      'id',         _id,
+      'sqlstate',   _err_state,
+      'error',      _err,
+      'comm_state', to_jsonb(_row)
+    );
+  END;
+
+  RETURN jsonb_build_object(
+    'ok',         true,
+    'id',         _id,
+    'dispatch',   _result,
+    'comm_state', to_jsonb(_row)
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.communications_diagnose(uuid) TO authenticated, service_role;
+
+-- ── 4. Re-register the cron job (idempotent) so the new function body is in use.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'communications-tick') THEN
+      PERFORM cron.unschedule('communications-tick');
+    END IF;
+    PERFORM cron.schedule(
+      'communications-tick',
+      '* * * * *',
+      $cron$ SELECT public.communications_run_scheduled() $cron$
+    );
+  END IF;
+END $$;
+
+-- ============================================================================
+-- Section: 015_communications_resolver_cron_auth.sql
+-- (Originally a separate migration; merged here for repo tidiness.
+--  Contents are verbatim — no SQL changes.)
+-- ============================================================================
+
+-- ============================================================================
+-- Allow cron / service-role context to read communications recipients
+-- ----------------------------------------------------------------------------
+-- The recipient resolvers (`communications_resolve_recipients` and
+-- `communications_resolve_community_recipients`) reject the caller when the
+-- caller is not an org member / community moderator. The check is correct for
+-- the front-end (RLS-equivalent guard) but it fails when the cron worker
+-- runs the resolver headlessly: pg_cron has no auth context, so `auth.uid()`
+-- is NULL, the org-membership EXISTS clause returns false, and the function
+-- raises `Not authorised to read recipients for this event`.
+--
+-- This migration relaxes both auth checks so they run only when there's an
+-- actual authenticated user. For headless callers (cron, service_role JWT
+-- via the edge functions), the check is skipped — those callers already pass
+-- the table-level GRANT-to-service_role gate, which is the appropriate
+-- privilege boundary for them.
+--
+-- The query bodies themselves are unchanged from the latest definitions in
+-- 007_communications.sql; only the IF-block at the top of each function is
+-- patched.
+-- ============================================================================
+
+-- ── Event resolver ──────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.communications_resolve_recipients(
+  _event_id uuid,
+  _filter   jsonb
+) RETURNS TABLE (
+  user_id uuid,
+  name    text,
+  email   text,
+  phone   text
+) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+#variable_conflict use_column
+DECLARE
+  _types     text[];
+  _user_ids  uuid[];
+BEGIN
+  _types := COALESCE(
+    ARRAY(SELECT jsonb_array_elements_text(COALESCE(_filter -> 'types', '[]'::jsonb))),
+    ARRAY[]::text[]
+  );
+  _user_ids := COALESCE(
+    ARRAY(SELECT (jsonb_array_elements_text(COALESCE(_filter -> 'user_ids', '[]'::jsonb)))::uuid),
+    ARRAY[]::uuid[]
+  );
+
+  -- Authorisation: only enforced when an actual user is calling. Headless
+  -- callers (pg_cron worker, service_role JWT from edge functions) get past
+  -- the table-level GRANT and bypass this check.
+  IF auth.uid() IS NOT NULL AND _event_id IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1
+        FROM events e
+        JOIN org_members om ON om.org_id = e.org_id
+       WHERE e.id = _event_id AND om.user_id = auth.uid()
+    ) AND NOT has_role(auth.uid(), 'admin'::app_role) THEN
+      RAISE EXCEPTION 'Not authorised to read recipients for this event';
+    END IF;
+  END IF;
+
+  RETURN QUERY
+  WITH base AS (
+    SELECT r.user_id,
+           COALESCE(NULLIF(trim(coalesce(r.first_name,'') || ' ' || coalesce(r.last_name,'')), ''),
+                    r.name, split_part(r.email,'@',1)) AS name,
+           lower(r.email) AS email,
+           NULLIF(trim(coalesce(r.mobile_country_code,'') || ' ' || coalesce(r.mobile_number,'')), '') AS phone,
+           COALESCE(r.attendance_state, 'never') AS attendance_state,
+           COALESCE(r.amount_paid, 0)::numeric AS amount_paid
+      FROM registrations r
+     WHERE r.event_id = _event_id
+       AND r.status <> 'cancelled'
+       AND COALESCE(r.approval_status, 'approved') NOT IN ('declined','waitlisted')
+  ),
+  speakers_set AS (
+    SELECT s.user_id,
+           COALESCE(NULLIF(trim(coalesce(s.name,'')), ''), split_part(s.email,'@',1)) AS name,
+           lower(s.email) AS email,
+           NULL::text AS phone
+      FROM event_speakers es
+      JOIN speakers s ON s.id = es.speaker_id
+     WHERE es.event_id = _event_id AND s.email IS NOT NULL
+  ),
+  sponsors_set AS (
+    SELECT NULL::uuid AS user_id,
+           COALESCE(NULLIF(trim(coalesce(s.name,'')), ''),
+                    split_part(s.email,'@',1)) AS name,
+           lower(s.email) AS email,
+           NULL::text AS phone
+      FROM event_sponsors es
+      JOIN sponsors s ON s.id = es.sponsor_id
+     WHERE es.event_id = _event_id AND s.email IS NOT NULL
+  ),
+  filtered_attendees AS (
+    SELECT b.user_id, b.name, b.email, b.phone
+      FROM base b
+     WHERE
+       (
+         'all_attendees' = ANY(_types)
+       )
+       OR (
+         'checked_in' = ANY(_types) AND b.attendance_state IN ('inside','outside')
+       )
+       OR (
+         'paid' = ANY(_types) AND b.amount_paid > 0
+       )
+  ),
+  custom_set AS (
+    SELECT b.user_id, b.name, b.email, b.phone
+      FROM base b
+     WHERE 'custom' = ANY(_types) AND b.user_id = ANY(_user_ids)
+  ),
+  all_recipients AS (
+    SELECT user_id, name, email, phone FROM filtered_attendees
+    UNION
+    SELECT user_id, name, email, phone FROM custom_set
+    UNION ALL
+    SELECT user_id, name, email, phone FROM speakers_set
+     WHERE 'speakers' = ANY(_types)
+    UNION ALL
+    SELECT user_id, name, email, phone FROM sponsors_set
+     WHERE 'sponsors' = ANY(_types)
+  )
+  SELECT DISTINCT ON (lower(coalesce(ar.email,'')))
+         ar.user_id, ar.name, ar.email, ar.phone
+    FROM all_recipients ar
+   WHERE ar.email IS NOT NULL AND ar.email <> ''
+   ORDER BY lower(coalesce(ar.email,'')), ar.user_id NULLS LAST;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.communications_resolve_recipients(uuid, jsonb) TO authenticated, service_role;
+
+-- ── Community resolver ─────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.communications_resolve_community_recipients(
+  _community_id uuid,
+  _filter       jsonb
+) RETURNS TABLE (
+  user_id uuid,
+  name    text,
+  email   text,
+  phone   text
+) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+#variable_conflict use_column
+DECLARE
+  _types     text[];
+  _user_ids  uuid[];
+BEGIN
+  _types := COALESCE(
+    ARRAY(SELECT jsonb_array_elements_text(COALESCE(_filter -> 'types', '[]'::jsonb))),
+    ARRAY[]::text[]
+  );
+  _user_ids := COALESCE(
+    ARRAY(SELECT (jsonb_array_elements_text(COALESCE(_filter -> 'user_ids', '[]'::jsonb)))::uuid),
+    ARRAY[]::uuid[]
+  );
+
+  -- Authorisation: only enforced when an actual user is calling. See the
+  -- event resolver above for the rationale.
+  IF auth.uid() IS NOT NULL AND NOT can_moderate_community(auth.uid(), _community_id) THEN
+    RAISE EXCEPTION 'Not authorised to read community members';
+  END IF;
+
+  RETURN QUERY
+  WITH base AS (
+    SELECT cm.user_id,
+           cm.role,
+           COALESCE(
+             NULLIF(trim(coalesce(p.first_name,'') || ' ' || coalesce(p.last_name,'')), ''),
+             p.display_name,
+             p.username,
+             split_part(u.email,'@',1)
+           ) AS name,
+           lower(u.email) AS email,
+           NULLIF(trim(coalesce(p.mobile_country_code,'') || ' ' || coalesce(p.mobile_number,'')), '') AS phone
+      FROM community_members cm
+      JOIN auth.users u ON u.id = cm.user_id
+      LEFT JOIN profiles p ON p.user_id = cm.user_id
+     WHERE cm.community_id = _community_id
+       AND cm.status = 'active'
+  ),
+  filtered AS (
+    SELECT b.user_id, b.name, b.email, b.phone, b.role
+      FROM base b
+     WHERE
+       'all_members' = ANY(_types)
+       OR ('managers'   = ANY(_types) AND b.role = 'manager'::community_role)
+       OR ('moderators' = ANY(_types) AND b.role = 'moderator'::community_role)
+       OR ('organizers' = ANY(_types) AND b.role = 'organizer'::community_role)
+       OR ('mentors'    = ANY(_types) AND b.role = 'mentor'::community_role)
+       OR ('speakers'   = ANY(_types) AND b.role = 'speaker'::community_role)
+       OR ('sponsors'   = ANY(_types) AND b.role = 'sponsor'::community_role)
+       OR ('custom'     = ANY(_types) AND b.user_id = ANY(_user_ids))
+  )
+  SELECT DISTINCT ON (lower(coalesce(f.email,'')))
+         f.user_id, f.name, f.email, f.phone
+    FROM filtered f
+   WHERE f.email IS NOT NULL AND f.email <> ''
+   ORDER BY lower(coalesce(f.email,'')), f.user_id NULLS LAST;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.communications_resolve_community_recipients(uuid, jsonb) TO authenticated, service_role;
