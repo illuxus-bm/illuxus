@@ -36,10 +36,7 @@ const manageItems = [
   { title: "Landing Page", url: "/dashboard/landing-builder", icon: Layout    },
 ];
 
-const portalItems = [
-  { title: "Sponsor dashboard", url: "/sponsor", icon: Building2 },
-  { title: "Speaker dashboard", url: "/speaker", icon: Mic       },
-];
+
 
 const bottomItems = [
   { title: "Billing",  url: "/dashboard/billing",  icon: CreditCard },
@@ -138,16 +135,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarSeparator className="my-2 mx-3" />
 
-        <SidebarGroup className="py-0">
-          <SidebarGroupLabel className="h-6 text-[10px] uppercase tracking-widest text-muted-foreground/60 font-bold px-3 mb-1">
-            {!collapsed && "Portals"}
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-1 px-1">{renderItems(portalItems)}</SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
 
         {isAdmin && (
           <>
