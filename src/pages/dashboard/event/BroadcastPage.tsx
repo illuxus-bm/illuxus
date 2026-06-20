@@ -158,23 +158,35 @@ export default function BroadcastPage() {
         .in("status", ["ended", "error"]);
     }
 
-    // Try the edge function first (creates a real LiveKit room).
-    let edgeFnWorked = false;
-    try {
-      const { data, error } = await supabase.functions.invoke("livekit-room-create", { body: { event_id: eventId, record_enabled: false } });
-      if (!error && data?.session) {
-        setSession(data.session);
-        toast.success("Stream room ready");
-        edgeFnWorked = true;
+    // Resolve which provider this event uses (per-event override > platform
+    // default > 'livekit'). Agora doesn't need a room-create edge function —
+    // tokens are minted on-demand by `agora-token` at stage-mount time. So
+    // for Agora we skip the LiveKit edge function entirely and just insert
+    // the session row.
+    const provider: WebinarProvider = getWebinarProvider({
+      eventOverride: (event as { video_provider?: string | null } | null)?.video_provider ?? null,
+    }).provider;
+
+    if (provider === "livekit") {
+      // LiveKit path: try the edge function first (creates a real LiveKit room).
+      let edgeFnWorked = false;
+      try {
+        const { data, error } = await supabase.functions.invoke("livekit-room-create", { body: { event_id: eventId, record_enabled: false } });
+        if (!error && data?.session) {
+          setSession(data.session);
+          toast.success("Stream room ready");
+          edgeFnWorked = true;
+        }
+      } catch {
+        // Edge function not available — fall through to fallback
       }
-    } catch {
-      // Edge function not available — fall through to fallback
+
+      if (edgeFnWorked) return;
     }
 
-    if (edgeFnWorked) return;
-
-    // Fallback: if the edge function is unavailable (no LiveKit keys configured),
-    // create the session row directly so the UI still works for testing.
+    // Provider is Agora, OR LiveKit edge function is unavailable. Create the
+    // session row directly. For Agora this is the normal happy path; for
+    // LiveKit it's a fallback for environments without LiveKit secrets.
     const room = `event-${(eventId || "").slice(0, 8)}-${Date.now().toString(36)}`;
     const { data: fallbackSession, error: dbErr } = await supabase
       .from("webinar_sessions")
@@ -194,7 +206,12 @@ export default function BroadcastPage() {
     }
 
     setSession(fallbackSession);
-    toast.warning("Session created (LiveKit not configured — streaming won't work until you add LiveKit secrets in Supabase)");
+
+    if (provider === "agora") {
+      toast.success("Webinar created — ready to go live via Agora");
+    } else {
+      toast.warning("Session created (LiveKit not configured — streaming won't work until you add LiveKit secrets in Supabase)");
+    }
   };
 
   // Restart an ended session — resets status to "scheduled" so the host
