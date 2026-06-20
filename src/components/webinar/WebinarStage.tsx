@@ -11,14 +11,23 @@ import {
   CarouselLayout,
 } from "@livekit/components-react";
 import { Track, VideoPresets, DisconnectReason } from "livekit-client";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { StageOverlays, type Branding } from "./StageOverlays";
 import { AirmeetControlBar } from "./AirmeetControlBar";
 import { setSessionParticipants, type SidebarParticipant } from "./participantStore";
+import type { WebinarProvider } from "@/lib/webinar/provider";
+
+const AgoraWebinarStageLazy = lazy(() =>
+  import("./AgoraWebinarStage").then((m) => ({ default: m.AgoraWebinarStage })),
+);
 
 type Props = {
-  token: string;
-  wsUrl: string;
+  /** Live video provider; defaults to 'livekit'. */
+  provider?: WebinarProvider;
+  /** LiveKit-specific — required when provider==='livekit'. */
+  token?: string;
+  /** LiveKit-specific — required when provider==='livekit'. */
+  wsUrl?: string;
   canPublish: boolean;
   onDisconnect?: () => void;
   layout?: "grid" | "speaker" | "sidebyside" | "pip";
@@ -36,12 +45,52 @@ type Props = {
   micDeviceId?: string;
 };
 
-function WebinarStageImpl({
+function WebinarStageImpl(props: Props) {
+  if (props.provider === "agora") {
+    if (!props.sessionId || !props.userId) {
+      return (
+        <div className="flex items-center justify-center h-full text-white/70 text-sm">
+          Missing session or user id for Agora studio.
+        </div>
+      );
+    }
+    return (
+      <Suspense fallback={
+        <div className="flex items-center justify-center h-full text-white/70 text-sm">
+          Loading Agora studio…
+        </div>
+      }>
+        <AgoraWebinarStageLazy
+          sessionId={props.sessionId}
+          userId={props.userId}
+          isHost={!!props.isHost}
+          canPublish={props.canPublish}
+          onDisconnect={props.onDisconnect}
+          eventBannerUrl={props.eventBannerUrl}
+          eventTitle={props.eventTitle}
+        />
+      </Suspense>
+    );
+  }
+  return <LiveKitWebinarStage {...props} />;
+}
+
+function LiveKitWebinarStage({
   token, wsUrl, canPublish, onDisconnect, layout = "grid",
   branding, brandingEnabled = true, sessionId, userId, isHost,
   eventBannerUrl, eventTitle,
   micEnabled = true, camEnabled = true, camDeviceId, micDeviceId,
 }: Props) {
+  // Both required for the LiveKit branch — caller has not finished the
+  // token fetch yet. Render a tiny placeholder; the parent already shows
+  // its own connecting state in most flows.
+  if (!token || !wsUrl) {
+    return (
+      <div className="flex items-center justify-center h-full text-white/70 text-sm">
+        Connecting to studio…
+      </div>
+    );
+  }
   // Only treat *intentional* disconnects as "leave the stage". Transient
   // disconnects fire during screen-share negotiation, tab switches, network
   // blips, and page suspensions — the SDK reconnects automatically and we

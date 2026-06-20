@@ -33,6 +33,7 @@ interface EventForm {
   org_id: string | null;
   create_community: boolean;
   community_category: string;
+  video_provider: "default" | "livekit" | "agora";
 }
 
 function toLocalInput(v: string | null): string {
@@ -83,6 +84,10 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
         org_id: (data as { org_id?: string | null }).org_id ?? null,
         create_community: (data as { create_community?: boolean | null }).create_community ?? true,
         community_category: (data as { community_category?: string | null }).community_category ?? "other",
+        video_provider:
+          ((data as { video_provider?: "livekit" | "agora" | null }).video_provider ?? null) === null
+            ? "default"
+            : ((data as { video_provider: "livekit" | "agora" }).video_provider),
       });
       setLoading(false);
     })();
@@ -175,6 +180,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
       previous_event_id: form.previous_event_id,
       create_community: form.create_community,
       community_category: form.create_community ? form.community_category : null,
+      video_provider: form.video_provider === "default" ? null : form.video_provider,
     };
 
     // Core-only payload — safe for schemas that haven't had migrations 008/009 applied yet.
@@ -475,6 +481,36 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
             )}
           </div>
         )}
+
+        {/* Live video provider — per-event override. NULL means "use the
+            platform default" (VITE_WEBINAR_PROVIDER, falling back to
+            'livekit'). Defaults to "default" so existing events keep
+            using LiveKit until the organizer explicitly flips them. */}
+        <div className="rounded-md border border-border p-3 space-y-2">
+          <div>
+            <p className="text-[13px] font-medium">Live video provider</p>
+            <p className="text-[12px] text-muted-foreground">
+              Pick the streaming backend used by this event's webinar
+              studio. Use “Platform default” unless you're testing the
+              Agora migration on a single event.
+            </p>
+          </div>
+          <Select
+            value={form.video_provider}
+            onValueChange={(v) =>
+              update("video_provider", v as EventForm["video_provider"])
+            }
+          >
+            <SelectTrigger className="h-9 text-[13px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">Platform default</SelectItem>
+              <SelectItem value="livekit">LiveKit</SelectItem>
+              <SelectItem value="agora">Agora</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         {/* Live ticket total preview — recomputes on every keystroke. */}
         <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">

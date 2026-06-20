@@ -10,6 +10,7 @@ import { FullPageLoader } from "@/components/FullPageLoader";
 import { useSessionBranding } from "@/components/webinar/StageOverlays";
 import { WaitingLobby } from "@/components/webinar/WaitingLobby";
 import { uuid } from "@/lib/uuid";
+import { getWebinarProvider, type WebinarProvider } from "@/lib/webinar/provider";
 
 const WebinarStage = lazy(() =>
   import("@/components/webinar/WebinarStage").then((m) => ({ default: m.WebinarStage })),
@@ -53,7 +54,11 @@ export default function EventLivePage() {
   const [brandingEnabled, setBrandingEnabled] = useState(true);
   const [visitorName, setVisitorName] = useState<string | null>(null);
   const [visitorRole, setVisitorRole] = useState<"speaker" | "attendee" | "guest" | "host">("guest");
-  const [eventMeta, setEventMeta] = useState<{ title: string | null; banner: string | null }>({ title: null, banner: null });
+  const [eventMeta, setEventMeta] = useState<{
+    title: string | null;
+    banner: string | null;
+    videoProvider: string | null;
+  }>({ title: null, banner: null, videoProvider: null });
   const branding = useSessionBranding(session?.id);
 
   // Stable, low-entropy device fingerprint used as a server-side fallback when
@@ -85,10 +90,14 @@ export default function EventLivePage() {
     (async () => {
       const { data } = await supabase
         .from("events")
-        .select("title, banner_landscape_url")
+        .select("title, banner_landscape_url, video_provider")
         .eq("id", eventId)
         .maybeSingle();
-      if (data) setEventMeta({ title: data.title ?? null, banner: data.banner_landscape_url ?? null });
+      if (data) setEventMeta({
+        title: data.title ?? null,
+        banner: data.banner_landscape_url ?? null,
+        videoProvider: (data as { video_provider?: string | null }).video_provider ?? null,
+      });
     })();
   }, [eventId]);
 
@@ -179,6 +188,19 @@ export default function EventLivePage() {
   }, [registrationId, browserSessionId]);
 
   const handleJoinClick = async () => {
+    const provider: WebinarProvider = getWebinarProvider({
+      eventOverride: eventMeta.videoProvider,
+    }).provider;
+    if (provider === "agora") {
+      // Agora path: AgoraWebinarStage fetches its own RTC token from the
+      // agora-token edge function. We just need to flip the stage on with
+      // a placeholder ws/token so the existing render gating opens.
+      const canPub = !!speakerToken;
+      setWsUrl("agora");
+      setCanPublish(canPub);
+      setToken("agora");
+      return;
+    }
     // Pre-fetch token to know if we can publish, then show prejoin
     const data = await requestToken();
     if (!data) return;
@@ -256,6 +278,9 @@ export default function EventLivePage() {
     const stageEl = (
       <Suspense fallback={<FullPageLoader label="Connecting…" />}>
         <WebinarStage
+          provider={getWebinarProvider({
+            eventOverride: eventMeta.videoProvider,
+          }).provider}
           token={token}
           wsUrl={wsUrl!}
           canPublish={canPublish}
