@@ -51,7 +51,7 @@ export default function CommunityHubPage() {
         { slug: 'hub-health', name: 'Health', kind: 'parent', category: 'health', visibility: 'public', created_by: user.user.id }
       ];
       
-      const { error } = await supabase.from('communities').insert(hubsToCreate);
+      const { error } = await supabase.from('communities' as any).insert(hubsToCreate);
       if (error) throw error;
       
       toast({ title: "Hubs initialized!" });
@@ -90,42 +90,6 @@ export default function CommunityHubPage() {
                   <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={seedHubs} disabled={seeding}>
                     {seeding ? "Initializing..." : "Initialize Default Hubs"}
                   </Button>
-                  <div className="space-y-4 rounded-xl border border-border bg-background p-4 text-left w-full">
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center justify-between">
-                        <div className="min-w-0">
-                          <p className="text-[13px] font-medium">Create Event Community</p>
-                          <p className="text-[12px] text-muted-foreground">Give attendees a space to discuss this event.</p>
-                        </div>
-                        <Switch checked={createCommunity} onCheckedChange={setCreateCommunity} />
-                      </div>
-                      {createCommunity && (
-                        <div className="pt-2 border-t border-border">
-                          <Label className="text-[12px]">Community Category</Label>
-                          <Select value={communityCategory} onValueChange={setCommunityCategory}>
-                            <SelectTrigger className="h-9 mt-1 text-[13px] w-full">
-                              <SelectValue placeholder="Select a category hub" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="tech">Tech</SelectItem>
-                              <SelectItem value="ai">AI</SelectItem>
-                              <SelectItem value="startup">Startup</SelectItem>
-                              <SelectItem value="hackathon">Hackathon</SelectItem>
-                              <SelectItem value="cybersecurity">Cybersecurity</SelectItem>
-                              <SelectItem value="finance">Finance</SelectItem>
-                              <SelectItem value="education">Education</SelectItem>
-                              <SelectItem value="design">Design</SelectItem>
-                              <SelectItem value="marketing">Marketing</SelectItem>
-                              <SelectItem value="health">Health</SelectItem>
-                              <SelectItem value="sustainability">Sustainability</SelectItem>
-                              <SelectItem value="other">Other / General</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <p className="text-[11px] text-muted-foreground mt-1">Your event community will be linked to this industry hub.</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
                 </div>
             ) : (
               <div className="flex gap-3 overflow-x-auto pb-5 pt-1 px-1 -mx-1 snap-x no-scrollbar">

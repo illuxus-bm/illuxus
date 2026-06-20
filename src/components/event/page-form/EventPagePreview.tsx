@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { format, isSameDay } from "date-fns";
 import { Link } from "react-router-dom";
 import { MapPin, Calendar, Clock } from "lucide-react";
@@ -13,8 +14,7 @@ import { surfaceTokens } from "@/lib/theme-contrast";
  * Replaces the previous Lu.ma-inspired split layout with a full-bleed
  * cinematic banner, oversized display headline, and an asymmetric
  * content + sticky meta rail beneath. Respects the user's theme colors
- * but locks typography to Space Grotesk (display) + DM Sans (body) and
- * JetBrains Mono (labels) for a distinct brand identity.
+ * and applies their selected typography.
  */
 
 interface AttendeeSample { name: string | null; avatar_url: string | null }
@@ -34,8 +34,8 @@ interface Props {
 
 const initial = (n?: string | null) => (n || "?").trim().charAt(0).toUpperCase();
 
-const DISPLAY = `"Space Grotesk", ui-sans-serif, system-ui, sans-serif`;
-const BODY = `"DM Sans", ui-sans-serif, system-ui, sans-serif`;
+const DISPLAY = `var(--font-display, inherit)`;
+const BODY = `var(--font-body, inherit)`;
 const MONO = `"JetBrains Mono", ui-monospace, SFMono-Regular, monospace`;
 
 export default function EventPagePreview({
@@ -43,6 +43,25 @@ export default function EventPagePreview({
   org = null, going = { count: 0, sample: [] },
   previewMode = false, darkMode = false, registrationSlot,
 }: Props) {
+  const selectedFont = config.theme.fontFamily || "Inter";
+
+  // Load Google Font dynamically when the theme fontFamily changes
+  useEffect(() => {
+    if (!config.theme.fontFamily) return;
+    const fontName = config.theme.fontFamily.trim();
+    const systemFonts = ["sans-serif", "serif", "monospace", "Arial", "Helvetica", "Times New Roman", "Courier New", "Inter"];
+    if (systemFonts.includes(fontName)) return;
+
+    const linkId = `google-font-${fontName.replace(/\s+/g, "-").toLowerCase()}`;
+    if (document.getElementById(linkId)) return;
+
+    const link = document.createElement("link");
+    link.id = linkId;
+    link.rel = "stylesheet";
+    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@400;500;600;700;800&display=swap`;
+    document.head.appendChild(link);
+  }, [config.theme.fontFamily]);
+
   const startDate = new Date(event.date);
   const endDate = event.end_date ? new Date(event.end_date) : null;
   const accent = config.theme.primaryColor;
@@ -71,7 +90,13 @@ export default function EventPagePreview({
   return (
     <div
       className="min-h-full w-full max-w-full overflow-x-hidden"
-      style={{ backgroundColor: bg, color: text, fontFamily: BODY }}
+      style={{
+        backgroundColor: bg,
+        color: text,
+        fontFamily: BODY,
+        ["--font-display" as any]: `"${selectedFont}", ui-sans-serif, system-ui, sans-serif`,
+        ["--font-body" as any]: `"${selectedFont}", ui-sans-serif, system-ui, sans-serif`,
+      }}
     >
       {/* ───────── Cinematic banner (only when an image is uploaded AND hero is enabled) ───────── */}
       {hasImage && showHero && (

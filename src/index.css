@@ -153,12 +153,7 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Force Poppins everywhere — modals, toasts, tables, markdown, form controls,
-     code/pre blocks, and any element that would otherwise fall back to the
-     browser default (form controls in particular reset font-family). */
-  *,
-  *::before,
-  *::after,
+  body,
   input,
   textarea,
   select,
@@ -170,7 +165,7 @@
   pre,
   tt,
   var {
-    font-family: 'Poppins', system-ui, -apple-system, sans-serif !important;
+    font-family: 'Poppins', system-ui, -apple-system, sans-serif;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -284,7 +279,7 @@
   .font-mono,
   .font-sans,
   .font-serif {
-    font-family: 'Poppins', system-ui, -apple-system, sans-serif !important;
+    font-family: 'Poppins', system-ui, -apple-system, sans-serif;
   }
 
   /* Poppins descenders clip when line-height is exactly 1. Soften

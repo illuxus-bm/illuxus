@@ -44,18 +44,6 @@ const FONT_OPTIONS = [
   "Manrope", "Outfit", "Urbanist",
 ];
 
-// Maps font names to their Google Fonts family query string.
-const FONT_IMPORT_MAP: Record<string, string> = {
-  "Inter":              "Inter:wght@400;500;600;700",
-  "DM Sans":            "DM+Sans:wght@400;500;600;700",
-  "Space Grotesk":      "Space+Grotesk:wght@400;500;600;700",
-  "Sora":               "Sora:wght@400;500;600;700",
-  "Plus Jakarta Sans":  "Plus+Jakarta+Sans:wght@400;500;600;700",
-  "Manrope":            "Manrope:wght@400;500;600;700",
-  "Outfit":             "Outfit:wght@400;500;600;700",
-  "Urbanist":           "Urbanist:wght@400;500;600;700",
-};
-
 const THEME_PRESETS: { name: string; theme: Partial<ThemeConfig> }[] = [
   { name: "Light",    theme: { primaryColor: "#0f172a", accentColor: "#6366f1", backgroundColor: "#ffffff", textColor: "#0f172a" } },
   { name: "Cream",    theme: { primaryColor: "#1f1300", accentColor: "#d97706", backgroundColor: "#fbf7f0", textColor: "#1f1300" } },
@@ -106,18 +94,22 @@ export default function OrgPageForm() {
   const [embedFilter, setEmbedFilter] = useState<"upcoming" | "past" | "all">("upcoming");
   const [view, setView] = useState<"edit" | "preview">("edit");
 
-  // Pre-load all available Google Fonts once so switching is instant
-  // and the preview reflects the correct typeface without a network delay.
+  // Load Google Font dynamically when the theme fontFamily changes
   useEffect(() => {
-    const families = Object.values(FONT_IMPORT_MAP).map(q => `family=${q}`).join("&");
-    const id = "gfont-orgform-all";
-    if (document.getElementById(id)) return;
+    if (!state.theme.fontFamily) return;
+    const fontName = state.theme.fontFamily.trim();
+    const systemFonts = ["sans-serif", "serif", "monospace", "Arial", "Helvetica", "Times New Roman", "Courier New", "Inter"];
+    if (systemFonts.includes(fontName)) return;
+
+    const linkId = `google-font-${fontName.replace(/\s+/g, "-").toLowerCase()}`;
+    if (document.getElementById(linkId)) return;
+
     const link = document.createElement("link");
-    link.id = id;
+    link.id = linkId;
     link.rel = "stylesheet";
-    link.href = `https://fonts.googleapis.com/css2?${families}&display=swap`;
+    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@400;500;600;700;800&display=swap`;
     document.head.appendChild(link);
-  }, []);
+  }, [state.theme.fontFamily]);
 
   useEffect(() => {
     if (!org) return;
@@ -544,24 +536,6 @@ function ProfilePreview({
   org: { name: string; logo_url?: string | null; slug: string };
 }) {
   const { theme } = state;
-
-  // Dynamically load the selected Google Font so the preview reflects the
-  // real typeface. Without this the browser falls back to system sans-serif
-  // regardless of the fontFamily value.
-  useEffect(() => {
-    const family = theme.fontFamily;
-    const query = FONT_IMPORT_MAP[family];
-    if (!query) return;
-
-    const id = `gfont-preview-${family.replace(/\s+/g, "-")}`;
-    if (document.getElementById(id)) return; // already injected
-
-    const link = document.createElement("link");
-    link.id = id;
-    link.rel = "stylesheet";
-    link.href = `https://fonts.googleapis.com/css2?family=${query}&display=swap`;
-    document.head.appendChild(link);
-  }, [theme.fontFamily]);
   return (
     <div
       style={{

@@ -89,6 +89,24 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
     return () => window.clearInterval(id);
   }, []);
 
+  // Load Google Font dynamically when the organization config loads
+  useEffect(() => {
+    if (!org) return;
+    const cfg = (org.landing_config || {}) as ExtendedConfig;
+    const fontName = cfg?.theme?.fontFamily?.trim() || defaultTheme.fontFamily;
+    const systemFonts = ["sans-serif", "serif", "monospace", "Arial", "Helvetica", "Times New Roman", "Courier New", "Inter"];
+    if (systemFonts.includes(fontName)) return;
+
+    const linkId = `google-font-${fontName.replace(/\s+/g, "-").toLowerCase()}`;
+    if (document.getElementById(linkId)) return;
+
+    const link = document.createElement("link");
+    link.id = linkId;
+    link.rel = "stylesheet";
+    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@400;500;600;700;800&display=swap`;
+    document.head.appendChild(link);
+  }, [org]);
+
   useEffect(() => {
     if (!slug) return;
     let cancel = false;

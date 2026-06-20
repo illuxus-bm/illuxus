@@ -12,11 +12,19 @@ import { sanitizeHtml } from "@/lib/sanitize-html";
 import type {
   EventPageConfig, EventSection, ThemeConfig,
   HeroData, AboutData, DateVenueData, TicketsData, AgendaData, SpeakersData,
-  SponsorsData, WorkshopsData, ExhibitorsData, TravelData, CodeOfConductData,
-  GalleryData, TestimonialsData, NewsletterData, PressData, PartnersData,
-  LiveStreamData, NetworkingData, CfpData, CountdownData, FaqData, ContactData,
+  SponsorsData, GalleryData, TestimonialsData, NetworkingData, CfpData, CountdownData, FaqData, ContactData,
   CustomHtmlData,
 } from "./types";
+
+// Removed catalog sections mapped to placeholder types
+type WorkshopsData = any;
+type ExhibitorsData = any;
+type TravelData = any;
+type CodeOfConductData = any;
+type NewsletterData = any;
+type PressData = any;
+type PartnersData = any;
+type LiveStreamData = any;
 
 /**
  * Renders a saved EventPageConfig as a public-facing landing page.
@@ -112,6 +120,23 @@ export default function PublicEventRenderer({
   config, event, speakers, sessions, sponsors, darkMode = false, flushSections = false, includeIds, excludeIds,
 }: Props) {
   const theme = config.theme;
+
+  // Load Google Font dynamically when the theme fontFamily changes
+  useEffect(() => {
+    if (!theme.fontFamily) return;
+    const fontName = theme.fontFamily.trim();
+    const systemFonts = ["sans-serif", "serif", "monospace", "Arial", "Helvetica", "Times New Roman", "Courier New", "Inter"];
+    if (systemFonts.includes(fontName)) return;
+
+    const linkId = `google-font-${fontName.replace(/\s+/g, "-").toLowerCase()}`;
+    if (document.getElementById(linkId)) return;
+
+    const link = document.createElement("link");
+    link.id = linkId;
+    link.rel = "stylesheet";
+    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@400;500;600;700;800&display=swap`;
+    document.head.appendChild(link);
+  }, [theme.fontFamily]);
   const ordered = useMemo(
     () =>
       [...config.sections]

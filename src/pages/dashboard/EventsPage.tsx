@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,6 +22,12 @@ import { eventPublicPath, eventDashboardPath } from "@/lib/event-routes";
 import { formatMoney } from "@/lib/currency";
 
 type Event = Tables<"events">;
+
+// Columns added in later migrations that aren't in the generated types.ts yet.
+type EventWithCommunity = Event & {
+  create_community?: boolean | null;
+  community_category?: string | null;
+};
 
 const statusColor: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -60,7 +66,7 @@ const EventsPage = () => {
   const [createCommunity, setCreateCommunity] = useState(true);
   const [communityCategory, setCommunityCategory] = useState("other");
 
-  const fetchEvents = async () => {
+  const fetchEvents = useCallback(async () => {
     if (!org?.id) return;
     const { data, error } = await supabase
       .from("events")
@@ -69,9 +75,9 @@ const EventsPage = () => {
       .order("date", { ascending: false });
     if (!error && data) setEvents(data);
     setLoading(false);
-  };
+  }, [org?.id]);
 
-  useEffect(() => { if (org?.id) fetchEvents(); }, [org?.id]);
+  useEffect(() => { if (org?.id) fetchEvents(); }, [org?.id, fetchEvents]);
 
   const resetForm = () => {
     setTitle(""); setDescription(""); setSlug(""); setSlugTouched(false); setDate(""); setEndDate("");
@@ -82,10 +88,11 @@ const EventsPage = () => {
   };
 
   const openEditForm = (event: Event) => {
+    const ev = event as EventWithCommunity;
     setEditingEvent(event);
     setTitle(event.title);
     setDescription(event.description || "");
-    setSlug((event as any).slug || "");
+    setSlug(event.slug || "");
     setSlugTouched(true);
     setDate(event.date ? new Date(event.date).toISOString().slice(0, 16) : "");
     setEndDate(event.end_date ? new Date(event.end_date).toISOString().slice(0, 16) : "");
@@ -95,10 +102,10 @@ const EventsPage = () => {
     setPrice(String(event.price || ""));
     setStatus(event.status);
     setImageUrl(event.image_url || "");
-    setBannerLandscapeUrl((event as { banner_landscape_url?: string | null }).banner_landscape_url || "");
-    setBannerPortraitUrl((event as { banner_portrait_url?: string | null }).banner_portrait_url || "");
-    setCreateCommunity((event as any).create_community ?? true);
-    setCommunityCategory((event as any).community_category ?? "other");
+    setBannerLandscapeUrl(event.banner_landscape_url || "");
+    setBannerPortraitUrl(event.banner_portrait_url || "");
+    setCreateCommunity(ev.create_community ?? true);
+    setCommunityCategory(ev.community_category ?? "other");
     setShowForm(true);
   };
 
@@ -127,11 +134,11 @@ const EventsPage = () => {
     };
 
     if (editingEvent) {
-      const { error } = await supabase.from("events").update(eventData).eq("id", editingEvent.id);
+      const { error } = await supabase.from("events").update(eventData as never).eq("id", editingEvent.id);
       if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
       else toast({ title: "Event updated successfully" });
     } else {
-      const { error } = await supabase.from("events").insert(eventData);
+      const { error } = await supabase.from("events").insert(eventData as never);
       if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
       else toast({ title: "Event created successfully" });
     }
