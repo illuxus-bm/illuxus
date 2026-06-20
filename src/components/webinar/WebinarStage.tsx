@@ -81,16 +81,6 @@ function LiveKitWebinarStage({
   eventBannerUrl, eventTitle,
   micEnabled = true, camEnabled = true, camDeviceId, micDeviceId,
 }: Props) {
-  // Both required for the LiveKit branch — caller has not finished the
-  // token fetch yet. Render a tiny placeholder; the parent already shows
-  // its own connecting state in most flows.
-  if (!token || !wsUrl) {
-    return (
-      <div className="flex items-center justify-center h-full text-white/70 text-sm">
-        Connecting to studio…
-      </div>
-    );
-  }
   // Only treat *intentional* disconnects as "leave the stage". Transient
   // disconnects fire during screen-share negotiation, tab switches, network
   // blips, and page suspensions — the SDK reconnects automatically and we
@@ -136,6 +126,19 @@ function LiveKitWebinarStage({
     if (camDeviceId) return { deviceId: { exact: camDeviceId } } as MediaTrackConstraints;
     return true;
   }, [canPublish, camEnabled, camDeviceId]);
+
+  // Both required for the LiveKit branch — caller has not finished the
+  // token fetch yet. Render a tiny placeholder; the parent already shows
+  // its own connecting state in most flows. NOTE: this guard MUST stay
+  // below all the hooks above so the hook order stays stable across
+  // renders (rules-of-hooks).
+  if (!token || !wsUrl) {
+    return (
+      <div className="flex items-center justify-center h-full text-white/70 text-sm">
+        Connecting to studio…
+      </div>
+    );
+  }
 
   return (
     <LiveKitRoom
