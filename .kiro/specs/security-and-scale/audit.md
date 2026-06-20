@@ -365,7 +365,9 @@ and structured logging. Direct calls are silent in the observability
 pipeline — invisible during incidents.
 **Fix**: replace each with `supabaseRpc(...)`. Pure mechanical
 change.
-**Status**: open — ~30 min.
+**Status**: **done in commit pending** — all 4 callsites now use
+`supabaseRpc(...)` from `@/lib/observability` and inherit the
+correlation id + structured log.
 
 ---
 
@@ -443,3 +445,8 @@ broken). Items 3-5 require infra not in the repo today.
   indexes across the schema — biggest win on the webinar live-event
   tables (chat, qa, polls) which are accessed via
   `WHERE session_id = $1` in every realtime subscribe.
+- `2026-06-21` — **LINT-005 done**. The 4 direct `supabase.rpc`
+  callsites in `useCommunityExtras.ts`,
+  `EventSettingsSection.tsx`, and `EventRsvpCard.tsx` now go
+  through `supabaseRpc(...)` so every call carries the correlation
+  id and lands in the structured log.
