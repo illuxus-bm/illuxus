@@ -44,6 +44,12 @@ function lazyWithLog<T extends { default: React.ComponentType<any> }>(
 // transitions show the global loading screen instead of a frozen UI.
 const ResetPasswordPage = lazyWithLog("ResetPasswordPage", () => import("./pages/ResetPasswordPage.tsx"));
 const OnboardingPage = lazyWithLog("OnboardingPage", () => import("./pages/OnboardingPage.tsx"));
+const FeaturesPage = lazyWithLog("FeaturesPage", () => import("./pages/FeaturesPage.tsx"));
+const PublicPricingPage = lazyWithLog("PublicPricingPage", () => import("./pages/PricingPage.tsx"));
+const AboutPage = lazyWithLog("AboutPage", () => import("./pages/AboutPage.tsx"));
+const ContactPage = lazyWithLog("ContactPage", () => import("./pages/ContactPage.tsx"));
+const PrivacyPage = lazyWithLog("PrivacyPage", () => import("./pages/PrivacyPage.tsx"));
+const TermsPage = lazyWithLog("TermsPage", () => import("./pages/TermsPage.tsx"));
 const Dashboard = lazyWithLog("Dashboard", () => import("./pages/Dashboard.tsx"));
 const EventsPage = lazyWithLog("EventsPage", () => import("./pages/dashboard/EventsPage.tsx"));
 const TicketsPage = lazyWithLog("TicketsPage", () => import("./pages/dashboard/TicketsPage.tsx"));
@@ -236,6 +242,13 @@ const App = () => (
                 <Route path="/o/:orgSlug/:eventSlug" element={<RouteErrorBoundary><LegacyEventRedirect /></RouteErrorBoundary>} />
                 <Route path="/login" element={<RouteErrorBoundary><LoginPage /></RouteErrorBoundary>} />
                 <Route path="/reset-password" element={<RouteErrorBoundary><ResetPasswordPage /></RouteErrorBoundary>} />
+                {/* Static marketing / legal pages */}
+                <Route path="/features" element={<RouteErrorBoundary><FeaturesPage /></RouteErrorBoundary>} />
+                <Route path="/pricing" element={<RouteErrorBoundary><PublicPricingPage /></RouteErrorBoundary>} />
+                <Route path="/about" element={<RouteErrorBoundary><AboutPage /></RouteErrorBoundary>} />
+                <Route path="/contact" element={<RouteErrorBoundary><ContactPage /></RouteErrorBoundary>} />
+                <Route path="/privacy" element={<RouteErrorBoundary><PrivacyPage /></RouteErrorBoundary>} />
+                <Route path="/terms" element={<RouteErrorBoundary><TermsPage /></RouteErrorBoundary>} />
                 <Route
                   path="/complete-profile"
                   element={

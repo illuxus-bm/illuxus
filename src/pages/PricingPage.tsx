@@ -1,207 +1,196 @@
-import { useState } from "react";
-import { useOrg, PLAN_DETAILS } from "@/contexts/OrgContext";
-import { DashboardLayout } from "@/components/DashboardLayout";
-import { supabase } from "@/integrations/supabase/client";
+import { Link } from "react-router-dom";
+import SiteHeader from "@/components/SiteHeader";
+import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/hooks/use-toast";
-import { Check, Zap, Crown, Globe, Rocket, Radio, Sparkles } from "lucide-react";
-import { motion } from "framer-motion";
+import { CheckCircle2, X, ArrowRight } from "lucide-react";
 
-const PLANS = [
+const plans = [
   {
-    key: "free", name: "Free", price: "$0", period: "forever", icon: Rocket,
-    features: ["3 events", "50 attendees/event", "Basic analytics", "1 team member"],
+    name: "Starter",
+    price: "Free",
+    period: "",
+    description: "Perfect for meetups, workshops, and small community events.",
+    cta: "Start free",
+    ctaHref: "/login",
+    highlight: false,
+    features: [
+      { text: "Up to 100 attendees per event", included: true },
+      { text: "1 active event at a time", included: true },
+      { text: "Basic event page builder", included: true },
+      { text: "QR code check-in", included: true },
+      { text: "Email support", included: true },
+      { text: "Standard analytics", included: true },
+      { text: "Custom branding", included: false },
+      { text: "Speaker management", included: false },
+      { text: "Webinar studio", included: false },
+      { text: "WhatsApp messaging", included: false },
+    ],
   },
   {
-    key: "starter", name: "Starter", price: "$29", period: "/month", icon: Zap,
-    features: ["10 events", "200 attendees/event", "Custom branding", "Email notifications", "3 team members"],
+    name: "Professional",
+    price: "₹3,499",
+    period: "/mo",
+    description: "For growing teams that run regular events and need full control.",
+    cta: "Start 14-day trial",
+    ctaHref: "/login",
+    highlight: true,
+    features: [
+      { text: "Up to 5,000 attendees per event", included: true },
+      { text: "Unlimited active events", included: true },
+      { text: "Full page builder + custom branding", included: true },
+      { text: "QR check-in + badge printing", included: true },
+      { text: "Priority email & chat support", included: true },
+      { text: "Advanced analytics & exports", included: true },
+      { text: "Speaker & sponsor management", included: true },
+      { text: "Webinar studio (up to 10 speakers)", included: true },
+      { text: "WhatsApp messaging", included: true },
+      { text: "Promo codes & early-bird pricing", included: true },
+    ],
   },
   {
-    key: "pro", name: "Pro", price: "$79", period: "/month", icon: Crown, highlight: true,
-    features: ["50 events", "1,000 attendees/event", "Advanced analytics", "Sponsor management", "Custom domain", "10 team members"],
-  },
-  {
-    key: "business", name: "Business", price: "$199", period: "/month", icon: Globe,
-    features: ["Unlimited events", "Unlimited attendees", "API access", "White label", "Priority support", "Unlimited members"],
+    name: "Enterprise",
+    price: "Custom",
+    period: "",
+    description: "Large-scale conferences, festivals, and multi-org deployments.",
+    cta: "Talk to sales",
+    ctaHref: "mailto:sales@illuxus.com",
+    highlight: false,
+    features: [
+      { text: "Unlimited attendees", included: true },
+      { text: "Unlimited events across multiple orgs", included: true },
+      { text: "White-label & custom domain", included: true },
+      { text: "Dedicated account manager", included: true },
+      { text: "24/7 SLA-backed support", included: true },
+      { text: "Custom analytics & data warehouse export", included: true },
+      { text: "SSO & advanced role management", included: true },
+      { text: "Unlimited webinar capacity", included: true },
+      { text: "Custom integrations & API access", included: true },
+      { text: "GDPR data processing agreement", included: true },
+    ],
   },
 ];
 
-const PricingPage = () => {
-  const { org, subscription, refreshOrg, eventCount, memberCount } = useOrg();
-  const { toast } = useToast();
-  const [upgrading, setUpgrading] = useState<string | null>(null);
-  const [togglingAddon, setTogglingAddon] = useState(false);
-  const webinarEnabled = (org?.addons || []).includes("webinar");
+const faqs = [
+  {
+    q: "Is the Starter plan really free forever?",
+    a: "Yes. The Starter plan is free with no time limit. You can run small events and explore the platform without entering a credit card.",
+  },
+  {
+    q: "What payment methods do you accept?",
+    a: "We accept all major credit / debit cards via Stripe. Razorpay is available for Indian customers, supporting UPI, net banking, and wallets.",
+  },
+  {
+    q: "Can I switch plans at any time?",
+    a: "Absolutely. Upgrade or downgrade at the end of any billing cycle. Your events and data are never affected by a plan change.",
+  },
+  {
+    q: "How does the 14-day trial work?",
+    a: "When you start a Professional trial you get full access to all Pro features. No credit card is required upfront. If you choose not to subscribe after 14 days, your account reverts to the Starter tier — all your data stays intact.",
+  },
+  {
+    q: "Do you offer non-profit or educational discounts?",
+    a: "Yes. Registered non-profits and educational institutions can apply for a 50% discount on Professional plans. Contact us with your registration details.",
+  },
+  {
+    q: "Is there a per-ticket transaction fee?",
+    a: "Paid tickets carry a 2% platform fee on the Starter and Professional plans. Enterprise plans can negotiate a flat fee with zero per-ticket charges.",
+  },
+];
 
-  const handleChangePlan = async (planKey: string) => {
-    if (!org) return;
-    setUpgrading(planKey);
-    const limits = PLAN_DETAILS[planKey]?.limits || PLAN_DETAILS.free.limits;
-
-    await supabase.from("organizations").update({ plan: planKey, plan_limits: limits as any }).eq("id", org.id);
-    await supabase.from("subscriptions").update({ plan: planKey }).eq("org_id", org.id);
-    await refreshOrg();
-    setUpgrading(null);
-    toast({ title: "Plan updated", description: `You're now on the ${PLAN_DETAILS[planKey]?.name || planKey} plan.` });
-  };
-
-  const currentPlan = org?.plan || "free";
-
-  const toggleWebinarAddon = async () => {
-    if (!org) return;
-    setTogglingAddon(true);
-    const next = webinarEnabled
-      ? (org.addons || []).filter((a) => a !== "webinar")
-      : [...(org.addons || []), "webinar"];
-    const { error } = await supabase
-      .from("organizations")
-      .update({ addons: next as any })
-      .eq("id", org.id);
-    setTogglingAddon(false);
-    if (error) {
-      toast({ title: "Could not update add-on", description: error.message, variant: "destructive" });
-    } else {
-      await refreshOrg();
-      toast({
-        title: webinarEnabled ? "Webinar add-on disabled" : "Webinar add-on enabled",
-        description: webinarEnabled ? "Built-in streaming is no longer available." : "Built-in streaming, Q&A, polls and lounge are now active.",
-      });
-    }
-  };
-
+export default function PricingPage() {
   return (
-    <DashboardLayout>
-      <div className="max-w-[1000px] space-y-6 mx-auto">
-        <div className="text-center">
-          <h1 className="text-lg font-semibold tracking-tight">Plans & Billing</h1>
-          <p className="text-[13px] text-muted-foreground">Manage your subscription and billing</p>
-        </div>
+    <div className="min-h-screen bg-background">
+      <SiteHeader />
 
-        {/* Current plan card */}
-        <div className="bg-card border border-border rounded-xl p-5 flex items-center justify-between">
-          <div>
-            <p className="text-[12px] text-muted-foreground uppercase tracking-wider font-medium">Current Plan</p>
-            <p className="text-xl font-bold mt-0.5">{PLAN_DETAILS[currentPlan]?.name || "Free"}</p>
-            {subscription && (
-              <p className="text-[12px] text-muted-foreground mt-1">
-                {subscription.status === "active" ? "Active" : subscription.status} · Renews {new Date(subscription.current_period_end).toLocaleDateString()}
-              </p>
-            )}
-          </div>
-          <div className="text-right">
-            <p className="text-2xl font-bold">{PLANS.find(p => p.key === currentPlan)?.price || "$0"}</p>
-            <p className="text-[12px] text-muted-foreground">{PLANS.find(p => p.key === currentPlan)?.period}</p>
-          </div>
-        </div>
+      {/* Hero */}
+      <section className="pt-24 pb-12 text-center px-4">
+        <p className="text-sm font-medium text-primary mb-3 uppercase tracking-widest">Pricing</p>
+        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">
+          Plans that grow with you
+        </h1>
+        <p className="text-lg text-muted-foreground max-w-xl mx-auto">
+          Start free. Scale when you're ready. No hidden fees, no lock-in.
+        </p>
+      </section>
 
-        {/* Usage */}
-        <div className="bg-card border border-border rounded-xl p-5">
-          <h3 className="text-sm font-semibold mb-3">Usage</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <UsageBar label="Events" current={eventCount} max={PLAN_DETAILS[currentPlan]?.limits.max_events || 3} />
-            <UsageBar label="Team members" current={memberCount} max={PLAN_DETAILS[currentPlan]?.limits.max_team_members || 1} />
-            <UsageBar label="Max attendees/event" current={0} max={PLAN_DETAILS[currentPlan]?.limits.max_attendees_per_event || 50} />
-          </div>
-        </div>
-
-        {/* Plans */}
-        <div>
-          <h3 className="text-sm font-semibold mb-3">Available Plans</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {PLANS.map((plan, i) => (
-              <motion.div
-                key={plan.key}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className={`relative bg-card border rounded-xl p-4 flex flex-col h-full ${
-                  plan.key === currentPlan ? "border-foreground shadow-sm" : "border-border"
-                } ${plan.highlight ? "ring-1 ring-accent/20" : ""}`}
-              >
-                {plan.highlight && (
-                  <span className="absolute -top-2.5 left-3 px-2 py-0.5 text-[10px] font-semibold bg-accent text-accent-foreground rounded-full">
-                    Popular
-                  </span>
+      {/* Plans */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-20">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {plans.map((plan) => (
+            <div
+              key={plan.name}
+              className={`relative rounded-2xl border p-7 flex flex-col gap-6 ${
+                plan.highlight
+                  ? "border-primary bg-primary/5 shadow-lg shadow-primary/10"
+                  : "border-border bg-card"
+              }`}
+            >
+              {plan.highlight && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-[11px] font-bold uppercase tracking-wide px-3 py-1 rounded-full">
+                  Most popular
+                </span>
+              )}
+              <div>
+                <h2 className="text-lg font-bold">{plan.name}</h2>
+                <p className="text-[13px] text-muted-foreground mt-1">{plan.description}</p>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-4xl font-bold">{plan.price}</span>
+                {plan.period && (
+                  <span className="text-muted-foreground text-sm">{plan.period}</span>
                 )}
-                <plan.icon className="h-5 w-5 text-muted-foreground mb-2" />
-                <p className="text-sm font-semibold">{plan.name}</p>
-                <p className="text-lg font-bold mt-0.5">
-                  {plan.price}<span className="text-xs font-normal text-muted-foreground">{plan.period}</span>
-                </p>
-                <ul className="mt-3 space-y-1.5 mb-4 flex-1">
-                  {plan.features.map((f) => (
-                    <li key={f} className="flex items-start gap-1.5 text-[12px] text-muted-foreground">
-                      <Check className="h-3 w-3 mt-0.5 text-foreground shrink-0" /> {f}
-                    </li>
-                  ))}
-                </ul>
-                <Button
-                  variant={plan.key === currentPlan ? "outline" : "default"}
-                  size="sm"
-                  className="w-full h-8 text-[12px] mt-auto"
-                  disabled={plan.key === currentPlan || upgrading === plan.key}
-                  onClick={() => handleChangePlan(plan.key)}
-                >
-                  {plan.key === currentPlan ? "Current plan" : upgrading === plan.key ? "Updating..." : "Switch"}
-                </Button>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-
-        {/* Add-ons */}
-        <div>
-          <h3 className="text-sm font-semibold mb-3">Add-ons</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className={`relative bg-card border rounded-xl p-4 ${webinarEnabled ? "border-foreground" : "border-border"}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Radio className="h-4 w-4" />
-                    <p className="text-sm font-semibold">Webinar Studio</p>
-                    {webinarEnabled && (
-                      <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-green-500/15 text-green-700 dark:text-green-400 rounded">Active</span>
-                    )}
-                  </div>
-                  <p className="text-[12px] text-muted-foreground">Airmeet-style virtual events: up to 10 speakers, unlimited viewers, Q&amp;A, polls, networking lounge, recording.</p>
-                  <p className="text-lg font-bold mt-2">$49<span className="text-xs font-normal text-muted-foreground">/month</span></p>
-                </div>
-                <Sparkles className="h-4 w-4 text-muted-foreground" />
               </div>
               <Button
-                variant={webinarEnabled ? "outline" : "default"}
-                size="sm"
-                className="w-full h-8 text-[12px] mt-3"
-                disabled={togglingAddon}
-                onClick={toggleWebinarAddon}
+                asChild
+                variant={plan.highlight ? "default" : "outline"}
+                className="w-full"
               >
-                {togglingAddon ? "Updating…" : webinarEnabled ? "Disable add-on" : "Enable add-on"}
+                <a href={plan.ctaHref}>
+                  {plan.cta} <ArrowRight className="ml-2 h-4 w-4" />
+                </a>
               </Button>
+              <ul className="space-y-2.5">
+                {plan.features.map((f) => (
+                  <li key={f.text} className="flex items-start gap-2 text-[13px]">
+                    {f.included ? (
+                      <CheckCircle2 className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                    ) : (
+                      <X className="h-4 w-4 text-muted-foreground/40 shrink-0 mt-0.5" />
+                    )}
+                    <span className={f.included ? "" : "text-muted-foreground/50"}>{f.text}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
+          ))}
         </div>
-      </div>
-    </DashboardLayout>
-  );
-};
+      </section>
 
-function UsageBar({ label, current, max }: { label: string; current: number; max: number }) {
-  const isUnlimited = max === -1;
-  const pct = isUnlimited ? 5 : Math.min((current / max) * 100, 100);
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[12px] text-muted-foreground">{label}</span>
-        <span className="text-[12px] font-medium">{current}{isUnlimited ? " / ∞" : ` / ${max}`}</span>
-      </div>
-      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${pct > 80 ? "bg-destructive" : "bg-foreground/60"}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
+      {/* FAQ */}
+      <section className="max-w-3xl mx-auto px-4 sm:px-6 pb-24">
+        <h2 className="text-2xl font-bold text-center mb-10">Frequently asked questions</h2>
+        <div className="space-y-6">
+          {faqs.map((faq) => (
+            <div key={faq.q} className="border-b border-border pb-6">
+              <h3 className="font-semibold mb-2">{faq.q}</h3>
+              <p className="text-[14px] text-muted-foreground leading-relaxed">{faq.a}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="bg-primary/5 border-t border-border py-16 text-center px-4">
+        <h2 className="text-2xl sm:text-3xl font-bold mb-3">Still not sure?</h2>
+        <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
+          Talk to our team and we'll help you pick the right plan.
+        </p>
+        <Button size="lg" asChild>
+          <Link to="/contact">Contact sales</Link>
+        </Button>
+      </section>
+
+      <Footer />
     </div>
   );
 }
-
-export default PricingPage;
