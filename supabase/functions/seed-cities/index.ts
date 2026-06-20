@@ -3,6 +3,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { BlobReader, ZipReader, TextWriter } from "https://deno.land/x/zipjs@v2.7.45/index.js";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+
+const log = createEdgeLogger("seed-cities");
 
 const GEONAMES_URL = "https://download.geonames.org/export/dump/cities5000.zip";
 const COUNTRIES_URL = "https://download.geonames.org/export/dump/countryInfo.txt";
@@ -63,18 +66,18 @@ Deno.serve(async (req) => {
 
     // One-time seed; allow any caller. The DB is protected by RLS and the
     // upsert is idempotent — re-running just refreshes the city list.
-    console.log("seed-cities invoked");
+    log.info("invoked");
 
-    console.log("Fetching reference data...");
+    log.info("fetching reference data");
     const [countries, admin1] = await Promise.all([
       fetchCountries(),
       fetchAdmin1(),
     ]);
 
-    console.log("Downloading cities5000.zip...");
+    log.info("downloading cities zip");
     const text = await fetchCitiesText();
     const lines = text.split("\n");
-    console.log(`Got ${lines.length} city lines`);
+    log.info("downloaded", { line_count: lines.length });
 
     // GeoNames format (tab-separated):
     // 0 geonameid 1 name 2 asciiname 3 alternatenames 4 lat 5 lng
@@ -105,7 +108,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log(`Upserting ${rows.length} cities in batches...`);
+    log.info("upserting cities", { row_count: rows.length });
     const batchSize = 1000;
     let inserted = 0;
     for (let b = 0; b < rows.length; b += batchSize) {
@@ -114,7 +117,7 @@ Deno.serve(async (req) => {
         .from("cities")
         .upsert(batch, { onConflict: "geoname_id" });
       if (error) {
-        console.error("Batch error:", error.message, "at offset", b);
+        log.error("batch upsert failed", { error_message: error.message, offset: b });
         return new Response(
           JSON.stringify({ error: error.message, inserted }),
           {
@@ -134,7 +137,7 @@ Deno.serve(async (req) => {
       },
     );
   } catch (e) {
-    console.error("seed-cities error", e);
+    log.error("unhandled error", toErrorFields(e));
     return new Response(
       JSON.stringify({ error: e instanceof Error ? e.message : "Unknown" }),
       {

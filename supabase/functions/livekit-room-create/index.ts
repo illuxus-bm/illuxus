@@ -1,6 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { AccessToken } from "https://esm.sh/livekit-server-sdk@2.9.7";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+
+const log = createEdgeLogger("livekit-room-create");
 
 Deno.serve(async (req) => {
   const corsHeaders = buildCorsHeaders(req);
@@ -57,7 +60,7 @@ Deno.serve(async (req) => {
 
     return j({ session });
   } catch (e) {
-    console.error(e);
+    log.error("unhandled error", toErrorFields(e));
     return j({ error: String(e) }, 500);
   }
   function j(b: unknown, s = 200) {

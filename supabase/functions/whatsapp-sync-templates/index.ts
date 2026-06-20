@@ -17,6 +17,9 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+
+const log = createEdgeLogger("whatsapp-sync-templates");
 
 interface MetaTemplate {
   id: string;
@@ -61,8 +64,7 @@ Deno.serve(async (req) => {
     const version = Deno.env.get("WHATSAPP_API_VERSION") ?? "v20.0";
 
     if (!wabaId || !token) {
-      console.error("[whatsapp-sync-templates] missing secrets",
-        { hasWabaId: !!wabaId, hasToken: !!token });
+      log.error("missing secrets", { hasWabaId: !!wabaId, hasToken: !!token });
       return json({
         error: "WhatsApp not configured: set WHATSAPP_BUSINESS_ACCOUNT_ID and WHATSAPP_TOKEN secrets first.",
         step,
@@ -94,7 +96,7 @@ Deno.serve(async (req) => {
       .eq("user_id", ud.user.id)
       .maybeSingle();
     if (memErr) {
-      console.error("[whatsapp-sync-templates] membership check failed", memErr);
+      log.error("membership check failed", { error_message: memErr.message, error_code: memErr.code });
       return json({ error: `Membership check failed: ${memErr.message}`, step }, 500);
     }
     if (!membership) return json({ error: "Not an org member", step }, 403);
@@ -115,7 +117,7 @@ Deno.serve(async (req) => {
     });
     const respText = await resp.text();
     if (!resp.ok) {
-      console.error(`[whatsapp-sync-templates] Meta ${resp.status}: ${respText.slice(0, 300)}`);
+      log.error("meta fetch failed", { status: resp.status, body_excerpt: respText.slice(0, 300) });
       return json({
         error: `Meta fetch failed: ${resp.status} ${respText.slice(0, 400)}`,
         step,
@@ -132,7 +134,7 @@ Deno.serve(async (req) => {
       }, 502);
     }
     const templates = parsed.data ?? [];
-    console.log(`[whatsapp-sync-templates] received ${templates.length} templates from Meta`);
+    log.info("received templates from meta", { count: templates.length });
 
     step = "upsert-cache";
     let upserted = 0;
@@ -151,7 +153,12 @@ Deno.serve(async (req) => {
           synced_at: new Date().toISOString(),
         } as never, { onConflict: "org_id,name,language" });
       if (upErr) {
-        console.error(`[whatsapp-sync-templates] upsert failed for ${t.name}|${t.language}:`, upErr);
+        log.error("upsert failed", {
+          template_name: t.name,
+          template_language: t.language,
+          error_message: upErr.message,
+          error_code: upErr.code,
+        });
       } else {
         upserted += 1;
       }
@@ -161,7 +168,7 @@ Deno.serve(async (req) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
-    console.error(`[whatsapp-sync-templates] unhandled at step="${step}":`, msg, stack);
+    log.error("unhandled error", { step, error_message: msg, error_stack: stack });
     return json({ error: msg, step }, 500);
   }
 });

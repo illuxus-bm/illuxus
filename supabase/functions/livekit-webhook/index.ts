@@ -1,5 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { WebhookReceiver } from "https://esm.sh/livekit-server-sdk@2.9.7";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+
+const log = createEdgeLogger("livekit-webhook");
 
 const receiver = new WebhookReceiver(
   Deno.env.get("LIVEKIT_API_KEY")!,
@@ -79,7 +82,7 @@ Deno.serve(async (req) => {
     }
     return new Response("ok");
   } catch (e) {
-    console.error("webhook error", e);
+    log.error("webhook error", toErrorFields(e));
     return new Response("ok");
   }
 });

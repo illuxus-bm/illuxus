@@ -16,6 +16,9 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+
+const log = createEdgeLogger("send-communication-email");
 
 interface RecipientRow {
   id: string;
@@ -53,8 +56,7 @@ Deno.serve(async (req) => {
     // other email edge functions in this project). Pick whichever is set.
     const from   = Deno.env.get("RESEND_FROM") ?? Deno.env.get("RESEND_FROM_EMAIL");
     if (!apiKey || !from) {
-      console.error("[send-communication-email] missing secrets",
-        { hasApiKey: !!apiKey, hasFrom: !!from });
+      log.error("missing secrets", { hasApiKey: !!apiKey, hasFrom: !!from });
       return json({
         error: "Resend not configured: set RESEND_API_KEY and RESEND_FROM_EMAIL secrets first.",
         step,
@@ -73,8 +75,7 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!supabaseUrl || !serviceKey) {
-      console.error("[send-communication-email] missing supabase env",
-        { hasUrl: !!supabaseUrl, hasKey: !!serviceKey });
+      log.error("missing supabase env", { hasUrl: !!supabaseUrl, hasKey: !!serviceKey });
       return json({ error: "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing", step }, 500);
     }
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -89,11 +90,11 @@ Deno.serve(async (req) => {
       .limit(limit);
 
     if (rowsErr) {
-      console.error("[send-communication-email] read-pending-rows failed", rowsErr);
+      log.error("read-pending-rows failed", { error_message: rowsErr.message, error_code: rowsErr.code });
       return json({ error: `Read recipients failed: ${rowsErr.message}`, step }, 500);
     }
     const rows = (rowsRaw ?? []) as RecipientRow[];
-    console.log(`[send-communication-email] found ${rows.length} pending rows for ${communication_id}`);
+    log.info("read-pending-rows", { count: rows.length, communication_id });
 
     if (rows.length === 0) {
       // Best-effort: refresh parent counts even when nothing was sent.
@@ -111,7 +112,7 @@ Deno.serve(async (req) => {
       .update({ email_status: "sending" })
       .in("id", ids);
     if (markErr) {
-      console.error("[send-communication-email] mark-sending failed", markErr);
+      log.error("mark-sending failed", { error_message: markErr.message, error_code: markErr.code });
       return json({ error: `Mark sending failed: ${markErr.message}`, step }, 500);
     }
 
@@ -144,22 +145,22 @@ Deno.serve(async (req) => {
         body: JSON.stringify(items),
       });
       const responseText = await resp.text();
-      console.log(`[send-communication-email] resend status=${resp.status} bodyLen=${responseText.length}`);
+      log.info("resend response", { status: resp.status, body_length: responseText.length });
       if (!resp.ok) {
         batchError = `Resend ${resp.status}: ${responseText.slice(0, 500)}`;
-        console.error("[send-communication-email] resend non-2xx", batchError);
+        log.error("resend non-2xx", { status: resp.status, body_excerpt: responseText.slice(0, 500) });
       } else {
         try {
           batchData = JSON.parse(responseText) as { data?: ResendBatchResultItem[] };
           batchOk = true;
         } catch (parseErr) {
           batchError = `Resend returned non-JSON: ${responseText.slice(0, 200)}`;
-          console.error("[send-communication-email] resend body parse failed", parseErr);
+          log.error("resend body parse failed", toErrorFields(parseErr));
         }
       }
     } catch (err) {
       batchError = err instanceof Error ? err.message : String(err);
-      console.error("[send-communication-email] resend fetch threw", batchError);
+      log.error("resend fetch threw", toErrorFields(err));
     }
 
     step = "update-statuses";
@@ -216,7 +217,7 @@ Deno.serve(async (req) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
-    console.error(`[send-communication-email] unhandled error at step="${step}":`, msg, stack);
+    log.error("unhandled error", { step, error_message: msg, error_stack: stack });
     return json({ error: msg, step }, 500);
   }
 });

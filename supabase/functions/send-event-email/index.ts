@@ -22,6 +22,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { defaultFromAddress, sendViaResend, textToHtml } from "../_shared/resend.ts";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+
+const log = createEdgeLogger("send-event-email");
 
 Deno.serve(async (req) => {
   const corsHeaders = buildCorsHeaders(req);
@@ -84,7 +87,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (!emailSettings?.domain_configured) {
-      console.warn("[send-event-email] email_settings.domain_configured is false — verify your domain in Resend first.");
+      log.warn("domain not configured", { hint: "verify your domain in Resend first" });
     }
 
     // ── Resolve From / Reply-To from org context ────────────────────────────
@@ -119,9 +122,11 @@ Deno.serve(async (req) => {
     ];
 
     if (!resendApiKey) {
-      console.log("[send-event-email] No RESEND_API_KEY configured. Email not delivered.");
-      console.log(`  Subject: ${subject}`);
-      console.log(`  Recipients (${normalizedRecipients.length}): ${normalizedRecipients.slice(0, 5).join(", ")}`);
+      log.info("not delivered — no API key", {
+        subject,
+        recipient_count: normalizedRecipients.length,
+        recipient_excerpt: normalizedRecipients.slice(0, 5),
+      });
 
       if (!isSystem) {
         await supabase
@@ -154,7 +159,10 @@ Deno.serve(async (req) => {
       });
 
       if (!result.ok) {
-        console.error(`[send-event-email] Resend batch ${i / BATCH_SIZE + 1} failed:`, result.error);
+        log.error("resend batch failed", {
+          batch_index: i / BATCH_SIZE + 1,
+          error_message: result.error,
+        });
         failures.push(...batch);
       }
     }
@@ -186,7 +194,7 @@ Deno.serve(async (req) => {
       provider: "resend",
     });
   } catch (err) {
-    console.error("[send-event-email] Unexpected error:", err);
+    log.error("unexpected error", toErrorFields(err));
     return json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
 });

@@ -18,6 +18,9 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+
+const log = createEdgeLogger("send-whatsapp");
 
 interface RecipientRow {
   id: string;
@@ -64,8 +67,7 @@ Deno.serve(async (req) => {
     const version = Deno.env.get("WHATSAPP_API_VERSION") ?? "v20.0";
 
     if (!phoneId || !token) {
-      console.error("[send-whatsapp] missing secrets",
-        { hasPhoneId: !!phoneId, hasToken: !!token });
+      log.error("missing secrets", { hasPhoneId: !!phoneId, hasToken: !!token });
       return json({
         error: "WhatsApp not configured: set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_TOKEN secrets first.",
         step,
@@ -95,7 +97,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (commErr) {
-      console.error("[send-whatsapp] read-comm failed", commErr);
+      log.error("read-comm failed", { error_message: commErr.message, error_code: commErr.code });
       return json({ error: `Read comm failed: ${commErr.message}`, step }, 500);
     }
     if (!commRaw) return json({ error: "Communication not found", step }, 404);
@@ -113,11 +115,11 @@ Deno.serve(async (req) => {
       .eq("whatsapp_status", "pending");
 
     if (rowsErr) {
-      console.error("[send-whatsapp] read-pending-rows failed", rowsErr);
+      log.error("read-pending-rows failed", { error_message: rowsErr.message, error_code: rowsErr.code });
       return json({ error: `Read recipients failed: ${rowsErr.message}`, step }, 500);
     }
     const rows = (rowsRaw ?? []) as RecipientRow[];
-    console.log(`[send-whatsapp] found ${rows.length} pending rows for ${communication_id}`);
+    log.info("read-pending-rows", { count: rows.length, communication_id });
 
     if (rows.length === 0) {
       return json({ sent: 0, failed: 0, errors: [] });
@@ -196,7 +198,11 @@ Deno.serve(async (req) => {
 
         const respText = await resp.text();
         if (!resp.ok) {
-          console.error(`[send-whatsapp] Meta ${resp.status}: ${respText.slice(0, 300)}`);
+          log.error("meta send failed", {
+            recipient_id: row.id,
+            status: resp.status,
+            body_excerpt: respText.slice(0, 300),
+          });
           await supabase.rpc("_whatsapp_recipient_update" as never, {
             _recipient_id: row.id,
             _status: "failed",
@@ -213,7 +219,7 @@ Deno.serve(async (req) => {
         sent += 1;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[send-whatsapp] fetch threw for recipient ${row.id}:`, msg);
+        log.error("meta send threw", { recipient_id: row.id, error_message: msg });
         await supabase.rpc("_whatsapp_recipient_update" as never, {
           _recipient_id: row.id, _status: "failed", _error: msg.slice(0, 500),
         } as never);
@@ -226,7 +232,7 @@ Deno.serve(async (req) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
-    console.error(`[send-whatsapp] unhandled error at step="${step}":`, msg, stack);
+    log.error("unhandled error", { step, error_message: msg, error_stack: stack });
     return json({ error: msg, step }, 500);
   }
 });

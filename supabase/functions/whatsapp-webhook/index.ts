@@ -13,6 +13,9 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+
+const log = createEdgeLogger("whatsapp-webhook");
 
 // Meta's WhatsApp servers POST verification + delivery events to this
 // endpoint with no browser involved. Origin checking is meaningless
@@ -43,18 +46,17 @@ Deno.serve(async (req) => {
     const expected  = Deno.env.get("WHATSAPP_VERIFY_TOKEN");
 
     if (!expected) {
-      console.error("[whatsapp-webhook] WHATSAPP_VERIFY_TOKEN not set");
+      log.error("verify token not set");
       return new Response("verify token not configured on server", {
         status: 500, headers: corsHeaders,
       });
     }
 
     if (mode === "subscribe" && token && token === expected) {
-      console.log("[whatsapp-webhook] verification successful");
+      log.info("verification successful");
       return new Response(challenge ?? "", { status: 200, headers: corsHeaders });
     }
-    console.warn("[whatsapp-webhook] verification rejected",
-      { hasMode: !!mode, hasToken: !!token, match: token === expected });
+    log.warn("verification rejected", { hasMode: !!mode, hasToken: !!token, match: token === expected });
     return new Response("forbidden", { status: 403, headers: corsHeaders });
   }
 
@@ -119,14 +121,14 @@ Deno.serve(async (req) => {
           }
         }
       }
-      console.log(`[whatsapp-webhook] processed=${processed} unmatched=${unmatched}`);
+      log.info("processed", { processed, unmatched });
       return new Response(JSON.stringify({ processed, unmatched }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error("[whatsapp-webhook] POST failed:", msg);
+      log.error("post failed", toErrorFields(err));
       return new Response(JSON.stringify({ error: msg }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

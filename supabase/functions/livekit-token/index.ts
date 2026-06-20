@@ -1,6 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { AccessToken } from "https://esm.sh/livekit-server-sdk@2.9.7";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+
+const log = createEdgeLogger("livekit-token");
 
 const MAX_PUBLISHERS = 10;
 
@@ -195,7 +198,7 @@ Deno.serve(async (req) => {
       registration_id: registrationId,
     });
   } catch (e) {
-    console.error(e);
+    log.error("unhandled error", toErrorFields(e));
     return json({ error: String(e) }, 500);
   }
 

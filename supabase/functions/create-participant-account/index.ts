@@ -31,6 +31,9 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+
+const log = createEdgeLogger("create-participant-account");
 
 Deno.serve(async (req) => {
   const corsHeaders = buildCorsHeaders(req);
@@ -122,7 +125,7 @@ Deno.serve(async (req) => {
       .eq("id", registration_id);
 
     if (linkErr) {
-      console.error("Failed to link registration:", linkErr);
+      log.error("link registration failed", { error_message: linkErr.message, error_code: linkErr.code });
       // Non-fatal — the account was still created
     }
 
@@ -136,7 +139,7 @@ Deno.serve(async (req) => {
       .is("user_id", null);
 
     if (bulkLinkErr) {
-      console.error("Failed to bulk-link registrations:", bulkLinkErr);
+      log.error("bulk-link registrations failed", { error_message: bulkLinkErr.message, error_code: bulkLinkErr.code });
     }
 
     return json({
@@ -146,7 +149,7 @@ Deno.serve(async (req) => {
     });
 
   } catch (err) {
-    console.error("[create-participant-account] Error:", err);
+    log.error("unhandled error", toErrorFields(err));
     return json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
 });

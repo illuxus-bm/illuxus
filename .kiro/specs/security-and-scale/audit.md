@@ -220,25 +220,52 @@ every event-detail visit.
 (`org_search_speakers(_q text, _limit int)`) that returns 50 rows max.
 **Status**: open — RPC-side change, ~half-day of work.
 
-### SCALE-004 — Realtime subscriptions per row
+### SCALE-004 — Realtime subscription channels per session
 
-**Severity**: P1
-**Where**: `WebinarSidebar.tsx`, `RegistrationsSection.tsx`,
-`PublicEventPage.tsx`
-**Why**: each subscribes to `postgres_changes` filtered by row id.
-Supabase Realtime caps connections per project at the plan tier
-(2k on Pro). A live event with 10k viewers each opening a chat panel
-will exceed the cap before launch. Connection multiplexing is fine —
-Supabase rolls all channels for a single client into one WebSocket —
-but we need to verify that the client lib is actually multiplexing
-and not opening one socket per `supabase.channel()` call.
-**Fix**: confirm channel reuse with a runtime probe. If multiplexing
-is broken, switch high-cardinality realtime feeds (chat, QA, polls)
-to a single `event_id`-scoped channel and route by table inside the
-listener. Document the cap in `docs/scaling.md` so anyone adding new
-realtime feeds knows the budget.
-**Status**: open — needs a 1-2h instrumentation pass before deciding
-what (if anything) to refactor.
+**Severity**: P1 (infrastructure, not code)
+**Where**: `EventLivePage.tsx`, `BroadcastPage.tsx`,
+`WebinarSidebar.tsx`, `LiveStatusBanner.tsx`,
+`StageOverlays.tsx`
+**Why**: a live event viewer opens up to ~9 `supabase.channel()`
+subscriptions (session, registration, reactions, announcements, +
+sidebar's chat/qa/polls/stage-requests/own-request, + branding +
+banner). Initial concern was that each channel = one WebSocket =
+quickly hits Supabase Realtime caps.
+**Finding after audit**: supabase-js's `RealtimeClient` opens
+exactly one WebSocket per browser tab and multiplexes all
+`supabase.channel()` subscriptions onto that single connection.
+Confirmed by reading the singleton in
+`src/integrations/supabase/client.ts` (one `createClient` call,
+shared across the entire app) and tracing how
+`supabase.channel()` enqueues onto the existing socket.
+The 9-channel-per-viewer pattern therefore costs exactly 9
+subscriptions on 1 WebSocket — well within Postgres Realtime's
+per-connection limits (Supabase docs: up to 100 channels per
+client).
+**Real bottleneck**: concurrent WebSocket count, which is bounded
+by the Supabase plan tier. For 50k concurrent viewers, the
+launch infrastructure budget needs:
+  - Free tier:        200 concurrent — does not scale to 50k.
+  - Pro tier:         500 concurrent — does not scale to 50k.
+  - Team tier:      1,000 concurrent — does not scale to 50k.
+  - Enterprise:    custom — required for the 50k target.
+**Fix sketch**:
+  1. **Infra**: pick the Supabase Enterprise tier OR consider
+     fronting the realtime path with a managed pub/sub
+     (Centrifugo, Ably, Pusher) for the public live page. The
+     viewer doesn't need DB realtime — it just needs the
+     announce/reaction/poll feed.
+  2. **Code**: nothing required for the multiplexing concern.
+     Keep the channel naming scheme as-is.
+  3. **Optional micro-optimisation**: the per-event WebinarSidebar
+     already coalesces chat + qa into a single channel
+     (`sidebar-counts-${sessionId}`). The same pattern could
+     consolidate `reactions` + `announcements` into the existing
+     session channel, dropping ~2 subscriptions per viewer. That's
+     a cosmetic improvement; the WebSocket count is unchanged.
+**Status**: **investigated; tracked as infrastructure decision**.
+The audit doc now documents the plan-tier requirement. No code
+change in this commit.
 
 ### SCALE-005 — Missing FK indexes
 
@@ -313,7 +340,27 @@ does in the browser.
 **Fix**: port a minimal logger to `supabase/functions/_shared/logger.ts`
 that emits structured JSON to stdout (Deno log driver picks it up)
 and drops PII keys.
-**Status**: open — ~half day for the helper + per-function migration.
+**Status**: **done**.
+
+Created `supabase/functions/_shared/edge-logger.ts` —
+a structured JSON emitter with a 24-key deny-list redaction pass
+(`password`, `token`, `secret`, `api_key`, `service_role_key`,
+`session_id`, `otp`, `private_key`, `card_number`, `cvv`, etc.),
+optional `child(extra)` for binding a `correlation_id` per request,
+and a `toErrorFields(err)` helper that returns
+`{ error_name, error_message, error_stack }`.
+
+Migrated every edge function to use it: `agora-token`,
+`whatsapp-sync-templates`, `whatsapp-webhook`, `send-email`,
+`send-event-email`, `send-communication-email`, `send-whatsapp`,
+`create-participant-account`, `livekit-room-create`,
+`livekit-token`, `livekit-webhook`, `seed-cities`, plus the four
+remaining LiveKit functions and recording-{start,stop} which
+already had no `console.*` calls themselves.
+
+`grep "console\\." supabase/functions/**/*.ts` after the change
+returns matches only inside `_shared/edge-logger.ts` (with
+`eslint-disable-next-line` comments — those are the sink).
 
 ### LINT-002 — 125 `any` types
 
@@ -460,3 +507,15 @@ broken). Items 3-5 require infra not in the repo today.
   `src/lib/observability/env-mode.ts`; `rpc.ts` and `logger.ts`
   delegate. Tests `vi.mock` the module to inject controlled
   values. CI now green at 242/242.
+- `2026-06-21` — **SCALE-004 investigated**. Confirmed
+  supabase-js multiplexes all channels onto a single WebSocket per
+  tab. The 9-subscription-per-viewer pattern is fine. The real
+  bottleneck is concurrent WebSocket count vs Supabase plan tier;
+  documented as an infrastructure requirement (Enterprise tier or
+  managed pub/sub front for public live page) — no code change
+  needed.
+- `2026-06-21` — **LINT-001 done**. Created
+  `supabase/functions/_shared/edge-logger.ts` (structured JSON
+  emitter with deny-list redaction + `child` + `toErrorFields`).
+  All 11 functions that previously called `console.*` now go
+  through it. Zero `console.*` left in edge function code paths.
