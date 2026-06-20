@@ -324,24 +324,44 @@ heavy non-route vendor libs (`recharts`, `tanstack-query`,
 `framer-motion`).
 **Status**: open — vendor split, ~2h work + visual-regression check.
 
-### SCALE-007 — No CDN cache headers configured
+### SCALE-007 — CDN cache headers + transport security
 
 **Severity**: P1
-**Where**: `vercel.json` — only an SPA rewrite, no `headers`.
-**Why**: every event public page request goes back to origin even
-though the data layer is read-mostly. A viral event tweet that
-brings 100k visitors will hammer Supabase row reads when 99% of them
-could be served from Vercel's edge cache with `s-maxage`. The
-`PublicEventPage` is the obvious cache target.
-**Fix**: Two layers:
-1. Add `Cache-Control: public, s-maxage=60, stale-while-revalidate=600`
-   on the static index.html (so the SPA shell caches at edge).
-2. For the public event JSON, expose a server-side route or edge
-   function that returns the read-only event payload with the same
-   cache header, and have the SPA render from it on first load.
-   Then realtime subscriptions take over for live updates.
-**Status**: tracked — biggest scale win, but invasive (introduces
-a new ingress point). Worth its own spec.
+**Where**: `vercel.json`
+**Why**: every event public page request used to go back to origin
+because there were no `Cache-Control` headers on the SPA shell.
+Three other related concerns came up at the same time:
+HSTS missing, `X-Frame-Options` missing (clickjacking), and the
+`/index.html` rewrite target had no caching policy at all.
+**Status**: **partially done** — Layer 1 (SPA shell + transport
+security) shipped. Layer 2 (server-side route returning the
+read-only event JSON with the same cache policy) deferred to its
+own spec.
+
+  Layer 1 (this commit):
+  - `/index.html` now serves with
+    `Cache-Control: public, max-age=0, s-maxage=60, stale-while-revalidate=600`.
+    Browsers always revalidate; Vercel's edge cache holds for 60s
+    and serves stale-while-revalidating up to 10min. A viral event
+    tweet that brings 100k visitors in 60s sees one origin hit, not
+    100k.
+  - `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`
+    so browsers that hit illuxus once auto-upgrade HTTP→HTTPS for
+    the next 2 years and the domain is preload-eligible.
+  - `X-Frame-Options: DENY` to block third-party iframing
+    (clickjacking). The platform renders OUTBOUND iframes (maps,
+    livestream embed) from its own HTML; those aren't blocked. The
+    public embed widget at `/embed.js` is a JS embed, not an
+    iframe, so it's also unaffected.
+
+  Layer 2 (deferred):
+  - Need a server-side route or edge function that returns the
+    read-only event JSON with the same s-maxage policy. Currently
+    the SPA does its own row reads to Supabase, which means the
+    edge cache only saves the HTML hit — not the data hits. This
+    is a bigger refactor (moves the public-event read path off
+    Supabase RLS and onto a public RPC) and deserves its own
+    spec.
 
 ---
 
@@ -547,3 +567,9 @@ broken). Items 3-5 require infra not in the repo today.
   state. Initial dashboard load egress drops from O(org-roster)
   to O(linked speakers/sponsors) — typically 5-50 rows instead
   of 1k-10k.
+- `2026-06-21` — **SCALE-007 partial**. `vercel.json` now serves
+  `/index.html` with `s-maxage=60, stale-while-revalidate=600`,
+  adds `Strict-Transport-Security` (2yr, preload-eligible), and
+  `X-Frame-Options: DENY` for clickjacking defence. Layer 2 (a
+  server-side route returning the read-only event JSON with the
+  same cache policy) is deferred to its own spec.
