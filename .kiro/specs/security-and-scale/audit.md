@@ -247,11 +247,14 @@ but several aren't (`webinar_speakers.session_id`,
 session_id = $1` pattern triggers a sequential scan. At 50k users
 each generating tens to hundreds of rows in webinar_chat, this is
 the single biggest predictable production fire.
-**Fix**: a small migration that adds `CREATE INDEX IF NOT EXISTS …
-ON … (session_id)` for each missing FK. Verify with `EXPLAIN` on a
-seeded staging DB.
-**Status**: open — ~30 min for the migration, separate to confirm
-in staging.
+**Status**: **done in commit pending** — `supabase/migrations/015_fk_indexes.sql`
+adds 28 missing FK indexes spread across events, speakers, sponsors,
+event_speakers, event_sponsors, sessions, session_speakers, webinar_*
+(chat, qa, polls, poll_votes, reactions, announcements, lounge,
+stage_requests, speakers), attendance_events, sponsor_members,
+org_members / followers / invitations / sponsor_tiers,
+email_otp_codes, and user_roles. All `CREATE INDEX IF NOT EXISTS` so
+the migration is idempotent. Apply via `supabase db push`.
 
 ### SCALE-006 — `bun run build` ships single 984KB JS chunk
 
@@ -435,3 +438,8 @@ broken). Items 3-5 require infra not in the repo today.
   DOMPurify in a new `src/lib/sanitize-html.ts` module with a strict
   allow-list and a property test pass (24 cases) covering known
   XSS payloads + fuzzed tag/handler/protocol combinations.
+- `2026-06-21` — **SCALE-005 done**. New
+  `supabase/migrations/015_fk_indexes.sql` adds 28 missing FK
+  indexes across the schema — biggest win on the webinar live-event
+  tables (chat, qa, polls) which are accessed via
+  `WHERE session_id = $1` in every realtime subscribe.
