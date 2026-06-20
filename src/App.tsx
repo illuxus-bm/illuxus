@@ -335,6 +335,15 @@ export default App;
  */
 function GlobalFooter() {
   const { pathname } = useLocation();
+  // These dashboard/auth/app routes have no footer of their own.
+  // Everything else (landing, discover, events listing, features, pricing,
+  // about, contact, privacy, terms, public event pages, org pages, etc.)
+  // renders its own <Footer /> component — suppress GlobalFooter there
+  // to avoid a double footer.
+  const needsGlobalFooter = [
+    "/u/",      // attendee profile pages that don't include their own Footer
+    "/t/",      // ticket detail
+  ];
   const hiddenPrefixes = [
     "/dashboard",
     "/onboarding",
@@ -345,16 +354,32 @@ function GlobalFooter() {
     "/speaker",
     "/checkin",
     "/community",
-    "/e/", // live event
+    "/e/",
     "/__preview",
+    // Public pages that own their footer
+    "/",
+    "/events",
+    "/discover",
+    "/features",
+    "/pricing",
+    "/about",
+    "/contact",
+    "/privacy",
+    "/terms",
+    "/org/",
+    "/events/",
   ];
-  // EventsListingPage and Index already render their own <Footer />.
-  const ownsFooter = ["/", "/events"].includes(pathname);
-  if (ownsFooter) return null;
-  if (hiddenPrefixes.some((p) => pathname === p || pathname.startsWith(p + "/") || pathname.startsWith(p))) {
+  if (hiddenPrefixes.some((p) => {
+    if (p === "/") return pathname === "/";
+    return pathname === p || pathname.startsWith(p);
+  })) {
     return null;
   }
-  return <Footer />;
+  // Only render for routes explicitly needing the global footer
+  if (needsGlobalFooter.some((p) => pathname.startsWith(p))) {
+    return <Footer />;
+  }
+  return null;
 }
 
 /**
