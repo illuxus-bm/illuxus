@@ -101,14 +101,26 @@ ESLint passes for that file.
 **Severity**: P0 (depends on `sanitizeHtml` strength)
 **Where**: `src/components/event/page-form/PublicEventRenderer.tsx:1140`
 **Why**: organisers can write arbitrary HTML in custom event-page
-sections. If `sanitizeHtml` allows `<script>`, `on*=` attributes, or
-`javascript:` URLs, an organiser can run JS in attendees' browsers.
-**Fix**: read the implementation of `sanitizeHtml`, confirm it
-enforces a strict allowlist (DOMPurify with `FORBID_TAGS: ['script',
-'style']` and `FORBID_ATTR: ['onerror', 'onload', ...]`). Add a unit
-test that asserts a few known XSS payloads are stripped.
-**Status**: open — needs a 30-min review of the sanitiser + 1 PBT
-asserting injection payloads round-trip safely.
+sections. The previous sanitiser was a regex-only allowlist that's
+known to be bypassable on:
+  - Self-closing scripts (`<script src=// />`)
+  - Nested injection (`<scr<script>ipt>`)
+  - Unquoted handler attributes (`onerror=alert(1)`)
+  - Style-based JS execution (`background:url(javascript:…)`)
+  - Newline-smuggling protocols (`java\nscript:`)
+  - Case-shifted handlers and protocols
+**Fix**: replaced the regex sanitiser with DOMPurify-backed
+`@/lib/sanitize-html.sanitizeHtml`. Strict tag + attribute allow-list
+(prose tags only, no script/iframe/object/embed/form/style/math),
+inline `style` and `srcdoc` forbidden, http(s)/mailto/tel/anchor
+URLs only, `target="_blank"` links auto-get
+`rel="noopener noreferrer"` via an `afterSanitizeAttributes` hook.
+A property test `src/lib/__tests__/sanitize-html.pbt.test.ts`
+asserts no execution surface survives across 20 known XSS payloads
++ a fast-check property pass over fuzzed tag/handler/protocol
+combinations (100 runs).
+**Status**: **done** — 24/24 tests pass; full suite still green
+(239 passing, the 3 still-failing tests are SEC-004's remaining work).
 
 ### SEC-004 — Three failing tests block CI
 
@@ -419,3 +431,7 @@ broken). Items 3-5 require infra not in the repo today.
   origin allowlist via `ALLOWED_ORIGINS` Supabase secret. 18 edge
   functions migrated; 4 stay `allowAny: true` by design (webhooks
   + public embed + fx rates). `.env.example` documents the secret.
+- `2026-06-21` — **SEC-003 done**. Replaced the regex sanitiser with
+  DOMPurify in a new `src/lib/sanitize-html.ts` module with a strict
+  allow-list and a property test pass (24 cases) covering known
+  XSS payloads + fuzzed tag/handler/protocol combinations.
