@@ -96,6 +96,22 @@ export function AgoraWebinarStage({
     tokenStateRef.current = tokenState;
   }, [tokenState]);
 
+  // ── Track cleanup on unmount / session-end ───────────────────────────────
+  // React's effect cleanup is the primary path; this useEffect adds a
+  // synchronous safety net so the camera/mic hardware indicator turns off
+  // immediately when the component is removed, even if the async effect
+  // cleanup races with the unmount.
+  useEffect(() => {
+    return () => {
+      // `client.leave()` calls `unpublish()` internally (which closes the
+      // tracks). Calling it here in the component-level cleanup ensures
+      // we don't wait for useAgoraClient's own cleanup effect, which runs
+      // in a separate React batch after the render commit.
+      client.leave().catch(() => { /* already disconnected — safe to ignore */ });
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // empty deps: run only on unmount
+
   // Auto-publish for hosts the moment we're connected.
   const publishStartedRef = useRef(false);
   useEffect(() => {

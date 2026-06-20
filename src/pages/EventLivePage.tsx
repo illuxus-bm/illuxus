@@ -127,8 +127,13 @@ export default function EventLivePage() {
             }
           } catch { /* corrupted entry — ignore, user will re-join manually */ }
         } else if (!data || data.status === "ended") {
-          // Session ended while user was away — clear the stale join state.
+          // Session ended — clear persisted join state AND drop the token
+          // so AgoraWebinarStage unmounts immediately and the camera/mic
+          // hardware lights turn off. Without setToken(null) here the stage
+          // stays mounted (token is still 'agora' in React state) even
+          // after the webinar has ended, keeping the camera indicator on.
           clearJoinState();
+          setToken(null);
         }
       });
     load();
