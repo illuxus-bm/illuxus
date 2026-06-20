@@ -16,6 +16,7 @@ import { Radio, Square, Plus, Copy, Megaphone, Sparkles, LogOut, ArrowLeft, Mini
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { useSessionBranding } from "@/components/webinar/StageOverlays";
 import { publicUrl } from "@/lib/publicUrl";
+import { getWebinarProvider, type WebinarProvider } from "@/lib/webinar/provider";
 
 // Lazy-load heavy webinar UI so the dashboard bundle stays small and the
 // LiveKit client / styles only download when a host actually opens a session.
@@ -241,6 +242,17 @@ export default function BroadcastPage() {
   };
 
   const fetchToken = async () => {
+    const provider: WebinarProvider = getWebinarProvider({
+      eventOverride: (event as { video_provider?: string | null } | null)?.video_provider ?? null,
+    }).provider;
+    if (provider === "agora") {
+      // Agora path: AgoraWebinarStage fetches its own RTC token via the
+      // agora-token edge function; we just unblock the stage render.
+      setToken("agora");
+      setWsUrl("agora");
+      setCanPublish(true);
+      return true;
+    }
     try {
       const { data, error } = await supabase.functions.invoke("livekit-token", { body: { session_id: session.id } });
       if (error || !data?.token) { toast.error("LiveKit not configured — streaming requires LiveKit secrets in Supabase dashboard."); return false; }
@@ -372,6 +384,9 @@ export default function BroadcastPage() {
     const stageEl = (
       <Suspense fallback={<FullPageLoader label="Connecting to studio…" />}>
         <WebinarStage
+          provider={getWebinarProvider({
+            eventOverride: (event as { video_provider?: string | null } | null)?.video_provider ?? null,
+          }).provider}
           token={token}
           wsUrl={wsUrl!}
           canPublish={canPublish}
