@@ -2,15 +2,17 @@ import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
+import type { Tables } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ArrowLeft, Minimize2, Maximize2, X, LogOut } from "lucide-react";
+import { ArrowLeft, Minimize2, Maximize2, X, LogOut, Users, MessageSquare, HelpCircle, BarChart2, Hand } from "lucide-react";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { useSessionBranding } from "@/components/webinar/StageOverlays";
 import { WaitingLobby } from "@/components/webinar/WaitingLobby";
 import { uuid } from "@/lib/uuid";
 import { getWebinarProvider, type WebinarProvider } from "@/lib/webinar/provider";
+import { toast } from "sonner";
 
 const WebinarStage = lazy(() =>
   import("@/components/webinar/WebinarStage").then((m) => ({ default: m.WebinarStage })),
@@ -28,12 +30,13 @@ export default function EventLivePage() {
   const [search] = useSearchParams();
   const speakerToken = search.get("speaker");
   const joinToken = search.get("join");
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<Tables<"webinar_sessions"> | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [wsUrl, setWsUrl] = useState<string | null>(null);
   const [canPublish, setCanPublish] = useState(false);
   const [showPrejoin, setShowPrejoin] = useState(false);
   const [minimized, setMinimized] = useState(false);
+  const [activeTab, setActiveTab] = useState<"chat" | "qa" | "polls" | "requests" | "participants" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [registrationId, setRegistrationId] = useState<string | null>(null);
   // Persist a stable browser session id per join token / user so tab switches,
@@ -65,34 +68,6 @@ export default function EventLivePage() {
   }>({ title: null, banner: null, videoProvider: null });
   const branding = useSessionBranding(session?.id);
 
-  // ── Refresh-safe session persistence ─────────────────────────────────────
-  // When a participant is inside the room we save their join state to
-  // sessionStorage so that a hard refresh (F5, Cmd-R) auto-rejoins them
-  // without showing the waiting lobby again.
-  //
-  // Key layout:  `webinar-joined-${eventId}`
-  // Value:       JSON { token, wsUrl, canPublish, provider }
-  //
-  // The entry is written the moment a token is set and cleared when the user
-  // explicitly leaves (onDisconnect / Leave button).
-  const persistJoinState = (t: string, ws: string, pub: boolean) => {
-    try {
-      sessionStorage.setItem(
-        `webinar-joined-${eventId}`,
-        JSON.stringify({ token: t, wsUrl: ws, canPublish: pub }),
-      );
-    } catch { /* storage full / private mode */ }
-  };
-
-  const clearJoinState = () => {
-    try { sessionStorage.removeItem(`webinar-joined-${eventId}`); } catch { /* ignore */ }
-  };
-
-  const wrappedSetToken = (t: string | null) => {
-    if (!t) clearJoinState();
-    setToken(t);
-  };
-
   // Stable, low-entropy device fingerprint used as a server-side fallback when
   // localStorage is cleared. Not for tracking — only matched within a single
   // registration_id to avoid self-kick.
@@ -108,40 +83,12 @@ export default function EventLivePage() {
     if (!eventId) return;
     const load = () => supabase.from("webinar_sessions").select("*").eq("event_id", eventId)
       .order("created_at", { ascending: false }).limit(1).maybeSingle()
-      .then(({ data }) => {
-        setSession(data);
-        // Auto-rejoin after a refresh if we have a persisted join state and
-        // the session is still live / scheduled.
-        if (data && (data.status === "live" || data.status === "scheduled")) {
-          try {
-            const saved = sessionStorage.getItem(`webinar-joined-${eventId}`);
-            if (saved) {
-              const { token: t, wsUrl: ws, canPublish: pub } = JSON.parse(saved) as {
-                token: string; wsUrl: string; canPublish: boolean;
-              };
-              if (t && ws) {
-                setToken(t);
-                setWsUrl(ws);
-                setCanPublish(pub ?? false);
-              }
-            }
-          } catch { /* corrupted entry — ignore, user will re-join manually */ }
-        } else if (!data || data.status === "ended") {
-          // Session ended — clear persisted join state AND drop the token
-          // so AgoraWebinarStage unmounts immediately and the camera/mic
-          // hardware lights turn off. Without setToken(null) here the stage
-          // stays mounted (token is still 'agora' in React state) even
-          // after the webinar has ended, keeping the camera indicator on.
-          clearJoinState();
-          setToken(null);
-        }
-      });
+      .then(({ data }) => setSession(data));
     load();
     const ch = supabase.channel(`session-${eventId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "webinar_sessions" }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
   // Fetch event title + landscape banner for the empty-stage placeholder.
@@ -257,19 +204,48 @@ export default function EventLivePage() {
     if (!registrationId) return;
     const ch = supabase.channel(`reg-${registrationId}`)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "registrations", filter: `id=eq.${registrationId}` },
-        (p: any) => {
+        (p: { new: Tables<"registrations"> }) => {
           const newId = p.new?.active_session_id;
           // Ignore null/empty and our own id (defensive against echoes / remounts).
           if (!newId) return;
           if (newId === browserSessionId) return;
-          clearJoinState();
-          setKicked(true); wrappedSetToken(null);
+          setKicked(true); setToken(null);
         }).subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [registrationId, browserSessionId]);
 
+  // Listen for stage request promotions (raise hand approval)
+  useEffect(() => {
+    if (!session?.id) return;
+    const clientUserId = user?.id ?? `guest-${registrationId ?? "anon"}`;
+    const ch = supabase.channel(`my-stage-request-${session.id}`)
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "webinar_stage_requests"
+      }, (p) => {
+        const next = p.new as { session_id?: string; user_id?: string; status?: string } | null;
+        if (next && next.session_id === session.id && next.user_id === clientUserId) {
+          if (next.status === "accepted") {
+            setCanPublish(true);
+            toast.success("You have been promoted to the stage!");
+          } else if (next.status === "cancelled" || next.status === "demoted") {
+            setCanPublish(false);
+            toast.success("You have been moved back to the audience.");
+          }
+        }
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [session?.id, user?.id, registrationId]);
+
   const handleJoinClick = async () => {
     if (!session) {
+      // Speakers may land here while the webinar_sessions SELECT is still
+      // pending (or RLS-blocked if migration 016 isn't applied). Surface a
+      // clear error rather than silently no-op.
       setError("Webinar room is not ready yet. Refresh in a moment, or ask the host to create / start the session.");
       return;
     }
@@ -277,8 +253,12 @@ export default function EventLivePage() {
       eventOverride: eventMeta.videoProvider,
     }).provider;
     if (provider === "agora") {
+      // Agora path: AgoraWebinarStage fetches its own RTC token from the
+      // agora-token edge function. We just need to flip the stage on with
+      // a placeholder ws/token so the existing render gating opens.
+      // Publish-capable when (a) we arrived via a speaker invite link, or
+      // (b) the signed-in user is a registered speaker for this event.
       const canPub = !!speakerToken || isEventSpeaker;
-      persistJoinState("agora", "agora", canPub);
       setWsUrl("agora");
       setCanPublish(canPub);
       setToken("agora");
@@ -293,17 +273,13 @@ export default function EventLivePage() {
       sessionStorage.setItem(`lk-token-${session.id}`, data.token);
       setShowPrejoin(true);
     } else {
-      persistJoinState(data.token, data.ws_url, false);
       setToken(data.token);
     }
   };
 
   const confirmJoin = () => {
     const t = sessionStorage.getItem(`lk-token-${session.id}`);
-    if (t) {
-      persistJoinState(t, wsUrl ?? "", canPublish);
-      setToken(t);
-    }
+    if (t) setToken(t);
     setShowPrejoin(false);
   };
 
@@ -323,6 +299,7 @@ export default function EventLivePage() {
         visitorName={visitorName}
         role={visitorRole}
         sessionStatus={null}
+        onJoin={handleJoinClick}
       />
     );
   }
@@ -379,7 +356,7 @@ export default function EventLivePage() {
           isHost={false}
           eventBannerUrl={eventMeta.banner}
           eventTitle={eventMeta.title}
-          onDisconnect={() => { clearJoinState(); wrappedSetToken(null); }}
+          onDisconnect={() => setToken(null)}
         />
       </Suspense>
     );
@@ -389,7 +366,7 @@ export default function EventLivePage() {
         {minimized && (
           <div className="p-6 max-w-2xl mx-auto space-y-4">
             <Button variant="ghost" size="sm" asChild>
-              <Link to={`/e/${eventId}`}><ArrowLeft className="h-4 w-4 mr-1" />Back to event</Link>
+              <Link to={`/events/${eventId}`}><ArrowLeft className="h-4 w-4 mr-1" />Back to event</Link>
             </Button>
             <Card className="p-4">
               <p className="text-[13px] text-muted-foreground">Webinar minimized — still connected.</p>
@@ -417,27 +394,60 @@ export default function EventLivePage() {
                 <LiveAnnouncement sessionId={session.id} />
                 <div className="absolute top-3 left-3 flex gap-2 z-20">
                   <Button size="sm" variant="secondary" asChild>
-                    <Link to={`/e/${eventId}`}><ArrowLeft className="h-4 w-4 mr-1.5" />Back</Link>
+                    <Link to={`/events/${eventId}`}><ArrowLeft className="h-4 w-4 mr-1.5" />Back</Link>
                   </Button>
                   <span className="bg-destructive text-destructive-foreground text-[11px] px-2 py-1 rounded-md animate-pulse font-medium">● LIVE</span>
                 </div>
                 <div className="absolute top-3 right-3 flex gap-2 z-20">
+                  <div className="bg-black/45 backdrop-blur-md rounded-lg p-0.5 flex gap-0.5 border border-white/10 mr-2">
+                    {[
+                      { key: "participants", icon: Users, title: "People" },
+                      { key: "chat", icon: MessageSquare, title: "Chat" },
+                      { key: "qa", icon: HelpCircle, title: "Q&A" },
+                      { key: "polls", icon: BarChart2, title: "Polls" },
+                    ].map((t) => {
+                      const Icon = t.icon;
+                      const active = activeTab === t.key;
+                      return (
+                        <Button
+                          key={t.key}
+                          size="icon"
+                          variant="ghost"
+                          className={`h-8 w-8 rounded-md text-white transition-colors ${
+                            active ? "bg-white/20 text-white" : "hover:bg-white/10 text-white/70"
+                          }`}
+                          onClick={() => setActiveTab(active ? null : (t.key as any))}
+                          title={t.title}
+                        >
+                          <Icon className="h-4.5 w-4.5" />
+                        </Button>
+                      );
+                    })}
+                  </div>
                   <Button size="sm" variant="secondary" onClick={() => setMinimized(true)}><Minimize2 className="h-4 w-4 mr-1.5" />Minimize</Button>
-                  <Button size="sm" variant="secondary" onClick={() => { clearJoinState(); wrappedSetToken(null); }}><LogOut className="h-4 w-4 mr-1.5" />Leave</Button>
+                  <Button size="sm" variant="secondary" onClick={() => setToken(null)}><LogOut className="h-4 w-4 mr-1.5" />Leave</Button>
                 </div>
               </>
             )}
             {minimized && (
               <div className="absolute top-1 right-1 z-30 flex gap-1">
                 <Button size="icon" variant="secondary" className="h-6 w-6" onClick={() => setMinimized(false)}><Maximize2 className="h-3 w-3" /></Button>
-                <Button size="icon" variant="destructive" className="h-6 w-6" onClick={() => { clearJoinState(); wrappedSetToken(null); }}><X className="h-3 w-3" /></Button>
+                <Button size="icon" variant="destructive" className="h-6 w-6" onClick={() => setToken(null)}><X className="h-3 w-3" /></Button>
               </div>
             )}
           </div>
-          {!minimized && (
-            <div className="w-80 bg-background border-l border-border">
+          {!minimized && activeTab && (
+            <div className="w-80 bg-background border-l border-border h-full flex flex-col shrink-0">
               <Suspense fallback={<div className="p-4 text-[12px] text-muted-foreground">Loading chat…</div>}>
-                <WebinarSidebar sessionId={session.id} isHost={false} canPublish={canPublish} userId={user?.id ?? `guest-${registrationId ?? "anon"}`} />
+                <WebinarSidebar
+                  sessionId={session.id}
+                  isHost={false}
+                  canPublish={canPublish}
+                  userId={user?.id ?? `guest-${registrationId ?? "anon"}`}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  onClose={() => setActiveTab(null)}
+                />
               </Suspense>
             </div>
           )}
@@ -463,7 +473,7 @@ function LiveReactions({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     const ch = supabase.channel(`reactions-live-${sessionId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "webinar_reactions", filter: `session_id=eq.${sessionId}` },
-        (p: any) => {
+        (p: { new: Tables<"webinar_reactions"> }) => {
           const id = p.new.id; const emoji = p.new.emoji;
           const left = 10 + Math.random() * 80;
           setFloats((f) => [...f, { id, emoji, left }]);
@@ -485,7 +495,7 @@ function LiveAnnouncement({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     const ch = supabase.channel(`announce-live-${sessionId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "webinar_announcements", filter: `session_id=eq.${sessionId}` },
-        (p: any) => { setMsg(p.new.message); setTimeout(() => setMsg(null), 6000); })
+        (p: { new: Tables<"webinar_announcements"> }) => { setMsg(p.new.message); setTimeout(() => setMsg(null), 6000); })
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [sessionId]);

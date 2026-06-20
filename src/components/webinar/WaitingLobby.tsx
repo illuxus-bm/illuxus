@@ -97,7 +97,7 @@ export function WaitingLobby({ eventId, visitorName, role, sessionStatus, onJoin
       location: [event.venue, event.location].filter(Boolean).join(", ") || (event.event_format === "virtual" ? "Online" : undefined),
       start: event.date,
       end: event.end_date,
-      url: window.location.origin + `/e/${eventId}`,
+      url: window.location.origin + `/events/${eventId}`,
     });
     const a = document.createElement("a");
     a.href = url;
@@ -125,7 +125,7 @@ export function WaitingLobby({ eventId, visitorName, role, sessionStatus, onJoin
         {/* Top bar */}
         <div className="flex items-center justify-between mb-12 animate-in fade-in duration-700">
           <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground -ml-2">
-            <Link to={`/e/${eventId}`}><ArrowLeft className="h-4 w-4 mr-1.5" />Event page</Link>
+            <Link to={`/events/${eventId}`}><ArrowLeft className="h-4 w-4 mr-1.5" />Event page</Link>
           </Button>
           <div className="flex items-center gap-2">
             {orgLogo ? (
@@ -220,18 +220,36 @@ export function WaitingLobby({ eventId, visitorName, role, sessionStatus, onJoin
 
             {/* CTA row */}
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              {isLive ? (
-                <div className="relative">
-                  <span className="absolute -inset-1 rounded-md bg-destructive/40 blur-md animate-pulse" />
-                  <Button size="lg" onClick={onJoin} className="relative gap-2 shadow-[0_0_30px_hsl(var(--foreground)/0.25)]">
-                    <Radio className="h-4 w-4" />Join the webinar
-                  </Button>
-                </div>
-              ) : (
-                <Button size="lg" disabled className="gap-2">
-                  <Sparkles className="h-4 w-4" />Waiting for host…
-                </Button>
-              )}
+              {(() => {
+                // Once the host has created the webinar session row (any
+                // non-null status that isn't 'ended'), let everyone enter —
+                // speakers, attendees, and hosts. Pre-show / green room flow.
+                const sessionAvailable = sessionStatus !== null && sessionStatus !== "ended";
+                if (!sessionAvailable) {
+                  return (
+                    <Button size="lg" disabled className="gap-2">
+                      <Sparkles className="h-4 w-4" />Waiting for host…
+                    </Button>
+                  );
+                }
+                return (
+                  <div className="relative">
+                    {isLive && (
+                      <span className="absolute -inset-1 rounded-md bg-destructive/40 blur-md animate-pulse" />
+                    )}
+                    <Button size="lg" onClick={onJoin} className="relative gap-2 shadow-[0_0_30px_hsl(var(--foreground)/0.25)]">
+                      <Radio className="h-4 w-4" />
+                      {isLive
+                        ? "Join the webinar"
+                        : role === "host"
+                          ? "Enter studio"
+                          : role === "speaker"
+                            ? "Enter green room"
+                            : "Enter webinar"}
+                    </Button>
+                  </div>
+                );
+              })()}
               {event && (
                 <Button variant="outline" size="lg" onClick={addToCalendar} className="gap-2">
                   <CalendarPlus className="h-4 w-4" />Add to calendar
