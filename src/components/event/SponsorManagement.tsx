@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ import {
   reorderGroups as reorderGroupsPure,
   moveSponsorToTier as moveSponsorToTierPure,
 } from "./sponsor-dnd";
+import { useOrgSponsorSearch } from "@/hooks/useOrgPeopleSearch";
 
 const SponsorApplicationsPanelLazy = lazy(() =>
   import("./ApplicationsSection").then((m) => ({ default: m.SponsorApplicationsPanel })),
@@ -77,7 +78,6 @@ interface TierPreset { id: string; label: string; }
 
 export default function SponsorManagement({ eventId }: Props) {
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
-  const [allSponsors, setAllSponsors] = useState<Sponsor[]>([]);
   const [assignedIds, setAssignedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -141,7 +141,10 @@ export default function SponsorManagement({ eventId }: Props) {
     }
 
     // Step 3: all sponsors visible to the organizer (for picker)
-    const { data: allSpk } = await supabase.from("sponsors").select("*").order("name");
+    //
+    // Removed in SCALE-003: the picker now does its own server-side
+    // search via `useOrgSponsorSearch` so we don't pre-load the entire
+    // roster on every dashboard mount.
 
     // Step 4: org tier presets
     const { data: ev } = await supabase
@@ -150,11 +153,6 @@ export default function SponsorManagement({ eventId }: Props) {
       .eq("id", eventId)
       .maybeSingle();
 
-    const byIdAll = new Map<string, Sponsor>();
-    for (const s of (allSpk ?? []) as Sponsor[]) byIdAll.set(s.id, s);
-    for (const s of linkedSponsors) byIdAll.set(s.id, s);
-
-    setAllSponsors(Array.from(byIdAll.values()).sort((a, b) => a.name.localeCompare(b.name)));
     setSponsors(linkedSponsors);
     setAssignedIds(ids);
     const _orgId = (ev as any)?.org_id ?? null;
@@ -609,9 +607,10 @@ export default function SponsorManagement({ eventId }: Props) {
         </DragOverlay>
       </DndContext>
 
-      {/* Add existing sponsor — searchable popover instead of a flat cluster */}
+      {/* Add existing sponsor — searchable popover that fetches up to 50
+          matches per query via the org-wide search hook. */}
       <AssignSponsorPopover
-        sponsors={allSponsors.filter((s) => !assignedIds.has(s.id))}
+        excludeIds={assignedIds}
         onAssign={handleAssign}
       />
 
@@ -665,28 +664,17 @@ export default function SponsorManagement({ eventId }: Props) {
 }
 
 function AssignSponsorPopover({
-  sponsors, onAssign,
+  excludeIds, onAssign,
 }: {
-  sponsors: Sponsor[];
+  excludeIds: Set<string>;
   onAssign: (sponsorId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return sponsors.slice(0, 50);
-    return sponsors
-      .filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          (s.tier || "").toLowerCase().includes(q) ||
-          (s.email || "").toLowerCase().includes(q)
-      )
-      .slice(0, 50);
-  }, [sponsors, query]);
-
-  if (sponsors.length === 0) return null;
+  // Server-side search: debounced + 50-row limit, fires only when open.
+  const { data: results = [], isLoading } = useOrgSponsorSearch(query, open);
+  const filtered = (results as Sponsor[]).filter((s) => !excludeIds.has(s.id));
 
   return (
     <div className="border-t border-border pt-4">
@@ -695,7 +683,6 @@ function AssignSponsorPopover({
           <Button variant="outline" size="sm" className="gap-1.5">
             <Award className="h-3.5 w-3.5" />
             Add existing sponsor
-            <span className="text-[11px] text-muted-foreground ml-1">({sponsors.length})</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-80 p-0">
@@ -712,9 +699,13 @@ function AssignSponsorPopover({
             </div>
           </div>
           <div className="max-h-72 overflow-y-auto">
-            {filtered.length === 0 ? (
+            {isLoading ? (
               <p className="text-[12px] text-muted-foreground text-center py-6">
-                No sponsors match.
+                Searching…
+              </p>
+            ) : filtered.length === 0 ? (
+              <p className="text-[12px] text-muted-foreground text-center py-6">
+                {query.trim() ? "No sponsors match." : "No sponsors yet — add one with the button above."}
               </p>
             ) : (
               <div className="py-1">
@@ -742,9 +733,9 @@ function AssignSponsorPopover({
                 ))}
               </div>
             )}
-            {sponsors.length > filtered.length && !query.trim() && (
+            {filtered.length === 50 && !query.trim() && (
               <p className="text-[10px] text-muted-foreground text-center py-2 border-t border-border">
-                Showing first 50 — type to search
+                Showing first 50 — type to search the rest
               </p>
             )}
           </div>

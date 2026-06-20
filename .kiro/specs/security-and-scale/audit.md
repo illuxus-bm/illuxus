@@ -216,9 +216,28 @@ TypeScript const so we can't drift.
 organiser, even when they only render a 50-result picker. An org with
 10k speakers (a healthy series of conferences) downloads 10k rows on
 every event-detail visit.
-**Fix**: paginate or replace with a server-side full-text search RPC
-(`org_search_speakers(_q text, _limit int)`) that returns 50 rows max.
-**Status**: open — RPC-side change, ~half-day of work.
+**Status**: **done**.
+
+  - New `src/hooks/useOrgPeopleSearch.ts` exports
+    `useOrgSpeakerSearch(query, open)` and
+    `useOrgSponsorSearch(query, open)`. Both are TanStack Query
+    hooks that:
+      - debounce the query 250ms,
+      - escape `%` / `_` so user input can't widen the ILIKE pattern,
+      - filter on `name + email + (company|website)` via a single
+        `.or(...)` clause,
+      - cap results at 50 rows,
+      - stay idle until `open === true` (popover closed = zero
+        cost),
+      - cache results per `(kind, q)` for 30s.
+  - `SpeakerManagement.tsx` and `SponsorManagement.tsx` no longer
+    pre-fetch the org-wide roster. They keep only the linked rows
+    for the current event in state.
+  - `AssignSpeakerPopover` / `AssignSponsorPopover` now consume the
+    hooks directly. They take `excludeIds: Set<string>` (the
+    already-assigned set) and a typed callback; the parent's
+    `handleAssign` no longer needs the org roster to look up emails
+    for `webinar_speakers` sync — the picker passes the row.
 
 ### SCALE-004 — Realtime subscription channels per session
 
@@ -519,3 +538,12 @@ broken). Items 3-5 require infra not in the repo today.
   emitter with deny-list redaction + `child` + `toErrorFields`).
   All 11 functions that previously called `console.*` now go
   through it. Zero `console.*` left in edge function code paths.
+- `2026-06-21` — **SCALE-003 done**. New
+  `src/hooks/useOrgPeopleSearch.ts` (`useOrgSpeakerSearch` /
+  `useOrgSponsorSearch`) replaces the org-wide pre-fetch with a
+  debounced, 50-row, server-side ILIKE search that fires only when
+  the picker popover opens. `SpeakerManagement` and
+  `SponsorManagement` shed their `allSpeakers` / `allSponsors`
+  state. Initial dashboard load egress drops from O(org-roster)
+  to O(linked speakers/sponsors) — typically 5-50 rows instead
+  of 1k-10k.

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ import {
   useSortable, rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useOrgSpeakerSearch } from "@/hooks/useOrgPeopleSearch";
 
 const SpeakerApplicationsPanelLazy = lazy(() =>
   import("./ApplicationsSection").then((m) => ({ default: m.SpeakerApplicationsPanel })),
@@ -54,7 +55,6 @@ const emptyForm = () => ({ ...emptyPersonFields(), bio: "", photo_url: "" });
 
 export default function SpeakerManagement({ eventId }: Props) {
   const [speakers, setSpeakers] = useState<Speaker[]>([]);
-  const [allSpeakers, setAllSpeakers] = useState<Speaker[]>([]);
   const [assignedIds, setAssignedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -105,11 +105,11 @@ export default function SpeakerManagement({ eventId }: Props) {
     }
 
     // Step 3: fetch ALL speakers visible to the organizer (for the picker)
-    const { data: allSpk } = await supabase.from("speakers").select("*").order("name");
-
-    const byIdAll = new Map<string, Speaker>();
-    for (const s of (allSpk ?? []) as Speaker[]) byIdAll.set(s.id, s);
-    for (const s of linkedSpeakers) byIdAll.set(s.id, s);
+    //
+    // Removed in SCALE-003: the picker now does its own server-side search
+    // via `useOrgSpeakerSearch` so we don't pre-load the entire roster.
+    // For organisers with hundreds of speakers across past events this
+    // saves megabytes of egress on every dashboard mount.
 
     // Step 4: webinar session lookup (unchanged)
     const { data: sess } = await supabase.from("webinar_sessions").select("id").eq("event_id", eventId)
@@ -125,7 +125,6 @@ export default function SpeakerManagement({ eventId }: Props) {
       (ev as { speaker_applications_enabled?: boolean | null } | null)?.speaker_applications_enabled ?? true,
     );
 
-    setAllSpeakers(Array.from(byIdAll.values()).sort((a, b) => a.name.localeCompare(b.name)));
     setSpeakers(linkedSpeakers);
     setAssignedIds(ids);
     setSessionId(sess?.id ?? null);
@@ -225,11 +224,11 @@ export default function SpeakerManagement({ eventId }: Props) {
     fetchData();
   };
 
-  const handleAssign = async (speakerId: string) => {
+  const handleAssign = async (speaker: Speaker) => {
+    const speakerId = speaker.id;
     if (assignedIds.has(speakerId)) {
-      const spk = allSpeakers.find((s) => s.id === speakerId);
       await supabase.from("event_speakers").delete().eq("event_id", eventId).eq("speaker_id", speakerId);
-      await removeWebinarSpeaker(spk?.email ?? null);
+      await removeWebinarSpeaker(speaker.email ?? null);
       toast.success("Speaker removed from event");
     } else {
       const nextOrder = speakers.length;
@@ -237,8 +236,7 @@ export default function SpeakerManagement({ eventId }: Props) {
         event_id: eventId, speaker_id: speakerId, display_order: nextOrder,
       });
       if (error) { toast.error(error.message); return; }
-      const spk = allSpeakers.find((s) => s.id === speakerId);
-      if (spk) await syncWebinarSpeaker({ name: spk.name, email: spk.email });
+      await syncWebinarSpeaker({ name: speaker.name, email: speaker.email });
       toast.success("Speaker assigned to event");
     }
     fetchData();
@@ -375,9 +373,10 @@ export default function SpeakerManagement({ eventId }: Props) {
         </SortableContext>
       </DndContext>
 
-      {/* Add existing speaker — searchable popover instead of a flat cluster */}
+      {/* Add existing speaker — searchable popover that fetches up to 50
+          matches per query via the org-wide search hook. */}
       <AssignSpeakerPopover
-        speakers={allSpeakers.filter((s) => !assignedIds.has(s.id))}
+        excludeIds={assignedIds}
         onAssign={handleAssign}
       />
 
@@ -398,28 +397,18 @@ export default function SpeakerManagement({ eventId }: Props) {
 }
 
 function AssignSpeakerPopover({
-  speakers, onAssign,
+  excludeIds, onAssign,
 }: {
-  speakers: Speaker[];
-  onAssign: (speakerId: string) => void;
+  excludeIds: Set<string>;
+  onAssign: (speaker: Speaker) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return speakers.slice(0, 50);
-    return speakers
-      .filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          (s.company || "").toLowerCase().includes(q) ||
-          (s.email || "").toLowerCase().includes(q)
-      )
-      .slice(0, 50);
-  }, [speakers, query]);
-
-  if (speakers.length === 0) return null;
+  // Server-side search; debounced + limited to 50 rows. Only fires when
+  // the popover is open so the closed state costs nothing.
+  const { data: results = [], isLoading } = useOrgSpeakerSearch(query, open);
+  const filtered = (results as Speaker[]).filter((s) => !excludeIds.has(s.id));
 
   return (
     <div className="border-t border-border pt-4">
@@ -428,7 +417,6 @@ function AssignSpeakerPopover({
           <Button variant="outline" size="sm" className="gap-1.5">
             <Users className="h-3.5 w-3.5" />
             Add existing speaker
-            <span className="text-[11px] text-muted-foreground ml-1">({speakers.length})</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-80 p-0">
@@ -445,16 +433,20 @@ function AssignSpeakerPopover({
             </div>
           </div>
           <div className="max-h-72 overflow-y-auto">
-            {filtered.length === 0 ? (
+            {isLoading ? (
               <p className="text-[12px] text-muted-foreground text-center py-6">
-                No speakers match.
+                Searching…
+              </p>
+            ) : filtered.length === 0 ? (
+              <p className="text-[12px] text-muted-foreground text-center py-6">
+                {query.trim() ? "No speakers match." : "No speakers yet — add one with the button above."}
               </p>
             ) : (
               <div className="py-1">
                 {filtered.map((s) => (
                   <button
                     key={s.id}
-                    onClick={() => { onAssign(s.id); setOpen(false); setQuery(""); }}
+                    onClick={() => { onAssign(s); setOpen(false); setQuery(""); }}
                     className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/50 transition-colors text-left"
                   >
                     {s.photo_url ? (
@@ -477,9 +469,9 @@ function AssignSpeakerPopover({
                 ))}
               </div>
             )}
-            {speakers.length > filtered.length && !query.trim() && (
+            {filtered.length === 50 && !query.trim() && (
               <p className="text-[10px] text-muted-foreground text-center py-2 border-t border-border">
-                Showing first 50 — type to search
+                Showing first 50 — type to search the rest
               </p>
             )}
           </div>
