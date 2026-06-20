@@ -30,12 +30,7 @@
  */
 
 import { RtcRole, RtcTokenBuilder, RtmTokenBuilder } from "npm:agora-token@2.0.5";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 
 const DEFAULT_EXPIRE_SECONDS = 3600;
 const MAX_EXPIRE_SECONDS = 24 * 3600;
@@ -49,17 +44,17 @@ interface TokenRequest {
   rtmUserId?: string;
 }
 
-function jsonResponse(status: number, body: Record<string, unknown>): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsHeaders = buildCorsHeaders(req);
+  const preflight = handlePreflight(req, corsHeaders);
+  if (preflight) return preflight;
+
+  const jsonResponse = (status: number, body: Record<string, unknown>): Response =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+
   if (req.method !== "POST") {
     return jsonResponse(405, { error: "Method not allowed" });
   }

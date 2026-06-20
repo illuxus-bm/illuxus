@@ -73,8 +73,16 @@ site can mint tokens to your Agora app on behalf of a logged-in user.
 3. Default the allowlist to `VITE_PUBLIC_DOMAIN` and the public
    subdomain. Document the env in `docs/security.md`.
 
-**Status**: open — listed as the next P0 fix; ~1 day of work and a
-careful per-function rollout (some accept anonymous calls).
+**Status**: **done in commit pending** — every function now uses
+`buildCorsHeaders(req)` from `supabase/functions/_shared/cors.ts`,
+which echoes only allowlisted origins. Allowlist sources:
+`ALLOWED_ORIGINS` Supabase secret, plus `VITE_PUBLIC_DOMAIN` /
+`VITE_PUBLIC_PUBLISHED_HOST`, plus `localhost:5173` / `8080` for dev.
+Four functions stay `allowAny: true` by design:
+`whatsapp-webhook` and `livekit-webhook` (third-party servers post
+to them — origin is meaningless), `org-events` (called by the
+public embed widget from third-party sites), and `fx-rates`
+(non-sensitive cached rates read by everything).
 
 ### SEC-002 — Hooks called after early return in `LiveKitWebinarStage`
 
@@ -407,3 +415,7 @@ broken). Items 3-5 require infra not in the repo today.
 - `2026-06-20` — initial audit. SEC-002 fixed (rules-of-hooks),
   SEC-004 partial (env stub added), SCALE-001 fixed (QueryClient
   defaults). Remaining items open for follow-up commits.
+- `2026-06-21` — **SEC-001 done**. New `_shared/cors.ts` helper +
+  origin allowlist via `ALLOWED_ORIGINS` Supabase secret. 18 edge
+  functions migrated; 4 stay `allowAny: true` by design (webhooks
+  + public embed + fx rates). `.env.example` documents the secret.

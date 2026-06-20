@@ -1,11 +1,6 @@
 // Public FX rates proxy. Fetches USD-based exchange rates from open.er-api.com
 // (free, no API key) and caches them in memory per cold start (6h TTL).
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-};
+import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 
 const TTL_MS = 5 * 60 * 1000; // 5 minutes
 let cache: { base: string; rates: Record<string, number>; fetched_at: string; expires: number } | null = null;
@@ -26,7 +21,14 @@ async function fetchRates() {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Public-facing — fx rates are read by the marketing site, embed widget,
+  // and arbitrary org pages. Allow any origin; the data is non-sensitive.
+  const corsHeaders = buildCorsHeaders(req, {
+    allowAny: true,
+    methods: "GET, POST, OPTIONS",
+  });
+  const preflight = handlePreflight(req, corsHeaders);
+  if (preflight) return preflight;
   try {
     const data = await fetchRates();
     return new Response(

@@ -1,15 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { AccessToken } from "https://esm.sh/livekit-server-sdk@2.9.7";
+import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 const MAX = 10;
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const corsHeaders = buildCorsHeaders(req);
+  const preflight = handlePreflight(req, corsHeaders);
+  if (preflight) return preflight;
   try {
     const { session_id, target_user_id: targetIn, action, self } = await req.json(); // action: 'promote' | 'demote'
     const auth = req.headers.get("Authorization") || "";
