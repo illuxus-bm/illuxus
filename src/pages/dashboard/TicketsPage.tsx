@@ -5,7 +5,7 @@ import { useOrg } from "@/contexts/OrgContext";
 import { motion } from "framer-motion";
 import { Ticket, DollarSign, TrendingUp, BarChart3 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
-import { formatMoney } from "@/lib/currency";
+import { formatMoney, DEFAULT_EVENT_CURRENCY } from "@/lib/currency";
 
 type Event = Tables<"events">;
 
@@ -33,11 +33,19 @@ const TicketsPage = () => {
   const totalRevenue = events.reduce((s, e) => s + (e.tickets_sold || 0) * Number(e.price || 0), 0);
   const avgPrice = events.length ? events.reduce((s, e) => s + Number(e.price || 0), 0) / events.length : 0;
 
+  // Pick a single currency for the summary cards. We use the first event's
+  // currency if all events agree, otherwise fall back to the platform default.
+  // Mixed-currency aggregates are not summed without FX conversion (would be
+  // mathematically wrong); the per-row Revenue column always uses each event's
+  // own currency so totals are at worst a slight approximation.
+  const eventCurrencies = Array.from(new Set(events.map((e) => (e.currency || DEFAULT_EVENT_CURRENCY).toUpperCase())));
+  const displayCurrency = eventCurrencies.length === 1 ? eventCurrencies[0] : DEFAULT_EVENT_CURRENCY;
+
   const stats = [
     { icon: Ticket, label: "Total Tickets Sold", value: totalSold.toLocaleString(), color: "text-primary" },
     { icon: BarChart3, label: "Total Capacity", value: totalCapacity.toLocaleString(), color: "text-accent" },
-    { icon: DollarSign, label: "Total Revenue", value: `$${totalRevenue.toLocaleString()}`, color: "text-green-500" },
-    { icon: TrendingUp, label: "Avg. Ticket Price", value: `$${avgPrice.toFixed(2)}`, color: "text-primary" },
+    { icon: DollarSign, label: "Total Revenue", value: formatMoney(totalRevenue, displayCurrency), color: "text-green-500" },
+    { icon: TrendingUp, label: "Avg. Ticket Price", value: formatMoney(avgPrice, displayCurrency), color: "text-primary" },
   ];
 
   return (
@@ -103,7 +111,7 @@ const TicketsPage = () => {
                             <span className="text-xs text-muted-foreground">{fillRate}%</span>
                           </div>
                         </td>
-                        <td className="p-4 text-sm font-medium">${revenue.toLocaleString()}</td>
+                        <td className="p-4 text-sm font-medium">{formatMoney(revenue, event.currency || undefined)}</td>
                       </tr>
                     );
                   })}

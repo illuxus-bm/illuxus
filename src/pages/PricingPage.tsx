@@ -114,7 +114,7 @@ const PricingPage = () => {
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
-                className={`relative bg-card border rounded-xl p-4 ${
+                className={`relative bg-card border rounded-xl p-4 flex flex-col h-full ${
                   plan.key === currentPlan ? "border-foreground shadow-sm" : "border-border"
                 } ${plan.highlight ? "ring-1 ring-accent/20" : ""}`}
               >
@@ -128,7 +128,7 @@ const PricingPage = () => {
                 <p className="text-lg font-bold mt-0.5">
                   {plan.price}<span className="text-xs font-normal text-muted-foreground">{plan.period}</span>
                 </p>
-                <ul className="mt-3 space-y-1.5 mb-4">
+                <ul className="mt-3 space-y-1.5 mb-4 flex-1">
                   {plan.features.map((f) => (
                     <li key={f} className="flex items-start gap-1.5 text-[12px] text-muted-foreground">
                       <Check className="h-3 w-3 mt-0.5 text-foreground shrink-0" /> {f}
@@ -138,7 +138,7 @@ const PricingPage = () => {
                 <Button
                   variant={plan.key === currentPlan ? "outline" : "default"}
                   size="sm"
-                  className="w-full h-8 text-[12px]"
+                  className="w-full h-8 text-[12px] mt-auto"
                   disabled={plan.key === currentPlan || upgrading === plan.key}
                   onClick={() => handleChangePlan(plan.key)}
                 >

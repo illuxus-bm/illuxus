@@ -126,8 +126,8 @@ const HelpPage = () => {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 max-w-[860px]">
-        <div>
+      <div className="space-y-6 max-w-[860px] mx-auto">
+        <div className="text-center">
           <h1 className="text-lg font-semibold tracking-tight">Help & Support</h1>
           <p className="text-[13px] text-muted-foreground">
             Browse guides, find answers, or contact the team

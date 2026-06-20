@@ -232,19 +232,53 @@ const SettingsPage = () => {
     if (error) {
       toast({ title: "Error", description: error.message.includes("duplicate") ? "This email has already been invited" : error.message, variant: "destructive" });
     } else {
-      // Send invite email via edge function (best-effort — invite is saved even if email fails)
+      // Send invite email via edge function. We *await* the call and surface the result so
+      // delivery failures (missing RESEND_API_KEY, unverified domain, sandbox rejection, etc.)
+      // are visible instead of silently swallowed.
       const inviteUrl = `${window.location.origin}/login?invite=${invitation?.token || ""}`;
-      supabase.functions.invoke("send-event-email", {
-        body: {
-          event_id: "invite",
-          email_id: invitation?.token || uuid(),
-          subject: `You're invited to join ${org.name} on Illuxus`,
-          body: `Hi!\n\n${user.email} has invited you to join "${org.name}" as a ${inviteRole}.\n\nClick the link below to accept:\n${inviteUrl}\n\nIf you don't have an account yet, you'll be able to create one when you click the link.\n\nBest,\nThe Illuxus Team`,
-          recipient_emails: [inviteEmail.trim().toLowerCase()],
-        },
-      }).catch(() => { /* non-fatal if edge function not deployed */ });
+      const recipient = inviteEmail.trim().toLowerCase();
 
-      toast({ title: "Invitation sent", description: `Invited ${inviteEmail} as ${inviteRole}` });
+      let emailDelivered = false;
+      let emailNote: string | null = null;
+      try {
+        const { data: fnData, error: fnError } = await supabase.functions.invoke("send-event-email", {
+          body: {
+            event_id: "invite",
+            email_id: invitation?.token || uuid(),
+            subject: `You're invited to join ${org.name} on Illuxus`,
+            body: `Hi!\n\n${user.email} has invited you to join "${org.name}" as a ${inviteRole}.\n\nClick the link below to accept:\n${inviteUrl}\n\nIf you don't have an account yet, you'll be able to create one when you click the link.\n\nBest,\nThe Illuxus Team`,
+            recipient_emails: [recipient],
+          },
+        });
+        type SendResult = { success?: boolean; sent?: number; failed?: number; provider?: string; note?: string; error?: string };
+        const result = (fnData ?? null) as SendResult | null;
+        if (fnError) {
+          emailNote = fnError.message || "Edge function returned an error";
+        } else if (result?.error) {
+          emailNote = result.error;
+        } else if (result?.provider === "console") {
+          emailNote = result.note ?? "RESEND_API_KEY not configured — email not delivered";
+        } else if (result?.success && (result.sent ?? 0) > 0) {
+          emailDelivered = true;
+        } else if ((result?.failed ?? 0) > 0) {
+          emailNote = "Resend rejected the recipient. Verify your sending domain in Resend.";
+        } else {
+          emailNote = "Email function returned an unexpected response";
+        }
+      } catch (e) {
+        emailNote = e instanceof Error ? e.message : "Email function unreachable";
+      }
+
+      if (emailDelivered) {
+        toast({ title: "Invitation sent", description: `Emailed ${recipient} as ${inviteRole}` });
+      } else {
+        toast({
+          title: "Invitation saved",
+          description: `${recipient} added as ${inviteRole}, but the email could not be sent: ${emailNote}. They can still accept via the dashboard once they sign in.`,
+          variant: "destructive",
+        });
+      }
+
       setInviteEmail("");
       setInviteRole("member");
       setShowInviteDialog(false);
@@ -403,20 +437,6 @@ const SettingsPage = () => {
                       <Label className="text-[13px]">Billing Email</Label>
                       <Input value={orgBillingEmail} onChange={(e) => setOrgBillingEmail(e.target.value)} className="mt-1 h-8 text-sm" disabled={!isOwner} placeholder="billing@example.com" />
                     </div>
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border border-border p-3">
-                    <div>
-                      <p className="text-[13px] font-medium">Webinar branding overlays (default)</p>
-                      <p className="text-[12px] text-muted-foreground">Show logo, lower-thirds and banners on stage. Each event can override.</p>
-                    </div>
-                    <Switch
-                      checked={org.webinar_branding_enabled ?? true}
-                      disabled={!isOwner}
-                      onCheckedChange={async (v) => {
-                        await supabase.from("organizations").update({ webinar_branding_enabled: v }).eq("id", org.id);
-                        await refreshOrg();
-                      }}
-                    />
                   </div>
                   {isOwner && (
                     <Button onClick={handleSaveOrg} disabled={savingOrg} size="sm" className="h-8 text-[13px]">

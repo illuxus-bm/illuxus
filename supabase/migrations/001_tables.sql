@@ -120,6 +120,7 @@ CREATE POLICY "Owner manage sub" ON public.subscriptions FOR ALL TO authenticate
 GRANT SELECT, INSERT, UPDATE ON public.subscriptions TO authenticated;
 
 -- ── org_invitations ───────────────────────────────────────────────────────────
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.org_invitations TO authenticated;
 CREATE TABLE public.org_invitations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
@@ -135,6 +136,8 @@ CREATE POLICY "Owner manage invitations" ON public.org_invitations FOR ALL TO au
 CREATE TRIGGER update_org_invitations_updated_at BEFORE UPDATE ON public.org_invitations FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- ── org_followers ─────────────────────────────────────────────────────────────
+GRANT SELECT, INSERT, DELETE ON public.org_followers TO authenticated;
+GRANT SELECT ON public.org_followers TO anon;
 CREATE TABLE public.org_followers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL, org_id uuid NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),

@@ -253,8 +253,8 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
   const isPaid = priceNum > 0;
 
   return (
-    <div className="max-w-3xl space-y-6">
-      <div>
+    <div className="max-w-3xl space-y-6 mx-auto">
+      <div className="text-center">
         <h2 className="text-base font-semibold">Event Settings</h2>
         <p className="text-[12px] text-muted-foreground">Edit details, schedule, capacity, pricing and registration rules.</p>
       </div>

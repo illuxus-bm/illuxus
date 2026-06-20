@@ -87,22 +87,16 @@ export default function SpeakerEventDetailPage() {
             {event && (
               <section className="border border-border rounded-lg overflow-hidden bg-card">
                 {(event.banner_landscape_url || event.image_url) && (
-                  <div className="aspect-[3/1] bg-muted relative">
+                  <div className="aspect-[3/1] bg-muted">
                     <img
                       src={event.banner_landscape_url || event.image_url || ""}
                       alt={event.title}
                       className="w-full h-full object-cover"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                    <div className="absolute bottom-4 left-4 right-4 text-white">
-                      <h1 className="text-2xl font-bold">{event.title}</h1>
-                    </div>
                   </div>
                 )}
                 <div className="p-5 space-y-3">
-                  {!event.banner_landscape_url && !event.image_url && (
-                    <h1 className="text-2xl font-bold">{event.title}</h1>
-                  )}
+                  <h1 className="text-2xl font-bold">{event.title}</h1>
                   {event.description && (
                     <p className="text-[13px] text-muted-foreground leading-relaxed">{event.description}</p>
                   )}

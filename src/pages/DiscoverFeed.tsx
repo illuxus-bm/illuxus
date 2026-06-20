@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { format, isFuture, isToday, isTomorrow } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import SiteHeader from "@/components/SiteHeader";
+import Footer from "@/components/Footer";
 import { LumaEvent } from "@/components/EventCardLuma";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowRight, CalendarDays, Cpu, Utensils, Sparkles, Palette, Leaf, Dumbbell, Flower2, Bitcoin, MapPin, Search, X } from "lucide-react";
@@ -153,6 +154,7 @@ export default function DiscoverFeed() {
           </div>
         </section>
       </main>
+      <Footer />
     </div>
   );
 }
