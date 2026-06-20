@@ -71,8 +71,8 @@ const PricingPage = () => {
 
   return (
     <DashboardLayout>
-      <div className="max-w-[1000px] space-y-6">
-        <div>
+      <div className="max-w-[1000px] space-y-6 mx-auto">
+        <div className="text-center">
           <h1 className="text-lg font-semibold tracking-tight">Plans & Billing</h1>
           <p className="text-[13px] text-muted-foreground">Manage your subscription and billing</p>
         </div>

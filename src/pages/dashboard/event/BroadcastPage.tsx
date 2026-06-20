@@ -33,9 +33,14 @@ const PreJoinCheck = lazy(() =>
 );
 
 export default function BroadcastPage() {
-  const { id: eventId } = useParams();
+  const { id: routeId } = useParams();
   const { user } = useAuth();
   const { hasAddon } = useOrg();
+  // The route param can be either a UUID or a slug (other dashboard pages
+  // already accept both). DB queries expect UUIDs, so resolve once up-front
+  // and gate every DB call on the resolved id. URLs / nav links keep using
+  // the original `routeId` so the address bar stays stable for slug routes.
+  const [eventId, setEventId] = useState<string | null>(null);
   const [session, setSession] = useState<any>(null);
   const [speakers, setSpeakers] = useState<any[]>([]);
   const [token, setToken] = useState<string | null>(null);
@@ -54,6 +59,34 @@ export default function BroadcastPage() {
   const [orgBrandingDefault, setOrgBrandingDefault] = useState<boolean>(true);
   const branding = useSessionBranding(session?.id);
   const effectiveBranding = event?.webinar_branding_enabled ?? orgBrandingDefault ?? true;
+
+  // Resolve the URL param to a real event UUID. The route accepts both, so a
+  // slug ("xyz") would otherwise be sent straight into a UUID column and fail
+  // with `invalid input syntax for type uuid: "xyz"`. Look up by slug when
+  // needed and stash the UUID in `eventId` for every DB call below.
+  useEffect(() => {
+    if (!routeId) {
+      setEventId(null);
+      return;
+    }
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routeId);
+    if (isUuid) {
+      setEventId(routeId);
+      return;
+    }
+    let cancel = false;
+    (async () => {
+      const { data } = await supabase
+        .from("events")
+        .select("id")
+        .eq("slug", routeId)
+        .maybeSingle();
+      if (!cancel && data) {
+        setEventId((data as { id: string }).id);
+      }
+    })();
+    return () => { cancel = true; };
+  }, [routeId]);
 
   useEffect(() => {
     if (!eventId) return;
@@ -242,7 +275,7 @@ export default function BroadcastPage() {
     } catch { /* ignore */ }
   }, []);
 
-  const speakerLink = (token: string) => publicUrl(`/e/${eventId}/live?speaker=${token}`);
+  const speakerLink = (token: string) => publicUrl(`/e/${routeId}/live?speaker=${token}`);
 
   const updateLayout = async (layout: string) => {
     if (!session) return;
@@ -273,7 +306,7 @@ export default function BroadcastPage() {
             <p className="text-[13px] text-muted-foreground">
               In-person events don't include the live webinar studio. Switch the event format to Virtual or Hybrid to enable it.
             </p>
-            <Button asChild variant="outline"><Link to={`/dashboard/events/${eventId}`}>Back to event</Link></Button>
+            <Button asChild variant="outline"><Link to={`/dashboard/events/${routeId}`}>Back to event</Link></Button>
           </Card>
         </div>
       </div>
@@ -374,7 +407,7 @@ export default function BroadcastPage() {
         {!minimized && !focusMode && (
           <header className="h-14 flex items-center justify-between px-3 sm:px-4 gap-2 bg-zinc-950 border-b border-white/5 shrink-0">
             <div className="flex items-center gap-2 sm:gap-3 text-white min-w-0">
-              <Link to={`/dashboard/events/${eventId}`} className="flex items-center gap-1.5 text-white/70 hover:text-white text-[12px]">
+              <Link to={`/dashboard/events/${routeId}`} className="flex items-center gap-1.5 text-white/70 hover:text-white text-[12px]">
                 <ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Back</span>
               </Link>
               <span className={`text-[11px] font-bold tracking-wider px-2.5 py-1 rounded ${session.status === "live" ? "bg-destructive text-destructive-foreground animate-pulse" : "bg-white/10 text-white/70"}`}>
@@ -474,7 +507,7 @@ export default function BroadcastPage() {
     <div className="max-w-[1200px] space-y-5">
       <div className="space-y-3">
         <Link
-          to={`/dashboard/events/${eventId}`}
+          to={`/dashboard/events/${routeId}`}
           className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
@@ -563,19 +596,19 @@ export default function BroadcastPage() {
         <div className="border-t border-border bg-muted/30 px-5 py-2.5 flex items-center justify-between gap-3">
           <div className="text-[12px] text-muted-foreground flex items-center gap-2 min-w-0">
             <Link2 className="h-3.5 w-3.5 shrink-0" />
-            <span className="font-mono truncate">{publicUrl(`/e/${eventId}/live`)}</span>
+            <span className="font-mono truncate">{publicUrl(`/e/${routeId}/live`)}</span>
           </div>
           <div className="flex items-center gap-1">
             <Button
               size="sm"
               variant="ghost"
               className="h-7 px-2 text-[11px]"
-              onClick={() => { navigator.clipboard.writeText(publicUrl(`/e/${eventId}/live`)); toast.success("Attendee link copied"); }}
+              onClick={() => { navigator.clipboard.writeText(publicUrl(`/e/${routeId}/live`)); toast.success("Attendee link copied"); }}
             >
               <Copy className="h-3 w-3 mr-1" />Copy
             </Button>
             <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" asChild>
-              <a href={publicUrl(`/e/${eventId}/live`)} target="_blank" rel="noreferrer">
+              <a href={publicUrl(`/e/${routeId}/live`)} target="_blank" rel="noreferrer">
                 <ExternalLink className="h-3 w-3 mr-1" />Open
               </a>
             </Button>

@@ -100,6 +100,20 @@ const COMMUNICATION_VARIABLES = [
   { token: "{{event_location}}", description: "Event venue / location" },
 ];
 
+/**
+ * Detects "edge function not deployed" errors so we can fall back to a
+ * "channel unavailable" warning rather than treating the whole send as
+ * failed. Supabase returns `{ code: "NOT_FOUND", message: "Requested
+ * function was not found" }` when the function isn't deployed in the
+ * project. The error object surfaced through `supabase.functions.invoke`
+ * carries that message intact.
+ */
+function isFunctionNotFound(err: unknown): boolean {
+  if (!err) return false;
+  const message = (err as { message?: string }).message ?? String(err);
+  return /not[\s_-]?found|requested function was not found/i.test(message);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function EventCommunicate({ eventId }: { eventId: string }) {
@@ -193,31 +207,60 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
       const wantsWhatsapp = m.channels.includes("whatsapp");
 
       // Email
-      let emailResult = { sent: 0, failed: 0, remaining: 0 };
+      let emailResult = { sent: 0, failed: 0, remaining: 0 } as { sent: number; failed: number; remaining: number; errors?: Array<{ recipient_id: string; error: string }> };
+      let emailUnavailable = false;
       if (wantsEmail) {
         const { data, error: emailErr } = await supabase.functions.invoke(
           "send-communication-email",
           { body: { communication_id: m.id } },
         );
-        if (emailErr) throw new Error(emailErr.message);
-        emailResult = data as { sent: number; failed: number; remaining: number };
+        if (emailErr) {
+          if (isFunctionNotFound(emailErr)) emailUnavailable = true;
+          else throw new Error(emailErr.message);
+        } else {
+          emailResult = data as { sent: number; failed: number; remaining: number };
+        }
       }
 
       // WhatsApp
-      let waResult = { sent: 0, failed: 0 };
+      let waResult = { sent: 0, failed: 0 } as { sent: number; failed: number; errors?: Array<{ recipient_id: string; error: string }> };
+      let waUnavailable = false;
       if (wantsWhatsapp) {
         const { data, error: waErr } = await supabase.functions.invoke(
           "send-whatsapp",
           { body: { communication_id: m.id } },
         );
-        if (waErr) throw new Error(waErr.message);
-        waResult = data as { sent: number; failed: number };
+        if (waErr) {
+          if (isFunctionNotFound(waErr)) waUnavailable = true;
+          else throw new Error(waErr.message);
+        } else {
+          waResult = data as { sent: number; failed: number };
+        }
       }
 
       const totalSent   = emailResult.sent + waResult.sent;
       const totalFailed = emailResult.failed + waResult.failed;
-      if (totalFailed > 0) {
-        toast.warning(`${totalSent} sent, ${totalFailed} failed`);
+      const unavailable: string[] = [];
+      if (emailUnavailable) unavailable.push("email");
+      if (waUnavailable) unavailable.push("whatsapp");
+
+      if (unavailable.length > 0 && totalSent === 0) {
+        toast.warning(
+          `${unavailable.join(" + ")} provider not configured — deploy the edge function${
+            unavailable.length === 1 ? "" : "s"
+          } and set its secrets.`,
+        );
+      } else if (unavailable.length > 0) {
+        toast.warning(
+          `Sent ${totalSent} via ${wantsEmail && !emailUnavailable ? "email" : "whatsapp"}. ${
+            unavailable.join(" + ")
+          } skipped — provider not configured.`,
+        );
+      } else if (totalFailed > 0) {
+        const firstError = emailResult.errors?.[0]?.error ?? waResult.errors?.[0]?.error;
+        toast.warning(`${totalSent} sent, ${totalFailed} failed`, {
+          description: firstError ? `Reason: ${firstError}` : undefined,
+        });
       } else if (emailResult.remaining > 0) {
         toast.info(`Sent ${totalSent} — ${emailResult.remaining} email recipients still queued`);
       } else {
@@ -748,34 +791,60 @@ function ComposeDialog({
       if (rpcErr) throw new Error(rpcErr.message);
 
       // Email leg — only when email is in channels
-      let emailResult = { sent: 0, failed: 0, remaining: 0 };
+      let emailResult = { sent: 0, failed: 0, remaining: 0 } as { sent: number; failed: number; remaining: number; errors?: Array<{ recipient_id: string; error: string }> };
+      let emailUnavailable = false;
       if (wantsEmail) {
         const { data, error: emailErr } = await supabase.functions.invoke(
           "send-communication-email",
           { body: { communication_id: id } },
         );
-        if (emailErr) throw new Error(emailErr.message);
-        emailResult = data as { sent: number; failed: number; remaining: number };
+        if (emailErr) {
+          if (isFunctionNotFound(emailErr)) emailUnavailable = true;
+          else throw new Error(emailErr.message);
+        } else {
+          emailResult = data as { sent: number; failed: number; remaining: number };
+        }
       }
 
       // WhatsApp leg — only when whatsapp is in channels
-      let waResult = { sent: 0, failed: 0 };
+      let waResult = { sent: 0, failed: 0 } as { sent: number; failed: number; errors?: Array<{ recipient_id: string; error: string }> };
+      let waUnavailable = false;
       if (wantsWhatsapp) {
         const { data, error: waErr } = await supabase.functions.invoke(
           "send-whatsapp",
           { body: { communication_id: id } },
         );
-        if (waErr) throw new Error(waErr.message);
-        waResult = data as { sent: number; failed: number };
+        if (waErr) {
+          if (isFunctionNotFound(waErr)) waUnavailable = true;
+          else throw new Error(waErr.message);
+        } else {
+          waResult = data as { sent: number; failed: number };
+        }
       }
 
       const totalSent   = emailResult.sent + waResult.sent;
       const totalFailed = emailResult.failed + waResult.failed;
+      const unavailable: string[] = [];
+      if (emailUnavailable) unavailable.push("email");
+      if (waUnavailable) unavailable.push("whatsapp");
 
-      if (emailResult.remaining > 0) {
+      if (unavailable.length > 0 && totalSent === 0) {
+        toast.warning(
+          `${unavailable.join(" + ")} provider not configured — deploy the edge function${
+            unavailable.length === 1 ? "" : "s"
+          } and set its secrets.`,
+        );
+      } else if (unavailable.length > 0) {
+        toast.warning(
+          `Sent ${totalSent}. ${unavailable.join(" + ")} skipped — provider not configured.`,
+        );
+      } else if (emailResult.remaining > 0) {
         toast.info(`Sent ${totalSent} so far — ${emailResult.remaining} email recipients still queued`);
       } else if (totalFailed > 0) {
-        toast.warning(`${totalSent} sent, ${totalFailed} failed`);
+        const firstError = emailResult.errors?.[0]?.error ?? waResult.errors?.[0]?.error;
+        toast.warning(`${totalSent} sent, ${totalFailed} failed`, {
+          description: firstError ? `Reason: ${firstError}` : undefined,
+        });
       } else {
         toast.success(`Sent to ${totalSent} recipient${totalSent === 1 ? "" : "s"}`);
       }

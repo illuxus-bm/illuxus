@@ -53,12 +53,14 @@ Deno.serve(async (req) => {
   try {
     step = "read-secrets";
     const apiKey = Deno.env.get("RESEND_API_KEY");
-    const from   = Deno.env.get("RESEND_FROM");
+    // Accept either RESEND_FROM (legacy) or RESEND_FROM_EMAIL (matches the
+    // other email edge functions in this project). Pick whichever is set.
+    const from   = Deno.env.get("RESEND_FROM") ?? Deno.env.get("RESEND_FROM_EMAIL");
     if (!apiKey || !from) {
       console.error("[send-communication-email] missing secrets",
         { hasApiKey: !!apiKey, hasFrom: !!from });
       return json({
-        error: "Resend not configured: set RESEND_API_KEY and RESEND_FROM secrets first.",
+        error: "Resend not configured: set RESEND_API_KEY and RESEND_FROM_EMAIL secrets first.",
         step,
       }, 500);
     }
