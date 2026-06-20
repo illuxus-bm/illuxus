@@ -54,6 +54,10 @@ export default function EventLivePage() {
   const [brandingEnabled, setBrandingEnabled] = useState(true);
   const [visitorName, setVisitorName] = useState<string | null>(null);
   const [visitorRole, setVisitorRole] = useState<"speaker" | "attendee" | "guest" | "host">("guest");
+  // Set true when the logged-in user is found in event_speakers for this event.
+  // Lets us grant publish permission on the Agora path even though they
+  // arrived without a `?speaker=<token>` URL.
+  const [isEventSpeaker, setIsEventSpeaker] = useState(false);
   const [eventMeta, setEventMeta] = useState<{
     title: string | null;
     banner: string | null;
@@ -114,6 +118,7 @@ export default function EventLivePage() {
         if (sp) {
           setVisitorName(sp.display_name || sp.email || null);
           setVisitorRole("speaker");
+          setIsEventSpeaker(true);
           return;
         }
       }
@@ -133,11 +138,30 @@ export default function EventLivePage() {
           .select("display_name, first_name, last_name, username")
           .eq("user_id", user.id).maybeSingle();
         const full = [prof?.first_name, prof?.last_name].filter(Boolean).join(" ").trim();
-        setVisitorName(full || prof?.display_name || prof?.username || user.email || null);
-        setVisitorRole("attendee");
+        const resolvedName = full || prof?.display_name || prof?.username || user.email || null;
+        setVisitorName(resolvedName);
+
+        // Is this signed-in user a speaker for THIS event?
+        // Match by speakers.user_id (preferred) or by email fallback so we
+        // catch speakers added before the user_id linking trigger ran.
+        const userEmailLower = (user.email || "").toLowerCase();
+        const { data: speakerRows } = await supabase
+          .from("speakers")
+          .select("id, user_id, email, event_speakers!inner(event_id)")
+          .or(`user_id.eq.${user.id}${userEmailLower ? `,email.eq.${userEmailLower}` : ""}`);
+        const matchedAsSpeaker = ((speakerRows ?? []) as Array<{ event_speakers?: Array<{ event_id: string }> }>)
+          .some((row) => (row.event_speakers ?? []).some((es) => es.event_id === eventId));
+
+        if (matchedAsSpeaker) {
+          setVisitorRole("speaker");
+          setIsEventSpeaker(true);
+        } else {
+          setVisitorRole("attendee");
+          setIsEventSpeaker(false);
+        }
       }
     })();
-  }, [user, joinToken, speakerToken, session?.id]);
+  }, [user, joinToken, speakerToken, session?.id, eventId]);
 
   const requestToken = async () => {
     setError(null);
@@ -195,7 +219,9 @@ export default function EventLivePage() {
       // Agora path: AgoraWebinarStage fetches its own RTC token from the
       // agora-token edge function. We just need to flip the stage on with
       // a placeholder ws/token so the existing render gating opens.
-      const canPub = !!speakerToken;
+      // Publish-capable when (a) we arrived via a speaker invite link, or
+      // (b) the signed-in user is a registered speaker for this event.
+      const canPub = !!speakerToken || isEventSpeaker;
       setWsUrl("agora");
       setCanPublish(canPub);
       setToken("agora");

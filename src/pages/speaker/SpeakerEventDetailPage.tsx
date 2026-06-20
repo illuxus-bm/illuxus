@@ -6,8 +6,9 @@ import SiteHeader from "@/components/SiteHeader";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Calendar, MapPin, Building2, Mic, Users, CheckCircle2,
-  ExternalLink, Linkedin, Globe, Briefcase, Clock,
+  ExternalLink, Linkedin, Globe, Briefcase, Clock, Video,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export default function SpeakerEventDetailPage() {
   const { user, loading: authLoading } = useAuth();
@@ -55,14 +56,25 @@ export default function SpeakerEventDetailPage() {
           >
             <ArrowLeft className="h-4 w-4" /> Speaking events
           </Link>
-          {event?.slug && (
-            <Link
-              to={`/events/${event.slug}`}
-              className="text-[12px] text-primary hover:underline flex items-center gap-1"
-            >
-              View public page <ExternalLink className="h-3 w-3" />
-            </Link>
-          )}
+          <div className="flex items-center gap-3">
+            {/* Join the live webinar room. Only for virtual / hybrid events
+                — the EventLivePage handles the not-yet-live state. */}
+            {event && event.event_format !== "physical" && (
+              <Button asChild size="sm" className="h-8 text-[12px] gap-1.5">
+                <a href={`/e/${event.id}/live`} target="_blank" rel="noreferrer">
+                  <Video className="h-3.5 w-3.5" /> Join webinar
+                </a>
+              </Button>
+            )}
+            {event?.slug && (
+              <Link
+                to={`/events/${event.slug}`}
+                className="text-[12px] text-primary hover:underline flex items-center gap-1"
+              >
+                View public page <ExternalLink className="h-3 w-3" />
+              </Link>
+            )}
+          </div>
         </div>
       </header>
 
