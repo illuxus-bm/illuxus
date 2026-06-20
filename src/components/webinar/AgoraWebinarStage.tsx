@@ -19,6 +19,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import AgoraRTC from "agora-rtc-sdk-ng";
 import type {
   IAgoraRTCRemoteUser,
   ICameraVideoTrack,
@@ -33,11 +34,10 @@ import {
   type AgoraSessionRole,
   readAgoraAppId,
 } from "@/lib/webinar/useAgoraSessionToken";
-import { Mic, MicOff, Video, VideoOff, LogOut, Loader2, Wifi, WifiOff } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, MonitorUp, MonitorOff, LogOut, Loader2, Wifi, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { logger } from "@/lib/observability";
-import { supabase } from "@/integrations/supabase/client";
-import { setSessionParticipants } from "./participantStore";
+import { setSessionParticipants, type SidebarParticipant } from "./participantStore";
 
 interface Props {
   sessionId: string;
@@ -85,9 +85,101 @@ export function AgoraWebinarStage({
       await tokenState.refresh();
       // After refresh resolves, tokenState.data has been updated. Read
       // it from the closure-stable ref.
-      return tokenStateRef.current?.token ?? tokenState.data?.token ?? "";
+      return tokenStateRef.current?.data?.token ?? tokenState.data?.token ?? "";
     },
   });
+
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(true);
+  const [screenOn, setScreenOn] = useState(false);
+  const [localScreenTrack, setLocalScreenTrack] = useState<any>(null);
+  const localScreenRef = useRef<any>(null);
+
+  const activeLocalVideoTrack = useMemo(() => {
+    if (!localScreenTrack) return client.localVideo;
+    if (Array.isArray(localScreenTrack)) {
+      return localScreenTrack[0];
+    }
+    return localScreenTrack;
+  }, [localScreenTrack, client.localVideo]);
+
+  const toggleScreenShare = async () => {
+    if (!canPublish || !client.client) return;
+
+    if (!screenOn) {
+      try {
+        const screenTrack = await AgoraRTC.createScreenVideoTrack({
+          encoderConfig: "1080p_1"
+        }, "auto");
+
+        const videoTrack = Array.isArray(screenTrack) ? screenTrack[0] : screenTrack;
+
+        localScreenRef.current = screenTrack;
+        setLocalScreenTrack(screenTrack);
+
+        if (client.localVideo) {
+          await client.client.unpublish(client.localVideo);
+        }
+
+        await client.client.publish(screenTrack);
+        setScreenOn(true);
+
+        videoTrack.on("track-ended", () => {
+          stopScreenShare(screenTrack);
+        });
+      } catch (err) {
+        logger.warn("agora screen share failed", {
+          error_message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } else {
+      if (localScreenRef.current) {
+        await stopScreenShare(localScreenRef.current);
+      }
+    }
+  };
+
+  const stopScreenShare = async (track: any) => {
+    if (!client.client) return;
+    try {
+      await client.client.unpublish(track);
+    } catch {}
+    try {
+      if (Array.isArray(track)) {
+        track.forEach((t) => t.close());
+      } else {
+        track.close();
+      }
+    } catch {}
+    
+    localScreenRef.current = null;
+    setLocalScreenTrack(null);
+    setScreenOn(false);
+
+    if (client.localVideo && camOn) {
+      try {
+        await client.client.publish(client.localVideo);
+      } catch {}
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (localScreenRef.current) {
+        try {
+          localScreenRef.current.close();
+        } catch {}
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (client.localAudio) client.localAudio.setMuted(!micOn).catch(() => {});
+  }, [client.localAudio, micOn]);
+
+  useEffect(() => {
+    if (client.localVideo) client.localVideo.setMuted(!camOn).catch(() => {});
+  }, [client.localVideo, camOn]);
 
   // Keep the latest tokenState.data accessible to the onTokenWillExpire
   // closure without putting tokenState in useAgoraClient's identity tuple.
@@ -95,22 +187,6 @@ export function AgoraWebinarStage({
   useEffect(() => {
     tokenStateRef.current = tokenState;
   }, [tokenState]);
-
-  // ── Track cleanup on unmount / session-end ───────────────────────────────
-  // React's effect cleanup is the primary path; this useEffect adds a
-  // synchronous safety net so the camera/mic hardware indicator turns off
-  // immediately when the component is removed, even if the async effect
-  // cleanup races with the unmount.
-  useEffect(() => {
-    return () => {
-      // `client.leave()` calls `unpublish()` internally (which closes the
-      // tracks). Calling it here in the component-level cleanup ensures
-      // we don't wait for useAgoraClient's own cleanup effect, which runs
-      // in a separate React batch after the render commit.
-      client.leave().catch(() => { /* already disconnected — safe to ignore */ });
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // empty deps: run only on unmount
 
   // Auto-publish for hosts the moment we're connected.
   const publishStartedRef = useRef(false);
@@ -126,91 +202,55 @@ export function AgoraWebinarStage({
     });
   }, [canPublish, client]);
 
+  // ── Participant bridge ────────────────────────────────────────────────────
+  // Mirror Agora's local + remote users into the shared participantStore so
+  // the WebinarSidebar's "People" tab (which lives outside this component
+  // tree) renders the same list LiveKit's sidebar gets via useParticipants().
+  // Anyone publishing video/audio is treated as "on stage"; subscribers fall
+  // into "in attendance".
+  useEffect(() => {
+    if (!sessionId) return;
+    const localEntry: SidebarParticipant = {
+      identity: userId,
+      name: "You",
+      isLocal: true,
+      isHost,
+      canPublish,
+      micOn: !!client.localAudio && micOn,
+      camOn: !!client.localVideo && camOn,
+      isSpeaking: false,
+    };
+    const remoteEntries: SidebarParticipant[] = client.remoteUsers.map((u) => {
+      const uid = String(u.uid);
+      // Without metadata we can't know names or roles for remote users.
+      // Best-effort: anyone we've subscribed to audio/video for is publishing,
+      // which by definition means they're on stage (host or speaker).
+      const publishingAudio = !!u.audioTrack;
+      const publishingVideo = !!u.videoTrack;
+      const onStage = publishingAudio || publishingVideo;
+      return {
+        identity: uid,
+        name: `Participant ${uid.length > 6 ? uid.slice(0, 6) + "…" : uid}`,
+        isLocal: false,
+        isHost: false,
+        canPublish: onStage,
+        micOn: publishingAudio,
+        camOn: publishingVideo,
+        isSpeaking: false,
+      };
+    });
+    setSessionParticipants(sessionId, [localEntry, ...remoteEntries]);
+  }, [sessionId, userId, isHost, canPublish, client.localAudio, client.localVideo, client.remoteUsers, micOn, camOn]);
+
+  // Cleanup on unmount: clear the list so a stale "you" doesn't linger.
+  useEffect(() => {
+    if (!sessionId) return;
+    return () => setSessionParticipants(sessionId, []);
+  }, [sessionId]);
+
   // Refresh the live RTC token whenever the token state has a fresh value.
   // useAgoraClient handles the in-place renewToken via opts.token in its
   // effect deps so we don't need extra glue here.
-
-  // ── Participant store sync ────────────────────────────────────────────────
-  // Mirrors local + remote Agora users into the shared participantStore so
-  // the WebinarSidebar People panel shows the live roster for Agora sessions
-  // the same way it does for LiveKit (via ParticipantsBridge in WebinarStage).
-  useEffect(() => {
-    const list = [
-      // Local user (only when publishing)
-      ...(canPublish
-        ? [
-            {
-              identity: userId,
-              name: isHost ? "You (Host)" : "You",
-              isLocal: true,
-              isHost,
-              canPublish,
-              micOn: true,   // reflects control-bar default; ControlBar manages actual mute
-              camOn: true,
-              isSpeaking: false,
-            },
-          ]
-        : []),
-      // Remote users
-      ...client.remoteUsers.map((u) => ({
-        identity: String(u.uid),
-        name: `User ${shortUid(u.uid)}`,
-        isLocal: false,
-        isHost: false,
-        canPublish: !!u.audioTrack || !!u.videoTrack,
-        micOn: !!u.audioTrack && !u.audioTrack.muted,
-        camOn: !!u.videoTrack,
-        isSpeaking: false,
-      })),
-    ];
-    setSessionParticipants(sessionId, list);
-  }, [client.remoteUsers, canPublish, isHost, userId, sessionId]);
-
-  // Clear the participant list when unmounting so the People panel goes empty
-  // rather than showing stale entries after the user leaves.
-  useEffect(() => () => setSessionParticipants(sessionId, []), [sessionId]);
-
-  // ── Floating reactions ────────────────────────────────────────────────────
-  // Listen for reaction inserts in real time and float them up the stage.
-  const [reactionFloats, setReactionFloats] = useState<
-    { id: string; emoji: string; left: number }[]
-  >([]);
-
-  useEffect(() => {
-    const ch = supabase
-      .channel(`agora-reactions-${sessionId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "webinar_reactions", filter: `session_id=eq.${sessionId}` },
-        (p: { new: { id: string; emoji: string } }) => {
-          const id = p.new.id;
-          const emoji = p.new.emoji;
-          const left = 10 + Math.random() * 80;
-          setReactionFloats((f) => [...f, { id, emoji, left }]);
-          setTimeout(() => setReactionFloats((f) => f.filter((x) => x.id !== id)), 3000);
-        },
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [sessionId]);
-
-  // ── Announcement banner ───────────────────────────────────────────────────
-  const [announcement, setAnnouncement] = useState<string | null>(null);
-
-  useEffect(() => {
-    const ch = supabase
-      .channel(`agora-announce-${sessionId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "webinar_announcements", filter: `session_id=eq.${sessionId}` },
-        (p: { new: { message: string } }) => {
-          setAnnouncement(p.new.message);
-          setTimeout(() => setAnnouncement(null), 6000);
-        },
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [sessionId]);
 
   // Surface the most useful errors to the user as overlay messages.
   const fatalError = useMemo(() => {
@@ -229,20 +269,20 @@ export function AgoraWebinarStage({
   return (
     <div className="relative h-full w-full bg-black overflow-hidden">
       {/* Banner / waiting state */}
-      {client.remoteUsers.length === 0 && (!canPublish || !client.localVideo) && (
+      {client.remoteUsers.length === 0 && (!canPublish || (!client.localVideo && !screenOn)) && (
         <WaitingBanner eventBannerUrl={eventBannerUrl} eventTitle={eventTitle} />
       )}
 
       {/* Video tiles */}
       <div className="absolute inset-0 grid gap-2 p-2 sm:p-3"
-        style={{ gridTemplateColumns: tileGridCols(visibleTileCount(client, canPublish)) }}>
+        style={{ gridTemplateColumns: tileGridCols(visibleTileCount(client, canPublish, screenOn)) }}>
         {/* Local tile (only when host) */}
-        {canPublish && client.localVideo && (
+        {canPublish && (client.localVideo || screenOn) && activeLocalVideoTrack && (
           <LocalTile
-            videoTrack={client.localVideo}
-            audioTrack={client.localAudio}
-            label="You"
-            mirrored
+            videoTrack={activeLocalVideoTrack}
+            muted={!micOn}
+            label={screenOn ? "You (Screen Share)" : "You"}
+            mirrored={!screenOn}
           />
         )}
         {/* Remote tiles */}
@@ -275,33 +315,17 @@ export function AgoraWebinarStage({
         </Overlay>
       )}
 
-      {/* Announcement banner */}
-      {announcement && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-foreground text-background px-4 py-2 rounded-md text-sm shadow-lg">
-          📣 {announcement}
-        </div>
-      )}
-
-      {/* Floating reaction emojis */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden z-20">
-        {reactionFloats.map((f) => (
-          <div
-            key={f.id}
-            className="absolute bottom-20 text-2xl sm:text-3xl lg:text-4xl animate-float"
-            style={{ left: `${f.left}%` }}
-          >
-            {f.emoji}
-          </div>
-        ))}
-      </div>
-
       {/* Bottom control bar */}
       <div className="absolute left-1/2 -translate-x-1/2 bottom-4 sm:bottom-6 z-30">
         <ControlBar
           canPublish={canPublish}
           isHost={isHost}
-          localAudio={client.localAudio}
-          localVideo={client.localVideo}
+          micOn={micOn}
+          setMicOn={setMicOn}
+          camOn={camOn}
+          setCamOn={setCamOn}
+          screenOn={screenOn}
+          onToggleScreen={toggleScreenShare}
           onLeave={async () => {
             await client.leave();
             onDisconnect?.();
@@ -317,12 +341,12 @@ export function AgoraWebinarStage({
 
 function LocalTile({
   videoTrack,
-  audioTrack,
+  muted,
   label,
   mirrored,
 }: {
-  videoTrack: ICameraVideoTrack;
-  audioTrack: IMicrophoneAudioTrack | null;
+  videoTrack: any;
+  muted: boolean;
   label: string;
   mirrored?: boolean;
 }) {
@@ -346,7 +370,7 @@ function LocalTile({
       <div ref={containerRef} className="absolute inset-0" />
       <TileLabel
         label={label}
-        muted={!audioTrack || audioTrack.muted}
+        muted={muted}
       />
     </div>
   );
@@ -400,7 +424,7 @@ function RemoteTile({ user }: { user: IAgoraRTCRemoteUser }) {
       )}
       <TileLabel
         label={`User ${shortUid(user.uid)}`}
-        muted={!user.audioTrack || user.audioTrack.muted}
+        muted={!user.hasAudio}
       />
     </div>
   );
@@ -420,28 +444,26 @@ function TileLabel({ label, muted }: { label: string; muted: boolean }) {
 function ControlBar({
   canPublish,
   isHost,
-  localAudio,
-  localVideo,
+  micOn,
+  setMicOn,
+  camOn,
+  setCamOn,
+  screenOn,
+  onToggleScreen,
   onLeave,
   quality,
 }: {
   canPublish: boolean;
   isHost: boolean;
-  localAudio: IMicrophoneAudioTrack | null;
-  localVideo: ICameraVideoTrack | null;
+  micOn: boolean;
+  setMicOn: React.Dispatch<React.SetStateAction<boolean>>;
+  camOn: boolean;
+  setCamOn: React.Dispatch<React.SetStateAction<boolean>>;
+  screenOn: boolean;
+  onToggleScreen: () => void;
   onLeave: () => void;
   quality: string | null;
 }) {
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(true);
-
-  useEffect(() => {
-    if (localAudio) localAudio.setMuted(!micOn).catch(() => {});
-  }, [localAudio, micOn]);
-
-  useEffect(() => {
-    if (localVideo) localVideo.setMuted(!camOn).catch(() => {});
-  }, [localVideo, camOn]);
 
   return (
     <div className="flex items-center gap-2 rounded-full bg-black/65 backdrop-blur-md ring-1 ring-white/10 px-2 py-1.5">
@@ -460,6 +482,13 @@ function ControlBar({
             onClick={() => setCamOn((v) => !v)}
           >
             {camOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4 text-red-400" />}
+          </ControlButton>
+          <ControlButton
+            label={screenOn ? "Stop sharing" : "Share screen"}
+            active={screenOn}
+            onClick={onToggleScreen}
+          >
+            {screenOn ? <MonitorOff className="h-4 w-4 text-red-400" /> : <MonitorUp className="h-4 w-4" />}
           </ControlButton>
           <span className="w-px h-5 bg-white/15" aria-hidden />
         </>
@@ -515,8 +544,9 @@ function ControlButton({
 function visibleTileCount(
   client: { remoteUsers: IAgoraRTCRemoteUser[]; localVideo: ICameraVideoTrack | null },
   canPublish: boolean,
+  screenOn: boolean,
 ): number {
-  return client.remoteUsers.length + (canPublish && client.localVideo ? 1 : 0);
+  return client.remoteUsers.length + (canPublish && (client.localVideo || screenOn) ? 1 : 0);
 }
 
 function tileGridCols(n: number): string {

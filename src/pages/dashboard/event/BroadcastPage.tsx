@@ -12,11 +12,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { toast } from "sonner";
-import { Radio, Square, Plus, Copy, Megaphone, Sparkles, LogOut, ArrowLeft, Minimize2, Maximize2, X, MessageSquare, Maximize, Minimize, Circle, CircleDot, StopCircle, PhoneOff, MapPinned, ExternalLink, Link2 } from "lucide-react";
+import { Radio, Square, Plus, Copy, Megaphone, Sparkles, LogOut, ArrowLeft, Minimize2, Maximize2, X, MessageSquare, Maximize, Minimize, Circle, CircleDot, StopCircle, PhoneOff, MapPinned, ExternalLink, Link2, Users, HelpCircle, BarChart2, Hand } from "lucide-react";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { useSessionBranding } from "@/components/webinar/StageOverlays";
 import { publicUrl } from "@/lib/publicUrl";
 import { getWebinarProvider, type WebinarProvider } from "@/lib/webinar/provider";
+import type { Tables } from "@/integrations/supabase/types";
+
+// Local interim row aliases so this page doesn't lean on `any`. `EventRow`
+// extends the generated row with `video_provider` because the column was
+// added in a recent migration but `types.ts` hasn't been regenerated yet.
+type SessionRow = Tables<"webinar_sessions">;
+type WebinarSpeakerRow = Tables<"webinar_speakers">;
+type EventRow = Tables<"events"> & { video_provider?: "livekit" | "agora" | null };
+// Realtime INSERT events for the floating reactions / announcement banner.
+// We only read `p.new`, so a tight local shape is enough — avoids importing
+// the full `RealtimePostgresChangesPayload` generic and its index-signature
+// constraints which the generated row types don't satisfy.
+type ReactionInsertPayload = { new: Tables<"webinar_reactions"> };
+type AnnouncementInsertPayload = { new: Tables<"webinar_announcements"> };
 
 // Lazy-load heavy webinar UI so the dashboard bundle stays small and the
 // LiveKit client / styles only download when a host actually opens a session.
@@ -42,8 +56,8 @@ export default function BroadcastPage() {
   // and gate every DB call on the resolved id. URLs / nav links keep using
   // the original `routeId` so the address bar stays stable for slug routes.
   const [eventId, setEventId] = useState<string | null>(null);
-  const [session, setSession] = useState<any>(null);
-  const [speakers, setSpeakers] = useState<any[]>([]);
+  const [session, setSession] = useState<SessionRow | null>(null);
+  const [speakers, setSpeakers] = useState<WebinarSpeakerRow[]>([]);
   const [token, setToken] = useState<string | null>(null);
   const [wsUrl, setWsUrl] = useState<string | null>(null);
   const [canPublish, setCanPublish] = useState(false);
@@ -55,8 +69,13 @@ export default function BroadcastPage() {
   const [minimized, setMinimized] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"chat" | "qa" | "polls" | "requests" | "participants" | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const [event, setEvent] = useState<any>(null);
+  // The select below only fetches a subset of columns, but the rest of the
+  // page reads `event?.title`, `event?.event_format`, etc. via optional
+  // chaining. Typing the state as `Partial<EventRow>` captures that truth
+  // without forcing every cell to be present.
+  const [event, setEvent] = useState<Partial<EventRow> | null>(null);
   const [orgBrandingDefault, setOrgBrandingDefault] = useState<boolean>(true);
   const branding = useSessionBranding(session?.id);
   const effectiveBranding = event?.webinar_branding_enabled ?? orgBrandingDefault ?? true;
@@ -105,7 +124,7 @@ export default function BroadcastPage() {
   const setEventBranding = async (val: boolean | null) => {
     if (!eventId) return;
     await supabase.from("events").update({ webinar_branding_enabled: val }).eq("id", eventId);
-    setEvent((e: any) => ({ ...e, webinar_branding_enabled: val }));
+    setEvent((e) => (e ? { ...e, webinar_branding_enabled: val } : e));
     toast.success(val === null ? "Using organization default" : `Branding overlays ${val ? "enabled" : "disabled"}`);
   };
 
@@ -113,29 +132,7 @@ export default function BroadcastPage() {
     if (!eventId) return;
     const load = () => supabase.from("webinar_sessions").select("*").eq("event_id", eventId)
       .order("created_at", { ascending: false }).limit(1).maybeSingle()
-      .then(({ data }) => {
-        if (data) {
-          setSession(data);
-          // Auto-rejoin after a host refresh if the session is still live.
-          if (data.status === "live" || data.status === "scheduled") {
-            try {
-              const saved = sessionStorage.getItem(`webinar-host-joined-${eventId}`);
-              if (saved) {
-                const { token: t, wsUrl: ws, canPublish: pub } = JSON.parse(saved) as {
-                  token: string; wsUrl: string; canPublish: boolean;
-                };
-                if (t && ws) {
-                  setToken(t);
-                  setWsUrl(ws);
-                  setCanPublish(pub ?? true);
-                }
-              }
-            } catch { /* ignore */ }
-          } else if (data.status === "ended") {
-            try { sessionStorage.removeItem(`webinar-host-joined-${eventId}`); } catch { /* ignore */ }
-          }
-        }
-      });
+      .then(({ data }) => { if (data) { setSession(data); } });
     load();
     const ch = supabase.channel(`bcast-session-${eventId}`)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "webinar_sessions" }, () => load())
@@ -150,16 +147,16 @@ export default function BroadcastPage() {
     (async () => {
       const { data: rel } = await supabase.from("event_speakers")
         .select("speaker_id").eq("event_id", eventId);
-      const speakerIds = (rel || []).map((r: any) => r.speaker_id);
+      const speakerIds = (rel ?? []).map((r) => r.speaker_id);
       if (!speakerIds.length) return;
       const { data: spks } = await supabase.from("speakers")
         .select("id, name, email").in("id", speakerIds);
       const { data: existing } = await supabase.from("webinar_speakers")
         .select("email").eq("session_id", sessionId);
-      const have = new Set((existing || []).map((e: any) => (e.email || "").toLowerCase()));
-      const toInsert = (spks || [])
-        .filter((s: any) => s.email && !have.has(s.email.toLowerCase()))
-        .map((s: any) => ({ session_id: sessionId, email: s.email, display_name: s.name, role: "speaker" }));
+      const have = new Set((existing ?? []).map((e) => (e.email ?? "").toLowerCase()));
+      const toInsert = (spks ?? [])
+        .filter((s) => s.email && !have.has(s.email.toLowerCase()))
+        .map((s) => ({ session_id: sessionId, email: s.email!, display_name: s.name, role: "speaker" }));
       if (toInsert.length) await supabase.from("webinar_speakers").insert(toInsert);
     })();
     supabase.from("webinar_speakers").select("*").eq("session_id", sessionId).order("created_at")
@@ -187,7 +184,7 @@ export default function BroadcastPage() {
     // for Agora we skip the LiveKit edge function entirely and just insert
     // the session row.
     const provider: WebinarProvider = getWebinarProvider({
-      eventOverride: (event as { video_provider?: string | null } | null)?.video_provider ?? null,
+      eventOverride: event?.video_provider ?? null,
     }).provider;
 
     if (provider === "livekit") {
@@ -283,12 +280,11 @@ export default function BroadcastPage() {
 
   const fetchToken = async () => {
     const provider: WebinarProvider = getWebinarProvider({
-      eventOverride: (event as { video_provider?: string | null } | null)?.video_provider ?? null,
+      eventOverride: event?.video_provider ?? null,
     }).provider;
     if (provider === "agora") {
       // Agora path: AgoraWebinarStage fetches its own RTC token via the
       // agora-token edge function; we just unblock the stage render.
-      try { sessionStorage.setItem(`webinar-host-joined-${eventId}`, JSON.stringify({ token: "agora", wsUrl: "agora", canPublish: true })); } catch { /* ignore */ }
       setToken("agora");
       setWsUrl("agora");
       setCanPublish(true);
@@ -297,7 +293,6 @@ export default function BroadcastPage() {
     try {
       const { data, error } = await supabase.functions.invoke("livekit-token", { body: { session_id: session.id } });
       if (error || !data?.token) { toast.error("LiveKit not configured — streaming requires LiveKit secrets in Supabase dashboard."); return false; }
-      try { sessionStorage.setItem(`webinar-host-joined-${eventId}`, JSON.stringify({ token: data.token, wsUrl: data.ws_url, canPublish: data.can_publish })); } catch { /* ignore */ }
       setToken(data.token); setWsUrl(data.ws_url); setCanPublish(data.can_publish);
       return true;
     } catch {
@@ -312,18 +307,12 @@ export default function BroadcastPage() {
       await supabase.functions.invoke("livekit-room-end", { body: { session_id: session.id } });
     } catch { /* edge fn unavailable */ }
     await supabase.from("webinar_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", session.id);
-    try { sessionStorage.removeItem(`webinar-host-joined-${eventId}`); } catch { /* ignore */ }
     setToken(null);
     setSession({ ...session, status: "ended" });
     toast.success("Stream ended");
   };
 
-  const leaveStage = useCallback(() => {
-    try { sessionStorage.removeItem(`webinar-host-joined-${eventId}`); } catch { /* ignore */ }
-    setToken(null);
-    toast.info("You left the stage");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId]);
+  const leaveStage = useCallback(() => { setToken(null); toast.info("You left the stage"); }, []);
 
   const toggleFullscreen = useCallback(async () => {
     try {
@@ -433,7 +422,7 @@ export default function BroadcastPage() {
       <Suspense fallback={<FullPageLoader label="Connecting to studio…" />}>
         <WebinarStage
           provider={getWebinarProvider({
-            eventOverride: (event as { video_provider?: string | null } | null)?.video_provider ?? null,
+            eventOverride: event?.video_provider ?? null,
           }).provider}
           token={token}
           wsUrl={wsUrl!}
@@ -455,7 +444,15 @@ export default function BroadcastPage() {
 
     const sidebarEl = (
       <Suspense fallback={<div className="p-4 text-[12px] text-muted-foreground">Loading panel…</div>}>
-        <WebinarSidebar sessionId={session.id} isHost canPublish={canPublish} userId={user.id} />
+        <WebinarSidebar
+          sessionId={session.id}
+          isHost
+          canPublish={canPublish}
+          userId={user.id}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onClose={() => setActiveTab(null)}
+        />
       </Suspense>
     );
 
@@ -513,6 +510,31 @@ export default function BroadcastPage() {
                   <div className="h-full">{sidebarEl}</div>
                 </SheetContent>
               </Sheet>
+              <div className="bg-white/10 rounded-lg p-0.5 flex gap-0.5 border border-white/5 mr-2">
+                {[
+                  { key: "participants", icon: Users, title: "People" },
+                  { key: "chat", icon: MessageSquare, title: "Chat" },
+                  { key: "qa", icon: HelpCircle, title: "Q&A" },
+                  { key: "polls", icon: BarChart2, title: "Polls" },
+                ].map((t) => {
+                  const Icon = t.icon;
+                  const active = activeTab === t.key;
+                  return (
+                    <Button
+                      key={t.key}
+                      size="icon"
+                      variant="ghost"
+                      className={`h-8 w-8 rounded-md text-white transition-colors ${
+                        active ? "bg-white/20 text-white" : "hover:bg-white/10 text-white/70"
+                      }`}
+                      onClick={() => setActiveTab(active ? null : (t.key as any))}
+                      title={t.title}
+                    >
+                      <Icon className="h-4.5 w-4.5" />
+                    </Button>
+                  );
+                })}
+              </div>
               <Button size="icon" variant="secondary" className="h-9 w-9" onClick={() => setFocusMode((v) => !v)} title={focusMode ? "Exit focus" : "Focus stage"}>
                 {focusMode ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
               </Button>
@@ -555,7 +577,7 @@ export default function BroadcastPage() {
               <span className="absolute top-1 left-1 z-30 bg-destructive text-destructive-foreground text-[10px] px-1.5 py-0.5 rounded animate-pulse">● LIVE</span>
             )}
           </div>
-          {!minimized && !focusMode && (
+          {!minimized && !focusMode && activeTab && (
             <div className="hidden lg:block w-80 bg-zinc-950 border-l border-white/5 shrink-0">
               {sidebarEl}
             </div>
@@ -758,7 +780,7 @@ function ReactionFloats({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     const ch = supabase.channel(`reactions-${sessionId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "webinar_reactions", filter: `session_id=eq.${sessionId}` },
-        (p: any) => {
+        (p: ReactionInsertPayload) => {
           const id = p.new.id; const emoji = p.new.emoji;
           const left = 10 + Math.random() * 80;
           setFloats((f) => [...f, { id, emoji, left }]);
@@ -783,7 +805,7 @@ function AnnouncementBanner({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     const ch = supabase.channel(`announce-${sessionId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "webinar_announcements", filter: `session_id=eq.${sessionId}` },
-        (p: any) => {
+        (p: AnnouncementInsertPayload) => {
           setMsg(p.new.message);
           setTimeout(() => setMsg(null), 6000);
         })

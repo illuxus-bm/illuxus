@@ -26,21 +26,27 @@ function ensure(sessionId: string) {
   if (!s) {
     s = { list: [], subs: new Set() };
     stores.set(sessionId, s);
+    console.log("[participantStore] Created new store for session:", sessionId);
   }
   return s;
 }
 
 export function setSessionParticipants(sessionId: string, list: SidebarParticipant[]) {
+  console.log("[participantStore] setSessionParticipants called for:", sessionId, "list size:", list.length, "list:", list);
   const s = ensure(sessionId);
   s.list = list;
   s.subs.forEach((fn) => fn(list));
 }
 
 export function subscribeSessionParticipants(sessionId: string, fn: Listener) {
+  console.log("[participantStore] subscribeSessionParticipants called for:", sessionId);
   const s = ensure(sessionId);
   s.subs.add(fn);
   fn(s.list);
-  return () => { s.subs.delete(fn); };
+  return () => {
+    console.log("[participantStore] unsubscribe called for:", sessionId);
+    s.subs.delete(fn);
+  };
 }
 
 export function getSessionParticipants(sessionId: string) {

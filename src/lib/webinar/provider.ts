@@ -20,7 +20,7 @@
 
 export type WebinarProvider = "livekit" | "agora";
 
-const DEFAULT_PROVIDER: WebinarProvider = "livekit";
+const DEFAULT_PROVIDER: WebinarProvider = "agora";
 
 function isProvider(v: unknown): v is WebinarProvider {
   return v === "livekit" || v === "agora";

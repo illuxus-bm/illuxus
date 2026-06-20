@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import type { Tables } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -21,6 +22,9 @@ type Props = {
   isHost: boolean;
   canPublish: boolean;
   userId: string;
+  activeTab?: Tab;
+  setActiveTab?: (tab: Tab) => void;
+  onClose?: () => void;
 };
 
 /** Color-hashed avatar palette for chat participants. */
@@ -53,8 +57,13 @@ function timeAgo(iso: string) {
   return `${Math.floor(h / 24)}d`;
 }
 
-export function WebinarSidebar({ sessionId, isHost, canPublish, userId }: Props) {
-  const [tab, setTab] = useState<Tab>("chat");
+export function WebinarSidebar({ sessionId, isHost, canPublish, userId, activeTab, setActiveTab, onClose }: Props) {
+  const [localTab, setLocalTab] = useState<Tab>("chat");
+  const tab = activeTab !== undefined ? activeTab : localTab;
+  const setTab = (t: Tab) => {
+    if (setActiveTab) setActiveTab(t);
+    else setLocalTab(t);
+  };
   const [counts, setCounts] = useState({ chat: 0, qa: 0, polls: 0, requests: 0, participants: 0 });
   const lastReact = useRef(0);
   const [participants, setParticipants] = useState<SidebarParticipant[]>([]);
@@ -76,7 +85,7 @@ export function WebinarSidebar({ sessionId, isHost, canPublish, userId }: Props)
         supabase.from("webinar_polls").select("*", { count: "exact", head: true }).eq("session_id", sessionId).eq("open", true),
         isHost
           ? supabase.from("webinar_stage_requests").select("*", { count: "exact", head: true }).eq("session_id", sessionId).eq("status", "pending")
-          : Promise.resolve({ count: 0 } as any),
+          : Promise.resolve({ count: 0 } as { count: number | null }),
       ]);
       if (!mounted) return;
       setCounts((prev) => ({
@@ -101,7 +110,25 @@ export function WebinarSidebar({ sessionId, isHost, canPublish, userId }: Props)
     const now = Date.now();
     if (now - lastReact.current < 400) return;
     lastReact.current = now;
-    supabase.from("webinar_reactions").insert({ session_id: sessionId, user_id: userId, emoji });
+    
+    let cleanUserId: string | null = null;
+    if (userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      cleanUserId = userId;
+    } else if (userId && userId.startsWith("guest-")) {
+      const uuidPart = userId.slice(6);
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuidPart)) {
+        cleanUserId = uuidPart;
+      }
+    }
+
+    supabase.from("webinar_reactions" as any)
+      .insert({ session_id: sessionId, user_id: cleanUserId, emoji } as any)
+      .then(({ error }) => {
+        if (error) {
+          console.error("Reaction insert failed:", error);
+          toast.error(`Failed to send reaction: ${error.message}`);
+        }
+      });
   }, [sessionId, userId]);
 
   const tabs = ([
@@ -140,6 +167,15 @@ export function WebinarSidebar({ sessionId, isHost, canPublish, userId }: Props)
             </button>
           );
         })}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors ml-auto shrink-0"
+            aria-label="Close panel"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* Body */}
@@ -171,7 +207,8 @@ export function WebinarSidebar({ sessionId, isHost, canPublish, userId }: Props)
 /* ---------------------- Chat ---------------------- */
 
 const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost }: { sessionId: string; userId: string; isHost: boolean }) {
-  const [msgs, setMsgs] = useState<any[]>([]);
+  type ChatRow = Tables<"webinar_chat">;
+  const [msgs, setMsgs] = useState<ChatRow[]>([]);
   const [text, setText] = useState("");
   const [atBottom, setAtBottom] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -179,12 +216,15 @@ const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost }: { sessi
   useEffect(() => {
     let mounted = true;
     supabase.from("webinar_chat").select("*").eq("session_id", sessionId).order("created_at").limit(200)
-      .then(({ data }) => { if (mounted) setMsgs(data || []); });
+      .then(({ data }) => { if (mounted) setMsgs(data ?? []); });
     const ch = supabase.channel(`chat-${sessionId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "webinar_chat", filter: `session_id=eq.${sessionId}` },
-        (p) => setMsgs((m) => [...m, p.new]))
+        (p) => setMsgs((m) => [...m, p.new as ChatRow]))
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "webinar_chat", filter: `session_id=eq.${sessionId}` },
-        (p: any) => setMsgs((m) => m.map((x) => (x.id === p.new.id ? p.new : x))))
+        (p) => {
+          const updated = p.new as ChatRow;
+          setMsgs((m) => m.map((x) => (x.id === updated.id ? updated : x)));
+        })
       .subscribe();
     return () => { mounted = false; supabase.removeChannel(ch); };
   }, [sessionId]);
@@ -275,14 +315,14 @@ const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost }: { sessi
 type QASort = "top" | "newest" | "answered";
 
 const QAPanel = memo(function QAPanel({ sessionId, userId, isHost }: { sessionId: string; userId: string; isHost: boolean }) {
-  const [qs, setQs] = useState<any[]>([]);
+  const [qs, setQs] = useState<Tables<"webinar_qa">[]>([]);
   const [text, setText] = useState("");
   const [sort, setSort] = useState<QASort>("top");
 
   useEffect(() => {
     let mounted = true;
     const load = () => supabase.from("webinar_qa").select("*").eq("session_id", sessionId)
-      .then(({ data }) => { if (mounted) setQs(data || []); });
+      .then(({ data }) => { if (mounted) setQs(data ?? []); });
     load();
     const ch = supabase.channel(`qa-${sessionId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "webinar_qa", filter: `session_id=eq.${sessionId}` }, load)
@@ -406,10 +446,19 @@ const PollsPanel = memo(function PollsPanel({ sessionId, userId, isHost }: { ses
     const load = async () => {
       const { data } = await supabase.from("webinar_polls").select("*").eq("session_id", sessionId).order("created_at", { ascending: false });
       if (!mounted) return;
-      const list = (data || []).map((p: any) => ({
-        ...p,
-        options: Array.isArray(p.options) ? p.options : (p.options?.list || []),
-      })) as Poll[];
+      const list = (data ?? []).map((p): Poll => {
+        const opts = p.options as unknown;
+        const options = Array.isArray(opts)
+          ? (opts as string[])
+          : ((opts as { list?: string[] } | null)?.list ?? []);
+        return {
+          id: p.id,
+          question: p.question,
+          options,
+          open: p.open,
+          created_at: p.created_at,
+        };
+      });
       setPolls(list);
       // Load votes per poll
       if (list.length) {
@@ -615,12 +664,12 @@ const RequestsPanel = memo(function RequestsPanel({ sessionId, userId, isHost, c
 });
 
 function HostRequestsList({ sessionId }: { sessionId: string }) {
-  const [reqs, setReqs] = useState<any[]>([]);
+  const [reqs, setReqs] = useState<Tables<"webinar_stage_requests">[]>([]);
 
   useEffect(() => {
     let mounted = true;
     const load = () => supabase.from("webinar_stage_requests").select("*").eq("session_id", sessionId).eq("status", "pending")
-      .then(({ data }) => { if (mounted) setReqs(data || []); });
+      .then(({ data }) => { if (mounted) setReqs(data ?? []); });
     load();
     const ch = supabase.channel(`reqs-${sessionId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "webinar_stage_requests", filter: `session_id=eq.${sessionId}` }, load)
@@ -661,7 +710,8 @@ function HostRequestsList({ sessionId }: { sessionId: string }) {
 }
 
 function AttendeeRaiseHand({ sessionId, userId }: { sessionId: string; userId: string }) {
-  const [req, setReq] = useState<any>(null);
+  type StageRequestRow = Tables<"webinar_stage_requests">;
+  const [req, setReq] = useState<StageRequestRow | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -669,7 +719,10 @@ function AttendeeRaiseHand({ sessionId, userId }: { sessionId: string; userId: s
       .then(({ data }) => { if (mounted) setReq(data); });
     const ch = supabase.channel(`req-${sessionId}-${userId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "webinar_stage_requests", filter: `session_id=eq.${sessionId}` },
-        (p: any) => { if (p.new?.user_id === userId) setReq(p.new); })
+        (p) => {
+          const next = p.new as StageRequestRow | null;
+          if (next?.user_id === userId) setReq(next);
+        })
       .subscribe();
     return () => { mounted = false; supabase.removeChannel(ch); };
   }, [sessionId, userId]);

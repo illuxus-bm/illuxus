@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocalParticipant, useRoomContext } from "@livekit/components-react";
-import { Track, RoomEvent, type RemoteParticipant } from "livekit-client";
+import { Track, RoomEvent, ParticipantEvent, type RemoteParticipant } from "livekit-client";
 import { Mic, MicOff, Video, VideoOff, MonitorUp, MonitorOff, Smile, Users, LogIn, LogOut as LogOutIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -47,15 +47,15 @@ export function AirmeetControlBar({
     };
     sync();
     const onChange = () => sync();
-    localParticipant.on("trackMuted" as any, onChange);
-    localParticipant.on("trackUnmuted" as any, onChange);
-    localParticipant.on("localTrackPublished" as any, onChange);
-    localParticipant.on("localTrackUnpublished" as any, onChange);
+    localParticipant.on(ParticipantEvent.TrackMuted, onChange);
+    localParticipant.on(ParticipantEvent.TrackUnmuted, onChange);
+    localParticipant.on(ParticipantEvent.LocalTrackPublished, onChange);
+    localParticipant.on(ParticipantEvent.LocalTrackUnpublished, onChange);
     return () => {
-      localParticipant.off("trackMuted" as any, onChange);
-      localParticipant.off("trackUnmuted" as any, onChange);
-      localParticipant.off("localTrackPublished" as any, onChange);
-      localParticipant.off("localTrackUnpublished" as any, onChange);
+      localParticipant.off(ParticipantEvent.TrackMuted, onChange);
+      localParticipant.off(ParticipantEvent.TrackUnmuted, onChange);
+      localParticipant.off(ParticipantEvent.LocalTrackPublished, onChange);
+      localParticipant.off(ParticipantEvent.LocalTrackUnpublished, onChange);
     };
   }, [localParticipant]);
 
@@ -83,15 +83,21 @@ export function AirmeetControlBar({
 
   const toggleMic = async () => {
     if (!canPublish || !localParticipant) return;
-    try { await localParticipant.setMicrophoneEnabled(!micOn); } catch (e: any) { toast.error(e?.message || "Mic error"); }
+    try { await localParticipant.setMicrophoneEnabled(!micOn); } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Mic error");
+    }
   };
   const toggleCam = async () => {
     if (!canPublish || !localParticipant) return;
-    try { await localParticipant.setCameraEnabled(!camOn); } catch (e: any) { toast.error(e?.message || "Camera error"); }
+    try { await localParticipant.setCameraEnabled(!camOn); } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Camera error");
+    }
   };
   const toggleScreen = async () => {
     if (!canPublish || !localParticipant) return;
-    try { await localParticipant.setScreenShareEnabled(!screenOn); } catch (e: any) { toast.error(e?.message || "Screen share error"); }
+    try { await localParticipant.setScreenShareEnabled(!screenOn); } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Screen share error");
+    }
   };
 
   const toggleSelfStage = async () => {
@@ -109,8 +115,8 @@ export function AirmeetControlBar({
       });
       if (error) throw error;
       toast.success(action === "promote" ? "You're on stage" : "You're in backstage");
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to update stage");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to update stage");
     } finally {
       setStageBusy(false);
     }
@@ -125,11 +131,28 @@ export function AirmeetControlBar({
   };
 
   const sendReaction = (emoji: string) => {
-    if (!userId) return;
     const now = Date.now();
     if (now - lastReact < 400) return;
     setLastReact(now);
-    supabase.from("webinar_reactions").insert({ session_id: sessionId, user_id: userId, emoji });
+
+    let cleanUserId: string | null = null;
+    if (userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      cleanUserId = userId;
+    } else if (userId && userId.startsWith("guest-")) {
+      const uuidPart = userId.slice(6);
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuidPart)) {
+        cleanUserId = uuidPart;
+      }
+    }
+
+    supabase.from("webinar_reactions" as any)
+      .insert({ session_id: sessionId, user_id: cleanUserId, emoji } as any)
+      .then(({ error }) => {
+        if (error) {
+          console.error("Reaction insert failed:", error);
+          toast.error(`Failed to send reaction: ${error.message}`);
+        }
+      });
     setReactionOpen(false);
   };
 
