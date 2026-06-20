@@ -356,34 +356,50 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
             <div className="flex items-center gap-2 text-[13px] font-medium text-emerald-600">
               <CheckCircle2 className="h-4 w-4" /> You're going
             </div>
-            {hasWebinar && joinToken && (
-              <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
-                <div className="flex items-center gap-2 text-[12.5px] font-semibold">
-                  <Video className="h-3.5 w-3.5" /> Your webinar link
+            {event.event_format !== "physical" && (() => {
+              // Always show a Join Webinar entry-point for virtual / hybrid events.
+              // - Personal token form when both webinar exists AND we have a join_token
+              //   (works without sign-in, single-device).
+              // - Otherwise a generic "Open webinar room" link to /e/:id/live which
+              //   gracefully handles the "not live yet" state for the user.
+              const hasPersonalLink = hasWebinar && joinToken;
+              const liveHref = hasPersonalLink
+                ? `/e/${event.id}/live?join=${joinToken}`
+                : `/e/${event.id}/live`;
+              return (
+                <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+                  <div className="flex items-center gap-2 text-[12.5px] font-semibold">
+                    <Video className="h-3.5 w-3.5" />
+                    {hasPersonalLink ? "Your webinar link" : "Webinar room"}
+                  </div>
+                  <p className="text-[11.5px] text-muted-foreground leading-snug">
+                    {hasPersonalLink
+                      ? "Personal link — works on one device at a time. Don't share it."
+                      : hasWebinar
+                        ? "Open the webinar room. Sign in if prompted."
+                        : "The room opens automatically when the host goes live. You can bookmark this link now."}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button asChild size="sm" className="flex-1 h-8 text-[12px]">
+                      <a href={liveHref} target="_blank" rel="noreferrer">
+                        {hasPersonalLink ? "Join webinar" : "Open webinar room"}
+                      </a>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-[12px]"
+                      onClick={() => {
+                        navigator.clipboard.writeText(publicUrl(liveHref));
+                        toast({ title: "Join link copied" });
+                      }}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
-                <p className="text-[11.5px] text-muted-foreground leading-snug">
-                  Personal link — works on one device at a time. Don't share it.
-                </p>
-                <div className="flex gap-2">
-                  <Button asChild size="sm" className="flex-1 h-8 text-[12px]">
-                    <a href={`/e/${event.id}/live?join=${joinToken}`} target="_blank" rel="noreferrer">
-                      Join webinar
-                    </a>
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-[12px]"
-                    onClick={() => {
-                      navigator.clipboard.writeText(publicUrl(`/e/${event.id}/live?join=${joinToken}`));
-                      toast({ title: "Join link copied" });
-                    }}
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            )}
+              );
+            })()}
             <div className="flex gap-2">
               {registrationId && (
                 <Button asChild className="flex-1 h-9 text-[13px]" variant="default">
