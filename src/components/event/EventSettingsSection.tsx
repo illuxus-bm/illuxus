@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -117,7 +118,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
   const [resyncing, setResyncing] = useState(false);
   const resyncMembers = async () => {
     setResyncing(true);
-    const { data, error } = await supabase.rpc("community_resync_from_previous" as never, {
+    const { data, error } = await supabaseRpc("community_resync_from_previous" as never, {
       _event_id: eventId,
     } as never);
     setResyncing(false);

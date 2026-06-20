@@ -12,12 +12,15 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "content-type",
-};
+// Meta's WhatsApp servers POST verification + delivery events to this
+// endpoint with no browser involved. Origin checking is meaningless
+// here — the security boundary is the verify_token + signature header.
+// Pass allowAny + GET so the verification handshake works.
+function corsFor(req: Request) {
+  return buildCorsHeaders(req, { allowAny: true, methods: "GET, POST, OPTIONS" });
+}
 
 function normalisePhone(raw: string | null | undefined): string | null {
   if (!raw) return null;
@@ -27,7 +30,9 @@ function normalisePhone(raw: string | null | undefined): string | null {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const corsHeaders = corsFor(req);
+  const preflight = handlePreflight(req, corsHeaders);
+  if (preflight) return preflight;
 
   // ── Verification handshake ────────────────────────────────────────────────
   if (req.method === "GET") {

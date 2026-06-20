@@ -169,7 +169,7 @@ export function useSetMemberRole(communityId: string | undefined) {
   return useMutation({
     mutationFn: async (input: { userId: string; role: "member" | "speaker" | "sponsor" | "organizer" | "moderator" | "manager" | "mentor" }) => {
       if (!communityId) throw new Error("No community");
-      const { error } = await supabase.rpc("community_set_member_role" as never, {
+      const { error } = await supabaseRpc("community_set_member_role" as never, {
         _community_id: communityId,
         _user_id: input.userId,
         _role: input.role,

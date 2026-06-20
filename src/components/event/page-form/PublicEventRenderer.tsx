@@ -8,6 +8,7 @@ import SponsorQuickViewDialog from "./sections/SponsorQuickViewDialog";
 import SpeakerQuickViewDialog from "./sections/SpeakerQuickViewDialog";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatPriceOrFree } from "@/lib/currency";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 import type {
   EventPageConfig, EventSection, ThemeConfig,
   HeroData, AboutData, DateVenueData, TicketsData, AgendaData, SpeakersData,
@@ -1119,20 +1120,11 @@ function ContactSec({ data, theme }: { data: ContactData; theme: ThemeConfig }) 
 }
 
 /**
- * Custom HTML — rendered with a basic allow-list sanitizer (script/style stripped,
- * inline event handlers stripped). Sufficient for a controlled organizer-only input,
- * but a full DOMPurify pass is recommended if you ever take untrusted input.
+ * Custom HTML — rendered with DOMPurify-backed sanitization. See
+ * src/lib/sanitize-html.ts for the policy: a strict tag + attribute
+ * allow-list, http(s)/mailto/tel/anchor URLs only, target="_blank"
+ * links auto-get rel="noopener noreferrer".
  */
-function sanitizeHtml(input: string): string {
-  if (!input) return "";
-  return input
-    .replace(/<\s*(script|style|iframe)[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
-    .replace(/<\s*(script|style|iframe)[^>]*>/gi, "")
-    .replace(/\son\w+\s*=\s*"[^"]*"/gi, "")
-    .replace(/\son\w+\s*=\s*'[^']*'/gi, "")
-    .replace(/javascript:/gi, "");
-}
-
 function CustomHtmlSec({ data }: { data: CustomHtmlData }) {
   if (!data.html) return null;
   return (

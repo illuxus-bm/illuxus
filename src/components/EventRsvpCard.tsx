@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -111,7 +112,7 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
     if (!user || state !== "approved") return;
     let cancelled = false;
     (async () => {
-      const { data: cid } = await supabase.rpc("community_resolve_event" as never, {
+      const { data: cid } = await supabaseRpc("community_resolve_event" as never, {
         _event_id: event.id,
       } as never);
       if (cancelled || !cid) return;
