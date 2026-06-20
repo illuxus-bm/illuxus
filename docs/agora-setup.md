@@ -17,6 +17,13 @@ this order:
 So flipping a single event to Agora is one column write; flipping the
 whole platform is one env var.
 
+> **Reference**: this integration follows the Web SDK 4.x Interactive Live
+> Streaming quickstart at
+> <https://docs.agora.io/en/interactive-live-streaming/get-started/get-started-sdk>.
+> The two non-obvious knobs the docs prescribe — the channel `mode: "live"`
+> and the audience latency level — are both wired in `useAgoraClient`
+> (`src/lib/webinar/useAgoraClient.ts`).
+
 ---
 
 ## 1. Create an Agora account and project
@@ -143,7 +150,31 @@ To roll back, either flip the event setting back to "Platform default"
 
 ---
 
-## 6. Verify it's actually running on Agora
+## 6. How the client maps to the Interactive Live Streaming docs
+
+The Web SDK 4.x quickstart prescribes a specific sequence for ILS. Here's
+how each step maps to our code so future contributors can follow the
+canonical path:
+
+| Doc step                                    | Our wiring |
+| ------------------------------------------- | ---------- |
+| `AgoraRTC.createClient({ mode: "live" })` | `useAgoraClient` creates the client with `mode: "live"` and `codec: "vp8"`. |
+| `setClientRole("host" \| "audience")`     | `useAgoraClient` calls `setClientRole(role)` before joining. |
+| Audience latency level                      | Audience joins set `{ level: 2 }` by default (`AUDIENCE_LEVEL_ULTRA_LOW_LATENCY`) so promotions to host are sub-500ms. Override with `audienceLatencyLevel: 'low'` for the cheaper CDN path. |
+| `client.join(appId, channel, token, uid)` | Driven by `useAgoraSessionToken`, which fetches a signed token from the `agora-token` edge function. |
+| Host: `createMicrophoneAudioTrack` + `createCameraVideoTrack` + `publish` | `client.publish()` in `useAgoraClient` creates and publishes both tracks. `AgoraWebinarStage` calls `publish()` automatically when the host's connection state flips to `"CONNECTED"`. |
+| Audience: subscribe via `user-published`  | Hooked in `useAgoraClient`; remote tracks are exposed as `remoteUsers` so consumers can call `videoTrack.play(el)` on a `<div>`. |
+| Render local + remote video                 | `AgoraWebinarStage` calls `videoTrack.play(containerEl)` for both, mirrors only the local tile. |
+| Token rotation                              | The SDK fires `token-privilege-will-expire` ~30s before expiry. `useAgoraClient` invokes the caller-supplied `onTokenWillExpire` callback and hot-rotates via `client.renewToken()` — no teardown / rejoin. |
+| Leave on unmount                            | `useAgoraClient`'s effect cleanup calls `unpublish()` and `client.leave()`, then closes captured tracks. |
+
+If you ever need to debug "is this matching the docs?", the
+`useAgoraClient` JSDoc at the top of the file has the canonical doc URL
+and a one-line summary for each step.
+
+---
+
+## 7. Verify it's actually running on Agora
 
 Open the host page → click **Go Live** → join the studio. Then check:
 
@@ -151,11 +182,17 @@ Open the host page → click **Go Live** → join the studio. Then check:
    `…/functions/v1/agora-token` returning `{ rtc: { token, expireAt, uid } }`.
    You should **not** see a call to `livekit-token` (when the event is
    on Agora).
-2. **Browser console** — look for `agora joined` and `agora token fetched`
-   log lines from the observability logger. No `LiveKitRoom` or
-   `room-event` chatter.
+2. **Browser console** — the observability logger emits these events
+   (filter to `kind=info` or search the message):
+   - `agora token fetched` — signed-token round-trip from the edge fn.
+   - `agora joined` — `client.join()` resolved successfully.
+   - `agora token will expire` (~30s before expiry) — followed by
+     `agora token renewed` once the rotation completes. No
+     `agora joined` log between them = no reconnect.
+   - On host: no extra log; the publish is silent unless it errors.
+   You should **not** see `LiveKitRoom` or `room-event` chatter.
 3. **DOM** — the studio shell wraps each tile in a `<div>` whose
-   `id` starts with `video_…` (Agora's auto-injected video element host).
+   inner DOM Agora populates with a `<video id="video_…">` element.
    LiveKit tiles use `<video>` directly inside `lk-participant-tile`
    wrappers, so their absence confirms Agora is rendering.
 4. **Other browser** — open the public live page in a second browser /
@@ -163,6 +200,10 @@ Open the host page → click **Go Live** → join the studio. Then check:
    of you publishing your camera. The control bar's network-quality
    chip ("Excellent" / "Good" / "Fair" / "Poor") populates once Agora's
    first network-quality event fires (~2s).
+5. **Audience interactivity** — promote an audience member to host
+   (raise hand → accept). The promotion should complete in ~500ms.
+   If it takes 2s+, ULTRA_LOW_LATENCY isn't being honoured — confirm
+   `audienceLatencyLevel: 'ultra-low'` in `AgoraWebinarStage`.
 
 If steps 1 and 2 pass but step 3 doesn't (i.e. you see the connecting
 spinner forever), check the console for an error message starting with
@@ -171,7 +212,7 @@ expired token.
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom                                   | Cause                                                  | Fix |
 | ----------------------------------------- | ------------------------------------------------------ | --- |
@@ -182,19 +223,24 @@ expired token.
 | Two browsers see each other join but no video | Camera permission denied / blocked                     | Browser address bar → allow camera + mic, refresh. |
 | Studio still uses LiveKit despite the toggle | Page cached before migration / env change         | Hard refresh (Cmd+Shift+R), then check `events.video_provider`. |
 | `livekit-token` still being called        | Event's `video_provider` is NULL and `VITE_WEBINAR_PROVIDER` is `livekit` (or unset) | Flip the event's setting, or set the platform default to `agora`. |
+| Audience-to-host promotion takes 2s+      | Audience joined on the high-latency CDN path           | Confirm `audienceLatencyLevel: 'ultra-low'` is being passed. Check the `setClientRole` call in `useAgoraClient` and the option in `AgoraWebinarStage`. |
+| Mid-stream reconnect after exactly 1h     | Token rotation isn't running                           | Check the console for `agora token will expire` — if it fires but no `agora token renewed`, the `onTokenWillExpire` callback didn't return a fresh token (look at `agora token renewal failed` for the underlying error). |
 
 ---
 
-## 8. What's wired today vs deferred
+## 9. What's wired today vs deferred
 
 **Working in this commit**
 
-- Channel join / leave
+- Channel join / leave with `mode: "live"` (matches the Interactive Live
+  Streaming quickstart)
 - Host: auto-publishes camera + mic when connected
-- Audience: subscribes to all remote users automatically
+- Audience: subscribes to all remote users automatically with
+  `AUDIENCE_LEVEL_ULTRA_LOW_LATENCY` so promotions to host are sub-500ms
 - Mic / camera toggle in the control bar
 - Network-quality indicator
-- Token auto-refresh 60s before expiry (no drop on long sessions)
+- SDK-event-driven token rotation via `token-privilege-will-expire` →
+  `client.renewToken()` (no reconnect mid-session)
 - Per-event provider switch in Settings
 
 **Intentionally deferred — follow-up commits**
@@ -214,17 +260,23 @@ component renders.
 
 ---
 
-## 9. Reference: relevant files
+## 10. Reference: relevant files
 
 | Path                                                            | Role |
 | --------------------------------------------------------------- | ---- |
 | `supabase/migrations/014_video_provider.sql`                    | DB column + check constraint |
-| `supabase/functions/agora-token/index.ts`                       | Server-side token signer |
+| `supabase/functions/agora-token/index.ts`                       | Server-side token signer (RTC + RTM) |
 | `src/lib/webinar/provider.ts`                                   | Provider resolver |
-| `src/lib/webinar/useAgoraClient.ts`                             | Low-level RTC client hook |
-| `src/lib/webinar/useAgoraSessionToken.ts`                       | Token fetch + auto-refresh |
-| `src/components/webinar/AgoraWebinarStage.tsx`                  | Agora-backed stage UI |
+| `src/lib/webinar/useAgoraClient.ts`                             | Low-level RTC client hook (channel profile, role, audience latency, token rotation) |
+| `src/lib/webinar/useAgoraSessionToken.ts`                       | Token fetch from edge function with caller-driven refresh |
+| `src/components/webinar/AgoraWebinarStage.tsx`                  | Agora-backed stage UI (grid, control bar, error overlays) |
 | `src/components/webinar/WebinarStage.tsx`                       | Branches on provider |
 | `src/components/event/EventSettingsSection.tsx`                 | Per-event provider select |
 | `src/pages/dashboard/event/BroadcastPage.tsx`                   | Host page |
 | `src/pages/EventLivePage.tsx`                                   | Viewer page |
+
+External:
+
+- [Interactive Live Streaming quickstart (Web SDK 4.x)](https://docs.agora.io/en/interactive-live-streaming/get-started/get-started-sdk)
+- [Token authentication workflow](https://docs.agora.io/en/interactive-live-streaming/token-authentication/authentication-workflow)
+- [Connection status management](https://docs.agora.io/en/interactive-live-streaming/enhance-call-quality/connection-status-management)
