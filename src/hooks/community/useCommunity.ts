@@ -78,12 +78,12 @@ export function useMyCommunities() {
 
 export function usePublicCommunities() {
   return useQuery({
-    queryKey: ["community", "public-parents"],
+    queryKey: ["community", "public-events"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("communities" as never)
         .select("*")
-        .eq("kind", "parent")
+        .eq("kind", "event")
         .eq("visibility", "public")
         .order("member_count", { ascending: false })
         .limit(50);

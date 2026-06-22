@@ -6,10 +6,11 @@ import SiteHeader from "@/components/SiteHeader";
 import Footer from "@/components/Footer";
 import { LumaEvent } from "@/components/EventCardLuma";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowRight, CalendarDays, Cpu, Utensils, Sparkles, Palette, Leaf, Dumbbell, Flower2, Bitcoin, MapPin, Search, X } from "lucide-react";
+import { ArrowRight, CalendarDays, MapPin, Search, X, Users } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { eventPublicPath } from "@/lib/event-routes";
 import { logger } from "@/lib/observability";
+import { usePublicCommunities } from "@/hooks/community/useCommunity";
 
 /**
  * Lu.ma-style /discover page.
@@ -19,6 +20,7 @@ export default function DiscoverFeed() {
   const [events, setEvents] = useState<LumaEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const explore = usePublicCommunities();
 
   useEffect(() => {
     let cancel = false;
@@ -146,12 +148,22 @@ export default function DiscoverFeed() {
           )}
         </section>
 
-        {/* Browse by Category */}
+        {/* Discover Communities */}
         <section>
-          <h2 className="text-xl font-semibold tracking-tight mb-5">Browse by Category</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {CATEGORIES.map((c) => <CategoryTile key={c.label} {...c} />)}
-          </div>
+          <h2 className="text-xl font-semibold tracking-tight mb-5">Discover Communities</h2>
+          {explore.isLoading ? (
+            <div className="flex gap-3 overflow-hidden">
+              {[1, 2, 3].map(i => <Skeleton key={i} className="h-32 w-full rounded-xl" />)}
+            </div>
+          ) : !explore.data?.length ? (
+            <div className="border border-dashed border-border rounded-2xl py-16 text-center text-[13px] text-muted-foreground">
+              No public communities available yet.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {explore.data.map((c) => <DiscoverCommunityTile key={c.id} community={c} />)}
+            </div>
+          )}
         </section>
       </main>
       <Footer />
@@ -198,30 +210,33 @@ function PopularRow({ event }: { event: LumaEvent }) {
   );
 }
 
-/** Static category list — links to the public events listing filtered by tag (front-end only stub). */
-const CATEGORIES = [
-  { label: "Tech", icon: Cpu, color: "text-amber-500" },
-  { label: "Food & Drink", icon: Utensils, color: "text-orange-500" },
-  { label: "AI", icon: Sparkles, color: "text-pink-500" },
-  { label: "Arts & Culture", icon: Palette, color: "text-rose-500" },
-  { label: "Climate", icon: Leaf, color: "text-emerald-500" },
-  { label: "Fitness", icon: Dumbbell, color: "text-red-500" },
-  { label: "Wellness", icon: Flower2, color: "text-teal-500" },
-  { label: "Crypto", icon: Bitcoin, color: "text-yellow-500" },
-] as const;
-
-function CategoryTile({ label, icon: Icon, color }: { label: string; icon: typeof Cpu; color: string }) {
+function DiscoverCommunityTile({
+  community,
+}: {
+  community: { id: string; slug: string; name: string; description: string | null; member_count: number; kind: string };
+}) {
   return (
     <Link
-      to={`/events?category=${encodeURIComponent(label.toLowerCase())}`}
-      className="group flex items-center gap-3 px-4 py-3.5 rounded-xl border border-border bg-card hover:border-foreground/20 hover:shadow-sm transition-all"
+      to={`/community/${community.slug}/feed`}
+      className="border border-border rounded-xl bg-card p-4 hover:border-primary/50 hover:shadow-sm transition-all flex flex-col gap-2 group"
     >
-      <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center">
-        <Icon className={`h-4.5 w-4.5 ${color}`} />
+      <div className="flex items-center gap-3">
+        <div className="h-10 w-10 shrink-0 rounded-lg bg-primary/10 text-primary flex items-center justify-center text-[14px] font-bold group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+          {community.name[0]?.toUpperCase()}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px] font-medium truncate group-hover:text-primary transition-colors">{community.name}</p>
+          <p className="text-[11px] text-muted-foreground capitalize">Event Community</p>
+        </div>
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-semibold truncate">{label}</div>
-        <div className="text-[11px] text-muted-foreground">Explore →</div>
+      {community.description && (
+        <p className="text-[12px] text-muted-foreground line-clamp-2 mt-1 leading-relaxed">{community.description}</p>
+      )}
+      <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-auto pt-3 border-t border-border/50">
+        <span className="flex items-center gap-1.5">
+          <Users className="h-3 w-3" />
+          {community.member_count} member{community.member_count !== 1 ? "s" : ""}
+        </span>
       </div>
     </Link>
   );

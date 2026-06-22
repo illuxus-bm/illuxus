@@ -44,7 +44,7 @@ export default function EventQuickCreatePage() {
   const [virtualUrl, setVirtualUrl] = useState("");
   const [previousEventId, setPreviousEventId] = useState<string>("none");
   const [createCommunity, setCreateCommunity] = useState(true);
-  const [communityCategory, setCommunityCategory] = useState("other");
+  const communityCategory = "other"; // Default silently
   const [pastEvents, setPastEvents] = useState<Array<{ id: string; title: string; date: string }>>([]);
 
   // Load this org's previous events so the user can mark this one as a follow-up.
@@ -354,30 +354,31 @@ export default function EventQuickCreatePage() {
             </div>
             
             {createCommunity && (
-              <div className="pt-2 border-t border-border">
-                <Label className="text-[12px]">Community Category</Label>
-                <Select value={communityCategory} onValueChange={setCommunityCategory}>
-                  <SelectTrigger className="h-9 mt-1 text-[13px]">
-                    <SelectValue placeholder="Select a category hub" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="tech">Tech</SelectItem>
-                    <SelectItem value="ai">AI</SelectItem>
-                    <SelectItem value="startup">Startup</SelectItem>
-                    <SelectItem value="hackathon">Hackathon</SelectItem>
-                    <SelectItem value="cybersecurity">Cybersecurity</SelectItem>
-                    <SelectItem value="finance">Finance</SelectItem>
-                    <SelectItem value="education">Education</SelectItem>
-                    <SelectItem value="design">Design</SelectItem>
-                    <SelectItem value="marketing">Marketing</SelectItem>
-                    <SelectItem value="health">Health</SelectItem>
-                    <SelectItem value="sustainability">Sustainability</SelectItem>
-                    <SelectItem value="other">Other / General</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="pt-2 border-t border-border space-y-3">
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Your event community will be linked to this industry hub.
+                  A dedicated discussion space will be created for this event.
                 </p>
+                {pastEvents.length > 0 && (
+                  <div>
+                    <Label className="text-[12px]">Follow-up to (Optional)</Label>
+                    <Select value={previousEventId} onValueChange={setPreviousEventId}>
+                      <SelectTrigger className="h-9 mt-1 text-[13px]">
+                        <SelectValue placeholder="None — fresh community" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None — fresh community</SelectItem>
+                        {pastEvents.map((e) => (
+                          <SelectItem key={e.id} value={e.id}>
+                            {e.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      If selected, members from the previous event's community will automatically be added to this one's.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

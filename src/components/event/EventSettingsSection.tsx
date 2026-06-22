@@ -570,31 +570,8 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
         </div>
         {form.create_community && (
           <div>
-            <Label className="text-[12px] mb-1.5 block">Community category</Label>
-            <Select
-              value={form.community_category}
-              onValueChange={(v) => update("community_category", v)}
-            >
-              <SelectTrigger className="h-9 text-[13px]">
-                <SelectValue placeholder="Select a category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="tech">🖥️ Tech</SelectItem>
-                <SelectItem value="ai">🤖 AI</SelectItem>
-                <SelectItem value="startup">🚀 Startup</SelectItem>
-                <SelectItem value="hackathon">🏆 Hackathon</SelectItem>
-                <SelectItem value="cybersecurity">🔐 Cybersecurity</SelectItem>
-                <SelectItem value="finance">💰 Finance</SelectItem>
-                <SelectItem value="education">📚 Education</SelectItem>
-                <SelectItem value="design">🎨 Design</SelectItem>
-                <SelectItem value="marketing">📣 Marketing</SelectItem>
-                <SelectItem value="health">🏥 Health</SelectItem>
-                <SelectItem value="sustainability">🌱 Sustainability</SelectItem>
-                <SelectItem value="other">🌐 Other</SelectItem>
-              </SelectContent>
-            </Select>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Changing the category will move the community under a different industry hub. Takes effect after saving.
+              A dedicated discussion space is active for this event.
             </p>
           </div>
         )}
