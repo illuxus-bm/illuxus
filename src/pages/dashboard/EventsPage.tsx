@@ -366,27 +366,7 @@ const EventsPage = () => {
                   </div>
                   {createCommunity && (
                     <div>
-                      <Label className="text-[12px] mb-1.5 block">Community category</Label>
-                      <Select value={communityCategory} onValueChange={setCommunityCategory}>
-                        <SelectTrigger className="h-9 text-[13px]">
-                          <SelectValue placeholder="Select a category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="tech">🖥️ Tech</SelectItem>
-                          <SelectItem value="ai">🤖 AI</SelectItem>
-                          <SelectItem value="startup">🚀 Startup</SelectItem>
-                          <SelectItem value="hackathon">🏆 Hackathon</SelectItem>
-                          <SelectItem value="cybersecurity">🔐 Cybersecurity</SelectItem>
-                          <SelectItem value="finance">💰 Finance</SelectItem>
-                          <SelectItem value="education">📚 Education</SelectItem>
-                          <SelectItem value="design">🎨 Design</SelectItem>
-                          <SelectItem value="marketing">📣 Marketing</SelectItem>
-                          <SelectItem value="health">🏥 Health</SelectItem>
-                          <SelectItem value="sustainability">🌱 Sustainability</SelectItem>
-                          <SelectItem value="other">🌐 Other</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <p className="text-[11px] text-muted-foreground mt-1">This places the event community under the right industry hub.</p>
+                      <p className="text-[11px] text-muted-foreground mt-1">A dedicated discussion space will be created for this event.</p>
                     </div>
                   )}
                 </div>
