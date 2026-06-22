@@ -273,6 +273,8 @@ const App = () => (
                 <Route path="/dashboard/events/:id/guests" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><GuestListPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/events/:id/broadcast" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><BroadcastPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/e/:id/live" element={<RouteErrorBoundary><EventLivePage /></RouteErrorBoundary>} />
+                {/* Redirect /e/:id (back-button from live page) to the public event page */}
+                <Route path="/e/:id" element={<RouteErrorBoundary><EventShortRedirect /></RouteErrorBoundary>} />
                 <Route path="/checkin/:eventId" element={<RouteErrorBoundary><SelfCheckInPage /></RouteErrorBoundary>} />
                 <Route path="/checkout/:eventId" element={<RouteErrorBoundary><SelfCheckOutPage /></RouteErrorBoundary>} />
                 <Route path="/sponsor" element={<RouteErrorBoundary><SponsorEventsPage /></RouteErrorBoundary>} />
@@ -405,10 +407,15 @@ function HomeRoute() {
   return <DiscoverFeed />;
 }
 
-/**
- * Permanent redirect from the legacy `/o/<slug>` org URL to `/org/<slug>`.
- * Keeps shared links and bookmarks working after the URL scheme changed.
- */
+/** Permanent redirect from `/e/<id>` (used by the back-button on the live
+ * webinar page) to the canonical public event URL `/events/<id>`.
+ * Both UUIDs and slugs are valid — PublicEventPage handles both. */
+function EventShortRedirect() {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={`/events/${id || ""}`} replace />;
+}
+
+/** Permanent redirect from the legacy `/o/<slug>` org URL to `/org/<slug>`. */
 function LegacyOrgRedirect() {
   const { slug } = useParams<{ slug: string }>();
   return <Navigate to={`/org/${slug || ""}`} replace />;
