@@ -44,6 +44,14 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
   const isMember = membership?.status === "active";
   const role = membership?.role ?? null;
 
+  // When the community is event-scoped and the viewer can manage it (i.e. the
+  // event organizer / moderator), surface the manage-event sidebar so the nav
+  // feels continuous with the dashboard. Attendees keep the global AppSidebar.
+  const eventSidebarId =
+    community.kind === "event" && community.event_id && canModerate(role)
+      ? community.event_id
+      : null;
+
   const handleJoin = async () => {
     try {
       await join.mutateAsync(community.id);
@@ -62,7 +70,7 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
   };
 
   return (
-    <CommunityShell>
+    <CommunityShell eventId={eventSidebarId} eventTitle={community.name}>
       <div className="space-y-4">
         {/* Banner + header */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">

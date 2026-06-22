@@ -1,20 +1,113 @@
 import { ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Users2 } from "lucide-react";
+import { Link, NavLink, useNavigate } from "react-router-dom";
+import {
+  ArrowLeft, Users2, LayoutDashboard, Settings, Radio, ClipboardList,
+  Users, Award, CalendarCheck, Palette, Mail, BarChart3
+} from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useTheme } from "@/contexts/ThemeContext";
 import { NotificationBell } from "@/components/community/notifications/NotificationBell";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import {
+  SidebarProvider, Sidebar, SidebarContent, SidebarGroup,
+  SidebarGroupContent, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar
+} from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 
+type EventSidebarItem = {
+  key: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+};
+
+const EVENT_NAV: EventSidebarItem[] = [
+  { key: "dashboard",     label: "Overview",      icon: LayoutDashboard },
+  { key: "settings",      label: "Settings",      icon: Settings        },
+  { key: "broadcast",     label: "Webinar",       icon: Radio           },
+  { key: "manage",        label: "Speakers",      icon: ClipboardList   },
+  { key: "registrations", label: "Registrations", icon: Users           },
+  { key: "exhibitors",    label: "Sponsors",      icon: Award           },
+  { key: "agenda",        label: "Agenda",        icon: CalendarCheck   },
+  { key: "design",        label: "Design",        icon: Palette         },
+  { key: "communicate",   label: "Communicate",   icon: Mail            },
+  { key: "community",     label: "Community",     icon: Users2          },
+  { key: "reports",       label: "Reports",       icon: BarChart3       },
+];
+
+function EventCommunitySidebar({ eventId, eventTitle }: { eventId: string; eventTitle?: string | null }) {
+  const { state } = useSidebar();
+  const collapsed = state === "collapsed";
+
+  return (
+    <Sidebar collapsible="icon" className="border-r border-border bg-card">
+      <SidebarContent className="pt-1">
+        {!collapsed && (
+          <div className="px-3 py-2 mb-1">
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Event</p>
+            <p className="text-sm font-medium truncate mt-0.5">{eventTitle || "Event"}</p>
+          </div>
+        )}
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {EVENT_NAV.map((item) => {
+                const isActive = item.key === "community";
+                // Community item stays inside the community shell; everything
+                // else deep-links back into the manage-event page tab.
+                const to =
+                  item.key === "community"
+                    ? "#"
+                    : `/dashboard/events/${eventId}?tab=${item.key}`;
+                return (
+                  <SidebarMenuItem key={item.key}>
+                    {item.key === "community" ? (
+                      <SidebarMenuButton
+                        isActive={isActive}
+                        tooltip={item.label}
+                        className="cursor-default h-8 text-[13px]"
+                      >
+                        <item.icon className="h-4 w-4" />
+                        {!collapsed && <span>{item.label}</span>}
+                      </SidebarMenuButton>
+                    ) : (
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive}
+                        tooltip={item.label}
+                        className="h-8 text-[13px]"
+                      >
+                        <NavLink to={to}>
+                          <item.icon className="h-4 w-4" />
+                          {!collapsed && <span>{item.label}</span>}
+                        </NavLink>
+                      </SidebarMenuButton>
+                    )}
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+    </Sidebar>
+  );
+}
+
 /**
- * Standalone shell for the Community area. Renders the dashboard's left
- * AppSidebar so users keep the same global nav (Events, Reports, Portals,
- * Billing, etc.) while inside the community surface, plus a community-
- * specific top bar with the back button, brand mark, and notification bell.
+ * Standalone shell for the Community area. When the community is event-
+ * scoped and the viewer can manage it, renders the same left sidebar as the
+ * manage-event surface so navigation feels continuous. Otherwise falls back
+ * to the global AppSidebar (Events, Reports, Portals, Billing, ...).
  */
-export function CommunityShell({ children }: { children: ReactNode }) {
+export function CommunityShell({
+  children,
+  eventId = null,
+  eventTitle = null,
+}: {
+  children: ReactNode;
+  eventId?: string | null;
+  eventTitle?: string | null;
+}) {
   const { content } = useSiteContent();
   const { theme: appTheme } = useTheme();
   const navigate = useNavigate();
@@ -62,7 +155,11 @@ export function CommunityShell({ children }: { children: ReactNode }) {
         </header>
 
         <div className="flex flex-1 w-full min-w-0">
-          <AppSidebar />
+          {eventId ? (
+            <EventCommunitySidebar eventId={eventId} eventTitle={eventTitle} />
+          ) : (
+            <AppSidebar />
+          )}
           <main className="flex-1 min-w-0 overflow-y-auto">
             <div className="mx-auto w-full max-w-7xl px-3 sm:px-4 py-4">
               {children}

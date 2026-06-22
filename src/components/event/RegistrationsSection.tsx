@@ -26,6 +26,7 @@ import AttendanceHistoryDialog from "./attendance/AttendanceHistoryDialog";
 import EventAttendanceHistoryDialog from "./attendance/EventAttendanceHistoryDialog";
 import type { BadgeData, PrintMode } from "@/lib/print-badges";
 import { formatMoney } from "@/lib/currency";
+import { formatEventDateTime } from "@/lib/datetime";
 import { REGISTRATION_STATUSES } from "@/lib/ticket-categories";
 
 type Registration = Tables<"registrations">;
@@ -114,7 +115,18 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [selfKioskOpen, setSelfKioskOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [printState, setPrintState] = useState<{ open: boolean; badges: BadgeData[]; mode: PrintMode }>({ open: false, badges: [], mode: "badge" });
-  const [eventInfo, setEventInfo] = useState<{ event_format: string | null; slug: string; title: string; user_id: string } | null>(null);
+  const [eventInfo, setEventInfo] = useState<{
+    event_format: string | null;
+    slug: string;
+    title: string;
+    user_id: string;
+    banner_landscape_url: string | null;
+    date: string | null;
+    timezone: string | null;
+    venue: string | null;
+    location: string | null;
+    org_name: string | null;
+  } | null>(null);
   const [quickView, setQuickView] = useState<QuickViewRow | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [attTab, setAttTab] = useState<"all" | "inside" | "outside" | "never">("all");
@@ -205,11 +217,33 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
 
   useEffect(() => {
     Promise.all([reload(), reloadExtras()]).then(() => setLoading(false));
-    supabase.from("events").select("event_format, slug, title, user_id, currency").eq("id", eventId).maybeSingle()
+    supabase
+      .from("events")
+      .select("event_format, slug, title, user_id, currency, banner_landscape_url, date, timezone, venue, location, organizations(name)")
+      .eq("id", eventId)
+      .maybeSingle()
       .then(({ data }) => {
         if (data) {
-          setEventInfo(data as never);
-          setCurrency((data as { currency?: string | null }).currency || "INR");
+          const ev = data as {
+            event_format: string | null; slug: string; title: string; user_id: string;
+            currency?: string | null; banner_landscape_url: string | null;
+            date: string | null; timezone: string | null;
+            venue: string | null; location: string | null;
+            organizations?: { name?: string | null } | null;
+          };
+          setEventInfo({
+            event_format: ev.event_format,
+            slug: ev.slug,
+            title: ev.title,
+            user_id: ev.user_id,
+            banner_landscape_url: ev.banner_landscape_url,
+            date: ev.date,
+            timezone: ev.timezone,
+            venue: ev.venue,
+            location: ev.location,
+            org_name: ev.organizations?.name ?? null,
+          });
+          setCurrency(ev.currency || "INR");
         }
       });
 
@@ -648,14 +682,24 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     URL.revokeObjectURL(url);
   };
 
-  const toBadges = (rows: Row[]) => rows.map((r) => ({
-    name: r.name,
-    email: r.email,
-    company: r.company,
-    ticket_type: r.ticket_type,
-    qr_payload: r.qr_payload,
-    event_title: eventInfo?.title,
-  }));
+  const toBadges = (rows: Row[]) => {
+    const dateText = eventInfo?.date
+      ? formatEventDateTime(eventInfo.date, eventInfo.timezone || undefined)
+      : "";
+    const locText = [eventInfo?.venue, eventInfo?.location].filter(Boolean).join(" · ");
+    return rows.map((r) => ({
+      name: r.name,
+      email: r.email,
+      company: r.company,
+      ticket_type: r.ticket_type,
+      qr_payload: r.qr_payload,
+      banner_url: eventInfo?.banner_landscape_url ?? null,
+      event_title: eventInfo?.title,
+      org_name: eventInfo?.org_name ?? null,
+      event_date_text: dateText || null,
+      event_location_text: locText || null,
+    }));
+  };
 
   const openPrintSelected = (mode: PrintMode) => {
     const rows = filtered.filter((r) => selected.has(r.id));
@@ -808,40 +852,6 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
             </button>
           ))}
         </div>
-
-        {/* Overall actions (apply to selection if any, else current view) */}
-        <div className="flex items-center gap-0.5 shrink-0 pb-1">
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7"
-            title="Attendance history"
-            aria-label="Attendance history"
-            onClick={() => setEventHistoryOpen(true)}
-          >
-            <History className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7"
-            title={selected.size > 0 ? `Print badges for ${selected.size} selected` : "Print badges for current view"}
-            aria-label="Print badges"
-            onClick={() => openPrintAll("badge")}
-          >
-            <Printer className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7"
-            title={selected.size > 0 ? `Print name tags for ${selected.size} selected` : "Print name tags for current view"}
-            aria-label="Print name tags"
-            onClick={() => openPrintAll("name")}
-          >
-            <Tag className="h-3.5 w-3.5" />
-          </Button>
-        </div>
       </div>
 
       {/* Bulk action bar */}
@@ -889,7 +899,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                   <SortHeader label="Attendee" k="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="" />
                   <th className="text-left p-2 sm:p-3 font-medium text-muted-foreground hidden md:table-cell w-[110px]">Role</th>
                   <th className="text-left p-2 sm:p-3 font-medium text-muted-foreground hidden lg:table-cell w-[130px]">Reg. status</th>
-                  <th className="p-2 sm:p-3 w-[44px]"></th>
+                  <th className="p-2 sm:p-3 w-[120px]"></th>
                 </tr>
               </thead>
               <tbody>
@@ -958,26 +968,40 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                       )}
                     </td>
                     <td className="p-2 sm:p-3" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button size="icon" variant="ghost" className="h-7 w-7">
-                            <MoreHorizontal className="h-3.5 w-3.5" />
+                      <div className="flex items-center justify-end gap-0.5">
+                        {r.registration && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            title="Attendance history"
+                            aria-label="Attendance history"
+                            onClick={() => setHistoryFor({ id: r.registration!.id, name: r.name })}
+                          >
+                            <History className="h-3.5 w-3.5" />
                           </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-48">
-                          {r.registration && (
-                            <DropdownMenuItem onClick={() => setHistoryFor({ id: r.registration!.id, name: r.name })}>
-                              <History className="h-3.5 w-3.5 mr-2" /> Attendance history
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem onClick={() => openPrintSingle(r, "badge")}>
-                            <Printer className="h-3.5 w-3.5 mr-2" /> Print badge
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openPrintSingle(r, "name")}>
-                            <Tag className="h-3.5 w-3.5 mr-2" /> Print name tag
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        )}
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          title="Print badge"
+                          aria-label="Print badge"
+                          onClick={() => openPrintSingle(r, "badge")}
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          title="Print name tag"
+                          aria-label="Print name tag"
+                          onClick={() => openPrintSingle(r, "name")}
+                        >
+                          <Tag className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}

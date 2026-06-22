@@ -64,9 +64,15 @@ export async function sendViaResend(
   return { ok: true, id: data.id };
 }
 
-/** Default From header — override with RESEND_FROM_EMAIL secret. */
+/** Default From header — override with RESEND_FROM_EMAIL or RESEND_FROM secret. */
 export function defaultFromAddress(displayName = "Illuxus"): string {
-  const from = Deno.env.get("RESEND_FROM_EMAIL") ?? "Illuxus <onboarding@resend.dev>";
+  // Accept either secret name. `RESEND_FROM_EMAIL` is the original; `RESEND_FROM`
+  // is the shorter alias already accepted by send-communication-email. Whichever
+  // is set in Supabase secrets is used; if both, the longer name wins.
+  const from =
+    Deno.env.get("RESEND_FROM_EMAIL") ??
+    Deno.env.get("RESEND_FROM") ??
+    "Illuxus <onboarding@resend.dev>";
   if (from.includes("<")) return from;
   return `${displayName} <${from}>`;
 }

@@ -17,7 +17,8 @@ import {
 } from "@/lib/print-badges";
 import {
   loadDesign, saveDesign, loadSizes, saveSizes, fileToDataUrl, badgeSizeMm,
-  type BadgeDesign, type ElementKey, type SavedSize,
+  defaultBgTransform,
+  type BadgeDesign, type BgTransform, type ElementKey, type SavedSize,
 } from "@/lib/badge-design";
 import BadgeDesignerCanvas from "./BadgeDesignerCanvas";
 
@@ -286,6 +287,13 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
                 <p className="text-[11px] text-muted-foreground">
                   Drag to position. Snap guides appear at center and edges. What you see prints 1:1.
                 </p>
+                {design.frontBg && (
+                  <BgTransformControls
+                    label="Front image"
+                    value={design.frontBgTransform || defaultBgTransform()}
+                    onChange={(t) => setDesign((d) => ({ ...d, frontBgTransform: t }))}
+                  />
+                )}
                 <label className="flex items-center gap-2 text-[12px] mt-2 pt-2 border-t border-border">
                   <Checkbox
                     checked={!!design.fullBleed}
@@ -356,17 +364,26 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
                     ))}
                   </RadioGroup>
                   {design.back === "static" && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <label className="inline-flex items-center gap-1 text-[11px] border border-border rounded-md px-2 py-1 cursor-pointer hover:bg-muted/40">
-                        <ImageIcon className="h-3 w-3" /> {design.backBg ? "Replace" : "Upload back"}
-                        <input type="file" accept="image/*" className="hidden"
-                          onChange={(e) => uploadImage("backBg", e.target.files?.[0])} />
-                      </label>
+                    <div className="mt-2 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-1 text-[11px] border border-border rounded-md px-2 py-1 cursor-pointer hover:bg-muted/40">
+                          <ImageIcon className="h-3 w-3" /> {design.backBg ? "Replace" : "Upload back"}
+                          <input type="file" accept="image/*" className="hidden"
+                            onChange={(e) => uploadImage("backBg", e.target.files?.[0])} />
+                        </label>
+                        {design.backBg && (
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]"
+                            onClick={() => setDesign((d) => ({ ...d, backBg: "" }))}>
+                            Remove
+                          </Button>
+                        )}
+                      </div>
                       {design.backBg && (
-                        <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]"
-                          onClick={() => setDesign((d) => ({ ...d, backBg: "" }))}>
-                          Remove
-                        </Button>
+                        <BgTransformControls
+                          label="Back image"
+                          value={design.backBgTransform || defaultBgTransform()}
+                          onChange={(t) => setDesign((d) => ({ ...d, backBgTransform: t }))}
+                        />
                       )}
                     </div>
                   )}
@@ -408,5 +425,125 @@ function AlignBtn({ icon, onClick, label }: { icon: React.ReactNode; onClick: ()
     >
       {icon}
     </button>
+  );
+}
+
+const FIT_OPTIONS: { v: BgTransform["fit"]; t: string; d: string }[] = [
+  { v: "cover",   t: "Cover",   d: "Fill, crop" },
+  { v: "contain", t: "Contain", d: "Fit, letterbox" },
+  { v: "stretch", t: "Stretch", d: "Fill, distort" },
+  { v: "custom",  t: "Custom",  d: "Zoom & nudge" },
+];
+
+function BgTransformControls({
+  label, value, onChange,
+}: {
+  label: string;
+  value: BgTransform;
+  onChange: (v: BgTransform) => void;
+}) {
+  const setField = <K extends keyof BgTransform>(key: K, val: BgTransform[K]) =>
+    onChange({ ...value, [key]: val });
+  const showOffset = value.fit !== "stretch";
+  const showScale = value.fit === "custom";
+  const showFill = value.fit === "contain";
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/30 p-2 space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</Label>
+        <button
+          type="button"
+          className="text-[10px] text-muted-foreground hover:text-foreground"
+          onClick={() => onChange(defaultBgTransform())}
+        >
+          Reset
+        </button>
+      </div>
+
+      <div className="grid grid-cols-4 gap-1">
+        {FIT_OPTIONS.map((opt) => (
+          <button
+            key={opt.v}
+            type="button"
+            onClick={() => setField("fit", opt.v)}
+            title={opt.d}
+            className={`text-[11px] rounded-md border px-2 py-1 transition-colors ${
+              value.fit === opt.v
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border bg-background hover:bg-muted"
+            }`}
+          >
+            {opt.t}
+          </button>
+        ))}
+      </div>
+
+      {showScale && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="text-muted-foreground">Zoom</span>
+            <span className="tabular-nums font-medium">{value.scale}%</span>
+          </div>
+          <input
+            type="range"
+            min={20}
+            max={300}
+            step={1}
+            value={value.scale}
+            onChange={(e) => setField("scale", Number(e.target.value))}
+            className="w-full accent-primary"
+          />
+        </div>
+      )}
+
+      {showOffset && (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-muted-foreground">Position X</span>
+              <span className="tabular-nums font-medium">{value.offsetX > 0 ? "+" : ""}{value.offsetX}%</span>
+            </div>
+            <input
+              type="range"
+              min={-50}
+              max={50}
+              step={1}
+              value={value.offsetX}
+              onChange={(e) => setField("offsetX", Number(e.target.value))}
+              className="w-full accent-primary"
+            />
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-muted-foreground">Position Y</span>
+              <span className="tabular-nums font-medium">{value.offsetY > 0 ? "+" : ""}{value.offsetY}%</span>
+            </div>
+            <input
+              type="range"
+              min={-50}
+              max={50}
+              step={1}
+              value={value.offsetY}
+              onChange={(e) => setField("offsetY", Number(e.target.value))}
+              className="w-full accent-primary"
+            />
+          </div>
+        </div>
+      )}
+
+      {showFill && (
+        <div className="flex items-center gap-2">
+          <Label className="text-[11px] text-muted-foreground">Fill</Label>
+          <input
+            type="color"
+            value={value.fillColor || "#ffffff"}
+            onChange={(e) => setField("fillColor", e.target.value)}
+            className="h-7 w-9 rounded border border-border cursor-pointer"
+            aria-label="Fill color around contained image"
+          />
+        </div>
+      )}
+    </div>
   );
 }

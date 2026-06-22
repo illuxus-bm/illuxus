@@ -1,5 +1,5 @@
 import { useEffect, useState, Suspense, lazy } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import type { Tables } from "@/integrations/supabase/types";
@@ -110,10 +110,11 @@ type Registration = Tables<"registrations">;
 const EventDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { org } = useOrg();
   const [event, setEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState("dashboard");
+  const [activeSection, setActiveSection] = useState(() => searchParams.get("tab") || "dashboard");
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [speakerCount, setSpeakerCount] = useState(0);
   const [sessionCount, setSessionCount] = useState(0);
@@ -190,6 +191,19 @@ const EventDetailPage = () => {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [event?.id]);
+
+  // Deep-link support: keep `activeSection` in sync with `?tab=` so external
+  // links (community sidebar, etc.) can land on a specific manage-event tab.
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab && tab !== activeSection) {
+      setActiveSection(tab);
+      // Drop the param so internal nav doesn't fight with the URL.
+      const next = new URLSearchParams(searchParams);
+      next.delete("tab");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, activeSection, setSearchParams]);
 
   // Live validation + uniqueness check while typing (debounced)
   useEffect(() => {

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { BadgeDesign, ElementKey } from "@/lib/badge-design";
+import { bgTransformToCss, type BadgeDesign, type ElementKey } from "@/lib/badge-design";
 
 interface Props {
   design: BadgeDesign;
@@ -82,7 +82,10 @@ export default function BadgeDesignerCanvas({
   };
 
   const bgStyle: React.CSSProperties = design.frontBg
-    ? { backgroundImage: `url(${design.frontBg})`, backgroundSize: "cover", backgroundPosition: "center" }
+    ? {
+        backgroundImage: `url(${design.frontBg})`,
+        ...bgTransformToCss(design.frontBgTransform),
+      }
     : { backgroundColor: "hsl(var(--muted))" };
 
   return (
