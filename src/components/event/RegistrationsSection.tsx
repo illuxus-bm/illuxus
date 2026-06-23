@@ -338,48 +338,86 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: warn once per off→on transition of showLag; liveLag is read for context only
   }, [showLag]);
 
-  // Merge attendees + virtual rows (speakers/sponsors). For speakers/sponsors
-  // that already have a registration row in the DB, hide the virtual duplicate.
+  // Merge attendees + virtual rows (speakers/sponsors), one row per unique email.
+  // Rules:
+  //   1. A registration row is always preferred over a virtual speaker/sponsor
+  //      entry — extras for the same email are hidden.
+  //   2. The kind shown on the row is the most specific role across all sources
+  //      using precedence speaker > sponsor > attendee. So a person who is in
+  //      `registrations` with ticket_type=general AND in event_speakers is
+  //      shown as a Speaker, not duplicated.
+  //   3. Virtual extras themselves are deduped by email — a speaker who is also
+  //      listed under event_sponsors appears once, with kind=speaker.
   const allRows: Row[] = useMemo(() => {
-    const attendeeRows: Row[] = registrations.map((r) => ({
-      id: r.id,
-      kind: ticketKind(r.ticket_type),
-      refId: r.id,
-      name: r.name,
-      email: r.email,
-      company: (r as Registration & { company?: string | null }).company ?? null,
-      ticket_type: r.ticket_type,
-      status: r.status,
-      checked_in: !!r.checked_in,
-      checked_in_at: r.checked_in_at,
-      checked_in_method: r.checked_in_method,
-      attendance_state: ((r as Registration & { attendance_state?: string }).attendance_state as AttState) || (r.checked_in ? "inside" : "never"),
-      last_in_at: (r as Registration & { last_in_at?: string | null }).last_in_at ?? r.checked_in_at,
-      last_out_at: (r as Registration & { last_out_at?: string | null }).last_out_at ?? null,
-      total_minutes: Number((r as Registration & { total_minutes?: number }).total_minutes || 0),
-      amount_paid: Number(r.amount_paid || 0),
-      created_at: r.created_at,
-      qr_payload: r.qr_code || r.id,
-      registration: r,
-    }));
-    // Dedupe virtual extras: hide once a registration exists for the same person.
-    // Match by email (lowercased) AND by synthesized fallback email so synthetic
-    // <name>@no-email.local rows still hide the virtual entry.
-    const synthEmailFor = (name: string) =>
-      `${(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "")}@no-email.local`;
-    const checkedInKeys = new Set<string>();
-    registrations
-      .filter((r) => r.ticket_type === "speaker" || r.ticket_type === "sponsor")
-      .forEach((r) => {
-        checkedInKeys.add(`${r.ticket_type}:${(r.email || "").toLowerCase()}`);
-      });
-    const visibleExtras = extras.filter((e) => {
-      const k1 = `${e.kind}:${(e.email || "").toLowerCase()}`;
-      const k2 = `${e.kind}:${synthEmailFor(e.name)}`;
-      return !checkedInKeys.has(k1) && !checkedInKeys.has(k2);
+    // Lookup tables built from extras.
+    const speakerEmails = new Set<string>();
+    const sponsorEmails = new Set<string>();
+    for (const e of extras) {
+      const k = (e.email || "").toLowerCase();
+      if (!k) continue;
+      if (e.kind === "speaker") speakerEmails.add(k);
+      if (e.kind === "sponsor") sponsorEmails.add(k);
+    }
+
+    const elevatedKind = (rTicketType: string | null | undefined, emailKey: string): RowKind => {
+      const direct = ticketKind(rTicketType);
+      if (direct !== "attendee") return direct;
+      if (speakerEmails.has(emailKey)) return "speaker";
+      if (sponsorEmails.has(emailKey)) return "sponsor";
+      return "attendee";
+    };
+
+    // 1. Registration rows take priority. Track the email so duplicate
+    //    extras can be hidden later.
+    const seenEmails = new Set<string>();
+    const attendeeRows: Row[] = registrations.map((r) => {
+      const emailKey = (r.email || "").toLowerCase();
+      if (emailKey) seenEmails.add(emailKey);
+      return {
+        id: r.id,
+        kind: elevatedKind(r.ticket_type, emailKey),
+        refId: r.id,
+        name: r.name,
+        email: r.email,
+        company: (r as Registration & { company?: string | null }).company ?? null,
+        ticket_type: r.ticket_type,
+        status: r.status,
+        checked_in: !!r.checked_in,
+        checked_in_at: r.checked_in_at,
+        checked_in_method: r.checked_in_method,
+        attendance_state: ((r as Registration & { attendance_state?: string }).attendance_state as AttState) || (r.checked_in ? "inside" : "never"),
+        last_in_at: (r as Registration & { last_in_at?: string | null }).last_in_at ?? r.checked_in_at,
+        last_out_at: (r as Registration & { last_out_at?: string | null }).last_out_at ?? null,
+        total_minutes: Number((r as Registration & { total_minutes?: number }).total_minutes || 0),
+        amount_paid: Number(r.amount_paid || 0),
+        created_at: r.created_at,
+        qr_payload: r.qr_code || r.id,
+        registration: r,
+      };
     });
-    // Merge attendee check-in state into the visible extras where possible (so
-    // a speaker who has been checked in shows as such).
+
+    // 2. Extras that DON'T match an existing registration email. Dedupe them
+    //    so the same email can't appear twice across speaker + sponsor sources.
+    //    Synthetic empty-email rows (e.g. speakers with no email yet) are kept
+    //    individually since we can't reliably correlate them.
+    const seenExtraEmails = new Set<string>();
+    const visibleExtras: Row[] = [];
+    // Stable precedence: speaker before sponsor so a person in both groups
+    // surfaces as a speaker.
+    const sortedExtras = [...extras].sort((a, b) => {
+      const order: RowKind[] = ["speaker", "sponsor", "attendee"];
+      return order.indexOf(a.kind) - order.indexOf(b.kind);
+    });
+    for (const e of sortedExtras) {
+      const k = (e.email || "").toLowerCase();
+      if (k) {
+        if (seenEmails.has(k)) continue;        // already in registrations
+        if (seenExtraEmails.has(k)) continue;   // duplicate extra
+        seenExtraEmails.add(k);
+      }
+      visibleExtras.push(e);
+    }
+
     return [...attendeeRows, ...visibleExtras];
   }, [registrations, extras]);
 
@@ -542,6 +580,72 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       prev.map((r) => (r.id === row.id ? { ...r, status: newStatus } : r))
     );
     toast.success(`Status set to ${newStatus}`);
+  };
+
+  /**
+   * Change the role of a participant inline from the Role column.
+   *
+   * Source of truth is `registrations.ticket_type`. The visible kind on the
+   * row is derived from ticket_type plus the event_speakers / event_sponsors
+   * content links (see allRows). Updating ticket_type therefore updates the
+   * visible role.
+   *
+   * For "virtual" extras that have no registration row (a speaker added via
+   * event_speakers without ever registering), we create a registration on the
+   * fly so the role becomes editable from then on.
+   */
+  const changeRole = async (row: Row, newRole: RowKind) => {
+    if (row.kind === newRole) return;
+    const newTicketType =
+      newRole === "speaker" ? "speaker" :
+      newRole === "sponsor" ? "sponsor" :
+      "general";
+
+    if (row.registration) {
+      const { data: updated, error } = await supabase
+        .from("registrations")
+        .update({ ticket_type: newTicketType })
+        .eq("id", row.registration.id)
+        .select();
+      if (error) {
+        toast.error("Failed to change role", { description: error.message });
+        return;
+      }
+      if (!updated || updated.length === 0) {
+        toast.error("Failed to change role", {
+          description: "You don't have permission to edit this registration.",
+        });
+        return;
+      }
+      await reload();
+      toast.success(`Role set to ${newRole}`);
+      return;
+    }
+
+    // No registration yet — promote the virtual speaker/sponsor row by creating
+    // a registration record. Email is required for the row to be deduplicated
+    // correctly on subsequent renders.
+    if (!row.email) {
+      toast.error("Cannot change role", {
+        description: "This entry has no email. Edit the participant first to add an email.",
+      });
+      return;
+    }
+    const { error } = await supabase.from("registrations").insert({
+      event_id: eventId,
+      name: row.name,
+      email: row.email.toLowerCase(),
+      company: row.company,
+      ticket_type: newTicketType,
+      status: "confirmed",
+      approval_status: "approved",
+    });
+    if (error) {
+      toast.error("Failed to change role", { description: error.message });
+      return;
+    }
+    await Promise.all([reload(), reloadExtras()]);
+    toast.success(`Role set to ${newRole}`);
   };
 
   /**
@@ -1073,10 +1177,20 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                         </div>
                       </div>
                     </td>
-                    <td className="p-2 sm:p-3 hidden md:table-cell">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border capitalize ${kindColors[r.kind]}`}>
-                        {r.kind}
-                      </span>
+                    <td className="p-2 sm:p-3 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
+                      <Select value={r.kind} onValueChange={(v) => changeRole(r, v as RowKind)}>
+                        <SelectTrigger
+                          className={`h-7 text-[11px] capitalize font-medium border rounded-full px-2 w-[110px] ${kindColors[r.kind]}`}
+                          aria-label="Change role"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="attendee">Attendee</SelectItem>
+                          <SelectItem value="speaker">Speaker</SelectItem>
+                          <SelectItem value="sponsor">Sponsor</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </td>
                     <td className="p-2 sm:p-3 hidden lg:table-cell" onClick={(e) => e.stopPropagation()}>
                       {r.kind === "attendee" ? (
