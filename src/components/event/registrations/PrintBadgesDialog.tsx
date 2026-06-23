@@ -1,7 +1,7 @@
 /**
  * PrintBadgesDialog — settings + font style print dialog.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter,
@@ -13,11 +13,11 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Printer, Trash2, Plus, FlaskConical, ChevronDown, ChevronUp,
-  AlignLeft, AlignCenter, AlignRight, AlignJustify,
+  AlignLeft, AlignCenter, AlignRight, AlignJustify, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  printBadges,
+  buildPrintHtml, printBadges,
   type BadgeData, type PrintMode, type PrintSize, type PrintUnit,
 } from "@/lib/print-badges";
 import { loadSizes, saveSizes, badgeSizeMm, type SavedSize } from "@/lib/badge-design";
@@ -374,6 +374,54 @@ export default function PrintBadgesDialog({
     setSizes(next); saveSizes(next);
   };
 
+  // ── Live preview ──────────────────────────────────────────────────────────
+
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [previewHtml, setPreviewHtml] = useState<string>("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(true);
+
+  const refreshPreview = useMemo(
+    () => async () => {
+      setPreviewLoading(true);
+      try {
+        const sample = badges[0] ?? {
+          name: "Jane Doe", email: "jane@example.com", company: "Acme Inc.",
+          ticket_type: "general", qr_payload: "PREVIEW", event_title: eventTitle,
+        };
+        const html = await buildPrintHtml([sample], {
+          mode, size, copies: 1, eventTitle,
+          custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
+          thermalMode: thermalMode || isThermalSize,
+          font,
+        });
+        setPreviewHtml(html);
+      } finally {
+        setPreviewLoading(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mode, size, cw, ch, cu, thermalMode, isThermalSize, font, eventTitle, badges],
+  );
+
+  // Refresh preview when key settings change (debounced 400ms)
+  useEffect(() => {
+    if (!previewOpen) return;
+    const t = setTimeout(() => { void refreshPreview(); }, 400);
+    return () => clearTimeout(t);
+  }, [refreshPreview, previewOpen]);
+
+  // Write HTML into the iframe when it changes
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe || !previewHtml) return;
+    const doc = iframe.contentDocument;
+    if (!doc) return;
+    doc.open();
+    doc.write(previewHtml);
+    doc.close();
+  }, [previewHtml]);
+
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
@@ -488,6 +536,41 @@ export default function PrintBadgesDialog({
               <p className="mt-1.5 text-[11px] text-muted-foreground">
                 Badge dimensions: {dims.w.toFixed(0)} × {dims.h.toFixed(0)} mm
               </p>
+            )}
+          </section>
+
+          {/* PREVIEW */}
+          <section className="border border-border rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setPreviewOpen((v) => !v)}
+              className="w-full flex items-center justify-between px-3 py-2.5 bg-muted/30 hover:bg-muted/50 transition-colors"
+            >
+              <span className="text-[12px] font-semibold">Preview</span>
+              <div className="flex items-center gap-1.5">
+                {previewLoading && <RefreshCw className="h-3 w-3 text-muted-foreground animate-spin" />}
+                {previewOpen
+                  ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
+                  : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+              </div>
+            </button>
+            {previewOpen && (
+              <div className="relative bg-muted/20 flex items-center justify-center p-3 min-h-[140px]">
+                {previewHtml ? (
+                  <iframe
+                    ref={iframeRef}
+                    title="Badge preview"
+                    className="rounded border border-border/50 shadow-sm bg-white"
+                    style={{ width: "100%", height: "180px", border: "none" }}
+                    sandbox="allow-same-origin"
+                  />
+                ) : (
+                  <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    Generating preview…
+                  </div>
+                )}
+              </div>
             )}
           </section>
 

@@ -75,22 +75,20 @@ const SHEET_CSS: Record<Exclude<PrintSize, "custom">, { page: string; cols: numb
 
 function fmtSize(w: number, h: number) { return `${w.toFixed(2)}mm ${h.toFixed(2)}mm`; }
 
-export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) {
+/**
+ * Build the complete print HTML for the given badges and options.
+ * Exported so the dialog can render it in an iframe for live preview.
+ */
+export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {}): Promise<string> {
   const mode = opts.mode ?? "badge";
   const size = opts.size ?? "a4-2up";
   const copies = Math.max(1, Math.min(10, opts.copies ?? 1));
   const eventTitle = opts.eventTitle ?? "";
   const dims = badgeSizeMm(size, opts.custom);
-  // Thermal labels always print one-per-page edge-to-edge regardless of
-  // the design's fullBleed flag, since there's only ever one label per page.
   const isThermal = size === "thermal-50" || size === "thermal-58" || size === "thermal-80" || size === "thermal-100";
-  // Thermal printers are monochrome; opting into thermalMode strips
-  // background images and colours so the printer renders crisp B&W
-  // without dithering or wasted toner.
   const thermalMode = !!opts.thermalMode || isThermal;
   const fullBleed = isThermal || !!(mode === "badge" && opts.design?.fullBleed);
 
-  // Expand by copies
   const expanded: BadgeData[] = [];
   for (const b of badges) for (let i = 0; i < copies; i++) expanded.push(b);
 
@@ -107,7 +105,6 @@ export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) 
   let pageCss: string;
   let sheetCss: string;
   if (fullBleed) {
-    // One badge per page, edge-to-edge.
     pageCss = `@page { size: ${fmtSize(dims.w, dims.h)}; margin: 0 }`;
     sheetCss = `display:block`;
   } else {
@@ -116,20 +113,13 @@ export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) 
     sheetCss = `display:grid;grid-template-columns:repeat(${cfg.cols},${dims.w}mm);gap:${cfg.gap};justify-content:center;padding:${cfg.pad}`;
   }
 
-  // Only load the Google fonts actually referenced by the design, so a print
-  // job is at most one fonts.googleapis.com request (zero for designs that
-  // only use system fonts, e.g. name-only mode).
-  const fontFamilies = opts.design ? fontsUsedInDesign(opts.design) : [];
-  const fontsHref = googleFontsUrl(fontFamilies);
-  const fontsLink = fontsHref
-    ? `<link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="${fontsHref}" />`
-    : "";
+  const usedFonts = mode === "badge" && opts.design ? fontsUsedInDesign(opts.design) : [];
+  if (opts.font?.family) usedFonts.push(opts.font.family);
+  const fontsLink = googleFontsUrl([...new Set(usedFonts)]);
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"/>
+  return `<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print ${mode === "name" ? "Names" : "Badges"}</title>
-  ${fontsLink}
+  ${fontsLink ? `<link rel="stylesheet" href="${fontsLink}" />` : ""}
   <style>
     ${pageCss}
     *{box-sizing:border-box}
@@ -138,7 +128,7 @@ export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) 
     .sheet{${sheetCss}}
     .card{
       width:${dims.w}mm;height:${dims.h}mm;position:relative;overflow:hidden;background:#fff;
-      ${fullBleed ? "" : "border:1px solid #ddd;border-radius:2mm;"}
+      border:none;
       page-break-inside:avoid;break-inside:avoid;
     }
     .card.page-break{page-break-before:always;break-before:page}
@@ -146,7 +136,6 @@ export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) 
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
     .card .el img{display:block}
-    /* default (non-designed) layout — banner / org / event / date / name / QR. All sizes are computed inline per badge so the layout scales with the chosen label dimensions. */
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -157,26 +146,31 @@ export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) 
     .card.basic .meta .dot{opacity:.45}
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
-    .card.basic .qr-wrap{background:#fff;border:1px solid #e2e8f0;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
+    .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
     .card.basic .qr-wrap img{display:block;width:100%;height:100%}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
     ${thermalMode ? `
-      /* Thermal printer mode — monochrome, no backgrounds, high contrast.
-         Strips colour images and gradients so the printer doesn't dither
-         a smudge of grey onto the label. */
-      .card { border: 1.5px solid #000 !important; border-radius: 0 !important; background: #fff !important; }
+      .card { border: none !important; border-radius: 0 !important; background: #fff !important; }
       .card .bg, .card.basic .banner { display: none !important; }
       .card.basic .banner.placeholder { background: #000 !important; color: #fff !important; display: flex !important; }
       .card.basic .org, .card.basic .event, .card.basic .name { color: #000 !important; }
       .card.basic .meta { color: #000 !important; }
       .card.basic .divider { background: #000 !important; height: 2px !important; }
-      .card.basic .qr-wrap { border: 2px solid #000 !important; border-radius: 0 !important; }
+      .card.basic .qr-wrap { border-radius: 0 !important; }
       .card .el.name, .card .el.company { color: #000 !important; text-shadow: none !important; }
     ` : ""}
   </style></head>
-  <body><div class="sheet">${cards.join("")}</div>
+  <body><div class="sheet">${cards.join("")}</div></body></html>`;
+}
+
+export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) {
+  const html = await buildPrintHtml(badges, opts);
+  const w = window.open("", "_blank", "width=900,height=1000");
+  if (!w) throw new Error("popup-blocked");
+  w.document.open();
+  w.document.write(html.replace("</body>", `
   <script>
     (function(){
       function waitForImages(){
@@ -196,14 +190,8 @@ export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) 
       });
     })();
   </script>
-  </body></html>`;
-
-  const w = window.open("", "_blank", "width=900,height=1000");
-  if (!w) {
-    // Toast lives in calling component; surface via thrown error so dialog can react.
-    throw new Error("popup-blocked");
-  }
-  w.document.open(); w.document.write(html); w.document.close();
+  </body>`));
+  w.document.close();
 }
 
 function hasAnyEnabled(d: BadgeDesign) {
@@ -221,10 +209,7 @@ async function renderDesigned(
   const backHtml = d.back === "same"
     ? await renderDesignedFace(b, d, true, true)
     : renderStaticBack(d);
-  // separate page when full bleed, or just next cell on the sheet
-  return front + backHtml;
-
-  function renderStaticBack(des: BadgeDesign) {
+  return front + backHtml;  function renderStaticBack(des: BadgeDesign) {
     const bg = des.backBg
       ? `<div class="bg" style="background-image:url('${des.backBg}');${cssBgStyle(des.backBgTransform)}"></div>`
       : "";
@@ -357,10 +342,8 @@ function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: s
     ? `<div style="background:${nd.accentColor};padding:2mm 4mm;margin-bottom:3mm;color:#fff;font-size:${eventPt}pt;${fontStyle}letter-spacing:.12em;text-transform:uppercase;text-align:${textAlign}">${escapeHtml(eventTitle || b.event_title || "EVENT")}</div>`
     : "";
 
-  let borderCss = "none";
-  if (nd.borderStyle === "solid")  borderCss = `2mm solid ${nd.accentColor}`;
-  if (nd.borderStyle === "dashed") borderCss = `2mm dashed ${nd.accentColor}`;
-  if (nd.borderStyle === "double") borderCss = `4px double ${nd.accentColor}`;
+  // Borders suppressed — user requested no border on prints.
+  const borderCss = "none";
 
   if (nd.id === "monogram") {
     const initial = (b.name || "?")[0].toUpperCase();
