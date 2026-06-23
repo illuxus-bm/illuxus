@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Printer, Trash2, Plus, FlaskConical, ChevronDown, ChevronUp,
+  Printer, Trash2, Plus, FlaskConical,
   AlignLeft, AlignCenter, AlignRight, AlignJustify, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -302,7 +302,6 @@ export default function PrintBadgesDialog({
   const [thermalMode, setThermalMode] = useState<boolean   >(p.thermalMode ?? false);
   const [sizes,       setSizes      ] = useState<SavedSize[]>(() => loadSizes());
   const [font,        setFont       ] = useState<FontStyle >(p.font        ?? defaultFontStyle());
-  const [fontOpen,    setFontOpen   ] = useState(true);
 
   // Raw string values for numeric inputs — avoids mid-keystroke clamping
   const [cwStr, setCwStr] = useState(String(p.cw ?? 4));
@@ -398,7 +397,6 @@ export default function PrintBadgesDialog({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [previewHtml, setPreviewHtml] = useState<string>("");
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(true);
 
   const refreshPreview = useMemo(
     () => async () => {
@@ -425,10 +423,9 @@ export default function PrintBadgesDialog({
 
   // Refresh preview when key settings change (debounced 400ms)
   useEffect(() => {
-    if (!previewOpen) return;
     const t = setTimeout(() => { void refreshPreview(); }, 400);
     return () => clearTimeout(t);
-  }, [refreshPreview, previewOpen]);
+  }, [refreshPreview]);
 
   // Write HTML into the iframe when it changes
   useEffect(() => {
@@ -445,7 +442,7 @@ export default function PrintBadgesDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg p-0 gap-0 max-h-[92vh] flex flex-col overflow-hidden">
+      <DialogContent className="sm:max-w-6xl w-[96vw] p-0 gap-0 max-h-[94vh] flex flex-col overflow-hidden">
 
         <DialogHeader className="px-5 pt-5 pb-3 border-b border-border shrink-0 space-y-0.5">
           <DialogTitle className="flex items-center gap-2 text-base">
@@ -456,7 +453,10 @@ export default function PrintBadgesDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+
+          {/* LEFT — settings (scrollable) */}
+          <div className="overflow-y-auto px-5 py-4 space-y-5 md:border-r border-border min-h-0">
 
           {/* TYPE */}
           <section>
@@ -474,21 +474,12 @@ export default function PrintBadgesDialog({
 
           {/* FONT STYLE */}
           <section className="border border-border rounded-lg overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setFontOpen((v) => !v)}
-              className="w-full flex items-center justify-between px-3 py-2.5 bg-muted/30 hover:bg-muted/50 transition-colors"
-            >
+            <div className="px-3 py-2 bg-muted/30 border-b border-border">
               <span className="text-[12px] font-semibold">Font Style</span>
-              {fontOpen
-                ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
-                : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
-            </button>
-            {fontOpen && (
-              <div className="px-3 pb-3 pt-1">
-                <FontStylePanel font={font} onChange={setFont} />
-              </div>
-            )}
+            </div>
+            <div className="px-3 pb-3 pt-1">
+              <FontStylePanel font={font} onChange={setFont} />
+            </div>
           </section>
 
           {/* LABEL SIZE */}
@@ -558,41 +549,6 @@ export default function PrintBadgesDialog({
             )}
           </section>
 
-          {/* PREVIEW */}
-          <section className="border border-border rounded-lg overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setPreviewOpen((v) => !v)}
-              className="w-full flex items-center justify-between px-3 py-2.5 bg-muted/30 hover:bg-muted/50 transition-colors"
-            >
-              <span className="text-[12px] font-semibold">Preview</span>
-              <div className="flex items-center gap-1.5">
-                {previewLoading && <RefreshCw className="h-3 w-3 text-muted-foreground animate-spin" />}
-                {previewOpen
-                  ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
-                  : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
-              </div>
-            </button>
-            {previewOpen && (
-              <div className="relative bg-muted/20 flex items-center justify-center p-3 min-h-[140px]">
-                {previewHtml ? (
-                  <iframe
-                    ref={iframeRef}
-                    title="Badge preview"
-                    className="rounded border border-border/50 shadow-sm bg-white"
-                    style={{ width: "100%", height: "180px", border: "none" }}
-                    sandbox="allow-same-origin"
-                  />
-                ) : (
-                  <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                    Generating preview…
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-
           {/* COPIES */}
           <section>
             <Label htmlFor="copies" className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">Copies per attendee</Label>
@@ -621,6 +577,37 @@ export default function PrintBadgesDialog({
               </p>
             )}
           </section>
+
+          </div>
+
+          {/* RIGHT — live preview (full height) */}
+          <div className="flex flex-col bg-muted/20 min-h-0 border-t md:border-t-0 border-border">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-background/60 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] font-semibold">Live preview</span>
+                {previewLoading && <RefreshCw className="h-3 w-3 text-muted-foreground animate-spin" />}
+              </div>
+              <span className="text-[11px] text-muted-foreground">
+                {dims.w.toFixed(0)} × {dims.h.toFixed(0)} mm
+              </span>
+            </div>
+            <div className="flex-1 min-h-0 p-4 flex items-stretch justify-stretch overflow-hidden">
+              {previewHtml ? (
+                <iframe
+                  ref={iframeRef}
+                  title="Badge preview"
+                  className="rounded border border-border/50 shadow-sm bg-white w-full h-full"
+                  style={{ border: "none", minHeight: "320px" }}
+                  sandbox="allow-same-origin"
+                />
+              ) : (
+                <div className="flex-1 flex items-center justify-center gap-2 text-[12px] text-muted-foreground">
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  Generating preview…
+                </div>
+              )}
+            </div>
+          </div>
 
         </div>
 
