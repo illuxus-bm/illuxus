@@ -17,8 +17,8 @@ import {
 } from "@/lib/print-badges";
 import {
   loadDesign, saveDesign, loadSizes, saveSizes, fileToDataUrl, badgeSizeMm,
-  defaultBgTransform,
-  type BadgeDesign, type BgTransform, type ElementKey, type SavedSize,
+  defaultBgTransform, applyPreset, LAYOUT_PRESETS, BADGE_FONT_OPTIONS,
+  type BadgeDesign, type BgTransform, type ElementKey, type SavedSize, type LayoutPresetId,
 } from "@/lib/badge-design";
 import BadgeDesignerCanvas from "./BadgeDesignerCanvas";
 
@@ -54,8 +54,19 @@ const SIZE_OPTIONS: { v: PrintSize; t: string; d: string }[] = [
   { v: "custom",      t: "Custom",        d: "W × H" },
 ];
 
-const ELEMENT_KEYS: ElementKey[] = ["name", "company", "qr"];
-const ELEMENT_LABELS: Record<ElementKey, string> = { name: "Name", company: "Company", qr: "QR" };
+const ELEMENT_KEYS: ElementKey[] = ["name", "company", "qr", "title", "email", "ticket", "eventTitle", "eventDate", "orgName", "customText"];
+const ELEMENT_LABELS: Record<ElementKey, string> = {
+  name: "Name",
+  company: "Company",
+  qr: "QR code",
+  title: "Job title",
+  email: "Email",
+  ticket: "Ticket / role",
+  eventTitle: "Event title",
+  eventDate: "Event date",
+  orgName: "Organisation",
+  customText: "Custom text",
+};
 
 export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId, eventTitle, defaultMode = "badge" }: Props) {
   const prefs = loadPrefs();
@@ -91,6 +102,18 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
   }, [mode, size, copies, cw, ch, cu, thermalMode]);
 
   useEffect(() => { saveDesign(eventId, design); }, [eventId, design]);
+
+  // Pre-load all badge fonts so the live design canvas shows the chosen
+  // typeface even before the user opens the print preview window.
+  useEffect(() => {
+    const id = "badge-fonts-link";
+    if (document.getElementById(id)) return;
+    const link = document.createElement("link");
+    link.id = id;
+    link.rel = "stylesheet";
+    link.href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Sora:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=Urbanist:wght@400;500;600;700&family=Roboto:wght@400;500;700&family=Open+Sans:wght@400;500;600;700&family=Lato:wght@400;700&family=Montserrat:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Playfair+Display:wght@400;500;700;800&family=Merriweather:wght@400;700&family=Source+Sans+Pro:wght@400;600;700&display=swap";
+    document.head.appendChild(link);
+  }, []);
 
   const total = badges.length * copies;
   const dims = useMemo(
@@ -287,6 +310,23 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
           </TabsContent>
 
           <TabsContent value="design" className="flex-1 overflow-y-auto px-5 py-4 mt-0">
+            {/* Layout preset picker */}
+            <div className="mb-4 pb-3 border-b border-border">
+              <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5 block">Layout preset</Label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {LAYOUT_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setDesign((d) => applyPreset(d, p.id))}
+                    className="border border-border rounded-md p-2 text-left hover:border-primary hover:bg-primary/5 transition-colors"
+                  >
+                    <div className="text-[12px] font-semibold">{p.name}</div>
+                    <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">{p.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-4">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -361,6 +401,89 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
                                   />
                                 ) : <span className="text-[10px] text-muted-foreground px-1">mm</span>}
                               </div>
+
+                              {/* Font controls — text elements only */}
+                              {k !== "qr" && (
+                                <div className="space-y-1.5 pt-1 border-t border-border/60">
+                                  {/* Static text for customText / ticket */}
+                                  {(k === "customText" || k === "ticket") && (
+                                    <Input
+                                      placeholder={k === "customText" ? "Custom text" : "e.g. VIP, Speaker"}
+                                      value={el.staticText ?? ""}
+                                      onChange={(e) => updateEl(k, { staticText: e.target.value })}
+                                      className="h-7 text-[12px]"
+                                    />
+                                  )}
+                                  {/* Font family + weight */}
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <select
+                                      value={el.fontFamily || "Inter"}
+                                      onChange={(e) => updateEl(k, { fontFamily: e.target.value as typeof BADGE_FONT_OPTIONS[number] })}
+                                      className="h-7 rounded border border-border bg-background text-[11px] px-1"
+                                      title="Font family"
+                                    >
+                                      {BADGE_FONT_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}
+                                    </select>
+                                    <select
+                                      value={el.fontWeight ?? 400}
+                                      onChange={(e) => updateEl(k, { fontWeight: Number(e.target.value) })}
+                                      className="h-7 rounded border border-border bg-background text-[11px] px-1"
+                                      title="Weight"
+                                    >
+                                      {[300, 400, 500, 600, 700, 800].map((w) => <option key={w} value={w}>{w}</option>)}
+                                    </select>
+                                  </div>
+                                  {/* Style toggles + transform */}
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateEl(k, { italic: !el.italic })}
+                                      className={`h-6 w-6 rounded border text-[11px] italic ${el.italic ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground"}`}
+                                      title="Italic"
+                                    >I</button>
+                                    <select
+                                      value={el.align ?? "center"}
+                                      onChange={(e) => updateEl(k, { align: e.target.value as "left" | "center" | "right" })}
+                                      className="h-6 rounded border border-border bg-background text-[10px] px-1"
+                                      title="Text align"
+                                    >
+                                      <option value="left">Left</option>
+                                      <option value="center">Center</option>
+                                      <option value="right">Right</option>
+                                    </select>
+                                    <select
+                                      value={el.transform ?? "none"}
+                                      onChange={(e) => updateEl(k, { transform: e.target.value as "none" | "uppercase" | "lowercase" | "capitalize" })}
+                                      className="h-6 rounded border border-border bg-background text-[10px] px-1 flex-1"
+                                      title="Text transform"
+                                    >
+                                      <option value="none">Aa</option>
+                                      <option value="uppercase">AA</option>
+                                      <option value="lowercase">aa</option>
+                                      <option value="capitalize">Aa Bb</option>
+                                    </select>
+                                  </div>
+
+                                  {/* Letter spacing slider — em, -0.05 to 0.3 */}
+                                  <div className="space-y-0.5">
+                                    <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                      <span>Letter spacing</span>
+                                      <span className="tabular-nums">{(el.letterSpacing ?? 0).toFixed(2)}em</span>
+                                    </div>
+                                    <input
+                                      type="range"
+                                      min={-0.05}
+                                      max={0.3}
+                                      step={0.01}
+                                      value={el.letterSpacing ?? 0}
+                                      onChange={(e) => updateEl(k, { letterSpacing: Number(e.target.value) })}
+                                      className="w-full h-3 accent-primary"
+                                      aria-label="Letter spacing"
+                                    />
+                                  </div>
+                                </div>
+                              )}
+
                               <div className="flex items-center gap-0.5 pt-1">
                                 <AlignBtn icon={<AlignLeft className="h-3 w-3" />}        onClick={() => alignEl(k, "x", 10)} label="Left" />
                                 <AlignBtn icon={<AlignCenter className="h-3 w-3" />}      onClick={() => alignEl(k, "x", 50)} label="H-Center" />

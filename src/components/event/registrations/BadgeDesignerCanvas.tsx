@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { bgTransformToCss, type BadgeDesign, type ElementKey } from "@/lib/badge-design";
+import { bgTransformToCss, type BadgeDesign, type ElementKey, type ElementPlacement } from "@/lib/badge-design";
 
 interface Props {
   design: BadgeDesign;
@@ -18,9 +18,21 @@ const SNAP_PCT = 1.5;                // snap when within ±1.5%
 const GUIDE_PCT = 2;                 // show guide when within ±2%
 const TARGETS = [10, 50, 90];        // safe edges + center
 
+const SAMPLE_VALUES: Partial<Record<ElementKey, string>> = {
+  name:       "Jane Doe",
+  company:    "Acme Inc.",
+  email:      "jane@example.com",
+  title:      "Head of Product",
+  ticket:     "VIP",
+  eventTitle: "ILLUXUS SUMMIT",
+  eventDate:  "Sat, Jul 4 · 1:23 AM",
+  orgName:    "ILLUXUS",
+  customText: "Custom text",
+};
+
 export default function BadgeDesignerCanvas({
   design, onChange, widthMm, heightMm,
-  sampleName = "Jane Doe", sampleCompany = "Acme Inc.",
+  sampleName, sampleCompany,
   showGrid = true,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -88,6 +100,17 @@ export default function BadgeDesignerCanvas({
       }
     : { backgroundColor: "hsl(var(--muted))" };
 
+  const valueFor = (k: ElementKey, el: ElementPlacement): string => {
+    if (k === "name") return sampleName ?? SAMPLE_VALUES.name!;
+    if (k === "company") return sampleCompany ?? SAMPLE_VALUES.company!;
+    if (k === "customText" || k === "ticket") return el.staticText?.trim() || SAMPLE_VALUES[k] || "";
+    return SAMPLE_VALUES[k] || "";
+  };
+
+  // Render order: text elements first, QR on top
+  const allKeys = Object.keys(design.elements) as ElementKey[];
+  const textKeys = allKeys.filter((k) => k !== "qr");
+
   return (
     <div ref={wrapRef} className="w-full flex flex-col items-center">
       <div
@@ -117,42 +140,64 @@ export default function BadgeDesignerCanvas({
                style={{ top: `${p}%` }} />
         ))}
 
-        {(["name", "company", "qr"] as ElementKey[]).map((key) => {
+        {/* Text elements */}
+        {textKeys.map((key) => {
           const el = design.elements[key];
-          if (!el.enabled) return null;
-          const label = key === "name" ? sampleName : key === "company" ? sampleCompany : "";
+          if (!el?.enabled) return null;
+          const text = valueFor(key, el);
+          if (!text) return null;
           const fontPx = el.size * PT_TO_PX * scale;
-          const qrPx = el.size * PX_PER_MM * scale;
+          const transformMap: Record<string, string> = { uppercase: "uppercase", lowercase: "lowercase", capitalize: "capitalize", none: "none" };
+          const css: React.CSSProperties = {
+            left: `${el.x}%`,
+            top: `${el.y}%`,
+            transform: "translate(-50%, -50%)",
+            color: el.color,
+            fontFamily: el.fontFamily ? `${el.fontFamily}, system-ui, sans-serif` : "system-ui, sans-serif",
+            fontWeight: el.fontWeight ?? 400,
+            fontStyle: el.italic ? "italic" : "normal",
+            textAlign: el.align ?? "center",
+            textTransform: (transformMap[el.transform ?? "none"] || "none") as React.CSSProperties["textTransform"],
+            letterSpacing: `${(el.letterSpacing ?? 0).toFixed(3)}em`,
+            lineHeight: el.lineHeight ?? 1.1,
+            fontSize: `${fontPx}px`,
+            whiteSpace: "nowrap",
+          };
           return (
             <div
               key={key}
               onPointerDown={(e) => startDrag(key, e)}
-              className="absolute cursor-move outline outline-1 outline-primary/40 hover:outline-primary"
-              style={{
-                left: `${el.x}%`,
-                top: `${el.y}%`,
-                transform: "translate(-50%, -50%)",
-                color: el.color,
-              }}
+              className="absolute cursor-move outline outline-1 outline-primary/40 hover:outline-primary px-1"
+              style={css}
               title={`Drag ${key}`}
             >
-              {key === "qr" ? (
-                <div
-                  className="bg-foreground/80 text-background flex items-center justify-center font-mono"
-                  style={{ width: `${qrPx}px`, height: `${qrPx}px`, fontSize: `${Math.max(8, qrPx * 0.18)}px` }}
-                >QR</div>
-              ) : (
-                <span style={{ fontSize: `${fontPx}px`, fontWeight: key === "name" ? 700 : 400, whiteSpace: "nowrap" }}>
-                  {label}
-                </span>
-              )}
+              {text}
             </div>
           );
         })}
 
+        {/* QR last so it sits on top */}
+        {design.elements.qr?.enabled && (() => {
+          const el = design.elements.qr;
+          const qrPx = el.size * PX_PER_MM * scale;
+          return (
+            <div
+              key="qr"
+              onPointerDown={(e) => startDrag("qr", e)}
+              className="absolute cursor-move outline outline-1 outline-primary/40 hover:outline-primary"
+              style={{ left: `${el.x}%`, top: `${el.y}%`, transform: "translate(-50%, -50%)" }}
+            >
+              <div
+                className="bg-foreground/80 text-background flex items-center justify-center font-mono"
+                style={{ width: `${qrPx}px`, height: `${qrPx}px`, fontSize: `${Math.max(8, qrPx * 0.18)}px` }}
+              >QR</div>
+            </div>
+          );
+        })()}
+
         {!design.frontBg && (
           <div className="absolute inset-0 flex items-center justify-center text-[11px] text-muted-foreground pointer-events-none">
-            Upload a background or design with shapes only
+            Upload a background or design with text only
           </div>
         )}
       </div>

@@ -585,3 +585,11 @@ broken). Items 3-5 require infra not in the repo today.
   `eslint-disable-next-line`. CI lint warning count drops to 19 (all
   remaining warnings are `react-refresh/only-export-components`,
   tracked separately as LINT-004).
+
+- `2026-06-23` — **feat(print): full badge customization**. Expanded
+  badge designer with 8 element types (name, company, title, email,
+  eventTitle, eventDate, orgName, qr), per-element font controls
+  (family, weight, italic, align, transform, letter-spacing), and
+  6 layout presets. Renderer dynamically loads only the Google
+  fonts actually used in the design. Backwards-compatible with
+  existing localStorage badge designs.

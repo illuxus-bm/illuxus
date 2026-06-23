@@ -1,10 +1,12 @@
 import QRCode from "qrcode";
-import { badgeSizeMm, bgTransformToCss, type BadgeDesign } from "./badge-design";
+import { badgeSizeMm, bgTransformToCss, fontsUsedInDesign, googleFontsUrl, type BadgeDesign } from "./badge-design";
 
 export type BadgeData = {
   name: string;
   email?: string | null;
   company?: string | null;
+  /** Designation / job title displayed under the name. */
+  title?: string | null;
   ticket_type?: string | null;
   qr_payload: string;
   /** Event banner image URL. Rendered at the top of the default badge. */
@@ -99,8 +101,20 @@ export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) 
     sheetCss = `display:grid;grid-template-columns:repeat(${cfg.cols},${dims.w}mm);gap:${cfg.gap};justify-content:center;padding:${cfg.pad}`;
   }
 
+  // Only load the Google fonts actually referenced by the design, so a print
+  // job is at most one fonts.googleapis.com request (zero for designs that
+  // only use system fonts, e.g. name-only mode).
+  const fontFamilies = opts.design ? fontsUsedInDesign(opts.design) : [];
+  const fontsHref = googleFontsUrl(fontFamilies);
+  const fontsLink = fontsHref
+    ? `<link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="${fontsHref}" />`
+    : "";
+
   const html = `<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print ${mode === "name" ? "Names" : "Badges"}</title>
+  ${fontsLink}
   <style>
     ${pageCss}
     *{box-sizing:border-box}
@@ -157,8 +171,13 @@ export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) 
           return new Promise(function(res){ img.onload=res; img.onerror=res; });
         }));
       }
+      function waitForFonts(){
+        return document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+      }
       window.addEventListener('load', function(){
-        waitForImages().then(function(){ setTimeout(function(){ window.focus(); window.print(); }, 150); });
+        Promise.all([waitForImages(), waitForFonts()]).then(function(){
+          setTimeout(function(){ window.focus(); window.print(); }, 200);
+        });
       });
     })();
   </script>
@@ -173,7 +192,7 @@ export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) 
 }
 
 function hasAnyEnabled(d: BadgeDesign) {
-  return d.elements.name.enabled || d.elements.company.enabled || d.elements.qr.enabled;
+  return Object.values(d.elements).some((e) => e?.enabled);
 }
 
 async function renderDesigned(
@@ -204,18 +223,68 @@ async function renderDesignedFace(b: BadgeData, d: BadgeDesign, _isFront: boolea
     ? `<div class="bg" style="background-image:url('${d.frontBg}');${cssBgStyle(d.frontBgTransform)}"></div>`
     : "";
   const els: string[] = [];
-  if (e.name.enabled) {
-    els.push(`<div class="el name" style="left:${e.name.x}%;top:${e.name.y}%;font-size:${e.name.size}pt;color:${e.name.color}">${escapeHtml(b.name)}</div>`);
+
+  // Helper: derive the visible text for a given element key + badge data
+  const valueFor = (k: keyof typeof e): string | null => {
+    const el = e[k];
+    if (!el || !el.enabled) return null;
+    switch (k) {
+      case "name":       return b.name;
+      case "company":    return (b.company || "").trim() || null;
+      case "email":      return (b.email || "").trim() || null;
+      case "title":      return (b.title || "").trim() || null;
+      case "ticket":     return el.staticText?.trim() || (b.ticket_type || "").trim() || null;
+      case "eventTitle": return (b.event_title || "").trim() || null;
+      case "eventDate":  return (b.event_date_text || "").trim() || null;
+      case "orgName":    return (b.org_name || "").trim() || null;
+      case "customText": return el.staticText?.trim() || null;
+      default:           return null;
+    }
+  };
+
+  // Render every text element with its font styling
+  const textKeys: (keyof typeof e)[] = ["orgName", "eventTitle", "eventDate", "ticket", "name", "title", "company", "email", "customText"];
+  for (const k of textKeys) {
+    const el = e[k];
+    if (!el?.enabled) continue;
+    const text = valueFor(k);
+    if (!text) continue;
+    els.push(renderTextElement(el, text));
   }
-  if (e.company.enabled && (b.company || "").trim()) {
-    els.push(`<div class="el company" style="left:${e.company.x}%;top:${e.company.y}%;font-size:${e.company.size}pt;color:${e.company.color}">${escapeHtml(b.company!.trim())}</div>`);
-  }
-  if (e.qr.enabled) {
+
+  // QR last so it sits on top
+  if (e.qr?.enabled) {
     const qr = await QRCode.toDataURL(b.qr_payload, { width: 320, margin: 1 });
     els.push(`<div class="el qr" style="left:${e.qr.x}%;top:${e.qr.y}%"><img src="${qr}" style="width:${e.qr.size}mm;height:${e.qr.size}mm" alt="QR" /></div>`);
   }
   const pageBreak = asBack && d.fullBleed ? " page-break" : "";
   return `<div class="card${pageBreak}">${bg}${els.join("")}</div>`;
+}
+
+/** Serialize one text element placement into a positioned <div> with inline font styling. */
+function renderTextElement(el: import("./badge-design").ElementPlacement, text: string): string {
+  const fontFamily = el.fontFamily ? `${el.fontFamily}, system-ui, sans-serif` : "system-ui, sans-serif";
+  const weight = el.fontWeight ?? 400;
+  const italic = el.italic ? "italic" : "normal";
+  const align = el.align ?? "center";
+  const transformMap: Record<string, string> = { uppercase: "uppercase", lowercase: "lowercase", capitalize: "capitalize", none: "none" };
+  const transform = transformMap[el.transform ?? "none"] || "none";
+  const letter = (el.letterSpacing ?? 0).toFixed(3) + "em";
+  const lh = el.lineHeight ?? 1.1;
+  const style = [
+    `left:${el.x}%`,
+    `top:${el.y}%`,
+    `font-size:${el.size}pt`,
+    `color:${el.color}`,
+    `font-family:${fontFamily}`,
+    `font-weight:${weight}`,
+    `font-style:${italic}`,
+    `text-align:${align}`,
+    `text-transform:${transform}`,
+    `letter-spacing:${letter}`,
+    `line-height:${lh}`,
+  ].join(";");
+  return `<div class="el text" style="${style}">${escapeHtml(text)}</div>`;
 }
 
 /** Serialize a `BgTransform` into inline CSS for the print sheet's `.bg` div. */

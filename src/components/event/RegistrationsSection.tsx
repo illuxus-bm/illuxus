@@ -691,6 +691,10 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       name: r.name,
       email: r.email,
       company: r.company,
+      // Job title pulled from the underlying registration's `designation`
+      // field when the row is an attendee; speakers/sponsors don't surface
+      // a designation on the registrations join, so it stays null.
+      title: r.registration?.designation ?? null,
       ticket_type: r.ticket_type,
       qr_payload: r.qr_payload,
       banner_url: eventInfo?.banner_landscape_url ?? null,
