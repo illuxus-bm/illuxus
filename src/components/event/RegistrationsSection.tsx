@@ -120,7 +120,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [qrOpen, setQrOpen] = useState(false);
   const [selfKioskOpen, setSelfKioskOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [printState, setPrintState] = useState<{ open: boolean; badges: BadgeData[]; mode: PrintMode }>({ open: false, badges: [], mode: "badge" });
+  const [printState, setPrintState] = useState<{ open: boolean; rowIds: string[] | null; mode: PrintMode }>({ open: false, rowIds: null, mode: "badge" });
   const [eventInfo, setEventInfo] = useState<{
     event_format: string | null;
     slug: string;
@@ -830,11 +830,11 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const openPrintSelected = (mode: PrintMode) => {
     const rows = filtered.filter((r) => selected.has(r.id));
     if (rows.length === 0) return toast.info("Select attendees to print");
-    setPrintState({ open: true, badges: toBadges(rows), mode });
+    setPrintState({ open: true, rowIds: rows.map((r) => r.id), mode });
   };
 
   const openPrintSingle = (r: Row, mode: PrintMode) => {
-    setPrintState({ open: true, badges: toBadges([r]), mode });
+    setPrintState({ open: true, rowIds: [r.id], mode });
   };
 
   // "Overall" print: prints what the user is currently looking at. If any rows
@@ -845,7 +845,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       ? filtered.filter((r) => selected.has(r.id))
       : filtered;
     if (rows.length === 0) return toast.info("No attendees in the current view");
-    setPrintState({ open: true, badges: toBadges(rows), mode });
+    setPrintState({ open: true, rowIds: rows.map((r) => r.id), mode });
   };
 
   const openSelfServiceKiosk = () => setSelfKioskOpen(true);
@@ -1190,7 +1190,16 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       <PrintBadgesDialog
         open={printState.open}
         onOpenChange={(o) => setPrintState((s) => ({ ...s, open: o }))}
-        badges={printState.badges}
+        badges={
+          // Compute badge data live from current allRows so edits made in
+          // RegistrantQuickView are immediately reflected without re-opening.
+          // null rowIds means "print all filtered rows" (e.g. print all).
+          toBadges(
+            printState.rowIds
+              ? allRows.filter((r) => printState.rowIds!.includes(r.id))
+              : filtered,
+          )
+        }
         eventId={eventId}
         eventTitle={eventInfo?.title}
         defaultMode={printState.mode}
