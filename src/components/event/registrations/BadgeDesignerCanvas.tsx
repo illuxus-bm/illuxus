@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { bgTransformToCss, type BadgeDesign, type ElementKey, type ElementPlacement } from "@/lib/badge-design";
+import { bgTransformToCss, frontBgStyleToCss, type BadgeDesign, type ElementKey, type ElementPlacement } from "@/lib/badge-design";
 
 interface Props {
   design: BadgeDesign;
@@ -98,7 +98,14 @@ export default function BadgeDesignerCanvas({
         backgroundImage: `url(${design.frontBg})`,
         ...bgTransformToCss(design.frontBgTransform),
       }
-    : { backgroundColor: "hsl(var(--muted))" };
+    : (() => {
+        const css = frontBgStyleToCss(design.frontBgStyle);
+        if (!css) return { backgroundColor: "hsl(var(--muted))" };
+        const style = design.frontBgStyle?.type === "solid"
+          ? { backgroundColor: css }
+          : { backgroundImage: css };
+        return style;
+      })();
 
   const valueFor = (k: ElementKey, el: ElementPlacement): string => {
     if (k === "name") return sampleName ?? SAMPLE_VALUES.name!;
@@ -195,7 +202,7 @@ export default function BadgeDesignerCanvas({
           );
         })()}
 
-        {!design.frontBg && (
+        {!design.frontBg && (!design.frontBgStyle || design.frontBgStyle.type === "none") && (
           <div className="absolute inset-0 flex items-center justify-center text-[11px] text-muted-foreground pointer-events-none">
             Upload a background or design with text only
           </div>

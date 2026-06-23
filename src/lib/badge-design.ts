@@ -79,9 +79,24 @@ export const defaultBgTransform = (): BgTransform => ({
   fillColor: "#ffffff",
 });
 
+/** Gradient or solid background fill applied when no image is uploaded. */
+export type FrontBgStyle = {
+  type: "solid" | "gradient" | "none";
+  /** Solid fill color (CSS hex). */
+  color?: string;
+  /** Gradient start color. */
+  gradientFrom?: string;
+  /** Gradient end color. */
+  gradientTo?: string;
+  /** Gradient angle in degrees 0–360 (default 135). */
+  gradientAngle?: number;
+};
+
 export type BadgeDesign = {
   frontBg?: string;                          // data URL or ""
   frontBgTransform?: BgTransform;            // sizing/position for front bg
+  /** CSS background fill used when frontBg is empty. */
+  frontBgStyle?: FrontBgStyle;
   elements: Record<ElementKey, ElementPlacement>;
   back: "none" | "same" | "static";
   backBg?: string;                           // data URL when back === "static"
@@ -89,14 +104,104 @@ export type BadgeDesign = {
   fullBleed?: boolean;                       // print one badge per page edge-to-edge
 };
 
+// ─── Name-only designs ───────────────────────────────────────────────────────
+
+export type NameDesignId = "simple" | "bold" | "monogram" | "ticket-stub" | "event-card";
+
+export interface NameDesign {
+  id: NameDesignId;
+  name: string;
+  description: string;
+  fontFamily: string;
+  fontWeight: number;
+  /** Maps to a multiplier: xl=1.0, 2xl=1.4, 3xl=1.8 */
+  fontSize: "xl" | "2xl" | "3xl";
+  showCompany: boolean;
+  showEvent: boolean;
+  layout: "stacked" | "centered" | "left-aligned";
+  accentColor: string;
+  borderStyle: "none" | "solid" | "dashed" | "double";
+}
+
+export const NAME_DESIGNS: NameDesign[] = [
+  {
+    id: "simple",
+    name: "Simple",
+    description: "Clean name + company, centered",
+    fontFamily: "Inter",
+    fontWeight: 700,
+    fontSize: "xl",
+    showCompany: true,
+    showEvent: false,
+    layout: "centered",
+    accentColor: "#e2e8f0",
+    borderStyle: "none",
+  },
+  {
+    id: "bold",
+    name: "Bold",
+    description: "Extra-bold uppercase name, thick border",
+    fontFamily: "Inter",
+    fontWeight: 900,
+    fontSize: "3xl",
+    showCompany: true,
+    showEvent: false,
+    layout: "centered",
+    accentColor: "#0f172a",
+    borderStyle: "solid",
+  },
+  {
+    id: "monogram",
+    name: "Monogram",
+    description: "Large initial on the left, name on the right",
+    fontFamily: "Inter",
+    fontWeight: 800,
+    fontSize: "2xl",
+    showCompany: true,
+    showEvent: false,
+    layout: "left-aligned",
+    accentColor: "#6366f1",
+    borderStyle: "none",
+  },
+  {
+    id: "ticket-stub",
+    name: "Ticket Stub",
+    description: "Dashed border, event title + name + QR row",
+    fontFamily: "Inter",
+    fontWeight: 700,
+    fontSize: "2xl",
+    showCompany: true,
+    showEvent: true,
+    layout: "stacked",
+    accentColor: "#f59e0b",
+    borderStyle: "dashed",
+  },
+  {
+    id: "event-card",
+    name: "Event Card",
+    description: "Event title at top with colored band, large name",
+    fontFamily: "Inter",
+    fontWeight: 700,
+    fontSize: "3xl",
+    showCompany: true,
+    showEvent: true,
+    layout: "stacked",
+    accentColor: "#0ea5e9",
+    borderStyle: "none",
+  },
+];
+
 export type SavedSize = { name: string; w: number; h: number; unit: "in" | "cm" | "mm" };
 
 const DESIGN_PREFIX = "lovable.badge-design.v1:";
 const SIZES_KEY = "lovable.print-sizes.v1";
 
+export const defaultFrontBgStyle = (): FrontBgStyle => ({ type: "none" });
+
 export const defaultDesign = (): BadgeDesign => ({
   frontBg: "",
   frontBgTransform: defaultBgTransform(),
+  frontBgStyle: defaultFrontBgStyle(),
   back: "none",
   backBg: "",
   backBgTransform: defaultBgTransform(),
@@ -138,6 +243,7 @@ export function loadDesign(eventId: string): BadgeDesign {
       elements: mergedElements,
       frontBgTransform: { ...def.frontBgTransform!, ...(parsed.frontBgTransform || {}) },
       backBgTransform:  { ...def.backBgTransform!,  ...(parsed.backBgTransform  || {}) },
+      frontBgStyle:     { ...def.frontBgStyle!,     ...(parsed.frontBgStyle     || {}) },
     };
   } catch { return defaultDesign(); }
 }
@@ -349,6 +455,23 @@ export function googleFontsUrl(families: string[]): string {
   return `https://fonts.googleapis.com/css2?${parts.join("&")}&display=swap`;
 }
 
+
+/**
+ * Convert a `FrontBgStyle` into a CSS `background` shorthand string that
+ * works in both the live canvas and the print renderer.
+ * Returns an empty string for type "none" (white default).
+ */
+export function frontBgStyleToCss(s: FrontBgStyle | undefined): string {
+  if (!s || s.type === "none") return "";
+  if (s.type === "solid") return s.color ? s.color : "";
+  if (s.type === "gradient") {
+    const angle = s.gradientAngle ?? 135;
+    const from = s.gradientFrom ?? "#667eea";
+    const to = s.gradientTo ?? "#764ba2";
+    return `linear-gradient(${angle}deg, ${from}, ${to})`;
+  }
+  return "";
+}
 
 export function badgeSizeMm(
   size:

@@ -7,8 +7,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Printer, Upload, Trash2, Plus, Image as ImageIcon,
-  AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
+  Printer, Upload, Trash2, Plus,
   FlaskConical,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -17,10 +16,10 @@ import {
 } from "@/lib/print-badges";
 import {
   loadDesign, saveDesign, loadSizes, saveSizes, fileToDataUrl, badgeSizeMm,
-  defaultBgTransform, applyPreset, LAYOUT_PRESETS, BADGE_FONT_OPTIONS,
-  type BadgeDesign, type BgTransform, type ElementKey, type SavedSize, type LayoutPresetId,
+  type BadgeDesign, type SavedSize,
+  type NameDesignId,
 } from "@/lib/badge-design";
-import BadgeDesignerCanvas from "./BadgeDesignerCanvas";
+import BadgeDesignEditor from "./BadgeDesignEditor";
 
 const PREF_KEY = "lovable.print-badges.v1";
 type Prefs = { mode: PrintMode; size: PrintSize; copies: number; cw: number; ch: number; cu: PrintUnit; thermalMode: boolean };
@@ -54,19 +53,6 @@ const SIZE_OPTIONS: { v: PrintSize; t: string; d: string }[] = [
   { v: "custom",      t: "Custom",        d: "W × H" },
 ];
 
-const ELEMENT_KEYS: ElementKey[] = ["name", "company", "qr", "title", "email", "ticket", "eventTitle", "eventDate", "orgName", "customText"];
-const ELEMENT_LABELS: Record<ElementKey, string> = {
-  name: "Name",
-  company: "Company",
-  qr: "QR code",
-  title: "Job title",
-  email: "Email",
-  ticket: "Ticket / role",
-  eventTitle: "Event title",
-  eventDate: "Event date",
-  orgName: "Organisation",
-  customText: "Custom text",
-};
 
 export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId, eventTitle, defaultMode = "badge" }: Props) {
   const prefs = loadPrefs();
@@ -80,6 +66,8 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
   const [design, setDesign] = useState<BadgeDesign>(() => loadDesign(eventId));
   const [sizes, setSizes] = useState<SavedSize[]>(() => loadSizes());
   const [tab, setTab] = useState<"settings" | "design">("settings");
+  const [nameDesignId, setNameDesignId] = useState<NameDesignId>("simple");
+  const [editorOpen, setEditorOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -94,6 +82,7 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
       setDesign(loadDesign(eventId));
       setSizes(loadSizes());
       setTab("settings");
+      setEditorOpen(false);
     }
   }, [open, defaultMode, eventId]);
 
@@ -128,6 +117,7 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
         custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
         design: mode === "badge" ? design : undefined,
         thermalMode,
+        nameDesign: mode === "name" ? nameDesignId : undefined,
       });
     } catch (err) {
       if ((err as Error).message === "popup-blocked") {
@@ -155,12 +145,6 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
     setDesign((d) => ({ ...d, [key]: url }));
   };
 
-  const updateEl = (k: ElementKey, patch: Partial<BadgeDesign["elements"]["name"]>) => {
-    setDesign((d) => ({ ...d, elements: { ...d.elements, [k]: { ...d.elements[k], ...patch } } }));
-  };
-
-  const alignEl = (k: ElementKey, axis: "x" | "y", v: number) => updateEl(k, { [axis]: v });
-
   const saveCurrentSize = () => {
     const name = window.prompt("Name this size", `${cw}×${ch} ${cu}`);
     if (!name) return;
@@ -180,6 +164,25 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl p-0 gap-0 max-h-[88vh] flex flex-col overflow-hidden">
+        {/* Full-screen design editor — rendered on top inside the dialog so focus trapping is inherited */}
+        {editorOpen && (
+          <BadgeDesignEditor
+            design={design}
+            onDesignChange={setDesign}
+            mode={mode}
+            widthMm={dims.w}
+            heightMm={dims.h}
+            badgeCount={badges.length * copies}
+            eventTitle={eventTitle}
+            sampleName={badges[0]?.name}
+            sampleCompany={badges[0]?.company ?? undefined}
+            nameDesignId={nameDesignId}
+            onNameDesignChange={setNameDesignId}
+            onBack={() => { setEditorOpen(false); setTab("settings"); }}
+            onTestPrint={handleTestPrint}
+            onPrint={async () => { await handlePrint(); }}
+          />
+        )}
         <DialogHeader className="px-5 pt-5 pb-3 border-b border-border shrink-0 space-y-1">
           <DialogTitle className="flex items-center gap-2 text-base">
             <Printer className="h-4 w-4" /> Print settings
@@ -193,7 +196,19 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
           <div className="px-5 pt-3 shrink-0">
             <TabsList className="grid grid-cols-2 w-full max-w-xs h-9 mx-auto">
               <TabsTrigger value="settings" className="text-[12px] h-7 px-3">Settings</TabsTrigger>
-              <TabsTrigger value="design" disabled={mode !== "badge"} className="text-[12px] h-7 px-3">Design</TabsTrigger>
+              <TabsTrigger
+                value="design"
+                disabled={mode !== "badge" && mode !== "name"}
+                className="text-[12px] h-7 px-3"
+                onClick={(e) => {
+                  if (mode === "badge" || mode === "name") {
+                    e.preventDefault();
+                    setEditorOpen(true);
+                  }
+                }}
+              >
+                Design
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -309,239 +324,13 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
             </div>
           </TabsContent>
 
-          <TabsContent value="design" className="flex-1 overflow-y-auto px-5 py-4 mt-0">
-            {/* Layout preset picker */}
-            <div className="mb-4 pb-3 border-b border-border">
-              <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5 block">Layout preset</Label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {LAYOUT_PRESETS.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setDesign((d) => applyPreset(d, p.id))}
-                    className="border border-border rounded-md p-2 text-left hover:border-primary hover:bg-primary/5 transition-colors"
-                  >
-                    <div className="text-[12px] font-semibold">{p.name}</div>
-                    <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">{p.description}</div>
-                  </button>
-                ))}
-              </div>
+          <TabsContent value="design" className="flex-1 overflow-y-auto px-5 py-8 mt-0 flex flex-col items-center justify-center gap-4 text-center">
+            <div className="text-[13px] text-muted-foreground">
+              Open the full-screen editor to design your badge.
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-4">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Front preview</Label>
-                  <div className="flex items-center gap-1.5">
-                    <label className="inline-flex items-center gap-1 text-[11px] border border-border rounded-md px-2 py-1 cursor-pointer hover:bg-muted/40">
-                      <Upload className="h-3 w-3" /> {design.frontBg ? "Replace" : "Upload"}
-                      <input type="file" accept="image/*" className="hidden"
-                        onChange={(e) => uploadImage("frontBg", e.target.files?.[0])} />
-                    </label>
-                    {design.frontBg && (
-                      <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]"
-                        onClick={() => setDesign((d) => ({ ...d, frontBg: "" }))}>
-                        Remove
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                <BadgeDesignerCanvas
-                  design={design}
-                  onChange={setDesign}
-                  widthMm={dims.w}
-                  heightMm={dims.h}
-                  sampleName={badges[0]?.name}
-                  sampleCompany={badges[0]?.company || "Acme Inc."}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Drag to position. Snap guides appear at center and edges. What you see prints 1:1.
-                </p>
-                {design.frontBg && (
-                  <BgTransformControls
-                    label="Front image"
-                    value={design.frontBgTransform || defaultBgTransform()}
-                    onChange={(t) => setDesign((d) => ({ ...d, frontBgTransform: t }))}
-                  />
-                )}
-                <label className="flex items-center gap-2 text-[12px] mt-2 pt-2 border-t border-border">
-                  <Checkbox
-                    checked={!!design.fullBleed}
-                    onCheckedChange={(v) => setDesign((d) => ({ ...d, fullBleed: !!v }))}
-                  />
-                  <span><span className="font-medium">Full-bleed</span> · one badge per page, edge-to-edge</span>
-                </label>
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5 block">Elements</Label>
-                  <div className="space-y-2">
-                    {ELEMENT_KEYS.map((k) => {
-                      const el = design.elements[k];
-                      return (
-                        <div key={k} className="border border-border rounded-lg p-2 space-y-1.5">
-                          <label className="flex items-center justify-between text-[12px] font-medium cursor-pointer">
-                            <span>{ELEMENT_LABELS[k]}</span>
-                            <Checkbox checked={el.enabled} onCheckedChange={(v) => updateEl(k, { enabled: !!v })} />
-                          </label>
-                          {el.enabled && (
-                            <>
-                              <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
-                                <Input
-                                  type="number" min={6} max={80} value={el.size}
-                                  onChange={(e) => updateEl(k, { size: Math.max(6, Math.min(80, Number(e.target.value) || 12)) })}
-                                  className="h-7 text-[12px]"
-                                  title={k === "qr" ? "Size in mm" : "Size in pt"}
-                                />
-                                {k !== "qr" ? (
-                                  <input
-                                    type="color" value={el.color}
-                                    onChange={(e) => updateEl(k, { color: e.target.value })}
-                                    className="h-7 w-9 rounded border border-border cursor-pointer"
-                                  />
-                                ) : <span className="text-[10px] text-muted-foreground px-1">mm</span>}
-                              </div>
-
-                              {/* Font controls — text elements only */}
-                              {k !== "qr" && (
-                                <div className="space-y-1.5 pt-1 border-t border-border/60">
-                                  {/* Static text for customText / ticket */}
-                                  {(k === "customText" || k === "ticket") && (
-                                    <Input
-                                      placeholder={k === "customText" ? "Custom text" : "e.g. VIP, Speaker"}
-                                      value={el.staticText ?? ""}
-                                      onChange={(e) => updateEl(k, { staticText: e.target.value })}
-                                      className="h-7 text-[12px]"
-                                    />
-                                  )}
-                                  {/* Font family + weight */}
-                                  <div className="grid grid-cols-2 gap-1.5">
-                                    <select
-                                      value={el.fontFamily || "Inter"}
-                                      onChange={(e) => updateEl(k, { fontFamily: e.target.value as typeof BADGE_FONT_OPTIONS[number] })}
-                                      className="h-7 rounded border border-border bg-background text-[11px] px-1"
-                                      title="Font family"
-                                    >
-                                      {BADGE_FONT_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}
-                                    </select>
-                                    <select
-                                      value={el.fontWeight ?? 400}
-                                      onChange={(e) => updateEl(k, { fontWeight: Number(e.target.value) })}
-                                      className="h-7 rounded border border-border bg-background text-[11px] px-1"
-                                      title="Weight"
-                                    >
-                                      {[300, 400, 500, 600, 700, 800].map((w) => <option key={w} value={w}>{w}</option>)}
-                                    </select>
-                                  </div>
-                                  {/* Style toggles + transform */}
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => updateEl(k, { italic: !el.italic })}
-                                      className={`h-6 w-6 rounded border text-[11px] italic ${el.italic ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground"}`}
-                                      title="Italic"
-                                    >I</button>
-                                    <select
-                                      value={el.align ?? "center"}
-                                      onChange={(e) => updateEl(k, { align: e.target.value as "left" | "center" | "right" })}
-                                      className="h-6 rounded border border-border bg-background text-[10px] px-1"
-                                      title="Text align"
-                                    >
-                                      <option value="left">Left</option>
-                                      <option value="center">Center</option>
-                                      <option value="right">Right</option>
-                                    </select>
-                                    <select
-                                      value={el.transform ?? "none"}
-                                      onChange={(e) => updateEl(k, { transform: e.target.value as "none" | "uppercase" | "lowercase" | "capitalize" })}
-                                      className="h-6 rounded border border-border bg-background text-[10px] px-1 flex-1"
-                                      title="Text transform"
-                                    >
-                                      <option value="none">Aa</option>
-                                      <option value="uppercase">AA</option>
-                                      <option value="lowercase">aa</option>
-                                      <option value="capitalize">Aa Bb</option>
-                                    </select>
-                                  </div>
-
-                                  {/* Letter spacing slider — em, -0.05 to 0.3 */}
-                                  <div className="space-y-0.5">
-                                    <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                                      <span>Letter spacing</span>
-                                      <span className="tabular-nums">{(el.letterSpacing ?? 0).toFixed(2)}em</span>
-                                    </div>
-                                    <input
-                                      type="range"
-                                      min={-0.05}
-                                      max={0.3}
-                                      step={0.01}
-                                      value={el.letterSpacing ?? 0}
-                                      onChange={(e) => updateEl(k, { letterSpacing: Number(e.target.value) })}
-                                      className="w-full h-3 accent-primary"
-                                      aria-label="Letter spacing"
-                                    />
-                                  </div>
-                                </div>
-                              )}
-
-                              <div className="flex items-center gap-0.5 pt-1">
-                                <AlignBtn icon={<AlignLeft className="h-3 w-3" />}        onClick={() => alignEl(k, "x", 10)} label="Left" />
-                                <AlignBtn icon={<AlignCenter className="h-3 w-3" />}      onClick={() => alignEl(k, "x", 50)} label="H-Center" />
-                                <AlignBtn icon={<AlignRight className="h-3 w-3" />}       onClick={() => alignEl(k, "x", 90)} label="Right" />
-                                <span className="mx-0.5 w-px h-4 bg-border" />
-                                <AlignBtn icon={<AlignStartVertical className="h-3 w-3" />}  onClick={() => alignEl(k, "y", 10)} label="Top" />
-                                <AlignBtn icon={<AlignCenterVertical className="h-3 w-3" />} onClick={() => alignEl(k, "y", 50)} label="V-Center" />
-                                <AlignBtn icon={<AlignEndVertical className="h-3 w-3" />}    onClick={() => alignEl(k, "y", 90)} label="Bottom" />
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5 block">Back side</Label>
-                  <RadioGroup value={design.back} onValueChange={(v) => setDesign((d) => ({ ...d, back: v as BadgeDesign["back"] }))} className="space-y-1">
-                    {[
-                      { v: "none",   t: "Single sided" },
-                      { v: "same",   t: "Same as front" },
-                      { v: "static", t: "Static design" },
-                    ].map((opt) => (
-                      <label key={opt.v} className={`flex items-center gap-2 border rounded-md px-2 py-1.5 cursor-pointer text-[12px] ${design.back === opt.v ? "border-primary bg-primary/5" : "border-border"}`}>
-                        <RadioGroupItem value={opt.v} />
-                        {opt.t}
-                      </label>
-                    ))}
-                  </RadioGroup>
-                  {design.back === "static" && (
-                    <div className="mt-2 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <label className="inline-flex items-center gap-1 text-[11px] border border-border rounded-md px-2 py-1 cursor-pointer hover:bg-muted/40">
-                          <ImageIcon className="h-3 w-3" /> {design.backBg ? "Replace" : "Upload back"}
-                          <input type="file" accept="image/*" className="hidden"
-                            onChange={(e) => uploadImage("backBg", e.target.files?.[0])} />
-                        </label>
-                        {design.backBg && (
-                          <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]"
-                            onClick={() => setDesign((d) => ({ ...d, backBg: "" }))}>
-                            Remove
-                          </Button>
-                        )}
-                      </div>
-                      {design.backBg && (
-                        <BgTransformControls
-                          label="Back image"
-                          value={design.backBgTransform || defaultBgTransform()}
-                          onChange={(t) => setDesign((d) => ({ ...d, backBgTransform: t }))}
-                        />
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+            <Button onClick={() => setEditorOpen(true)} className="gap-2">
+              Open badge designer
+            </Button>
           </TabsContent>
         </Tabs>
 
@@ -563,139 +352,5 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function AlignBtn({ icon, onClick, label }: { icon: React.ReactNode; onClick: () => void; label: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      className="h-6 w-6 inline-flex items-center justify-center rounded border border-transparent hover:border-border hover:bg-muted text-muted-foreground hover:text-foreground"
-    >
-      {icon}
-    </button>
-  );
-}
-
-const FIT_OPTIONS: { v: BgTransform["fit"]; t: string; d: string }[] = [
-  { v: "cover",   t: "Cover",   d: "Fill, crop" },
-  { v: "contain", t: "Contain", d: "Fit, letterbox" },
-  { v: "stretch", t: "Stretch", d: "Fill, distort" },
-  { v: "custom",  t: "Custom",  d: "Zoom & nudge" },
-];
-
-function BgTransformControls({
-  label, value, onChange,
-}: {
-  label: string;
-  value: BgTransform;
-  onChange: (v: BgTransform) => void;
-}) {
-  const setField = <K extends keyof BgTransform>(key: K, val: BgTransform[K]) =>
-    onChange({ ...value, [key]: val });
-  const showOffset = value.fit !== "stretch";
-  const showScale = value.fit === "custom";
-  const showFill = value.fit === "contain";
-
-  return (
-    <div className="rounded-lg border border-border bg-muted/30 p-2 space-y-2">
-      <div className="flex items-center justify-between">
-        <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</Label>
-        <button
-          type="button"
-          className="text-[10px] text-muted-foreground hover:text-foreground"
-          onClick={() => onChange(defaultBgTransform())}
-        >
-          Reset
-        </button>
-      </div>
-
-      <div className="grid grid-cols-4 gap-1">
-        {FIT_OPTIONS.map((opt) => (
-          <button
-            key={opt.v}
-            type="button"
-            onClick={() => setField("fit", opt.v)}
-            title={opt.d}
-            className={`text-[11px] rounded-md border px-2 py-1 transition-colors ${
-              value.fit === opt.v
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border bg-background hover:bg-muted"
-            }`}
-          >
-            {opt.t}
-          </button>
-        ))}
-      </div>
-
-      {showScale && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-muted-foreground">Zoom</span>
-            <span className="tabular-nums font-medium">{value.scale}%</span>
-          </div>
-          <input
-            type="range"
-            min={20}
-            max={300}
-            step={1}
-            value={value.scale}
-            onChange={(e) => setField("scale", Number(e.target.value))}
-            className="w-full accent-primary"
-          />
-        </div>
-      )}
-
-      {showOffset && (
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="text-muted-foreground">Position X</span>
-              <span className="tabular-nums font-medium">{value.offsetX > 0 ? "+" : ""}{value.offsetX}%</span>
-            </div>
-            <input
-              type="range"
-              min={-50}
-              max={50}
-              step={1}
-              value={value.offsetX}
-              onChange={(e) => setField("offsetX", Number(e.target.value))}
-              className="w-full accent-primary"
-            />
-          </div>
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="text-muted-foreground">Position Y</span>
-              <span className="tabular-nums font-medium">{value.offsetY > 0 ? "+" : ""}{value.offsetY}%</span>
-            </div>
-            <input
-              type="range"
-              min={-50}
-              max={50}
-              step={1}
-              value={value.offsetY}
-              onChange={(e) => setField("offsetY", Number(e.target.value))}
-              className="w-full accent-primary"
-            />
-          </div>
-        </div>
-      )}
-
-      {showFill && (
-        <div className="flex items-center gap-2">
-          <Label className="text-[11px] text-muted-foreground">Fill</Label>
-          <input
-            type="color"
-            value={value.fillColor || "#ffffff"}
-            onChange={(e) => setField("fillColor", e.target.value)}
-            className="h-7 w-9 rounded border border-border cursor-pointer"
-            aria-label="Fill color around contained image"
-          />
-        </div>
-      )}
-    </div>
   );
 }

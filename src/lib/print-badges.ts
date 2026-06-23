@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { badgeSizeMm, bgTransformToCss, fontsUsedInDesign, googleFontsUrl, type BadgeDesign } from "./badge-design";
+import { badgeSizeMm, bgTransformToCss, frontBgStyleToCss, fontsUsedInDesign, googleFontsUrl, type BadgeDesign, type NameDesignId, NAME_DESIGNS } from "./badge-design";
 
 export type BadgeData = {
   name: string;
@@ -41,6 +41,8 @@ export type PrintOptions = {
   design?: BadgeDesign;
   /** When true, strip background images/colours so a black-and-white thermal printer renders cleanly. */
   thermalMode?: boolean;
+  /** Name-only design variant to apply when mode === "name". */
+  nameDesign?: NameDesignId;
 };
 
 const SHEET_CSS: Record<Exclude<PrintSize, "custom">, { page: string; cols: number; gap: string; pad: string }> = {
@@ -84,7 +86,7 @@ export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) 
   const cards = await Promise.all(
     expanded.map(async (b) => {
       if (isDesigned) return await renderDesigned(b, opts.design!, dims, fullBleed);
-      if (mode === "name") return renderName(b, dims, eventTitle);
+      if (mode === "name") return renderName(b, dims, eventTitle, opts.nameDesign);
       return await renderDefaultBadge(b, dims, eventTitle);
     })
   );
@@ -219,9 +221,16 @@ async function renderDesigned(
 
 async function renderDesignedFace(b: BadgeData, d: BadgeDesign, _isFront: boolean, asBack = false): Promise<string> {
   const e = d.elements;
-  const bg = d.frontBg
-    ? `<div class="bg" style="background-image:url('${d.frontBg}');${cssBgStyle(d.frontBgTransform)}"></div>`
-    : "";
+  let bgEl = "";
+  if (d.frontBg) {
+    bgEl = `<div class="bg" style="background-image:url('${d.frontBg}');${cssBgStyle(d.frontBgTransform)}"></div>`;
+  } else {
+    const bgCss = frontBgStyleToCss(d.frontBgStyle);
+    if (bgCss) {
+      const prop = d.frontBgStyle?.type === "solid" ? "background-color" : "background";
+      bgEl = `<div class="bg" style="${prop}:${bgCss};background-size:cover"></div>`;
+    }
+  }
   const els: string[] = [];
 
   // Helper: derive the visible text for a given element key + badge data
@@ -258,7 +267,7 @@ async function renderDesignedFace(b: BadgeData, d: BadgeDesign, _isFront: boolea
     els.push(`<div class="el qr" style="left:${e.qr.x}%;top:${e.qr.y}%"><img src="${qr}" style="width:${e.qr.size}mm;height:${e.qr.size}mm" alt="QR" /></div>`);
   }
   const pageBreak = asBack && d.fullBleed ? " page-break" : "";
-  return `<div class="card${pageBreak}">${bg}${els.join("")}</div>`;
+  return `<div class="card${pageBreak}">${bgEl}${els.join("")}</div>`;
 }
 
 /** Serialize one text element placement into a positioned <div> with inline font styling. */
@@ -299,13 +308,56 @@ function cssBgStyle(t: Parameters<typeof bgTransformToCss>[0]): string {
   return parts.join(";");
 }
 
-function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: string): string {
+function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: string, nameDesignId?: NameDesignId): string {
   const company = (b.company || "").trim();
+  const nd = NAME_DESIGNS.find((d) => d.id === nameDesignId) ?? NAME_DESIGNS[0];
+
+  const fontSizeMultiplier = nd.fontSize === "3xl" ? 1.8 : nd.fontSize === "2xl" ? 1.4 : 1.0;
+  const basePt = 18;
+  const namePt = Math.round(basePt * fontSizeMultiplier);
+  const companyPt = Math.round(namePt * 0.55);
+  const eventPt = Math.round(namePt * 0.4);
+  const textAlign = nd.layout === "left-aligned" ? "left" : "center";
+  const fontStyle = `font-family:${nd.fontFamily},system-ui,sans-serif;font-weight:${nd.fontWeight};`;
+  const nameTransform = nd.id === "bold" ? "text-transform:uppercase;" : "";
+  const accentBand = nd.id === "event-card" || nd.id === "ticket-stub"
+    ? `<div style="background:${nd.accentColor};padding:2mm 4mm;margin-bottom:3mm;color:#fff;font-size:${eventPt}pt;${fontStyle}letter-spacing:.12em;text-transform:uppercase;text-align:${textAlign}">${escapeHtml(eventTitle || b.event_title || "EVENT")}</div>`
+    : "";
+
+  let borderCss = "none";
+  if (nd.borderStyle === "solid")  borderCss = `2mm solid ${nd.accentColor}`;
+  if (nd.borderStyle === "dashed") borderCss = `2mm dashed ${nd.accentColor}`;
+  if (nd.borderStyle === "double") borderCss = `4px double ${nd.accentColor}`;
+
+  if (nd.id === "monogram") {
+    const initial = (b.name || "?")[0].toUpperCase();
+    return `
+      <div class="card name-only" style="text-align:left;padding:5mm;flex-direction:row;align-items:center;gap:4mm;border:${borderCss}">
+        <div style="font-size:${namePt * 1.6}pt;${fontStyle}color:${nd.accentColor};line-height:1;flex-shrink:0">${escapeHtml(initial)}</div>
+        <div>
+          <div style="font-size:${namePt}pt;${fontStyle}${nameTransform}line-height:1.05;color:#111">${escapeHtml(b.name)}</div>
+          ${company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:#555;margin-top:2mm">${escapeHtml(company)}</div>` : ""}
+        </div>
+      </div>
+    `;
+  }
+
+  if (nd.id === "ticket-stub") {
+    return `
+      <div class="card name-only" style="padding:4mm;gap:2mm;border:${borderCss}">
+        ${accentBand}
+        <div style="font-size:${namePt}pt;${fontStyle}${nameTransform}line-height:1.05;color:#111;text-align:${textAlign}">${escapeHtml(b.name)}</div>
+        ${nd.showCompany && company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:#555;text-align:${textAlign}">${escapeHtml(company)}</div>` : ""}
+      </div>
+    `;
+  }
+
   return `
-    <div class="card name-only">
-      ${eventTitle ? `<div class="event" style="font-size:9pt;letter-spacing:.12em;text-transform:uppercase;color:#666;margin-bottom:3mm">${escapeHtml(eventTitle)}</div>` : ""}
-      <div class="name">${escapeHtml(b.name)}</div>
-      ${company ? `<div class="company">${escapeHtml(company)}</div>` : ""}
+    <div class="card name-only" style="border:${borderCss}">
+      ${accentBand}
+      ${nd.showEvent && (eventTitle || b.event_title) && nd.id !== "event-card" ? `<div style="font-size:${eventPt}pt;letter-spacing:.12em;text-transform:uppercase;color:#666;margin-bottom:3mm;text-align:${textAlign}">${escapeHtml(eventTitle || b.event_title || "")}</div>` : ""}
+      <div style="font-size:${namePt}pt;${fontStyle}${nameTransform}line-height:1.05;color:#111;text-align:${textAlign}">${escapeHtml(b.name)}</div>
+      ${nd.showCompany && company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:#444;margin-top:3mm;text-align:${textAlign}">${escapeHtml(company)}</div>` : ""}
     </div>
   `;
 }
