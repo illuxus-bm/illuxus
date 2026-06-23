@@ -161,9 +161,9 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as "settings" | "design")} className="flex-1 flex flex-col overflow-hidden">
           <div className="px-5 pt-3 shrink-0">
-            <TabsList className="grid grid-cols-2 w-full h-8">
-              <TabsTrigger value="settings" className="text-[12px]">Settings</TabsTrigger>
-              <TabsTrigger value="design" disabled={mode !== "badge"} className="text-[12px]">Design</TabsTrigger>
+            <TabsList className="grid grid-cols-2 w-full max-w-xs h-9 mx-auto">
+              <TabsTrigger value="settings" className="text-[12px] h-7 px-3">Settings</TabsTrigger>
+              <TabsTrigger value="design" disabled={mode !== "badge"} className="text-[12px] h-7 px-3">Design</TabsTrigger>
             </TabsList>
           </div>
 
