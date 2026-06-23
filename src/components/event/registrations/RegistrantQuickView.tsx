@@ -209,14 +209,25 @@ export default function RegistrantQuickView({
       if (draft.ticket_type !== undefined) payload.ticket_type = draft.ticket_type;
       if (draft.amount_paid !== undefined) payload.amount_paid = Number(draft.amount_paid) || 0;
     }
-    const { error } = await (supabase.from(TABLES[row.kind]) as any).update(payload).eq("id", row.refId);
+    const { data: updated, error } = await (supabase.from(TABLES[row.kind]) as any)
+      .update(payload)
+      .eq("id", row.refId)
+      .select();
     setSaving(false);
     if (error) {
       toast.error("Failed to save", { description: error.message });
       return;
     }
+    if (!updated || (Array.isArray(updated) && updated.length === 0)) {
+      toast.error("Failed to save", {
+        description: "You don't have permission to edit this record, or it no longer exists.",
+      });
+      return;
+    }
+    const fresh = Array.isArray(updated) ? updated[0] : updated;
     toast.success("Saved");
-    setRecord({ ...record, ...payload });
+    setRecord({ ...record, ...payload, ...fresh });
+    setDraft({ ...record, ...payload, ...fresh });
     setEditing(false);
     onSaved?.();
   };
