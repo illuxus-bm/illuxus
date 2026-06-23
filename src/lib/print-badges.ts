@@ -43,6 +43,19 @@ export type PrintOptions = {
   thermalMode?: boolean;
   /** Name-only design variant to apply when mode === "name". */
   nameDesign?: NameDesignId;
+  /** Custom font style applied to name-only labels. Overrides the preset typography. */
+  font?: {
+    family?: string;
+    sizePt?: number;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    strikethrough?: boolean;
+    align?: "left" | "center" | "right" | "justify";
+    wordSpacingPt?: number;
+    scalePct?: number;
+    color?: string;
+  };
 };
 
 const SHEET_CSS: Record<Exclude<PrintSize, "custom">, { page: string; cols: number; gap: string; pad: string }> = {
@@ -86,7 +99,7 @@ export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) 
   const cards = await Promise.all(
     expanded.map(async (b) => {
       if (isDesigned) return await renderDesigned(b, opts.design!, dims, fullBleed);
-      if (mode === "name") return renderName(b, dims, eventTitle, opts.nameDesign);
+      if (mode === "name") return renderName(b, dims, eventTitle, opts.nameDesign, opts.font);
       return await renderDefaultBadge(b, dims, eventTitle);
     })
   );
@@ -308,17 +321,37 @@ function cssBgStyle(t: Parameters<typeof bgTransformToCss>[0]): string {
   return parts.join(";");
 }
 
-function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: string, nameDesignId?: NameDesignId): string {
+function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: string, nameDesignId?: NameDesignId, fontOverride?: PrintOptions["font"]): string {
   const company = (b.company || "").trim();
   const nd = NAME_DESIGNS.find((d) => d.id === nameDesignId) ?? NAME_DESIGNS[0];
 
   const fontSizeMultiplier = nd.fontSize === "3xl" ? 1.8 : nd.fontSize === "2xl" ? 1.4 : 1.0;
-  const basePt = 18;
-  const namePt = Math.round(basePt * fontSizeMultiplier);
+  const basePt = fontOverride?.sizePt ?? Math.round(18 * fontSizeMultiplier);
+  const namePt = basePt;
   const companyPt = Math.round(namePt * 0.55);
   const eventPt = Math.round(namePt * 0.4);
-  const textAlign = nd.layout === "left-aligned" ? "left" : "center";
-  const fontStyle = `font-family:${nd.fontFamily},system-ui,sans-serif;font-weight:${nd.fontWeight};`;
+
+  // Font override takes precedence over the preset's typography
+  const fontFamily = fontOverride?.family ?? nd.fontFamily;
+  const fontWeight = fontOverride?.bold ? 700 : nd.fontWeight;
+  const fontItalic = fontOverride?.italic ?? false;
+  const fontColor  = fontOverride?.color ?? "#111111";
+  const companyColor = fontOverride?.color ? fontColor : "#444444";
+  const textAlign  = fontOverride?.align === "left" ? "left"
+                   : fontOverride?.align === "right" ? "right"
+                   : nd.layout === "left-aligned" ? "left"
+                   : "center";
+  const wordSpacing = fontOverride?.wordSpacingPt ? `word-spacing:${fontOverride.wordSpacingPt}pt;` : "";
+  const scale      = fontOverride?.scalePct && fontOverride.scalePct !== 100
+                   ? `transform:scaleX(${fontOverride.scalePct / 100});transform-origin:${textAlign};`
+                   : "";
+  const textDecor  = [
+    fontOverride?.underline ? "underline" : "",
+    fontOverride?.strikethrough ? "line-through" : "",
+  ].filter(Boolean).join(" ");
+  const decor      = textDecor ? `text-decoration:${textDecor};` : "";
+
+  const fontStyle = `font-family:${fontFamily},system-ui,sans-serif;font-weight:${fontWeight};font-style:${fontItalic ? "italic" : "normal"};${decor}${wordSpacing}${scale}`;
   const nameTransform = nd.id === "bold" ? "text-transform:uppercase;" : "";
   const accentBand = nd.id === "event-card" || nd.id === "ticket-stub"
     ? `<div style="background:${nd.accentColor};padding:2mm 4mm;margin-bottom:3mm;color:#fff;font-size:${eventPt}pt;${fontStyle}letter-spacing:.12em;text-transform:uppercase;text-align:${textAlign}">${escapeHtml(eventTitle || b.event_title || "EVENT")}</div>`
@@ -336,7 +369,7 @@ function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: s
         <div style="font-size:${namePt * 1.6}pt;${fontStyle}color:${nd.accentColor};line-height:1;flex-shrink:0">${escapeHtml(initial)}</div>
         <div>
           <div style="font-size:${namePt}pt;${fontStyle}${nameTransform}line-height:1.05;color:#111">${escapeHtml(b.name)}</div>
-          ${company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:#555;margin-top:2mm">${escapeHtml(company)}</div>` : ""}
+          ${company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:${companyColor};margin-top:2mm">${escapeHtml(company)}</div>` : ""}
         </div>
       </div>
     `;
@@ -347,7 +380,7 @@ function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: s
       <div class="card name-only" style="padding:4mm;gap:2mm;border:${borderCss}">
         ${accentBand}
         <div style="font-size:${namePt}pt;${fontStyle}${nameTransform}line-height:1.05;color:#111;text-align:${textAlign}">${escapeHtml(b.name)}</div>
-        ${nd.showCompany && company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:#555;text-align:${textAlign}">${escapeHtml(company)}</div>` : ""}
+        ${company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:#555;text-align:${textAlign}">${escapeHtml(company)}</div>` : ""}
       </div>
     `;
   }
@@ -357,7 +390,7 @@ function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: s
       ${accentBand}
       ${nd.showEvent && (eventTitle || b.event_title) && nd.id !== "event-card" ? `<div style="font-size:${eventPt}pt;letter-spacing:.12em;text-transform:uppercase;color:#666;margin-bottom:3mm;text-align:${textAlign}">${escapeHtml(eventTitle || b.event_title || "")}</div>` : ""}
       <div style="font-size:${namePt}pt;${fontStyle}${nameTransform}line-height:1.05;color:#111;text-align:${textAlign}">${escapeHtml(b.name)}</div>
-      ${nd.showCompany && company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:#444;margin-top:3mm;text-align:${textAlign}">${escapeHtml(company)}</div>` : ""}
+      ${company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:#444;margin-top:3mm;text-align:${textAlign}">${escapeHtml(company)}</div>` : ""}
     </div>
   `;
 }
