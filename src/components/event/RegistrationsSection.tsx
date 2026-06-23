@@ -38,10 +38,12 @@ import { Label } from "@/components/ui/label";
 type Registration = Tables<"registrations">;
 
 type RowKind = "attendee" | "speaker" | "sponsor";
+type RowSource = "registration" | "speaker" | "sponsor";
 type AttState = "never" | "inside" | "outside";
 type Row = {
   id: string;            // row id (registration id, or synthetic speaker:X / sponsor_contact:X)
-  kind: RowKind;
+  kind: RowKind;         // presentational role (what badge shows)
+  source: RowSource;     // which table refId belongs to — drives QuickView edits
   refId: string;         // underlying entity id (speaker.id, sponsor_members.id, or registration.id)
   name: string;
   email: string;
@@ -58,7 +60,7 @@ type Row = {
   amount_paid: number;
   created_at: string;
   qr_payload: string;
-  registration?: Registration; // only present when kind === 'attendee'
+  registration?: Registration; // only present when source === 'registration'
 };
 
 const statusColors: Record<string, string> = {
@@ -187,6 +189,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       .map((s: any): Row => ({
         id: `speaker:${s.id}`,
         kind: "speaker",
+        source: "speaker",
         refId: s.id,
         name: s.name,
         email: s.email || "",
@@ -211,6 +214,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     const sponsorRows: Row[] = members.map((m): Row => ({
       id: `sponsor_contact:${m.id}`,
       kind: "sponsor",
+      source: "sponsor",
       refId: m.id,
       name: m.display_name || m.email,
       email: m.email,
@@ -376,6 +380,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       return {
         id: r.id,
         kind: elevatedKind(r.ticket_type, emailKey),
+        source: "registration",
         refId: r.id,
         name: r.name,
         email: r.email,
@@ -1143,7 +1148,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                     key={r.id}
                     className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors cursor-pointer"
                     onClick={() => setQuickView({
-                      id: r.id, kind: r.kind, refId: r.refId, name: r.name, email: r.email,
+                      id: r.id, kind: r.kind, source: r.source, refId: r.refId, name: r.name, email: r.email,
                       ticket_type: r.ticket_type, status: r.status,
                       checked_in: r.checked_in, checked_in_at: r.checked_in_at,
                     })}
@@ -1324,6 +1329,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         onOpenChange={(o) => { if (!o) setQuickView(null); }}
         row={quickView}
         eventOwnerId={eventInfo?.user_id}
+        eventId={eventId}
         currency={currency}
         onSaved={() => { reload(); reloadExtras(); }}
       />

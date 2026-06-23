@@ -20,10 +20,18 @@ import { formatMoney } from "@/lib/currency";
 import { REGISTRATION_STATUSES } from "@/lib/ticket-categories";
 
 type RowKind = "attendee" | "speaker" | "sponsor";
+type RowSource = "registration" | "speaker" | "sponsor";
 
 export type QuickViewRow = {
   id: string;
   kind: RowKind;
+  /**
+   * Which table the row's data lives in. Drives the read/update target so a
+   * registration whose presented role was elevated to "speaker" still writes
+   * back to `registrations` (it has no row in `speakers`). Optional for
+   * backward compatibility — old callers default to mapping kind → table.
+   */
+  source?: RowSource;
   refId: string;
   name: string;
   email: string;
@@ -33,11 +41,21 @@ export type QuickViewRow = {
   checked_in_at: string | null;
 };
 
-const TABLES: Record<RowKind, "registrations" | "speakers" | "sponsor_members"> = {
-  attendee: "registrations",
+const SOURCE_TABLES: Record<RowSource, "registrations" | "speakers" | "sponsor_members"> = {
+  registration: "registrations",
   speaker: "speakers",
   sponsor: "sponsor_members",
 };
+
+const KIND_FALLBACK_SOURCE: Record<RowKind, RowSource> = {
+  attendee: "registration",
+  speaker: "speaker",
+  sponsor: "sponsor",
+};
+
+function tableFor(row: QuickViewRow): "registrations" | "speakers" | "sponsor_members" {
+  return SOURCE_TABLES[row.source ?? KIND_FALLBACK_SOURCE[row.kind]];
+}
 
 const TITLES = ["Mr.", "Ms.", "Mrs.", "Prefer Not to Say"];
 const EMPLOYEE_BUCKETS = ["1-10", "11-50", "51-200", "201-1000", "1000+"];
@@ -69,13 +87,14 @@ function relTime(iso: string | null): string {
 }
 
 export default function RegistrantQuickView({
-  open, onOpenChange, row, onSaved, eventOwnerId, currency = "INR",
+  open, onOpenChange, row, onSaved, eventOwnerId, eventId, currency = "INR",
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   row: QuickViewRow | null;
   onSaved?: () => void;
   eventOwnerId?: string | null;
+  eventId?: string | null;
   currency?: string;
 }) {
   const { user, isAdmin } = useAuth();
@@ -97,7 +116,7 @@ export default function RegistrantQuickView({
     setErrors({});
     setLoading(true);
     supabase
-      .from(TABLES[row.kind])
+      .from(tableFor(row))
       .select("*")
       .eq("id", row.refId)
       .maybeSingle()
@@ -113,9 +132,10 @@ export default function RegistrantQuickView({
       });
   }, [open, row]);
 
-  // Live updates for attendees: refresh record/check-in on row updates.
+  // Live updates for rows backed by `registrations`: refresh record/check-in on row updates.
   useEffect(() => {
-    if (!open || !row || row.kind !== "attendee") return;
+    if (!open || !row) return;
+    if ((row.source ?? KIND_FALLBACK_SOURCE[row.kind]) !== "registration") return;
     const channel = supabase
       .channel(`registration-${row.refId}`)
       .on(
@@ -140,7 +160,9 @@ export default function RegistrantQuickView({
 
   if (!row) return null;
 
-  const isAttendee = row.kind === "attendee";
+  const source: RowSource = row.source ?? KIND_FALLBACK_SOURCE[row.kind];
+  const isRegistration = source === "registration";
+  const isSponsor = source === "sponsor";
 
   const fullName = [draft.title, draft.first_name, draft.last_name].filter(Boolean).join(" ").trim()
     || draft.display_name || draft.name || row.name;
@@ -200,31 +222,61 @@ export default function RegistrantQuickView({
     // Keep legacy name column in sync where it exists
     const composed = [draft.first_name, draft.last_name].filter(Boolean).join(" ").trim();
     if (composed) {
-      if (row.kind === "attendee" || row.kind === "speaker") payload.name = composed;
-      if (row.kind === "sponsor") payload.display_name = composed;
+      // sponsor_members uses display_name; registrations / speakers use name.
+      if (isSponsor) payload.display_name = composed;
+      else payload.name = composed;
     }
-    // Attendee-only fields
-    if (row.kind === "attendee") {
+    // Registration-only fields
+    if (isRegistration) {
       if (draft.status !== undefined) payload.status = draft.status;
       if (draft.ticket_type !== undefined) payload.ticket_type = draft.ticket_type;
       if (draft.amount_paid !== undefined) payload.amount_paid = Number(draft.amount_paid) || 0;
     }
-    const { data: updated, error } = await (supabase.from(TABLES[row.kind]) as any)
+    const { data: updated, error } = await (supabase.from(tableFor(row)) as any)
       .update(payload)
       .eq("id", row.refId)
       .select();
-    setSaving(false);
     if (error) {
+      setSaving(false);
       toast.error("Failed to save", { description: error.message });
       return;
     }
-    if (!updated || (Array.isArray(updated) && updated.length === 0)) {
+
+    let fresh: FullRecord | null = Array.isArray(updated) && updated.length > 0 ? updated[0] : null;
+
+    // Speaker / sponsor edits go through the speakers / sponsor_members tables
+    // whose RLS only lets the speaker/sponsor themselves write. The event
+    // organizer needs a SECURITY DEFINER RPC fallback (migration 001). If the
+    // direct UPDATE returned zero rows we retry via the RPC.
+    if (!fresh && !isRegistration && eventId) {
+      const rpcName = isSponsor
+        ? "organizer_update_sponsor_member"
+        : "organizer_update_speaker";
+      const params = isSponsor
+        ? { _event_id: eventId, _member_id: row.refId, _payload: payload }
+        : { _event_id: eventId, _speaker_id: row.refId, _payload: payload };
+      const rpc = await supabaseRpc(supabase, rpcName as never, params as never);
+      if ((rpc as { error?: { message?: string } }).error) {
+        setSaving(false);
+        const msg = (rpc as { error: { message: string } }).error.message;
+        toast.error("Failed to save", { description: msg });
+        return;
+      }
+      const data = (rpc as { data?: FullRecord | null }).data;
+      if (data) fresh = data;
+    }
+
+    setSaving(false);
+
+    if (!fresh) {
       toast.error("Failed to save", {
-        description: "You don't have permission to edit this record, or it no longer exists.",
+        description:
+          "You don't have permission to edit this record. If you are the event organizer, " +
+          "apply supabase/migrations/001_event_owner_can_edit_speakers_sponsors.sql to your database.",
       });
       return;
     }
-    const fresh = Array.isArray(updated) ? updated[0] : updated;
+
     toast.success("Saved");
     setRecord({ ...record, ...payload, ...fresh });
     setDraft({ ...record, ...payload, ...fresh });
@@ -253,7 +305,7 @@ export default function RegistrantQuickView({
   };
 
   const handleDelete = async () => {
-    if (!record || !canEdit || row.kind !== "attendee") return;
+    if (!record || !canEdit || !isRegistration) return;
     setDeleting(true);
     const snapshot = { ...record };
     const { error } = await supabase.from("registrations").delete().eq("id", row.refId);
@@ -332,7 +384,7 @@ export default function RegistrantQuickView({
               value={record.company_website}
               isLink
             />
-            {isAttendee && (
+            {isRegistration && (
               <>
                 <Field label="Status" value={record.status} />
                 <Field label="Amount paid" value={record.amount_paid != null ? formatMoney(Number(record.amount_paid), currency) : null} />
@@ -385,7 +437,7 @@ export default function RegistrantQuickView({
               </Select>
             </div>
             <EditField label="Industry" value={draft.industry} onChange={(v) => update({ industry: v })} />
-            {isAttendee && (
+            {isRegistration && (
               <>
                 <div>
                   <Label className="text-[11px]">Status</Label>
@@ -407,7 +459,7 @@ export default function RegistrantQuickView({
 
         <DialogFooter className="sticky bottom-0 bg-background border-t px-5 sm:px-6 py-3 gap-2 sm:justify-between">
           <div>
-            {canEdit && isAttendee && !editing && record && (
+            {canEdit && isRegistration && !editing && record && (
               <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
                 <AlertDialogTrigger asChild>
                   <Button variant="ghost" size="sm" className="gap-1.5 text-destructive hover:text-destructive">
