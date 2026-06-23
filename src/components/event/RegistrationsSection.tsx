@@ -147,6 +147,9 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   // shape (source=export / medium=csv / campaign=<event.slug>).
   const [utmDialogOpen, setUtmDialogOpen] = useState(false);
   const [utm, setUtm] = useState<AttendeeLinkUtm>(() => loadStoredUtm());
+  // True when the event has a live or scheduled webinar session. Join links
+  // are only useful when a webinar session actually exists.
+  const [hasWebinarSession, setHasWebinarSession] = useState(false);
 
   // ─── Live-update lag tracking (REQ-11.4) ────────────────────────────────
   // After a successful scanner-initiated RPC, we expect a postgres_changes
@@ -257,6 +260,15 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
             org_name: ev.organizations?.name ?? null,
           });
           setCurrency(ev.currency || "INR");
+          // Only show join links when the event can have a webinar (not purely physical)
+          if (ev.event_format !== "physical") {
+            supabase
+              .from("webinar_sessions")
+              .select("id", { count: "exact", head: true })
+              .eq("event_id", eventId)
+              .in("status", ["live", "scheduled"])
+              .then(({ count }) => { setHasWebinarSession((count ?? 0) > 0); });
+          }
         }
       });
 
@@ -885,9 +897,11 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
               <DropdownMenuItem onClick={exportCSV}>
                 <Download className="h-3.5 w-3.5 mr-2" /> Export CSV
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setUtmDialogOpen(true)}>
-                <Link2 className="h-3.5 w-3.5 mr-2" /> Export join links (CSV)…
-              </DropdownMenuItem>
+              {hasWebinarSession && (
+                <DropdownMenuItem onClick={() => setUtmDialogOpen(true)}>
+                  <Link2 className="h-3.5 w-3.5 mr-2" /> Export join links (CSV)…
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -1118,7 +1132,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                         >
                           <Tag className="h-3.5 w-3.5" />
                         </Button>
-                        {r.registration?.join_token && (
+                        {r.registration?.join_token && hasWebinarSession && (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button
