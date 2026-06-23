@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { applyVariables, type SubstitutionContext } from "@/lib/communications/substitute";
+import { buildAttendeeJoinUrl } from "@/lib/attendee-link";
 
 // ─── Types — kept local so this file is self-contained ─────────────────────
 type Channel = "email" | "whatsapp";
@@ -98,6 +99,12 @@ const COMMUNICATION_VARIABLES = [
   { token: "{{event_name}}",     description: "Event title" },
   { token: "{{event_date}}",     description: "Event start date" },
   { token: "{{event_location}}", description: "Event venue / location" },
+  // NOTE: server-side per-recipient substitution for `{{join_url}}`
+  // requires a matching SQL migration to `_communications_render_text`.
+  // Until that lands, the preview will show a sample link with the
+  // current user's join_token (if available) so the organiser can
+  // verify shape / UTM tags before sending.
+  { token: "{{join_url}}",       description: "Per-attendee tracked webinar join link (preview only — see attendee-link.ts)" },
 ];
 
 /**
@@ -670,16 +677,42 @@ function ComposeDialog({
       // {{event_*}} — the event we're scoped to
       const { data: ev } = await supabase
         .from("events")
-        .select("title, date, location, venue")
+        .select("title, date, location, venue, slug")
         .eq("id", eventId)
         .maybeSingle();
       if (ev) {
-        const evt = ev as { title: string; date: string; location: string | null; venue: string | null };
+        const evt = ev as { title: string; date: string; location: string | null; venue: string | null; slug: string | null };
         ctx.event_name     = evt.title;
         ctx.event_date     = new Date(evt.date).toLocaleDateString("en-US", {
           month: "long", day: "numeric", year: "numeric",
         });
         ctx.event_location = evt.venue || evt.location || null;
+
+        // {{join_url}} — preview-only per-attendee sample. Pull any
+        // registration's join_token off the event so the organiser
+        // can see the URL shape (with UTM tags) before sending. The
+        // server-side fan-out still strips this token until the
+        // matching SQL change is made — flagged in `substitute.ts`.
+        const { data: sampleReg } = await supabase
+          .from("registrations")
+          .select("join_token")
+          .eq("event_id", eventId)
+          .not("join_token", "is", null)
+          .limit(1)
+          .maybeSingle();
+        const sampleToken = (sampleReg as { join_token: string | null } | null)?.join_token;
+        if (sampleToken) {
+          ctx.join_url = buildAttendeeJoinUrl({
+            registration: { join_token: sampleToken, event_id: eventId },
+            event: { id: eventId, slug: evt.slug },
+            utm: {
+              source: "email",
+              medium: "transactional",
+              campaign: evt.slug || undefined,
+              content: "event-invitation",
+            },
+          });
+        }
       }
 
       if (!cancelled) setPreviewCtx(ctx);

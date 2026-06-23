@@ -593,3 +593,11 @@ broken). Items 3-5 require infra not in the repo today.
   6 layout presets. Renderer dynamically loads only the Google
   fonts actually used in the design. Backwards-compatible with
   existing localStorage badge designs.
+
+- `2026-06-23` — **feat(webinar): per-attendee tracked join links**.
+  New attendee-link.ts utility builds the live webinar URL with each
+  registrant's existing unique join_token plus configurable UTM tags
+  (utm_source/medium/campaign/content/term). RegistrationsSection
+  exposes Copy / Open / Bulk-export-CSV actions. Email invitation
+  template now embeds the tracked URL. Property-based test pass
+  covers token preservation, UTM partials, and URL encoding.

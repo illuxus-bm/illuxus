@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { logger, supabaseRpc } from "@/lib/observability";
-import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX } from "lucide-react";
+import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX, Copy, ExternalLink, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,12 @@ import type { BadgeData, PrintMode } from "@/lib/print-badges";
 import { formatMoney } from "@/lib/currency";
 import { formatEventDateTime } from "@/lib/datetime";
 import { REGISTRATION_STATUSES } from "@/lib/ticket-categories";
+import { buildAttendeeJoinUrl, attendeeLinksToCsv, type AttendeeLinkUtm } from "@/lib/attendee-link";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 type Registration = Tables<"registrations">;
 
@@ -134,6 +140,13 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [eventHistoryOpen, setEventHistoryOpen] = useState(false);
   const [sortKey, setSortKey] = useState<"name" | "state" | "last_in" | "last_out" | "minutes" | "ticket">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  // ─── UTM dialog for bulk join-link export ──────────────────────────────
+  // Persisted under `lovable.attendee-link-utm.v1` so the organiser
+  // doesn't re-type for every export. Defaults to the export-only
+  // shape (source=export / medium=csv / campaign=<event.slug>).
+  const [utmDialogOpen, setUtmDialogOpen] = useState(false);
+  const [utm, setUtm] = useState<AttendeeLinkUtm>(() => loadStoredUtm());
 
   // ─── Live-update lag tracking (REQ-11.4) ────────────────────────────────
   // After a successful scanner-initiated RPC, we expect a postgres_changes
@@ -682,6 +695,103 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     URL.revokeObjectURL(url);
   };
 
+  // ─── Per-attendee tracked join links ───────────────────────────────────
+  // Builds the live webinar URL for one row using the canonical helper
+  // in `src/lib/attendee-link.ts`. Only `attendee` kind rows carry a
+  // `join_token` we can shareable — speakers/sponsors join via their own
+  // speaker_token / sponsor_contact form and are skipped.
+  const joinUrlFor = (
+    row: Row,
+    utmOverride: AttendeeLinkUtm,
+  ): string | null => {
+    if (!row.registration?.join_token) return null;
+    return buildAttendeeJoinUrl({
+      registration: { join_token: row.registration.join_token, event_id: eventId },
+      event: { id: eventId, slug: eventInfo?.slug ?? null },
+      utm: utmOverride,
+    });
+  };
+
+  const copyJoinLink = async (row: Row) => {
+    const url = joinUrlFor(row, {
+      source: "manual",
+      medium: "copy",
+      campaign: eventInfo?.slug ?? undefined,
+    });
+    if (!url) {
+      toast.info("No join link for this row", {
+        description: "Speakers and sponsor contacts use a separate invite token.",
+      });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link copied");
+    } catch (err) {
+      logger.warn("clipboard write failed", { row_id: row.id });
+      toast.error("Could not copy link", {
+        description: err instanceof Error ? err.message : "Clipboard unavailable",
+      });
+    }
+  };
+
+  const openJoinLink = (row: Row) => {
+    const url = joinUrlFor(row, {
+      source: "manual",
+      medium: "open",
+      campaign: eventInfo?.slug ?? undefined,
+    });
+    if (!url) {
+      toast.info("No join link for this row");
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  /**
+   * Bulk export of per-attendee join links for the currently
+   * filtered registrations. Honours the UTM config the organiser
+   * customised in the popover (persisted under
+   * `lovable.attendee-link-utm.v1`). Rows without a join_token —
+   * speakers / sponsor contacts that haven't registered yet — are
+   * skipped silently.
+   */
+  const exportJoinLinks = (utmConfig: AttendeeLinkUtm) => {
+    const effectiveUtm: AttendeeLinkUtm = {
+      source:   utmConfig.source   || "export",
+      medium:   utmConfig.medium   || "csv",
+      campaign: utmConfig.campaign || eventInfo?.slug || undefined,
+      content:  utmConfig.content  || undefined,
+      term:     utmConfig.term     || undefined,
+    };
+    const rows = filtered
+      .map((r) => {
+        const url = joinUrlFor(r, effectiveUtm);
+        return url ? { name: r.name, email: r.email, joinUrl: url } : null;
+      })
+      .filter((r): r is { name: string; email: string; joinUrl: string } => r !== null);
+    if (rows.length === 0) {
+      toast.info("No join links to export", {
+        description: "Filtered view has no attendee registrations with a join token.",
+      });
+      return;
+    }
+    const csv = attendeeLinksToCsv(rows);
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `join-links-${eventInfo?.slug || eventId}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    // Persist the effective UTM so the next export pre-fills the
+    // same values. Storing the *effective* (post-default) config
+    // means defaults stick once the organiser opts in.
+    saveStoredUtm(effectiveUtm);
+    setUtm(effectiveUtm);
+    toast.success(`Exported ${rows.length} join link${rows.length === 1 ? "" : "s"}`);
+  };
+
   const toBadges = (rows: Row[]) => {
     const dateText = eventInfo?.date
       ? formatEventDateTime(eventInfo.date, eventInfo.timezone || undefined)
@@ -774,6 +884,9 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={exportCSV}>
                 <Download className="h-3.5 w-3.5 mr-2" /> Export CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setUtmDialogOpen(true)}>
+                <Link2 className="h-3.5 w-3.5 mr-2" /> Export join links (CSV)…
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1005,6 +1118,29 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                         >
                           <Tag className="h-3.5 w-3.5" />
                         </Button>
+                        {r.registration?.join_token && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                title="More actions"
+                                aria-label="More actions"
+                              >
+                                <MoreHorizontal className="h-3.5 w-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuItem onClick={() => copyJoinLink(r)}>
+                                <Copy className="h-3.5 w-3.5 mr-2" /> Copy join link
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => openJoinLink(r)}>
+                                <ExternalLink className="h-3.5 w-3.5 mr-2" /> Open join link
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1066,6 +1202,17 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         onOpenChange={setEventHistoryOpen}
         eventId={eventId}
         eventTitle={eventInfo?.title}
+      />
+
+      <AttendeeLinkUtmDialog
+        open={utmDialogOpen}
+        onOpenChange={setUtmDialogOpen}
+        initial={utm}
+        defaultCampaign={eventInfo?.slug || ""}
+        onExport={(next) => {
+          setUtmDialogOpen(false);
+          exportJoinLinks(next);
+        }}
       />
     </div>
   );
@@ -1215,3 +1362,198 @@ function AttendanceControls({
   );
 }
 
+
+// ─── UTM persistence for the bulk-export popover ───────────────────────────
+// Stored under `lovable.attendee-link-utm.v1` so the organiser doesn't
+// re-type the source/medium/campaign for every export. Bumping the
+// version suffix is the migration path if the shape ever changes.
+
+const UTM_STORAGE_KEY = "lovable.attendee-link-utm.v1";
+
+function loadStoredUtm(): AttendeeLinkUtm {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(UTM_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Partial<AttendeeLinkUtm> | null;
+    if (!parsed || typeof parsed !== "object") return {};
+    // Defensive shape check — silently drop anything that isn't a string
+    // so a corrupt entry can't crash the dialog open path.
+    const out: AttendeeLinkUtm = {};
+    if (typeof parsed.source === "string")   out.source = parsed.source;
+    if (typeof parsed.medium === "string")   out.medium = parsed.medium;
+    if (typeof parsed.campaign === "string") out.campaign = parsed.campaign;
+    if (typeof parsed.content === "string")  out.content = parsed.content;
+    if (typeof parsed.term === "string")     out.term = parsed.term;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function saveStoredUtm(u: AttendeeLinkUtm): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(UTM_STORAGE_KEY, JSON.stringify(u));
+  } catch {
+    // Storage may be full or disabled; the export already succeeded
+    // so we just lose the convenience of pre-fill. Don't toast.
+  }
+}
+
+// ─── Dialog: customise UTM tags for bulk join-link export ───────────────────
+// Pre-fills with the organiser's last-used config (loaded from
+// localStorage on mount) and the event slug as the default campaign.
+// "Source" is a select (the common channels) so values stay normalised;
+// "Custom" frees the field for any string.
+
+const UTM_SOURCE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "email",    label: "Email" },
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "sms",      label: "SMS" },
+  { value: "social",   label: "Social" },
+  { value: "qr",       label: "QR" },
+  { value: "manual",   label: "Manual" },
+  { value: "export",   label: "Export" },
+  { value: "custom",   label: "Custom…" },
+];
+
+function AttendeeLinkUtmDialog({
+  open, onOpenChange, initial, defaultCampaign, onExport,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  initial: AttendeeLinkUtm;
+  defaultCampaign: string;
+  onExport: (utm: AttendeeLinkUtm) => void;
+}) {
+  // Local copy so the user can cancel without committing changes.
+  const [source, setSource]     = useState<string>(initial.source || "export");
+  const [medium, setMedium]     = useState<string>(initial.medium || "csv");
+  const [campaign, setCampaign] = useState<string>(initial.campaign ?? defaultCampaign);
+  const [content, setContent]   = useState<string>(initial.content || "");
+  const [term, setTerm]         = useState<string>(initial.term || "");
+  // When source is "custom", we toggle to a free-text input so the
+  // organiser can type any value. The dropdown's literal "custom"
+  // string is never used as the actual `utm_source`.
+  const [customSource, setCustomSource] = useState<string>(
+    UTM_SOURCE_OPTIONS.find((o) => o.value === initial.source)
+      ? ""
+      : (initial.source ?? ""),
+  );
+  const isCustom = source === "custom" || (!!customSource && !UTM_SOURCE_OPTIONS.find((o) => o.value === source));
+
+  useEffect(() => {
+    if (!open) return;
+    // Reset whenever the dialog opens so localStorage / event slug
+    // changes outside the dialog are picked up.
+    setSource(initial.source || "export");
+    setMedium(initial.medium || "csv");
+    setCampaign(initial.campaign ?? defaultCampaign);
+    setContent(initial.content || "");
+    setTerm(initial.term || "");
+    setCustomSource(
+      UTM_SOURCE_OPTIONS.find((o) => o.value === initial.source)
+        ? ""
+        : (initial.source ?? ""),
+    );
+  }, [open, initial, defaultCampaign]);
+
+  const submit = () => {
+    const effectiveSource = isCustom ? customSource.trim() : source;
+    onExport({
+      source: effectiveSource || undefined,
+      medium: medium.trim() || undefined,
+      campaign: campaign.trim() || undefined,
+      content: content.trim() || undefined,
+      term: term.trim() || undefined,
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Export join links</DialogTitle>
+          <DialogDescription className="text-[12.5px]">
+            Tag each link with UTM params so you can measure which channel drove
+            sign-ins. Defaults persist for next time.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-[12px]">Source (utm_source)</Label>
+            <Select
+              value={isCustom ? "custom" : source}
+              onValueChange={(v) => {
+                setSource(v);
+                if (v !== "custom") setCustomSource("");
+              }}
+            >
+              <SelectTrigger className="h-8 text-[13px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {UTM_SOURCE_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {isCustom && (
+              <Input
+                placeholder="custom source"
+                value={customSource}
+                onChange={(e) => setCustomSource(e.target.value)}
+                className="h-8 text-[13px]"
+              />
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[12px]">Medium (utm_medium)</Label>
+            <Input
+              value={medium}
+              onChange={(e) => setMedium(e.target.value)}
+              placeholder="csv"
+              className="h-8 text-[13px]"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[12px]">Campaign (utm_campaign)</Label>
+            <Input
+              value={campaign}
+              onChange={(e) => setCampaign(e.target.value)}
+              placeholder={defaultCampaign || "campaign-id"}
+              className="h-8 text-[13px]"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[12px]">Content (utm_content) — optional</Label>
+            <Input
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="email-template-name"
+              className="h-8 text-[13px]"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[12px]">Term (utm_term) — optional</Label>
+            <Input
+              value={term}
+              onChange={(e) => setTerm(e.target.value)}
+              placeholder="keyword"
+              className="h-8 text-[13px]"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={submit} className="gap-1.5">
+            <Download className="h-3.5 w-3.5" /> Download CSV
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

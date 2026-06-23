@@ -20,6 +20,17 @@ export interface SubstitutionContext {
   event_date?: string | null;
   event_location?: string | null;
   community_name?: string | null;
+  /**
+   * Per-recipient tracked join URL for the live webinar page,
+   * pre-built with UTM tags (see `src/lib/attendee-link.ts`).
+   *
+   * NOTE: server-side per-recipient substitution requires a matching
+   * SQL change to `_communications_render_text` (migration 007/014) —
+   * until then the actual fan-out will strip `{{join_url}}` from the
+   * persisted body. The compose preview *does* substitute it so the
+   * organiser sees a sample link with their UTM tags before sending.
+   */
+  join_url?: string | null;
 }
 
 /** Token names recognised by the substitution layer. Keep in sync with SQL. */
@@ -29,12 +40,13 @@ export const KNOWN_TOKENS = [
   "event_date",
   "event_location",
   "community_name",
+  "join_url",
 ] as const;
 export type KnownToken = (typeof KNOWN_TOKENS)[number];
 
 /** Token names valid for an event-scoped send. */
 export const EVENT_SCOPE_TOKENS: ReadonlySet<KnownToken> = new Set([
-  "user_name", "event_name", "event_date", "event_location",
+  "user_name", "event_name", "event_date", "event_location", "join_url",
 ]);
 
 /** Token names valid for a community-scoped send. */
