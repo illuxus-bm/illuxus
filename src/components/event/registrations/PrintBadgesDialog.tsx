@@ -23,7 +23,7 @@ import {
 import BadgeDesignerCanvas from "./BadgeDesignerCanvas";
 
 const PREF_KEY = "lovable.print-badges.v1";
-type Prefs = { mode: PrintMode; size: PrintSize; copies: number; cw: number; ch: number; cu: PrintUnit };
+type Prefs = { mode: PrintMode; size: PrintSize; copies: number; cw: number; ch: number; cu: PrintUnit; thermalMode: boolean };
 
 function loadPrefs(): Partial<Prefs> {
   try { return JSON.parse(localStorage.getItem(PREF_KEY) || "{}"); } catch { return {}; }
@@ -44,10 +44,14 @@ const TYPE_OPTIONS: { v: PrintMode; t: string; d: string }[] = [
 ];
 
 const SIZE_OPTIONS: { v: PrintSize; t: string; d: string }[] = [
-  { v: "a6",         t: "A6 single",  d: "1/page" },
-  { v: "a4-2up",     t: "A4 · 2-up",  d: "2/page" },
-  { v: "avery-3x8",  t: "Avery 3×8",  d: "24/sheet" },
-  { v: "custom",     t: "Custom",     d: "W × H" },
+  { v: "a6",          t: "A6 single",     d: "1/page" },
+  { v: "a4-2up",      t: "A4 · 2-up",     d: "2/page" },
+  { v: "avery-3x8",   t: "Avery 3×8",     d: "24/sheet" },
+  { v: "thermal-50",  t: "Thermal 50mm",  d: "50 × 80 mm" },
+  { v: "thermal-58",  t: "Thermal 58mm",  d: "58 × 80 mm" },
+  { v: "thermal-80",  t: "Thermal 80mm",  d: "80 × 100 mm" },
+  { v: "thermal-100", t: "Thermal 100mm", d: "100 × 150 mm" },
+  { v: "custom",      t: "Custom",        d: "W × H" },
 ];
 
 const ELEMENT_KEYS: ElementKey[] = ["name", "company", "qr"];
@@ -61,6 +65,7 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
   const [cw, setCw] = useState<number>(prefs.cw ?? 4);
   const [ch, setCh] = useState<number>(prefs.ch ?? 3);
   const [cu, setCu] = useState<PrintUnit>(prefs.cu ?? "in");
+  const [thermalMode, setThermalMode] = useState<boolean>(prefs.thermalMode ?? false);
   const [design, setDesign] = useState<BadgeDesign>(() => loadDesign(eventId));
   const [sizes, setSizes] = useState<SavedSize[]>(() => loadSizes());
   const [tab, setTab] = useState<"settings" | "design">("settings");
@@ -74,6 +79,7 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
       setCw(p.cw ?? 4);
       setCh(p.ch ?? 3);
       setCu(p.cu ?? "in");
+      setThermalMode(p.thermalMode ?? false);
       setDesign(loadDesign(eventId));
       setSizes(loadSizes());
       setTab("settings");
@@ -81,8 +87,8 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
   }, [open, defaultMode, eventId]);
 
   useEffect(() => {
-    localStorage.setItem(PREF_KEY, JSON.stringify({ mode, size, copies, cw, ch, cu }));
-  }, [mode, size, copies, cw, ch, cu]);
+    localStorage.setItem(PREF_KEY, JSON.stringify({ mode, size, copies, cw, ch, cu, thermalMode }));
+  }, [mode, size, copies, cw, ch, cu, thermalMode]);
 
   useEffect(() => { saveDesign(eventId, design); }, [eventId, design]);
 
@@ -98,6 +104,7 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
         mode, size, copies, eventTitle,
         custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
         design: mode === "badge" ? design : undefined,
+        thermalMode,
       });
     } catch (err) {
       if ((err as Error).message === "popup-blocked") {
@@ -254,6 +261,28 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
                 onChange={(e) => setCopies(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
                 className="h-8 w-24 text-[13px]"
               />
+            </div>
+
+            {/* Thermal printer mode — strips colour for crisp B&W output */}
+            <div className="border border-border rounded-lg p-3 bg-muted/30 space-y-2">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <Checkbox
+                  checked={thermalMode}
+                  onCheckedChange={(v) => setThermalMode(!!v)}
+                  className="mt-0.5"
+                />
+                <div className="min-w-0">
+                  <div className="text-[12px] font-medium">Thermal printer mode</div>
+                  <div className="text-[11px] text-muted-foreground leading-relaxed">
+                    Strips background images and colours so a monochrome thermal printer renders sharp black-and-white labels without dithering.
+                  </div>
+                </div>
+              </label>
+              {(thermalMode || size === "thermal-50" || size === "thermal-58" || size === "thermal-80" || size === "thermal-100") && (
+                <div className="text-[10.5px] text-muted-foreground leading-relaxed border-t border-border/60 pt-2 mt-2">
+                  <strong className="text-foreground">Tip:</strong> Connect your thermal printer via USB or pair it over Bluetooth in your OS settings first, then choose it in the browser print dialog. Set <em>Margins</em> to <em>None</em> and <em>Scale</em> to <em>100%</em>. Disable Chrome's <em>Headers and footers</em> for edge-to-edge output.
+                </div>
+              )}
             </div>
           </TabsContent>
 

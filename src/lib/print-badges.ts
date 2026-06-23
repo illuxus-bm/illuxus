@@ -18,7 +18,15 @@ export type BadgeData = {
   event_location_text?: string | null;
 };
 
-export type PrintSize = "a6" | "a4-2up" | "avery-3x8" | "custom";
+export type PrintSize =
+  | "a6"
+  | "a4-2up"
+  | "avery-3x8"
+  | "thermal-50"
+  | "thermal-58"
+  | "thermal-80"
+  | "thermal-100"
+  | "custom";
 export type PrintMode = "badge" | "name";
 export type PrintUnit = "in" | "cm" | "mm";
 
@@ -29,14 +37,23 @@ export type PrintOptions = {
   eventTitle?: string;
   custom?: { width: number; height: number; unit: PrintUnit };
   design?: BadgeDesign;
+  /** When true, strip background images/colours so a black-and-white thermal printer renders cleanly. */
+  thermalMode?: boolean;
 };
 
 const SHEET_CSS: Record<Exclude<PrintSize, "custom">, { page: string; cols: number; gap: string; pad: string }> = {
-  "a6":         { page: "@page { size: A6 landscape; margin: 4mm }", cols: 1, gap: "0",   pad: "0" },
+  "a6":          { page: "@page { size: A6 landscape; margin: 4mm }", cols: 1, gap: "0",   pad: "0" },
   // Two landscape badges stacked on a portrait A4. The badge itself is
   // 186×134mm, so a single column fits the 190mm usable width.
-  "a4-2up":     { page: "@page { size: A4 portrait; margin: 10mm }", cols: 1, gap: "6mm", pad: "0" },
-  "avery-3x8":  { page: "@page { size: A4; margin: 8mm }",           cols: 3, gap: "3mm", pad: "0" },
+  "a4-2up":      { page: "@page { size: A4 portrait; margin: 10mm }", cols: 1, gap: "6mm", pad: "0" },
+  "avery-3x8":   { page: "@page { size: A4; margin: 8mm }",           cols: 3, gap: "3mm", pad: "0" },
+  // Thermal printer roll sizes — one badge per page, edge-to-edge.
+  // Margin is 0 because thermal printers don't have side margins; any
+  // CSS margin shifts the print off the label.
+  "thermal-50":  { page: "@page { size: 50mm 80mm; margin: 0 }",      cols: 1, gap: "0",   pad: "0" },
+  "thermal-58":  { page: "@page { size: 58mm 80mm; margin: 0 }",      cols: 1, gap: "0",   pad: "0" },
+  "thermal-80":  { page: "@page { size: 80mm 100mm; margin: 0 }",     cols: 1, gap: "0",   pad: "0" },
+  "thermal-100": { page: "@page { size: 100mm 150mm; margin: 0 }",    cols: 1, gap: "0",   pad: "0" },
 };
 
 function fmtSize(w: number, h: number) { return `${w.toFixed(2)}mm ${h.toFixed(2)}mm`; }
@@ -47,7 +64,14 @@ export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) 
   const copies = Math.max(1, Math.min(10, opts.copies ?? 1));
   const eventTitle = opts.eventTitle ?? "";
   const dims = badgeSizeMm(size, opts.custom);
-  const fullBleed = !!(mode === "badge" && opts.design?.fullBleed);
+  // Thermal labels always print one-per-page edge-to-edge regardless of
+  // the design's fullBleed flag, since there's only ever one label per page.
+  const isThermal = size === "thermal-50" || size === "thermal-58" || size === "thermal-80" || size === "thermal-100";
+  // Thermal printers are monochrome; opting into thermalMode strips
+  // background images and colours so the printer renders crisp B&W
+  // without dithering or wasted toner.
+  const thermalMode = !!opts.thermalMode || isThermal;
+  const fullBleed = isThermal || !!(mode === "badge" && opts.design?.fullBleed);
 
   // Expand by copies
   const expanded: BadgeData[] = [];
@@ -109,6 +133,19 @@ export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) 
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
+    ${thermalMode ? `
+      /* Thermal printer mode — monochrome, no backgrounds, high contrast.
+         Strips colour images and gradients so the printer doesn't dither
+         a smudge of grey onto the label. */
+      .card { border: 1.5px solid #000 !important; border-radius: 0 !important; background: #fff !important; }
+      .card .bg, .card.basic .banner { display: none !important; }
+      .card.basic .banner.placeholder { background: #000 !important; color: #fff !important; display: flex !important; }
+      .card.basic .org, .card.basic .event, .card.basic .name { color: #000 !important; }
+      .card.basic .meta { color: #000 !important; }
+      .card.basic .divider { background: #000 !important; height: 2px !important; }
+      .card.basic .qr-wrap { border: 2px solid #000 !important; border-radius: 0 !important; }
+      .card .el.name, .card .el.company { color: #000 !important; text-shadow: none !important; }
+    ` : ""}
   </style></head>
   <body><div class="sheet">${cards.join("")}</div>
   <script>

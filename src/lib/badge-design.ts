@@ -100,7 +100,15 @@ export async function fileToDataUrl(file: File): Promise<string> {
 
 /** Return badge physical size in millimeters for the given PrintSize. */
 export function badgeSizeMm(
-  size: "a6" | "a4-2up" | "avery-3x8" | "custom",
+  size:
+    | "a6"
+    | "a4-2up"
+    | "avery-3x8"
+    | "thermal-50"
+    | "thermal-58"
+    | "thermal-80"
+    | "thermal-100"
+    | "custom",
   custom?: { width: number; height: number; unit: "in" | "cm" | "mm" }
 ): { w: number; h: number } {
   if (size === "custom" && custom) {
@@ -109,6 +117,13 @@ export function badgeSizeMm(
   }
   if (size === "a6") return { w: 148, h: 105 };
   if (size === "a4-2up") return { w: 186, h: 134 };
+  // Thermal printer roll widths — common portable / handheld sizes.
+  // Width = paper roll width minus a small margin; height set to a
+  // reasonable badge proportion for the visible content.
+  if (size === "thermal-50")  return { w: 50,  h: 80 };
+  if (size === "thermal-58")  return { w: 58,  h: 80 };
+  if (size === "thermal-80")  return { w: 80,  h: 100 };
+  if (size === "thermal-100") return { w: 100, h: 150 };
   return { w: 63, h: 34 }; // avery-3x8
 }
 
