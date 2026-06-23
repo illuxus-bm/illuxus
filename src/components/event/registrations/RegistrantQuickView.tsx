@@ -18,6 +18,7 @@ import { Pencil, X, Mail, Phone, Linkedin, Globe, Building2, CheckCircle, Trash2
 import { useAuth } from "@/contexts/AuthContext";
 import { formatMoney } from "@/lib/currency";
 import { REGISTRATION_STATUSES } from "@/lib/ticket-categories";
+import { TITLE_OPTIONS } from "@/lib/phone-country";
 
 type RowKind = "attendee" | "speaker" | "sponsor";
 type RowSource = "registration" | "speaker" | "sponsor";
@@ -57,7 +58,7 @@ function tableFor(row: QuickViewRow): "registrations" | "speakers" | "sponsor_me
   return SOURCE_TABLES[row.source ?? KIND_FALLBACK_SOURCE[row.kind]];
 }
 
-const TITLES = ["Mr.", "Ms.", "Mrs.", "Prefer Not to Say"];
+const TITLES = TITLE_OPTIONS;
 const EMPLOYEE_BUCKETS = ["1-10", "11-50", "51-200", "201-1000", "1000+"];
 
 type FullRecord = Record<string, any>;
