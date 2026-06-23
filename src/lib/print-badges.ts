@@ -47,6 +47,7 @@ export type PrintOptions = {
   font?: {
     family?: string;
     sizePt?: number;
+    companySizePt?: number;  // separate size for the company/subtitle line
     bold?: boolean;
     italic?: boolean;
     underline?: boolean;
@@ -313,7 +314,8 @@ function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: s
   const fontSizeMultiplier = nd.fontSize === "3xl" ? 1.8 : nd.fontSize === "2xl" ? 1.4 : 1.0;
   const basePt = fontOverride?.sizePt ?? Math.round(18 * fontSizeMultiplier);
   const namePt = basePt;
-  const companyPt = Math.round(namePt * 0.55);
+  // companySizePt can be set independently; falls back to 55% of namePt
+  const companyPt = fontOverride?.companySizePt ?? Math.round(namePt * 0.55);
   const eventPt = Math.round(namePt * 0.4);
 
   // Font override takes precedence over the preset's typography

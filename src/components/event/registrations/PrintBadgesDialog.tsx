@@ -37,6 +37,7 @@ const FONT_SIZES = [6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 32, 
 export interface FontStyle {
   family: string;
   sizePt: number;
+  companySizePt: number;   // separate font size for company line
   bold: boolean;
   italic: boolean;
   underline: boolean;
@@ -50,7 +51,8 @@ export interface FontStyle {
 function defaultFontStyle(): FontStyle {
   return {
     family: "Inter",
-    sizePt: 12,
+    sizePt: 22,
+    companySizePt: 12,
     bold: false,
     italic: false,
     underline: false,
@@ -130,17 +132,19 @@ function FontStylePanel({
 }) {
   const set = (patch: Partial<FontStyle>) => onChange({ ...font, ...patch });
   const [sizeStr, setSizeStr] = useState(String(font.sizePt));
+  const [coSizeStr, setCoSizeStr] = useState(String(font.companySizePt ?? 12));
   const [wsStr,   setWsStr  ] = useState(String(font.wordSpacingPt));
   const [scStr,   setScStr  ] = useState(String(font.scalePct));
 
   // Keep string state in sync when font changes from outside
   useEffect(() => { setSizeStr(String(font.sizePt)); },      [font.sizePt]);
+  useEffect(() => { setCoSizeStr(String(font.companySizePt ?? 12)); }, [font.companySizePt]);
   useEffect(() => { setWsStr(String(font.wordSpacingPt)); }, [font.wordSpacingPt]);
   useEffect(() => { setScStr(String(font.scalePct)); },      [font.scalePct]);
 
   return (
     <div className="space-y-3 pt-1">
-      {/* Row 1: Family + Size */}
+      {/* Row 1: Family + Name size + Company size */}
       <div className="flex gap-2">
         <select
           value={font.family}
@@ -153,14 +157,29 @@ function FontStylePanel({
             <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
           ))}
         </select>
-        <select
-          value={font.sizePt}
-          onChange={(e) => { const v = Number(e.target.value); setSizeStr(String(v)); set({ sizePt: v }); }}
-          className="w-20 h-9 rounded-md border border-input bg-background text-[13px] px-2"
-          aria-label="Font size"
-        >
-          {FONT_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <div className="flex flex-col gap-0.5">
+          <select
+            value={font.sizePt}
+            onChange={(e) => { const v = Number(e.target.value); setSizeStr(String(v)); set({ sizePt: v }); }}
+            className="w-16 h-[18px] rounded border border-input bg-background text-[10px] px-1"
+            aria-label="Name font size"
+            title="Name size (pt)"
+          >
+            {FONT_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select
+            value={font.companySizePt ?? 12}
+            onChange={(e) => { const v = Number(e.target.value); setCoSizeStr(String(v)); set({ companySizePt: v }); }}
+            className="w-16 h-[18px] rounded border border-input bg-background text-[10px] px-1"
+            aria-label="Company font size"
+            title="Company size (pt)"
+          >
+            {FONT_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <div className="flex justify-between text-[8px] text-muted-foreground px-0.5">
+            <span>Name</span><span>Co.</span>
+          </div>
+        </div>
       </div>
 
       {/* Row 2: Alignment */}

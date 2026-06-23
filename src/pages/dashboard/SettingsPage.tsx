@@ -222,9 +222,56 @@ const SettingsPage = () => {
   const handleInvite = async () => {
     if (!org || !user || !inviteEmail.trim()) return;
     setInviting(true);
+
+    const emailNormalized = inviteEmail.trim().toLowerCase();
+
+    // Pre-flight: check if this email is already an active member of the org.
+    // org_members stores user_ids, so look up by email via profiles.
+    const { data: existingMember } = await supabase
+      .from("org_members")
+      .select("id, role, profiles:user_id(email)")
+      .eq("org_id", org.id)
+      .maybeSingle()
+      // Note: we can't filter directly by email on org_members; do a client-side check below.
+      .limit(100) as unknown as { data: { id: string; role: string; profiles?: { email?: string } | null }[] | null };
+
+    const memberEmails = (existingMember ?? []).map((m: { profiles?: { email?: string } | null }) =>
+      m.profiles?.email?.toLowerCase() ?? ""
+    );
+    if (memberEmails.includes(emailNormalized)) {
+      setInviting(false);
+      toast({ title: "Already a member", description: `${emailNormalized} is already part of this organisation.`, variant: "destructive" });
+      return;
+    }
+
+    // Pre-flight: check for a pending invitation to the same email.
+    const { data: existingInvite } = await supabase
+      .from("org_invitations")
+      .select("id, role, status")
+      .eq("org_id", org.id)
+      .eq("email", emailNormalized)
+      .eq("status", "pending")
+      .maybeSingle();
+
+    if (existingInvite) {
+      // If the same email already has a pending invite with a different role, update it.
+      // If it's the same role, just warn.
+      if (existingInvite.role === inviteRole) {
+        setInviting(false);
+        toast({ title: "Already invited", description: `${emailNormalized} already has a pending invitation as ${inviteRole}.`, variant: "destructive" });
+        return;
+      }
+      // Update the role on the existing invite instead of creating a duplicate.
+      await supabase.from("org_invitations").update({ role: inviteRole }).eq("id", existingInvite.id);
+      setInviting(false);
+      toast({ title: "Invitation updated", description: `${emailNormalized}'s pending invitation role changed to ${inviteRole}.` });
+      setInviteEmail(""); setInviteRole("member"); setShowInviteDialog(false); fetchTeam();
+      return;
+    }
+
     const { data: invitation, error } = await supabase.from("org_invitations").insert({
       org_id: org.id,
-      email: inviteEmail.trim().toLowerCase(),
+      email: emailNormalized,
       role: inviteRole,
       invited_by: user.id,
     }).select("token").single();
