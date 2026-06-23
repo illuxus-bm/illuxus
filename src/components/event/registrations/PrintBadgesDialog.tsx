@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -162,27 +163,31 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
   const matchingSizeIdx = sizes.findIndex((s) => s.w === cw && s.h === ch && s.unit === cu);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl p-0 gap-0 max-h-[88vh] flex flex-col overflow-hidden">
-        {/* Full-screen design editor — rendered on top inside the dialog so focus trapping is inherited */}
-        {editorOpen && (
-          <BadgeDesignEditor
-            design={design}
-            onDesignChange={setDesign}
-            mode={mode}
-            widthMm={dims.w}
-            heightMm={dims.h}
-            badgeCount={badges.length * copies}
-            eventTitle={eventTitle}
-            sampleName={badges[0]?.name}
-            sampleCompany={badges[0]?.company ?? undefined}
-            nameDesignId={nameDesignId}
-            onNameDesignChange={setNameDesignId}
-            onBack={() => { setEditorOpen(false); setTab("settings"); }}
-            onTestPrint={handleTestPrint}
-            onPrint={async () => { await handlePrint(); }}
-          />
-        )}
+    <>
+      {/* Full-screen design editor — portalled to document.body so it escapes the
+          dialog's stacking context and truly covers the full viewport. */}
+      {editorOpen && typeof document !== "undefined" && createPortal(
+        <BadgeDesignEditor
+          design={design}
+          onDesignChange={setDesign}
+          mode={mode}
+          widthMm={dims.w}
+          heightMm={dims.h}
+          badgeCount={badges.length * copies}
+          eventTitle={eventTitle}
+          sampleName={badges[0]?.name}
+          sampleCompany={badges[0]?.company ?? undefined}
+          nameDesignId={nameDesignId}
+          onNameDesignChange={setNameDesignId}
+          onBack={() => { setEditorOpen(false); setTab("settings"); }}
+          onTestPrint={handleTestPrint}
+          onPrint={async () => { await handlePrint(); }}
+        />,
+        document.body
+      )}
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-2xl p-0 gap-0 max-h-[88vh] flex flex-col overflow-hidden">
+          {/* editorOpen is handled via the portal above — removed from here */}
         <DialogHeader className="px-5 pt-5 pb-3 border-b border-border shrink-0 space-y-1">
           <DialogTitle className="flex items-center gap-2 text-base">
             <Printer className="h-4 w-4" /> Print settings
@@ -352,5 +357,6 @@ export default function PrintBadgesDialog({ open, onOpenChange, badges, eventId,
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   );
 }

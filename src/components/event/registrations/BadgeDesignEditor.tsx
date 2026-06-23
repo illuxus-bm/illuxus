@@ -63,7 +63,7 @@ export default function BadgeDesignEditor({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-background flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-[200] bg-background flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border shrink-0 bg-background">
         <Button size="sm" variant="ghost" onClick={onBack} className="gap-1.5 text-[13px]">
