@@ -158,7 +158,7 @@ export default function PublicEventRenderer({
         // zoom scales rem-based Tailwind classes (which don't respond to a
         // parent fontSize %) as well as images and spacing — exactly what
         // the organizer expects when dragging the Font Size slider.
-        zoom: theme.fontScale && theme.fontScale !== 1 ? theme.fontScale : undefined,
+        zoom: (() => { const s = theme.bodyScale ?? theme.fontScale; return s && s !== 1 ? s : undefined; })(),
       }}
       className={`w-full ${flushSections ? "[&_section]:!px-0 [&_section]:!py-10 [&_section]:!border-t-0" : ""}`}
     >

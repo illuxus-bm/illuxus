@@ -452,26 +452,49 @@ function SectionListAside({
               </select>
             </div>
 
-            {/* Font scale — shown in px (base 16 × scale), stored as scale multiplier */}
+            {/* Title size — controls heading/event title zoom */}
             <div>
               <div className="flex items-center justify-between">
-                <Label className="text-[11px] text-muted-foreground">Font size</Label>
+                <Label className="text-[11px] text-muted-foreground">Title size</Label>
                 <span className="text-[11px] text-muted-foreground tabular-nums">
-                  {Math.round((theme.fontScale ?? 1) * 16)}px
+                  {Math.round((theme.titleScale ?? theme.fontScale ?? 1) * 16)}px
                 </span>
               </div>
               <input
                 type="range"
                 min={12}
-                max={24}
+                max={32}
                 step={1}
-                value={Math.round((theme.fontScale ?? 1) * 16)}
-                onChange={e => setTheme({ fontScale: Number(e.target.value) / 16 })}
+                value={Math.round((theme.titleScale ?? theme.fontScale ?? 1) * 16)}
+                onChange={e => setTheme({ titleScale: Number(e.target.value) / 16 })}
                 className="mt-1 w-full h-1.5 accent-primary"
-                aria-label="Font size in pixels"
+                aria-label="Title font size in pixels"
               />
               <div className="flex justify-between text-[9px] text-muted-foreground/60 mt-0.5">
-                <span>12px</span><span>16px</span><span>24px</span>
+                <span>12px</span><span>16px</span><span>32px</span>
+              </div>
+            </div>
+
+            {/* Body size — controls content/section text zoom */}
+            <div>
+              <div className="flex items-center justify-between">
+                <Label className="text-[11px] text-muted-foreground">Body size</Label>
+                <span className="text-[11px] text-muted-foreground tabular-nums">
+                  {Math.round((theme.bodyScale ?? 1) * 16)}px
+                </span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={22}
+                step={1}
+                value={Math.round((theme.bodyScale ?? 1) * 16)}
+                onChange={e => setTheme({ bodyScale: Number(e.target.value) / 16 })}
+                className="mt-1 w-full h-1.5 accent-primary"
+                aria-label="Body font size in pixels"
+              />
+              <div className="flex justify-between text-[9px] text-muted-foreground/60 mt-0.5">
+                <span>10px</span><span>16px</span><span>22px</span>
               </div>
             </div>
 

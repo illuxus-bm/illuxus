@@ -28,7 +28,11 @@ export interface ThemeConfig {
   backgroundColor: string;
   textColor: string;
   fontFamily: string;
-  /** Scale factor for body/section text. 1.0 = default. Range 0.75–1.5. */
+  /** Scale factor for heading/title text. 1.0 = default (16px base). */
+  titleScale?: number;
+  /** Scale factor for body/section content text. 1.0 = default. */
+  bodyScale?: number;
+  /** @deprecated use titleScale instead — kept for backward compat with old saves */
   fontScale?: number;
 }
 

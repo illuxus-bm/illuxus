@@ -94,7 +94,6 @@ export default function EventPagePreview({
         backgroundColor: bg,
         color: text,
         fontFamily: `"${selectedFont}", ui-sans-serif, system-ui, sans-serif`,
-        zoom: config.theme.fontScale && config.theme.fontScale !== 1 ? config.theme.fontScale : undefined,
         ["--font-display" as any]: `"${selectedFont}", ui-sans-serif, system-ui, sans-serif`,
         ["--font-body" as any]: `"${selectedFont}", ui-sans-serif, system-ui, sans-serif`,
       }}
@@ -122,7 +121,11 @@ export default function EventPagePreview({
       <section className={`mx-auto w-full max-w-[1400px] px-5 sm:px-8 lg:px-20 ${hasImage ? "pt-8 sm:pt-12 lg:pt-16" : "pt-6 sm:pt-8 lg:pt-10"}`}>
         <h1
           className="font-bold tracking-[-0.02em] leading-[1.05] pb-1 break-words text-[clamp(2.5rem,8vw,7rem)]"
-          style={{ fontFamily: DISPLAY, color: text }}
+          style={{
+            fontFamily: DISPLAY,
+            color: text,
+            zoom: (() => { const s = config.theme.titleScale ?? config.theme.fontScale; return s && s !== 1 ? s : undefined; })(),
+          }}
         >
           {event.title}
         </h1>
@@ -157,16 +160,18 @@ export default function EventPagePreview({
 
             {/* All other configured sections render inside the same left column,
                 keeping the right rail truly aligned next to them. */}
-            <PublicEventRenderer
-              config={config}
-              event={event}
-              speakers={speakers}
-              sessions={sessions}
-              sponsors={sponsors}
-              darkMode={darkMode}
-              flushSections
-              excludeIds={["about"]}
-            />
+            <div style={{ zoom: (() => { const s = config.theme.bodyScale; return s && s !== 1 ? s : undefined; })() }}>
+              <PublicEventRenderer
+                config={config}
+                event={event}
+                speakers={speakers}
+                sessions={sessions}
+                sponsors={sponsors}
+                darkMode={darkMode}
+                flushSections
+                excludeIds={["about"]}
+              />
+            </div>
           </main>
 
           {/* RIGHT RAIL */}
