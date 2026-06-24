@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import SiteHeader from "@/components/SiteHeader";
-import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, X, ArrowRight } from "lucide-react";
 
@@ -190,7 +189,6 @@ export default function PricingPage() {
         </Button>
       </section>
 
-      <Footer />
     </div>
   );
 }

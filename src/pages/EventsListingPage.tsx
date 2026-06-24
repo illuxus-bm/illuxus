@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import SiteHeader from "@/components/SiteHeader";
-import Footer from "@/components/Footer";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -224,7 +223,6 @@ export default function EventsListingPage() {
         )}
       </main>
 
-      <Footer />
       <EventQuickView event={quickView} onClose={() => setQuickView(null)} />
     </div>
   );

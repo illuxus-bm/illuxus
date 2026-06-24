@@ -331,22 +331,15 @@ const App = () => (
 export default App;
 
 /**
- * Global site footer rendered on public-facing pages.
- * Hidden on app/dashboard, auth, onboarding, live event, check-in and sponsor routes
- * where a marketing footer would feel out of place.
+ * Global site footer — shown on every public-facing page.
+ * Suppressed only on dashboard, auth, onboarding, live/webinar, check-in,
+ * sponsor portal, speaker portal, community, and preview routes.
  */
 function GlobalFooter() {
   const { pathname } = useLocation();
-  // These dashboard/auth/app routes have no footer of their own.
-  // Everything else (landing, discover, events listing, features, pricing,
-  // about, contact, privacy, terms, public event pages, org pages, etc.)
-  // renders its own <Footer /> component — suppress GlobalFooter there
-  // to avoid a double footer.
-  const needsGlobalFooter = [
-    "/u/",      // attendee profile pages that don't include their own Footer
-    "/t/",      // ticket detail
-  ];
-  const hiddenPrefixes = [
+
+  // Prefixes where the footer must NOT appear (app chrome / auth flows).
+  const suppressed = [
     "/dashboard",
     "/onboarding",
     "/login",
@@ -358,30 +351,13 @@ function GlobalFooter() {
     "/community",
     "/e/",
     "/__preview",
-    // Public pages that own their footer
-    "/",
-    "/events",
-    "/discover",
-    "/features",
-    "/pricing",
-    "/about",
-    "/contact",
-    "/privacy",
-    "/terms",
-    "/org/",
-    "/events/",
   ];
-  if (hiddenPrefixes.some((p) => {
-    if (p === "/" || p === "/discover") return pathname === p;
-    return pathname === p || pathname.startsWith(p);
-  })) {
+
+  if (suppressed.some((p) => pathname === p || pathname.startsWith(p))) {
     return null;
   }
-  // Only render for routes explicitly needing the global footer
-  if (needsGlobalFooter.some((p) => pathname.startsWith(p))) {
-    return <Footer />;
-  }
-  return null;
+
+  return <Footer />;
 }
 
 /**

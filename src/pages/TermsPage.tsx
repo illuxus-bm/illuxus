@@ -1,5 +1,4 @@
 import SiteHeader from "@/components/SiteHeader";
-import Footer from "@/components/Footer";
 
 const sections = [
   {
@@ -146,7 +145,6 @@ export default function TermsPage() {
         ))}
       </section>
 
-      <Footer />
     </div>
   );
 }

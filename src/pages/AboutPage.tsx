@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import SiteHeader from "@/components/SiteHeader";
-import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Heart, Rocket, Globe, Users } from "lucide-react";
 
@@ -121,7 +120,6 @@ export default function AboutPage() {
         </Button>
       </section>
 
-      <Footer />
     </div>
   );
 }

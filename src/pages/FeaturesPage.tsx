@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import SiteHeader from "@/components/SiteHeader";
-import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import {
   CalendarDays, Ticket, Mic2, Users, BarChart3, Globe,
@@ -221,7 +220,6 @@ export default function FeaturesPage() {
         </Button>
       </section>
 
-      <Footer />
     </div>
   );
 }
