@@ -1002,18 +1002,9 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
   const hasStarted = now >= targetMs;
   const hasEnded = endMs !== null && now >= endMs;
 
-  const title = data.title || "Starts in";
   const stateMessage = (label: string, body: string) => (
     <Section theme={theme} tone="tinted" id="countdown">
       <div className="text-center">
-        {data.title && (
-          <p
-            className="text-[11px] font-semibold tracking-[0.22em] uppercase mb-3"
-            style={{ color: theme.primaryColor }}
-          >
-            {data.title}
-          </p>
-        )}
         <p
           className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight"
           style={{ color: theme.textColor }}
@@ -1054,7 +1045,7 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
           className="text-xs sm:text-sm font-semibold tracking-[0.2em] uppercase mb-4"
           style={{ color: theme.primaryColor }}
         >
-          {title}
+          {data.title || "Starts in"}
         </p>
         <div
           role="timer"
@@ -1092,12 +1083,6 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
             </div>
           ))}
         </div>
-        <p
-          className="text-lg sm:text-xl opacity-80 mt-4 animate-fade-in"
-          style={{ color: theme.textColor }}
-        >
-          until <span className="font-semibold text-xl sm:text-2xl" style={{ color: theme.textColor }}>{event.title}</span>
-        </p>
       </div>
     </Section>
   );
