@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Eye, EyeOff, Ticket, Building2, ChevronLeft } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import TwoFactorChallengeDialog from "@/components/auth/TwoFactorChallengeDialog";
 import PasswordStrengthMeter from "@/components/auth/PasswordStrengthMeter";
@@ -45,6 +45,40 @@ const LoginPage = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  /** Pending team-invite token from `?invite=<uuid>`. Consumed by
+   *  `accept_org_invitation` after the user successfully signs in (or after
+   *  the must-change-password reset for organiser-created accounts). */
+  const inviteToken = searchParams.get("invite");
+
+  /**
+   * Redeem the invite (when present). Returns the next route to navigate
+   * to after redemption — `/dashboard` when an invitation was accepted so
+   * the new team member lands inside the organisation, or null when there
+   * was no token / redemption failed (the toast already explains why).
+   */
+  const consumeInviteIfAny = async (): Promise<string | null> => {
+    if (!inviteToken) return null;
+    const { data, error } = await supabaseRpc(
+      "accept_org_invitation" as never,
+      { _token: inviteToken } as never,
+    );
+    if (error) {
+      toast({
+        title: "Invitation not accepted",
+        description: error.message || "Please ask your organiser to resend the invite.",
+        variant: "destructive",
+      });
+      return null;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    const role = (row as { role?: string } | null)?.role || "member";
+    toast({
+      title: "Invitation accepted",
+      description: `You're in as ${role}. Redirecting to the dashboard…`,
+    });
+    return "/dashboard";
+  };
   const { content } = useSiteContent();
   const { theme: appTheme } = useTheme();
   const { brandName, logoUrl, logoUrlDark } = content.navbar;
@@ -136,7 +170,12 @@ const LoginPage = () => {
 
           const { data: profile } = await supabaseRpc("get_my_profile");
           const p = profile as { account_type?: string; two_factor_enabled?: boolean } | null;
-          const next = p?.account_type === "attendee" ? "/discover" : "/dashboard";
+          const defaultNext = p?.account_type === "attendee" ? "/discover" : "/dashboard";
+          // If the URL carries `?invite=<token>`, consume it now. Successful
+          // redemption forces a `/dashboard` next-route because the user has
+          // just joined an org and should land on the org's dashboard.
+          const inviteNext = await consumeInviteIfAny();
+          const next = inviteNext ?? defaultNext;
           if (p?.two_factor_enabled) {
             // Pause and require an OTP before letting them through.
             setTwoFactor({ open: true, email: user.email ?? email, nextRoute: next });
@@ -231,8 +270,12 @@ const LoginPage = () => {
                 setMustChangePassword(false);
                 setNewPassword("");
                 setConfirmPassword("");
-                // Navigate to the attendee discover feed
-                navigate("/discover");
+                // If this user got here from a team invitation link
+                // (`/login?invite=<token>`), redeem it now — they were a
+                // pending member until this point and we want them to land
+                // inside the org's dashboard, not the discover feed.
+                const inviteNext = await consumeInviteIfAny();
+                navigate(inviteNext ?? "/discover");
                 setLoading(false);
               }}
               className="space-y-4"

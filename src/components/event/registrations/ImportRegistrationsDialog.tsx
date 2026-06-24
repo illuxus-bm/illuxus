@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -11,6 +12,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
 import { roleFromTicketType, sendParticipantWelcomeEmail } from "@/lib/participant-email";
 import { publicOrigin } from "@/lib/publicUrl";
+
+// Secondary Supabase client used to sign up imported participants without
+// disturbing the organiser's own session. Mirrors the pattern in
+// `AddParticipantDialog.tsx`. Separate `storageKey` so it never clobbers
+// the dashboard's auth tokens.
+const anonClient = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+  { auth: { storageKey: "sb-participant-import-signup", persistSession: false, autoRefreshToken: false } },
+);
 
 /** Columns accepted by the importer. Header matching is case-insensitive and
  *  ignores spaces, dashes and underscores, so `Full Name`, `full_name`,
@@ -324,6 +335,83 @@ export default function ImportRegistrationsDialog({
       const phoneByEmail = new Map(
         validRows.map((r) => [r.email.toLowerCase(), r.mobile_number || ""]),
       );
+      const fullRowByEmail = new Map(
+        validRows.map((r) => [r.email.toLowerCase(), r]),
+      );
+
+      // ── Background auth signup ────────────────────────────────────────────
+      // Each imported registration gets a Supabase auth user so the
+      // participant can actually sign in with the credentials in the
+      // welcome email. Password = the local mobile number (no country code,
+      // matching what the welcome email tells them). `must_change_password`
+      // metadata is set so the LoginPage forces a password reset on first
+      // sign-in. Runs sequentially — Supabase Auth doesn't tolerate large
+      // bursts of signUp calls and we don't want to clobber the organiser's
+      // session by making N calls in parallel against the shared client.
+      void (async () => {
+        for (const row of data) {
+          const email = (row.email || "").toLowerCase();
+          if (!email) continue;
+          const fullRow = fullRowByEmail.get(email);
+          const phone = phoneByEmail.get(email) || "";
+          if (!phone) continue; // No phone → can't set a temporary password.
+          try {
+            const { data: signUpResult, error: signUpErr } = await anonClient.auth.signUp({
+              email,
+              password: phone,
+              options: {
+                emailRedirectTo: `${publicOrigin()}/login`,
+                data: {
+                  must_change_password: true,
+                  account_type: "attendee",
+                  title: fullRow?.title || "",
+                  first_name: fullRow?.first_name || "",
+                  last_name: fullRow?.last_name || "",
+                  designation: fullRow?.designation || "",
+                  company: fullRow?.company || "",
+                  mobile_country_code: fullRow?.mobile_country_code || "",
+                  mobile_number: phone,
+                  linkedin_url: fullRow?.linkedin_url || "",
+                  company_website: fullRow?.company_website || "",
+                  industry: fullRow?.industry || "",
+                  display_name: row.name,
+                },
+              },
+            });
+            if (signUpErr) {
+              if (!signUpErr.message?.includes("already")) {
+                logger.warn("import signup error", {
+                  email,
+                  error_message: signUpErr.message,
+                });
+              }
+              // If the account already exists, link the registration to the
+              // existing user_id so future logins resolve correctly.
+              const { data: existing } = await supabase
+                .from("registrations")
+                .select("user_id")
+                .eq("email", email)
+                .not("user_id", "is", null)
+                .limit(1)
+                .maybeSingle();
+              if (existing?.user_id) {
+                await supabase.from("registrations")
+                  .update({ user_id: existing.user_id })
+                  .eq("id", row.id);
+              }
+            } else if (signUpResult?.user) {
+              await supabase.from("registrations")
+                .update({ user_id: signUpResult.user.id })
+                .eq("id", row.id);
+            }
+          } catch (err) {
+            logger.warn("import signup threw", {
+              email,
+              error_message: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      })();
       void (async () => {
         let sent = 0;
         let failed = 0;
