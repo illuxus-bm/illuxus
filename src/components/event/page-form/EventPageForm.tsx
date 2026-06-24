@@ -452,26 +452,26 @@ function SectionListAside({
               </select>
             </div>
 
-            {/* Font scale */}
+            {/* Font scale — shown in px (base 16 × scale), stored as scale multiplier */}
             <div>
               <div className="flex items-center justify-between">
                 <Label className="text-[11px] text-muted-foreground">Font size</Label>
                 <span className="text-[11px] text-muted-foreground tabular-nums">
-                  {Math.round((theme.fontScale ?? 1) * 100)}%
+                  {Math.round((theme.fontScale ?? 1) * 16)}px
                 </span>
               </div>
               <input
                 type="range"
-                min={75}
-                max={150}
-                step={5}
-                value={Math.round((theme.fontScale ?? 1) * 100)}
-                onChange={e => setTheme({ fontScale: Number(e.target.value) / 100 })}
+                min={12}
+                max={24}
+                step={1}
+                value={Math.round((theme.fontScale ?? 1) * 16)}
+                onChange={e => setTheme({ fontScale: Number(e.target.value) / 16 })}
                 className="mt-1 w-full h-1.5 accent-primary"
-                aria-label="Font scale percentage"
+                aria-label="Font size in pixels"
               />
               <div className="flex justify-between text-[9px] text-muted-foreground/60 mt-0.5">
-                <span>75%</span><span>100%</span><span>150%</span>
+                <span>12px</span><span>16px</span><span>24px</span>
               </div>
             </div>
 
