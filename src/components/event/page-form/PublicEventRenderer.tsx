@@ -125,7 +125,7 @@ export default function PublicEventRenderer({
   useEffect(() => {
     if (!theme.fontFamily) return;
     const fontName = theme.fontFamily.trim();
-    const systemFonts = ["sans-serif", "serif", "monospace", "Arial", "Helvetica", "Times New Roman", "Courier New", "Inter"];
+    const systemFonts = ["sans-serif", "serif", "monospace", "Arial", "Helvetica", "Times New Roman", "Courier New", "Inter", "Poppins"];
     if (systemFonts.includes(fontName)) return;
 
     const linkId = `google-font-${fontName.replace(/\s+/g, "-").toLowerCase()}`;
@@ -471,6 +471,12 @@ function TicketsSec({ data, theme, event }: { data: TicketsData; theme: ThemeCon
   );
 }
 
+// Default body font used for agenda meta (time, description, type/location)
+// so the event's custom theme font applies only to titles. Matches the global
+// body font set in src/index.css and preloaded in index.html.
+const AGENDA_BODY_FONT =
+  "'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+
 function AgendaSec({ data, theme, sessions, speakers }: {
   data: AgendaData; theme: ThemeConfig; sessions: RendererSession[]; speakers: RendererSpeaker[];
 }) {
@@ -567,13 +573,26 @@ function AgendaSec({ data, theme, sessions, speakers }: {
                   const sps = ids.map((id) => speakerById[id]).filter(Boolean);
                   return (
                      <li key={s.id} className="flex flex-col sm:flex-row gap-1 sm:gap-4 p-4 rounded-xl border" style={{ borderColor: `${theme.primaryColor}15` }}>
-                       <div className="text-sm font-semibold sm:whitespace-nowrap sm:w-24" style={{ color: theme.primaryColor }}>
+                       <div
+                         className="text-sm font-semibold sm:whitespace-nowrap sm:w-24"
+                         style={{ color: theme.primaryColor, fontFamily: AGENDA_BODY_FONT }}
+                       >
                          {format(new Date(`${s.start_time.split("+")[0].split("Z")[0]}`), "h:mm a")}
                        </div>
                        <div className="flex-1 min-w-0">
                          <p className="font-semibold">{s.title}</p>
-                         {s.description && <p className="text-sm opacity-70 mt-1 line-clamp-2">{s.description}</p>}
-                         <div className="flex flex-wrap gap-2 mt-2 text-xs opacity-60">
+                         {s.description && (
+                           <p
+                             className="text-sm opacity-70 mt-1 line-clamp-2"
+                             style={{ fontFamily: AGENDA_BODY_FONT }}
+                           >
+                             {s.description}
+                           </p>
+                         )}
+                         <div
+                           className="flex flex-wrap gap-2 mt-2 text-xs opacity-60"
+                           style={{ fontFamily: AGENDA_BODY_FONT }}
+                         >
                            <span className="capitalize">{s.session_type}</span>
                           {s.location && <><span>·</span><span>{s.location}</span></>}
                         </div>

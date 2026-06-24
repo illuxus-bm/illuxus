@@ -125,7 +125,7 @@ export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {
     ${pageCss}
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:#fff;color:#111}
-    body{font-family:Inter,system-ui,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    body{font-family:Poppins,system-ui,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .sheet{${sheetCss}}
     .card{
       width:${dims.w}mm;height:${dims.h}mm;position:relative;overflow:hidden;background:#fff;

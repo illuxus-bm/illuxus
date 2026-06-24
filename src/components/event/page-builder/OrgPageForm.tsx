@@ -36,7 +36,7 @@ const DEFAULT_THEME: ThemeConfig = {
   backgroundColor: "#ffffff",
   textColor: "#0f172a",
   accentColor: "#6366f1",
-  fontFamily: "Inter",
+  fontFamily: "Poppins",
 };
 
 const FONT_OPTIONS = [
@@ -98,7 +98,7 @@ export default function OrgPageForm() {
   useEffect(() => {
     if (!state.theme.fontFamily) return;
     const fontName = state.theme.fontFamily.trim();
-    const systemFonts = ["sans-serif", "serif", "monospace", "Arial", "Helvetica", "Times New Roman", "Courier New", "Inter"];
+    const systemFonts = ["sans-serif", "serif", "monospace", "Arial", "Helvetica", "Times New Roman", "Courier New", "Inter", "Poppins"];
     if (systemFonts.includes(fontName)) return;
 
     const linkId = `google-font-${fontName.replace(/\s+/g, "-").toLowerCase()}`;

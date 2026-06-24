@@ -246,7 +246,10 @@ export const DEFAULT_THEME: ThemeConfig = {
   accentColor:     "#f59e0b",
   backgroundColor: "#ffffff",
   textColor:       "#1a1a2e",
-  fontFamily:      "Inter",
+  // Project-wide default — matches the global body font set in src/index.css
+  // and the Google Font preloaded in index.html. Per-event presets in
+  // `presets.ts` may override this (Playfair, JetBrains Mono, etc.).
+  fontFamily:      "Poppins",
 };
 
 function emptyDataFor(id: SectionId): SectionData["data"] {

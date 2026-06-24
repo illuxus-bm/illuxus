@@ -94,7 +94,7 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
     if (!org) return;
     const cfg = (org.landing_config || {}) as ExtendedConfig;
     const fontName = cfg?.theme?.fontFamily?.trim() || defaultTheme.fontFamily;
-    const systemFonts = ["sans-serif", "serif", "monospace", "Arial", "Helvetica", "Times New Roman", "Courier New", "Inter"];
+    const systemFonts = ["sans-serif", "serif", "monospace", "Arial", "Helvetica", "Times New Roman", "Courier New", "Inter", "Poppins"];
     if (systemFonts.includes(fontName)) return;
 
     const linkId = `google-font-${fontName.replace(/\s+/g, "-").toLowerCase()}`;

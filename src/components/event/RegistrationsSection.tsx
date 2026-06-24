@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { logger, supabaseRpc } from "@/lib/observability";
-import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX, Copy, ExternalLink, Link2 } from "lucide-react";
+import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX, Copy, ExternalLink, Link2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import AddParticipantDialog from "./AddParticipantDialog";
 import PrintBadgesDialog from "./registrations/PrintBadgesDialog";
 import BulkCheckInDialog from "./registrations/BulkCheckInDialog";
 import RegistrantQuickView, { type QuickViewRow } from "./registrations/RegistrantQuickView";
+import ImportRegistrationsDialog from "./registrations/ImportRegistrationsDialog";
 import AttendanceHistoryDialog from "./attendance/AttendanceHistoryDialog";
 import EventAttendanceHistoryDialog from "./attendance/EventAttendanceHistoryDialog";
 import type { BadgeData, PrintMode } from "@/lib/print-badges";
@@ -122,6 +123,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [qrOpen, setQrOpen] = useState(false);
   const [selfKioskOpen, setSelfKioskOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [printState, setPrintState] = useState<{ open: boolean; rowIds: string[] | null; mode: PrintMode }>({ open: false, rowIds: null, mode: "badge" });
   const [eventInfo, setEventInfo] = useState<{
     event_format: string | null;
@@ -588,72 +590,6 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   };
 
   /**
-   * Change the role of a participant inline from the Role column.
-   *
-   * Source of truth is `registrations.ticket_type`. The visible kind on the
-   * row is derived from ticket_type plus the event_speakers / event_sponsors
-   * content links (see allRows). Updating ticket_type therefore updates the
-   * visible role.
-   *
-   * For "virtual" extras that have no registration row (a speaker added via
-   * event_speakers without ever registering), we create a registration on the
-   * fly so the role becomes editable from then on.
-   */
-  const changeRole = async (row: Row, newRole: RowKind) => {
-    if (row.kind === newRole) return;
-    const newTicketType =
-      newRole === "speaker" ? "speaker" :
-      newRole === "sponsor" ? "sponsor" :
-      "general";
-
-    if (row.registration) {
-      const { data: updated, error } = await supabase
-        .from("registrations")
-        .update({ ticket_type: newTicketType })
-        .eq("id", row.registration.id)
-        .select();
-      if (error) {
-        toast.error("Failed to change role", { description: error.message });
-        return;
-      }
-      if (!updated || updated.length === 0) {
-        toast.error("Failed to change role", {
-          description: "You don't have permission to edit this registration.",
-        });
-        return;
-      }
-      await reload();
-      toast.success(`Role set to ${newRole}`);
-      return;
-    }
-
-    // No registration yet — promote the virtual speaker/sponsor row by creating
-    // a registration record. Email is required for the row to be deduplicated
-    // correctly on subsequent renders.
-    if (!row.email) {
-      toast.error("Cannot change role", {
-        description: "This entry has no email. Edit the participant first to add an email.",
-      });
-      return;
-    }
-    const { error } = await supabase.from("registrations").insert({
-      event_id: eventId,
-      name: row.name,
-      email: row.email.toLowerCase(),
-      company: row.company,
-      ticket_type: newTicketType,
-      status: "confirmed",
-      approval_status: "approved",
-    });
-    if (error) {
-      toast.error("Failed to change role", { description: error.message });
-      return;
-    }
-    await Promise.all([reload(), reloadExtras()]);
-    toast.success(`Role set to ${newRole}`);
-  };
-
-  /**
    * Handler invoked by `<QRScannerDialog>` after every applied scan.
    * Reload the registrations list (the realtime subscription will
    * eventually catch up too, but `reload()` keeps the table snappy on
@@ -1003,6 +939,9 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                 <ScanLine className="h-3.5 w-3.5 mr-2" /> Self-service kiosk
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setImportOpen(true)}>
+                <Upload className="h-3.5 w-3.5 mr-2" /> Import CSV…
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={exportCSV}>
                 <Download className="h-3.5 w-3.5 mr-2" /> Export CSV
               </DropdownMenuItem>
@@ -1137,8 +1076,8 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                     />
                   </th>
                   <SortHeader label="Attendee" k="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="" />
-                  <th className="text-left p-2 sm:p-3 font-medium text-muted-foreground hidden md:table-cell w-[110px]">Role</th>
-                  <th className="text-left p-2 sm:p-3 font-medium text-muted-foreground hidden lg:table-cell w-[130px]">Reg. status</th>
+                  <th className="text-center px-3 sm:px-4 py-2 sm:py-3 font-medium text-muted-foreground hidden md:table-cell w-[150px]">Role</th>
+                  <th className="text-center px-3 sm:px-4 py-2 sm:py-3 font-medium text-muted-foreground hidden lg:table-cell w-[160px]">Reg. status</th>
                   <th className="p-2 sm:p-3 w-[120px]"></th>
                 </tr>
               </thead>
@@ -1182,26 +1121,23 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                         </div>
                       </div>
                     </td>
-                    <td className="p-2 sm:p-3 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
-                      <Select value={r.kind} onValueChange={(v) => changeRole(r, v as RowKind)}>
-                        <SelectTrigger
-                          className={`h-7 text-[11px] capitalize font-medium border rounded-full px-2 w-[110px] ${kindColors[r.kind]}`}
-                          aria-label="Change role"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="attendee">Attendee</SelectItem>
-                          <SelectItem value="speaker">Speaker</SelectItem>
-                          <SelectItem value="sponsor">Sponsor</SelectItem>
-                        </SelectContent>
-                      </Select>
+                    <td className="px-3 sm:px-4 py-2 sm:py-3 hidden md:table-cell text-center">
+                      {/* Role is read-only — the organiser sees what the
+                          person registered as. To re-assign roles, use the
+                          Speakers / Sponsors management tabs. */}
+                      <span
+                        className={`inline-flex items-center justify-center h-7 text-[11px] capitalize font-medium border rounded-full px-3 w-[120px] ${kindColors[r.kind]}`}
+                        aria-label={`Role: ${r.kind}`}
+                        title={`Role: ${r.kind}`}
+                      >
+                        {r.kind}
+                      </span>
                     </td>
-                    <td className="p-2 sm:p-3 hidden lg:table-cell" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-3 sm:px-4 py-2 sm:py-3 hidden lg:table-cell text-center" onClick={(e) => e.stopPropagation()}>
                       {r.kind === "attendee" ? (
                         <Select value={r.status} onValueChange={(v) => updateStatus(r, v)}>
                           <SelectTrigger
-                            className={`h-7 text-[11px] capitalize font-medium border rounded-full px-2 w-[110px] ${statusColors[r.status] || ""}`}
+                            className={`h-7 text-[11px] capitalize font-medium border rounded-full px-3 w-[130px] mx-auto justify-center ${statusColors[r.status] || ""}`}
                           >
                             <SelectValue />
                           </SelectTrigger>
@@ -1212,7 +1148,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                           </SelectContent>
                         </Select>
                       ) : (
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border capitalize ${statusColors[r.status] || ""}`}>
+                        <span className={`inline-flex items-center justify-center h-7 px-3 w-[130px] rounded-full text-[11px] font-medium border capitalize ${statusColors[r.status] || ""}`}>
                           {r.status}
                         </span>
                       )}
@@ -1298,6 +1234,14 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       />
 
       <BulkCheckInDialog open={bulkOpen} onOpenChange={setBulkOpen} eventId={eventId} />
+
+      <ImportRegistrationsDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        eventId={eventId}
+        existingEmails={new Set(registrations.map((r) => (r.email || "").toLowerCase()).filter(Boolean))}
+        onImported={() => { reload(); reloadExtras(); }}
+      />
 
       <SelfServiceCheckDialog
         open={selfKioskOpen}
