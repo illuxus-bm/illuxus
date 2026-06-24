@@ -33,6 +33,21 @@ describe("computeEventDays", () => {
     expect(before).toHaveLength(4);
     expect(after).toEqual(["2026-06-15", "2026-06-16"]);
   });
+
+  it("does NOT roll single-day event to two days when stored as UTC midnight (timezone bug)", () => {
+    // Supabase stores dates as UTC ISO strings. If event is on 2025-07-04 and
+    // start = "2025-07-04T00:00:00Z" and end_date = "2025-07-04T18:29:59Z",
+    // a naive new Date() + getDate() would shift to the next day in UTC+5:30.
+    // The fix strips T and beyond so the date portion is used directly.
+    const days = computeEventDays("2025-07-04T00:00:00Z", "2025-07-04T18:29:59Z");
+    expect(days).toEqual(["2025-07-04"]);
+  });
+
+  it("does NOT roll a 1-day event to 2 days when end_date midnight is next-day UTC", () => {
+    // end_date set to "2025-07-04T23:59:00+05:30" stored as "2025-07-04T18:29:00Z"
+    const days = computeEventDays("2025-07-04T03:30:00Z", "2025-07-04T18:29:00Z");
+    expect(days).toEqual(["2025-07-04"]);
+  });
 });
 
 describe("isDayInRange", () => {

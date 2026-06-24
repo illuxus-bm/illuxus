@@ -2,15 +2,30 @@ export function toDayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/**
+ * Extract the date portion (YYYY-MM-DD) from an ISO string without applying
+ * any timezone conversion. This prevents a UTC-midnight timestamp like
+ * "2025-07-04T00:00:00Z" from rolling back to "2025-07-03" in timezones east
+ * of UTC or rolling forward in timezones west of UTC.
+ */
+function isoToDateStr(iso: string): string {
+  // Fast path: already a bare date string
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  // Take only the date portion before the T
+  return iso.split("T")[0];
+}
+
 export function computeEventDays(startIso: string | null | undefined, endIso?: string | null): string[] {
   if (!startIso) return [];
-  const start = new Date(startIso);
-  if (isNaN(start.getTime())) return [];
-  const end = endIso ? new Date(endIso) : start;
-  const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-  const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  const startStr = isoToDateStr(startIso);
+  const endStr   = endIso ? isoToDateStr(endIso) : startStr;
+  // Build dates using local constructor so no UTC conversion occurs
+  const [sy, sm, sd] = startStr.split("-").map(Number);
+  const [ey, em, ed] = endStr.split("-").map(Number);
+  if (!sy || !sm || !sd) return [];
+  const cur  = new Date(sy, sm - 1, sd);
+  const last = new Date(ey, em - 1, ed);
   const days: string[] = [];
-  // Guard runaway loops
   let i = 0;
   while (cur <= last && i < 366) {
     days.push(toDayKey(cur));
@@ -63,7 +78,10 @@ export function buildSessionPayload(args: {
   if (!form.title.trim() || !form.start_time || !form.end_time) {
     return { ok: false, error: "missing_required" };
   }
-  const sessionDate = form.date || eventDays[0] || "";
+  // Normalise the date: strip any time/timezone suffix so "2025-07-04T00:00:00Z"
+  // becomes "2025-07-04" and doesn't shift under local timezone conversion.
+  const rawDate = form.date || eventDays[0] || "";
+  const sessionDate = rawDate ? rawDate.split("T")[0] : "";
   if (!sessionDate) return { ok: false, error: "missing_required" };
   if (!isDayInRange(sessionDate, eventDays)) {
     return { ok: false, error: "out_of_range" };
