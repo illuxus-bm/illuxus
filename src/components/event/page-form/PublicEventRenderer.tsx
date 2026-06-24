@@ -480,7 +480,10 @@ function AgendaSec({ data, theme, sessions, speakers }: {
   const byDay = useMemo(() => {
     const map = new Map<string, RendererSession[]>();
     for (const s of sessions) {
-      const k = format(new Date(s.start_time), "yyyy-MM-dd");
+      // Strip timezone suffix before grouping — same fix as SessionManagement.
+      // "2025-07-04T20:00:00+00" → "2025-07-04" regardless of local tz.
+      const k = s.start_time ? s.start_time.split("T")[0] : "";
+      if (!k) continue;
       if (!map.has(k)) map.set(k, []);
       map.get(k)!.push(s);
     }
@@ -556,7 +559,7 @@ function AgendaSec({ data, theme, sessions, speakers }: {
           {activeDay && (
             <div id={`agenda-day-${activeDay[0]}`} className="scroll-mt-24">
               <p className="text-sm font-semibold mb-3" style={{ color: theme.primaryColor }}>
-                {format(new Date(activeDay[0]), "EEEE, MMMM d")}
+                {format(new Date(`${activeDay[0]}T00:00:00`), "EEEE, MMMM d")}
               </p>
               <ol className="space-y-2">
                 {activeDay[1].map((s) => {
@@ -565,7 +568,7 @@ function AgendaSec({ data, theme, sessions, speakers }: {
                   return (
                      <li key={s.id} className="flex flex-col sm:flex-row gap-1 sm:gap-4 p-4 rounded-xl border" style={{ borderColor: `${theme.primaryColor}15` }}>
                        <div className="text-sm font-semibold sm:whitespace-nowrap sm:w-24" style={{ color: theme.primaryColor }}>
-                         {format(new Date(s.start_time), "h:mm a")}
+                         {format(new Date(`${s.start_time.split("+")[0].split("Z")[0]}`), "h:mm a")}
                        </div>
                        <div className="flex-1 min-w-0">
                          <p className="font-semibold">{s.title}</p>
