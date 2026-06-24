@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
 import { roleFromTicketType, sendParticipantWelcomeEmail } from "@/lib/participant-email";
+import { publicOrigin } from "@/lib/publicUrl";
 
 /** Columns accepted by the importer. Header matching is case-insensitive and
  *  ignores spaces, dashes and underscores, so `Full Name`, `full_name`,
@@ -345,9 +346,9 @@ export default function ImportRegistrationsDialog({
                 // CSV imports don't know virtual vs physical, so pass both —
                 // the body picks joinUrl when present.
                 joinUrl: row.join_token
-                  ? `${window.location.origin}/e/${eventId}/live?join=${row.join_token}`
+                  ? `${publicOrigin()}/e/${eventId}/live?join=${row.join_token}`
                   : null,
-                eventUrl: `${window.location.origin}/e/${eventId}`,
+                eventUrl: `${publicOrigin()}/e/${eventId}`,
               });
             }),
           );

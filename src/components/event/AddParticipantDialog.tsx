@@ -11,6 +11,7 @@ import { UserPlus, Copy, Ticket, Link2 } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
 import { logger } from "@/lib/observability";
 import { sendParticipantWelcomeEmail } from "@/lib/participant-email";
+import { publicOrigin } from "@/lib/publicUrl";
 
 // Secondary Supabase client for creating participant accounts.
 // Uses a separate storage key so it won't sign out the organizer.
@@ -19,18 +20,6 @@ const anonClient = createClient(
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
   { auth: { storageKey: "sb-participant-signup", persistSession: false, autoRefreshToken: false } }
 );
-
-// Always build share links against the public production domain, never the
-// in-editor preview/sandbox host (lovableproject.com / *.lovable.app preview).
-const PUBLIC_ORIGIN = "https://illuxus.com";
-function publicOrigin() {
-  if (typeof window === "undefined") return PUBLIC_ORIGIN;
-  const h = window.location.hostname;
-  if (h.endsWith("lovableproject.com") || h.includes("id-preview--") || h.endsWith("lovable.app")) {
-    return PUBLIC_ORIGIN;
-  }
-  return window.location.origin;
-}
 
 export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, onAdded }: {
   eventId: string; eventFormat?: string | null; eventSlug?: string; onAdded?: () => void;

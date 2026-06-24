@@ -517,8 +517,26 @@ function ComposeDialog({
   const [scheduledFor, setScheduledFor] = useState("");
 
   // Custom-selection picker state — used when "custom" is in recipients
-  interface AttendeeRow { user_id: string; name: string; email: string; }
-  const [customUserIds, setCustomUserIds]   = useState<string[]>([]);
+  interface AttendeeRow {
+    /** Stable selection key. Real `user_id` when the registrant has an
+     *  auth account; otherwise a synthetic prefix so the picker can list
+     *  CSV-imported / pending people without keying collisions. */
+    key: string;
+    /** Real auth user_id, when known. Only these rows actually get sent to
+     *  the recipient resolver — see the filter in `selectedUserIds`. */
+    user_id: string | null;
+    name: string;
+    email: string;
+    /** Source the person came from: a real registration, a virtual speaker,
+     *  or a sponsor contact. Drives the visible label badge. */
+    kind: "attendee" | "speaker" | "sponsor";
+  }
+  // State stores the per-row unique `key`. Every CSV-imported row used to
+  // share `user_id = null`, which made "[null].includes(null) === true"
+  // light up every Pending row at once. Keying off the row's own `key`
+  // (which is `reg:<uuid>` for those rows) gives every row independent
+  // toggle state.
+  const [customSelectedKeys, setCustomSelectedKeys] = useState<string[]>([]);
   const [attendeeOptions, setAttendeeOptions] = useState<AttendeeRow[]>([]);
   const [attendeeQuery, setAttendeeQuery]   = useState("");
   const [attendeesLoading, setAttendeesLoading] = useState(false);
@@ -546,7 +564,7 @@ function ComposeDialog({
     if (editing) {
       setChannels(editing.channels);
       setRecipients(editing.recipient_filter.types);
-      setCustomUserIds(editing.recipient_filter.user_ids ?? []);
+      setCustomSelectedKeys(editing.recipient_filter.user_ids ?? []);
       setSubject(editing.subject);
       setBody(editing.body_text);
       setWaTemplate(editing.whatsapp_template_name ?? "");
@@ -562,7 +580,7 @@ function ComposeDialog({
     } else {
       setChannels(["email"]);
       setRecipients(["all_attendees"]);
-      setCustomUserIds([]);
+      setCustomSelectedKeys([]);
       setSubject("");
       setBody("");
       setWaTemplate("");
@@ -605,24 +623,104 @@ function ComposeDialog({
     let cancelled = false;
     setAttendeesLoading(true);
     (async () => {
-      const { data } = await supabase
-        .from("registrations")
-        .select("user_id, name, email, first_name, last_name")
-        .eq("event_id", eventId)
-        .neq("status", "cancelled")
-        .order("created_at", { ascending: false })
-        .limit(500);
+      // Pull from all three "people in the event" sources in parallel:
+      //   1. registrations  — direct attendees, including CSV-imported rows
+      //                       that don't have a `user_id` yet
+      //   2. event_speakers → speakers — anyone added through the Speakers tab
+      //   3. event_sponsors → sponsor_members — sponsor contacts on this event
+      // Deduped by lower-cased email so a person who is both a registrant
+      // and a speaker shows up once with the most-specific role.
+      const [regRes, speakerRes, sponsorLinkRes] = await Promise.all([
+        supabase
+          .from("registrations")
+          .select("id, user_id, name, email, first_name, last_name, ticket_type")
+          .eq("event_id", eventId)
+          .neq("status", "cancelled")
+          .order("created_at", { ascending: false })
+          .limit(1000),
+        supabase
+          .from("event_speakers")
+          .select("speaker_id, speakers:speaker_id(id, name, email)")
+          .eq("event_id", eventId),
+        supabase
+          .from("event_sponsors")
+          .select("sponsor_id")
+          .eq("event_id", eventId),
+      ]);
+
+      // Resolve sponsor contacts only when there are sponsor links — saves a
+      // round-trip on events that don't use sponsors.
+      type SponsorMember = { id: string; sponsor_id: string; email: string | null; display_name: string | null };
+      let sponsorMembers: SponsorMember[] = [];
+      const sponsorIds = (sponsorLinkRes.data ?? []).map((r) => (r as { sponsor_id: string }).sponsor_id);
+      if (sponsorIds.length > 0) {
+        const { data } = await supabase
+          .from("sponsor_members")
+          .select("id, sponsor_id, email, display_name")
+          .in("sponsor_id", sponsorIds);
+        sponsorMembers = (data ?? []) as SponsorMember[];
+      }
+
       if (cancelled) return;
-      const opts: AttendeeRow[] = (data ?? []).flatMap((r) => {
-        const row = r as { user_id: string | null; name: string | null; email: string; first_name: string | null; last_name: string | null };
-        if (!row.user_id) return [];
-        return [{
-          user_id: row.user_id,
-          name: [row.first_name, row.last_name].filter(Boolean).join(" ") || row.name || row.email,
-          email: row.email,
-        }];
-      });
-      setAttendeeOptions(opts);
+
+      const seen = new Set<string>();
+      const rows: AttendeeRow[] = [];
+
+      type RegRow = { id: string; user_id: string | null; name: string | null; email: string | null; first_name: string | null; last_name: string | null; ticket_type: string | null };
+      // Speakers and sponsors first so they win the dedupe.
+      type SpeakerJoin = { speaker_id: string; speakers: { id: string; name: string | null; email: string | null } | null };
+      for (const r of (speakerRes.data ?? []) as SpeakerJoin[]) {
+        const sp = r.speakers;
+        if (!sp || !sp.email) continue;
+        const key = sp.email.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push({
+          key: `speaker:${sp.id}`,
+          user_id: null, // speakers entries don't carry the auth user_id
+          name: sp.name || sp.email,
+          email: sp.email,
+          kind: "speaker",
+        });
+      }
+      for (const m of sponsorMembers) {
+        if (!m.email) continue;
+        const key = m.email.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push({
+          key: `sponsor:${m.id}`,
+          user_id: null,
+          name: m.display_name || m.email,
+          email: m.email,
+          kind: "sponsor",
+        });
+      }
+      for (const r of (regRes.data ?? []) as RegRow[]) {
+        const email = (r.email || "").toLowerCase();
+        if (!email) continue;
+        if (seen.has(email)) continue;
+        seen.add(email);
+        const fullName =
+          [r.first_name, r.last_name].filter(Boolean).join(" ").trim() ||
+          r.name ||
+          r.email ||
+          "Unnamed";
+        const ticket = (r.ticket_type || "").toLowerCase();
+        const kind: AttendeeRow["kind"] =
+          ticket === "speaker" ? "speaker" :
+          ticket === "sponsor" ? "sponsor" :
+          "attendee";
+        rows.push({
+          key: r.user_id || `reg:${r.id}`,
+          user_id: r.user_id,
+          name: fullName,
+          email: r.email!,
+          kind,
+        });
+      }
+
+      setAttendeeOptions(rows);
       setAttendeesLoading(false);
     })();
     return () => { cancelled = true; };
@@ -633,7 +731,14 @@ function ComposeDialog({
     if (!open || step < 2) return;
     let cancelled = false;
     setResolving(true);
-    const filter = { types: recipients, user_ids: customUserIds };
+    // Translate the selected per-row keys back into real `user_id`s the
+    // resolver understands. Rows with no auth account (CSV imports) carry
+    // a synthetic `reg:<uuid>` key — they're skipped here so the resolver
+    // never sees a non-uuid identifier.
+    const selectedUserIds = attendeeOptions
+      .filter((a) => a.user_id && customSelectedKeys.includes(a.key))
+      .map((a) => a.user_id!);
+    const filter = { types: recipients, user_ids: selectedUserIds };
     supabaseRpc(
       "communications_resolve_recipients" as never,
       { _event_id: eventId, _filter: filter } as never,
@@ -646,7 +751,7 @@ function ComposeDialog({
       })
       .finally(() => { if (!cancelled) setResolving(false); });
     return () => { cancelled = true; };
-  }, [open, step, eventId, recipients, customUserIds]);
+  }, [open, step, eventId, recipients, customSelectedKeys, attendeeOptions]);
 
   // Load preview-time sample data: current user's name + this event's title /
   // date / location. Variables in the body get substituted with these values
@@ -764,7 +869,10 @@ function ComposeDialog({
 
   // ── Persistence helpers ───────────────────────────────────────────────────
   const persistDraft = async (): Promise<string | null> => {
-    const filter = { types: recipients, user_ids: customUserIds };
+    const selectedUserIds = attendeeOptions
+      .filter((a) => a.user_id && customSelectedKeys.includes(a.key))
+      .map((a) => a.user_id!);
+    const filter = { types: recipients, user_ids: selectedUserIds };
     const waBinding = wantsWhatsapp && waTemplate ? { body: waVars } : null;
     const payload = {
       org_id: orgId,
@@ -983,7 +1091,7 @@ function ComposeDialog({
                         className="h-8 text-[13px]"
                       />
                       <Badge variant="outline" className="shrink-0 text-[11px]">
-                        {customUserIds.length} selected
+                        {customSelectedKeys.length} selected
                       </Badge>
                     </div>
                     <ScrollArea className="h-44">
@@ -1004,25 +1112,54 @@ function ComposeDialog({
                             return (
                               <p className="text-[12px] text-muted-foreground text-center py-4">
                                 {attendeeOptions.length === 0
-                                  ? "No registrations yet for this event."
-                                  : "No attendees match that search."}
+                                  ? "No registrations, speakers, or sponsors yet for this event."
+                                  : "No people match that search."}
                               </p>
                             );
                           }
                           return filtered.slice(0, 200).map((a) => {
-                            const checked = customUserIds.includes(a.user_id);
+                            const checked = customSelectedKeys.includes(a.key);
+                            const hasAuth = !!a.user_id;
+                            const kindBadge =
+                              a.kind === "speaker" ? "Speaker" :
+                              a.kind === "sponsor" ? "Sponsor" :
+                              null;
                             return (
                               <button
-                                key={a.user_id}
+                                key={a.key}
                                 type="button"
-                                onClick={() => setCustomUserIds((p) =>
-                                  p.includes(a.user_id) ? p.filter((x) => x !== a.user_id) : [...p, a.user_id],
-                                )}
-                                className="w-full flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50 text-left"
+                                onClick={() => {
+                                  setCustomSelectedKeys((p) =>
+                                    p.includes(a.key)
+                                      ? p.filter((x) => x !== a.key)
+                                      : [...p, a.key],
+                                  );
+                                }}
+                                className="w-full flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50 cursor-pointer text-left transition-colors"
+                                title={hasAuth
+                                  ? undefined
+                                  : "This person hasn't signed in yet — select them via the All attendees / Speakers / Sponsors group instead."
+                                }
                               >
                                 <Checkbox checked={checked} className="shrink-0" />
                                 <div className="min-w-0 flex-1">
-                                  <div className="text-[12.5px] font-medium truncate">{a.name}</div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[12.5px] font-medium truncate">{a.name}</span>
+                                    {kindBadge && (
+                                      <span className={`text-[10px] uppercase font-semibold tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
+                                        a.kind === "speaker"
+                                          ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                                          : "bg-purple-500/10 text-purple-600 dark:text-purple-400"
+                                      }`}>
+                                        {kindBadge}
+                                      </span>
+                                    )}
+                                    {!hasAuth && (
+                                      <span className="text-[10px] uppercase font-semibold tracking-wider px-1.5 py-0.5 rounded shrink-0 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                                        Pending
+                                      </span>
+                                    )}
+                                  </div>
                                   <div className="text-[11px] text-muted-foreground truncate">{a.email}</div>
                                 </div>
                               </button>
