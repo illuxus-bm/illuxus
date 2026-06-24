@@ -67,7 +67,10 @@ const EventsPage = () => {
   const [communityCategory, setCommunityCategory] = useState("other");
 
   const fetchEvents = useCallback(async () => {
-    if (!org?.id) return;
+    if (!org?.id) {
+      setLoading(false);
+      return;
+    }
     const { data, error } = await supabase
       .from("events")
       .select("*")
@@ -77,7 +80,7 @@ const EventsPage = () => {
     setLoading(false);
   }, [org?.id]);
 
-  useEffect(() => { if (org?.id) fetchEvents(); }, [org?.id, fetchEvents]);
+  useEffect(() => { fetchEvents(); }, [fetchEvents]);
 
   const resetForm = () => {
     setTitle(""); setDescription(""); setSlug(""); setSlugTouched(false); setDate(""); setEndDate("");

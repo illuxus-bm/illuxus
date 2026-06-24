@@ -67,7 +67,10 @@ const Dashboard = () => {
   const [bannerPortraitUrl, setBannerPortraitUrl] = useState("");
 
   const fetchEvents = async () => {
-    if (!org?.id) return;
+    if (!org?.id) {
+      setLoading(false);
+      return;
+    }
     const { data, error } = await supabase
       .from("events")
       .select("*")
@@ -90,7 +93,7 @@ const Dashboard = () => {
     setLoading(false);
   };
 
-  useEffect(() => { if (org?.id) fetchEvents(); }, [org?.id]);
+  useEffect(() => { fetchEvents(); }, [org?.id]);
 
   const resetForm = () => {
     setTitle(""); setDescription(""); setDate(""); setEndDate("");
