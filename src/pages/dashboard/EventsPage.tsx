@@ -140,23 +140,28 @@ const EventsPage = () => {
       const { error } = await supabase.from("events").update(eventData as never).eq("id", editingEvent.id);
       if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
       else toast({ title: "Event updated successfully" });
+      resetForm();
+      fetchEvents();
     } else {
       // Try inserting with the chosen slug. If there's a slug collision (23505),
       // append a short random suffix and retry once.
-      let insertError = await supabase.from("events").insert(eventData as never).then(r => r.error);
-      if (insertError?.code === "23505") {
+      let result = await supabase.from("events").insert(eventData as never).select("id, slug").single();
+      if (result.error?.code === "23505") {
         const suffix = Math.random().toString(36).slice(2, 6);
         const retryData = { ...eventData, slug: `${eventData.slug}-${suffix}` };
-        insertError = await supabase.from("events").insert(retryData as never).then(r => r.error);
+        result = await supabase.from("events").insert(retryData as never).select("id, slug").single();
       }
-      if (insertError) {
-        toast({ title: "Error", description: insertError.message, variant: "destructive" });
+      if (result.error) {
+        toast({ title: "Error", description: result.error.message, variant: "destructive" });
         return;
       }
       toast({ title: "Event created successfully" });
+      resetForm();
+      fetchEvents();
+      // Navigate directly to the new event detail page
+      const target = result.data?.slug || result.data?.id;
+      if (target) navigate(`/dashboard/events/${target}`);
     }
-    resetForm();
-    fetchEvents();
   };
 
   const deleteEvent = async (id: string) => {
