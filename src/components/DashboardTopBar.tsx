@@ -322,7 +322,7 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
             </SidebarTrigger>
           )}
           <a
-            href="https://illuxusbm.vercel.app"
+            href="https://illuxus.com"
             className="flex items-center gap-2 mr-4 shrink-0"
             aria-label={`${brandName} home`}
           >

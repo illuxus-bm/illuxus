@@ -116,7 +116,7 @@ export default function SiteHeader({
         {/* Brand area — wordmark only. Always navigates to the canonical
             illuxus deployment, regardless of which segment we're in. */}
         <a
-          href="https://illuxusbm.vercel.app"
+          href="https://illuxus.com"
           className="flex items-center gap-2 shrink-0"
           aria-label={`${brandName} home`}
         >
