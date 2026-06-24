@@ -5,6 +5,7 @@ import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, CalendarDays, CalendarPlus, Clock, MapPin, Radio, Sparkles } from "lucide-react";
 import { buildIcsBlobUrl } from "@/lib/ics";
+import { publicOrigin } from "@/lib/publicUrl";
 
 type Props = {
   eventId: string;
@@ -97,7 +98,7 @@ export function WaitingLobby({ eventId, visitorName, role, sessionStatus, onJoin
       location: [event.venue, event.location].filter(Boolean).join(", ") || (event.event_format === "virtual" ? "Online" : undefined),
       start: event.date,
       end: event.end_date,
-      url: window.location.origin + `/events/${eventId}`,
+      url: publicOrigin() + `/events/${eventId}`,
     });
     const a = document.createElement("a");
     a.href = url;

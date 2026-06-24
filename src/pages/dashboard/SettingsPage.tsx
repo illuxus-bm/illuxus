@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import type { Tables } from "@/integrations/supabase/types";
 import PersonFieldsForm, { type PersonFields, emptyPersonFields, displayName as buildDisplayName } from "@/components/people/PersonFieldsForm";
 import { uuid } from "@/lib/uuid";
+import { publicOrigin } from "@/lib/publicUrl";
 
 type Profile = Tables<"profiles">;
 
@@ -282,7 +283,11 @@ const SettingsPage = () => {
       // Send invite email via edge function. We *await* the call and surface the result so
       // delivery failures (missing RESEND_API_KEY, unverified domain, sandbox rejection, etc.)
       // are visible instead of silently swallowed.
-      const inviteUrl = `${window.location.origin}/login?invite=${invitation?.token || ""}`;
+      // Build the invite link against the canonical public origin so the
+      // recipient never lands on a Vercel preview / Lovable sandbox URL.
+      // `publicOrigin()` resolves `VITE_PUBLIC_ORIGIN` first, then falls back
+      // to detecting and rewriting preview hosts.
+      const inviteUrl = `${publicOrigin()}/login?invite=${invitation?.token || ""}`;
       const recipient = inviteEmail.trim().toLowerCase();
 
       let emailDelivered = false;

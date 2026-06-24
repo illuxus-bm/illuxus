@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { MailWarning, X } from "lucide-react";
 import { SiteContainer } from "@/components/layout/SiteContainer";
+import { publicOrigin } from "@/lib/publicUrl";
 
 /**
  * Slim banner that appears across the app while a signed-in user has not
@@ -25,7 +26,7 @@ export default function EmailVerificationBanner() {
     const { error } = await supabase.auth.resend({
       type: "signup",
       email: user.email,
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: publicOrigin() },
     });
     setSending(false);
     if (error) {

@@ -30,6 +30,7 @@ import {
   moveSponsorToTier as moveSponsorToTierPure,
 } from "./sponsor-dnd";
 import { useOrgSponsorSearch } from "@/hooks/useOrgPeopleSearch";
+import { publicOrigin } from "@/lib/publicUrl";
 
 const SponsorApplicationsPanelLazy = lazy(() =>
   import("./ApplicationsSection").then((m) => ({ default: m.SponsorApplicationsPanel })),
@@ -238,7 +239,7 @@ export default function SponsorManagement({ eventId }: Props) {
   };
 
   const copyInvite = (token: string) => {
-    const url = `${window.location.origin}/sponsor/accept?token=${token}`;
+    const url = `${publicOrigin()}/sponsor/accept?token=${token}`;
     navigator.clipboard.writeText(url);
     toast.success("Invite link copied", { description: url });
   };

@@ -114,7 +114,7 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
               email,
               password: mobileNum,
               options: {
-                emailRedirectTo: `${window.location.origin}/login`,
+                emailRedirectTo: `${publicOrigin()}/login`,
                 data: {
                   must_change_password: true,
                   account_type: "attendee",
