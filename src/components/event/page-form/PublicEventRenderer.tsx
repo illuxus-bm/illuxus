@@ -154,7 +154,10 @@ export default function PublicEventRenderer({
       style={{
         backgroundColor: theme.backgroundColor,
         color: theme.textColor,
-        fontFamily: `${theme.fontFamily}, sans-serif`,
+        // The theme font only applies to titles. Body text stays in the global
+        // Poppins so reading remains predictable across every section.
+        // Titles opt in by setting `font-family: var(--ev-title-font)`.
+        ["--ev-title-font" as never]: `'${theme.fontFamily}', Poppins, system-ui, sans-serif`,
         // zoom scales rem-based Tailwind classes (which don't respond to a
         // parent fontSize %) as well as images and spacing — exactly what
         // the organizer expects when dragging the Font Size slider.
@@ -178,7 +181,7 @@ export default function PublicEventRenderer({
             style={overridden ? {
               backgroundColor: sectionTheme.backgroundColor,
               color: sectionTheme.textColor,
-              fontFamily: `${sectionTheme.fontFamily}, sans-serif`,
+              ["--ev-title-font" as never]: `'${sectionTheme.fontFamily}', Poppins, system-ui, sans-serif`,
             } : undefined}
           >
             <SectionRenderer
@@ -286,7 +289,7 @@ function SectionHeader({ eyebrow, title, intro, theme, align = "left" }: {
       {title && (
         <h2
           className="text-3xl sm:text-4xl lg:text-[44px] font-semibold tracking-[-0.02em] leading-[1.08]"
-          style={{ color: fg }}
+          style={{ color: fg, fontFamily: "var(--ev-title-font, Poppins)" }}
         >
           {title}
         </h2>
@@ -327,7 +330,10 @@ function HeroSec({ data, theme, event }: { data: HeroData; theme: ThemeConfig; e
             {data.badge}
           </span>
         )}
-        <h1 className="text-4xl sm:text-6xl font-extrabold leading-[1.05] mb-4">
+        <h1
+          className="text-4xl sm:text-6xl font-extrabold leading-[1.05] mb-4"
+          style={{ fontFamily: "var(--ev-title-font, Poppins)" }}
+        >
           {data.headline || event.title}
         </h1>
         {data.subheadline && (
@@ -472,10 +478,10 @@ function TicketsSec({ data, theme, event }: { data: TicketsData; theme: ThemeCon
 }
 
 // Default body font used for agenda meta (time, description, type/location)
-// so the event's custom theme font applies only to titles. Matches the global
-// body font set in src/index.css and preloaded in index.html.
-const AGENDA_BODY_FONT =
-  "'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+// is no longer hardcoded — it inherits Poppins from `src/index.css` because
+// the page root no longer pins a global theme.fontFamily. Titles opt in to
+// the theme font via the `--ev-title-font` CSS variable defined on the page
+// root, so the organizer's font choice only affects titles.
 
 function AgendaSec({ data, theme, sessions, speakers }: {
   data: AgendaData; theme: ThemeConfig; sessions: RendererSession[]; speakers: RendererSpeaker[];
@@ -575,24 +581,23 @@ function AgendaSec({ data, theme, sessions, speakers }: {
                      <li key={s.id} className="flex flex-col sm:flex-row gap-1 sm:gap-4 p-4 rounded-xl border" style={{ borderColor: `${theme.primaryColor}15` }}>
                        <div
                          className="text-sm font-semibold sm:whitespace-nowrap sm:w-24"
-                         style={{ color: theme.primaryColor, fontFamily: AGENDA_BODY_FONT }}
+                         style={{ color: theme.primaryColor }}
                        >
                          {format(new Date(`${s.start_time.split("+")[0].split("Z")[0]}`), "h:mm a")}
                        </div>
                        <div className="flex-1 min-w-0">
-                         <p className="font-semibold">{s.title}</p>
+                         <p
+                           className="font-semibold"
+                           style={{ fontFamily: "var(--ev-title-font, Poppins)" }}
+                         >
+                           {s.title}
+                         </p>
                          {s.description && (
-                           <p
-                             className="text-sm opacity-70 mt-1 line-clamp-2"
-                             style={{ fontFamily: AGENDA_BODY_FONT }}
-                           >
+                           <p className="text-sm opacity-70 mt-1 line-clamp-2">
                              {s.description}
                            </p>
                          )}
-                         <div
-                           className="flex flex-wrap gap-2 mt-2 text-xs opacity-60"
-                           style={{ fontFamily: AGENDA_BODY_FONT }}
-                         >
+                         <div className="flex flex-wrap gap-2 mt-2 text-xs opacity-60">
                            <span className="capitalize">{s.session_type}</span>
                           {s.location && <><span>·</span><span>{s.location}</span></>}
                         </div>
@@ -658,7 +663,12 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
                   {sp.photo_url ? <img src={sp.photo_url} alt={sp.name} className="h-full w-full object-cover" /> : sp.name.charAt(0)}
                 </div>
                 <div className="min-w-0">
-                  <p className="font-semibold truncate">{sp.name}</p>
+                  <p
+                    className="font-semibold truncate"
+                    style={{ fontFamily: "var(--ev-title-font, Poppins)" }}
+                  >
+                    {sp.name}
+                  </p>
                   <p className="text-xs opacity-60 truncate">{[sp.designation, sp.company].filter(Boolean).join(" · ")}</p>
                 </div>
               </div>
@@ -1118,7 +1128,12 @@ function FaqSec({ data, theme }: { data: FaqData; theme: ThemeConfig }) {
       <div className="space-y-2 max-w-3xl">
         {data.items.map(item => (
           <details key={item.id} className="rounded-xl border p-4" style={{ borderColor: `${theme.primaryColor}20` }}>
-            <summary className="cursor-pointer font-semibold text-sm">{item.question}</summary>
+            <summary
+              className="cursor-pointer font-semibold text-sm"
+              style={{ fontFamily: "var(--ev-title-font, Poppins)" }}
+            >
+              {item.question}
+            </summary>
             <p className="text-sm opacity-70 mt-2 whitespace-pre-line">{item.answer}</p>
           </details>
         ))}

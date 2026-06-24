@@ -9,6 +9,7 @@ import { Upload, Download, FileText, AlertCircle, CheckCircle2, X } from "lucide
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
+import { roleFromTicketType, sendParticipantWelcomeEmail } from "@/lib/participant-email";
 
 /** Columns accepted by the importer. Header matching is case-insensitive and
  *  ignores spaces, dashes and underscores, so `Full Name`, `full_name`,
@@ -28,7 +29,9 @@ const COLUMN_ALIASES: Record<string, string> = {
   linkedin: "linkedin_url", linkedinurl: "linkedin_url",
   website: "company_website", companywebsite: "company_website",
   industry: "industry",
-  tickettype: "ticket_type", ticket: "ticket_type",
+  // `role` is the friendlier alias the organiser is asked to use in the CSV.
+  // Internally it maps to ticket_type and accepts: attendee, speaker, sponsor.
+  role: "ticket_type", tickettype: "ticket_type", ticket: "ticket_type",
 };
 
 type ImportRow = {
@@ -51,11 +54,15 @@ type ImportRow = {
 
 /** Required CSV columns — mirrors the Add Participant form's starred fields.
  *  `name` is derived from first_name + last_name, so it isn't required as a
- *  separate column. `title` stays optional. */
+ *  separate column. `title` stays optional. `ticket_type` (a.k.a. `role`)
+ *  is now required because the welcome email tells the participant what
+ *  they've been registered as. */
 const REQUIRED = [
   "first_name", "last_name", "designation", "company",
-  "email", "mobile_country_code", "mobile_number",
+  "email", "mobile_country_code", "mobile_number", "ticket_type",
 ] as const;
+
+const VALID_ROLES = new Set(["attendee", "speaker", "sponsor"]);
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Accept country codes with or without a leading `+`. Plain `91` is valid;
@@ -216,6 +223,17 @@ export default function ImportRegistrationsDialog({
       else if (!MOBILE_RE.test(mob))  obj.errors.push("Mobile number must be 6–15 digits");
       obj.mobile_number = mob;
 
+      // Role / ticket_type validation. We expose the column to organisers as
+      // `role` (with `ticket_type` as a backwards-compatible alias) and only
+      // accept the three options the dashboard surfaces.
+      const rawRole = (obj.ticket_type || "").trim().toLowerCase();
+      if (!rawRole) {
+        obj.errors.push("Role required (attendee, speaker, or sponsor)");
+      } else if (!VALID_ROLES.has(rawRole)) {
+        obj.errors.push(`Role must be attendee, speaker, or sponsor (got "${rawRole}")`);
+      }
+      obj.ticket_type = rawRole;
+
       out.push(obj);
     }
     setParsed(out);
@@ -263,7 +281,10 @@ export default function ImportRegistrationsDialog({
       linkedin_url: r.linkedin_url || null,
       company_website: r.company_website || null,
       industry: r.industry || null,
-      ticket_type: r.ticket_type?.toLowerCase() || "general",
+      // Map the row's validated role to the DB column. "attendee" is stored
+      // as the default "general" ticket category so existing reporting +
+      // badge templates that key off `general` keep working.
+      ticket_type: r.ticket_type === "attendee" ? "general" : r.ticket_type || "general",
       status: "confirmed",
       approval_status: "approved",
     }));
@@ -271,7 +292,7 @@ export default function ImportRegistrationsDialog({
     const { data, error } = await supabase
       .from("registrations")
       .insert(payload)
-      .select("id");
+      .select("id, name, email, join_token, ticket_type");
 
     setBusy(false);
     if (error) {
@@ -292,6 +313,59 @@ export default function ImportRegistrationsDialog({
     onImported?.();
     onOpenChange(false);
     reset();
+
+    // Fire welcome emails in the background. We don't block the dialog close
+    // on this — Resend round-trips can take a few seconds per recipient.
+    // Failures are non-fatal (the registration already exists, the join link
+    // still works). Mobile-number → temporary password mapping is provided
+    // when present so the email can include sign-in credentials.
+    if (data && data.length > 0) {
+      const phoneByEmail = new Map(
+        validRows.map((r) => [r.email.toLowerCase(), r.mobile_number || ""]),
+      );
+      void (async () => {
+        let sent = 0;
+        let failed = 0;
+        // Send sequentially in small chunks so we don't blow past Resend's
+        // burst rate-limit. 5 at a time keeps the dashboard responsive
+        // while finishing 100 rows in ~20s.
+        const CONCURRENCY = 5;
+        for (let i = 0; i < data.length; i += CONCURRENCY) {
+          const slice = data.slice(i, i + CONCURRENCY);
+          const results = await Promise.all(
+            slice.map((row) => {
+              const phone = phoneByEmail.get((row.email || "").toLowerCase()) || null;
+              return sendParticipantWelcomeEmail({
+                eventId,
+                recipientName: row.name,
+                recipientEmail: row.email,
+                role: roleFromTicketType(row.ticket_type),
+                initialPassword: phone || null,
+                // CSV imports don't know virtual vs physical, so pass both —
+                // the body picks joinUrl when present.
+                joinUrl: row.join_token
+                  ? `${window.location.origin}/e/${eventId}/live?join=${row.join_token}`
+                  : null,
+                eventUrl: `${window.location.origin}/e/${eventId}`,
+              });
+            }),
+          );
+          for (const r of results) {
+            if (r.ok) sent += 1;
+            else failed += 1;
+          }
+        }
+        if (sent > 0) {
+          toast.success(`Welcome emails sent (${sent})`, {
+            description: failed > 0 ? `${failed} failed — check logs` : undefined,
+          });
+        } else if (failed > 0) {
+          toast.warning(`Welcome emails failed (${failed})`, {
+            description: "Check Resend secrets / domain verification.",
+          });
+        }
+      })();
+    }
   };
 
   const downloadTemplate = () => {
@@ -301,13 +375,13 @@ export default function ImportRegistrationsDialog({
     // which are required.
     const headers = [
       "first_name", "last_name", "title", "designation", "company",
-      "mobile_country_code", "mobile_number", "email",
-      "linkedin_url", "company_website", "industry", "ticket_type",
+      "mobile_country_code", "mobile_number", "email", "role",
+      "linkedin_url", "company_website", "industry",
     ];
     const sample = [
       "Jane", "Doe", "Ms", "CEO", "Acme Inc.",
-      "+1", "5551234567", "jane@example.com",
-      "https://linkedin.com/in/janedoe", "https://acme.com", "Technology", "general",
+      "+1", "5551234567", "jane@example.com", "attendee",
+      "https://linkedin.com/in/janedoe", "https://acme.com", "Technology",
     ];
     const csv = headers.join(",") + "\n" + sample.map(csvEscape).join(",") + "\n";
     const blob = new Blob([csv], { type: "text/csv" });
@@ -330,8 +404,9 @@ export default function ImportRegistrationsDialog({
             CSV columns must mirror the Add Participant form's starred fields:
             {" "}<code>first_name</code>, <code>last_name</code>, <code>designation</code>,
             {" "}<code>company</code>, <code>mobile_country_code</code>, <code>mobile_number</code>,
-            {" "}and <code>email</code>. Rows whose email is already registered for this
-            event are skipped.
+            {" "}<code>email</code>, and <code>role</code>{" "}
+            (<code>attendee</code>, <code>speaker</code>, or <code>sponsor</code>).
+            Rows whose email is already registered for this event are skipped.
           </DialogDescription>
         </DialogHeader>
 
@@ -391,12 +466,12 @@ export default function ImportRegistrationsDialog({
                 (e.g. <code>1</code>, <code>91</code>, or <code>+44</code> — the
                 {" "}<code>+</code> is added automatically if missing),
                 {" "}<code>mobile_number</code> (6–15 digits),
-                {" "}<code>email</code>
+                {" "}<code>email</code>,
+                {" "}<code>role</code> (<code>attendee</code>, <code>speaker</code>, or <code>sponsor</code>)
               </p>
               <p>
                 Optional: <code>title</code>, <code>linkedin_url</code>,
-                {" "}<code>company_website</code>, <code>industry</code>,
-                {" "}<code>ticket_type</code>
+                {" "}<code>company_website</code>, <code>industry</code>
               </p>
               <p>
                 Header matching is forgiving — <code>First Name</code>, <code>first_name</code>,

@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { UserPlus, Copy, Ticket, Link2 } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
 import { logger } from "@/lib/observability";
+import { sendParticipantWelcomeEmail } from "@/lib/participant-email";
 
 // Secondary Supabase client for creating participant accounts.
 // Uses a separate storage key so it won't sign out the organizer.
@@ -36,21 +37,32 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
 }) {
   const [open, setOpen] = useState(false);
   const [fields, setFields] = useState<PersonFields>(() => emptyPersonFields());
-  const [ticketType, setTicketType] = useState("general");
-  const [role, setRole] = useState<"attendee" | "speaker">("attendee");
+  // Role is now required for every event — the welcome email needs it to
+  // tell the participant what they've been registered as. Empty string
+  // forces the organiser to make an explicit choice.
+  const [role, setRole] = useState<"" | "attendee" | "speaker" | "sponsor">("");
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ join_token: string; qr_code: string; speakerLink?: string } | null>(null);
   const isVirtual = eventFormat === "virtual";
 
-  const reset = () => { setFields(emptyPersonFields()); setTicketType("general"); setRole("attendee"); setCreated(null); };
+  const reset = () => { setFields(emptyPersonFields()); setRole(""); setCreated(null); };
 
   const submit = async () => {
     const v = validatePersonFields(fields);
     if (!v.ok) return toast.error(v.error);
+    if (!role) return toast.error("Pick a role for this participant (Attendee, Speaker, or Sponsor)");
     setBusy(true);
     const fullName = displayName(fields);
     const email = fields.email.trim().toLowerCase();
     const mobileNum = fields.mobile_number.trim();
+
+    // Map the organiser's role choice to the ticket_type column. The
+    // welcome-email helper derives the same `role` back from ticket_type so
+    // a single source-of-truth column carries it through the system.
+    const resolvedTicketType =
+      role === "speaker" ? "speaker" :
+      role === "sponsor" ? "sponsor" :
+      isVirtual ? "webinar" : "general";
 
     // ── Step 1 (fast, await): Create the registration row ──────────────────
     // We hit `registrations` first so the organizer sees the success screen
@@ -72,7 +84,7 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
       company_website: fields.company_website.trim() || null,
       company_employee_count: fields.company_employee_count || null,
       industry: fields.industry || null,
-      ticket_type: isVirtual ? "webinar" : ticketType,
+      ticket_type: resolvedTicketType,
       status: "confirmed",
       approval_status: "approved",
     }).select("id, join_token, qr_code").single();
@@ -179,6 +191,24 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
         } else if (mobileNum) {
           toast.message("Confirmation email sent", { description: email });
         }
+
+        // Welcome email — confirms the role and shares the join link. Fired
+        // after the speaker token block so virtual speakers can receive a
+        // single email that carries their attendee join URL too (the
+        // dedicated speaker link is shown to the organiser only).
+        const welcomeJoinUrl = `${publicOrigin()}/e/${eventSlug || eventId}/live?join=${reg.join_token}`;
+        const welcomeEventUrl = `${publicOrigin()}/e/${eventSlug || eventId}`;
+        void sendParticipantWelcomeEmail({
+          eventId,
+          recipientName: fullName,
+          recipientEmail: email,
+          role: role === "speaker" ? "speaker" : role === "sponsor" ? "sponsor" : "attendee",
+          initialPassword: mobileNum || null,
+          joinUrl: isVirtual ? welcomeJoinUrl : null,
+          eventUrl: welcomeEventUrl,
+        }).then((res) => {
+          if (res.ok) toast.message("Welcome email sent", { description: email });
+        });
       } catch (bgErr) {
         logger.warn("add-participant background work failed", {
           error_message: bgErr instanceof Error ? bgErr.message : String(bgErr),
@@ -200,21 +230,25 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
         {!created ? (
           <div className="space-y-3">
             <PersonFieldsForm value={fields} onChange={setFields} />
-            {isVirtual && (
-              <div>
-                <Label className="text-[12px]">Role</Label>
-                <Select value={role} onValueChange={(v) => setRole(v as "attendee" | "speaker")}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="attendee">Attendee</SelectItem>
-                    <SelectItem value="speaker">Speaker (on-stage)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            <div>
+              <Label className="text-[12px]">Role *</Label>
+              <Select value={role} onValueChange={(v) => setRole(v as typeof role)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="attendee">Attendee</SelectItem>
+                  <SelectItem value="speaker">Speaker{isVirtual ? " (on-stage)" : ""}</SelectItem>
+                  <SelectItem value="sponsor">Sponsor</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Used in the welcome email to tell the participant what they've been registered as.
+              </p>
+            </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button onClick={submit} disabled={busy}>{busy ? "Adding…" : "Add"}</Button>
+              <Button onClick={submit} disabled={busy || !role}>{busy ? "Adding…" : "Add"}</Button>
             </DialogFooter>
           </div>
         ) : (

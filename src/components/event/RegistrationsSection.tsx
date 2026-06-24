@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { logger, supabaseRpc } from "@/lib/observability";
-import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX, Copy, ExternalLink, Link2, Upload } from "lucide-react";
+import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX, Copy, ExternalLink, Link2, Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,10 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { Tables } from "@/integrations/supabase/types";
 import QRScannerDialog, { type ScanResult, type ScannerTab } from "./registrations/QRScannerDialog";
 import SelfServiceCheckDialog from "./registrations/SelfServiceCheckDialog";
@@ -124,6 +128,11 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [selfKioskOpen, setSelfKioskOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  // `deleteFor` holds the list of rows pending confirmation. Single-row
+  // delete used to live here as `Row | null`; now the trash action is
+  // exclusively driven by row selection, so we always work with an array.
+  const [deleteFor, setDeleteFor] = useState<Row[] | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [printState, setPrintState] = useState<{ open: boolean; rowIds: string[] | null; mode: PrintMode }>({ open: false, rowIds: null, mode: "badge" });
   const [eventInfo, setEventInfo] = useState<{
     event_format: string | null;
@@ -752,6 +761,79 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     URL.revokeObjectURL(url);
   };
 
+  /**
+   * Remove one or more participants from this event. Behaviour depends on
+   * each row's source so we never accidentally wipe a shared people record:
+   *
+   *   - registration  → DELETE from `registrations`. Cascade rules also clean
+   *                     up `attendance_events` rows tied to the registration.
+   *   - speaker       → DELETE from `event_speakers` for *this event only*.
+   *                     The underlying `speakers` row is untouched.
+   *   - sponsor       → DELETE from `sponsor_members` (the per-event contact).
+   *                     The underlying `sponsors` row is untouched.
+   *
+   * Reachable only via the selection toolbar — the per-row Trash icon was
+   * removed so destructive actions can't be triggered without an explicit
+   * tick first.
+   */
+  const deleteParticipants = async (rows: Row[]) => {
+    if (rows.length === 0) return;
+    setDeleting(true);
+    try {
+      const regIds = rows.filter((r) => r.source === "registration").map((r) => r.refId);
+      const speakerIds = rows.filter((r) => r.source === "speaker").map((r) => r.refId);
+      const sponsorMemberIds = rows.filter((r) => r.source === "sponsor").map((r) => r.refId);
+
+      const results = await Promise.all([
+        regIds.length === 0
+          ? Promise.resolve({ error: null })
+          : supabase.from("registrations").delete().in("id", regIds),
+        speakerIds.length === 0
+          ? Promise.resolve({ error: null })
+          : supabase
+              .from("event_speakers")
+              .delete()
+              .eq("event_id", eventId)
+              .in("speaker_id", speakerIds),
+        sponsorMemberIds.length === 0
+          ? Promise.resolve({ error: null })
+          : supabase.from("sponsor_members").delete().in("id", sponsorMemberIds),
+      ]);
+
+      const firstError = results.find((r) => r.error)?.error;
+      if (firstError) {
+        toast.error("Some deletions failed", { description: firstError.message });
+      } else {
+        toast.success(
+          rows.length === 1
+            ? `${rows[0].name} removed`
+            : `Removed ${rows.length} participants`,
+        );
+      }
+
+      // Refresh both data sources only when needed.
+      const reloadJobs: Array<Promise<unknown>> = [];
+      if (regIds.length > 0) reloadJobs.push(reload());
+      if (speakerIds.length > 0 || sponsorMemberIds.length > 0) reloadJobs.push(reloadExtras());
+      await Promise.all(reloadJobs);
+
+      // Clear the selection of any deleted rows.
+      const deletedIds = new Set(rows.map((r) => r.id));
+      setSelected((prev) => {
+        const next = new Set<string>();
+        prev.forEach((id) => { if (!deletedIds.has(id)) next.add(id); });
+        return next;
+      });
+    } catch (err) {
+      toast.error("Delete failed", {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setDeleting(false);
+      setDeleteFor(null);
+    }
+  };
+
   // ─── Per-attendee tracked join links ───────────────────────────────────
   // Builds the live webinar URL for one row using the canonical helper
   // in `src/lib/attendee-link.ts`. Only `attendee` kind rows carry a
@@ -1065,6 +1147,35 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         </div>
       ) : (
         <div className="bg-card border border-border rounded-lg overflow-hidden">
+          {selected.size > 0 && (
+            <div className="flex items-center gap-3 px-3 py-2 bg-primary/5 border-b border-primary/20 text-[12px]">
+              <span className="font-medium text-foreground">
+                {selected.size} selected
+              </span>
+              <span className="text-muted-foreground hidden sm:inline">·</span>
+              <button
+                type="button"
+                onClick={() => setSelected(new Set())}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Clear
+              </button>
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[12px] gap-1.5 text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => {
+                    const rows = filtered.filter((r) => selected.has(r.id));
+                    if (rows.length > 0) setDeleteFor(rows);
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete selected
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="w-full">
             <table className="w-full table-fixed text-[12px] sm:text-[13px]">
               <thead>
@@ -1242,6 +1353,53 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         existingEmails={new Set(registrations.map((r) => (r.email || "").toLowerCase()).filter(Boolean))}
         onImported={() => { reload(); reloadExtras(); }}
       />
+
+      <AlertDialog open={!!deleteFor && deleteFor.length > 0} onOpenChange={(o) => { if (!o && !deleting) setDeleteFor(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteFor && deleteFor.length === 1 ? "Remove participant?" : `Remove ${deleteFor?.length ?? 0} participants?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {(() => {
+                if (!deleteFor || deleteFor.length === 0) return null;
+                if (deleteFor.length === 1) {
+                  const row = deleteFor[0];
+                  if (row.source === "registration") {
+                    return <>Permanently delete <strong>{row.name}</strong>'s registration for this event. Attendance records tied to this registration will also be removed. This cannot be undone.</>;
+                  }
+                  if (row.source === "speaker") {
+                    return <>Unlink <strong>{row.name}</strong> from this event. The speaker profile itself is preserved and can be re-added to this or other events later.</>;
+                  }
+                  return <>Remove <strong>{row.name}</strong> from this sponsor's contacts.</>;
+                }
+                const regs     = deleteFor.filter((r) => r.source === "registration").length;
+                const speakers = deleteFor.filter((r) => r.source === "speaker").length;
+                const sponsors = deleteFor.filter((r) => r.source === "sponsor").length;
+                const parts: string[] = [];
+                if (regs > 0)     parts.push(`${regs} registration${regs === 1 ? "" : "s"}`);
+                if (speakers > 0) parts.push(`${speakers} speaker link${speakers === 1 ? "" : "s"}`);
+                if (sponsors > 0) parts.push(`${sponsors} sponsor contact${sponsors === 1 ? "" : "s"}`);
+                return (
+                  <>
+                    This will remove {parts.join(", ")} from this event. Speaker and sponsor profiles themselves stay intact; registrations are permanently deleted along with their attendance history. This cannot be undone.
+                  </>
+                );
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(e) => { e.preventDefault(); if (deleteFor) void deleteParticipants(deleteFor); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Removing…" : `Remove${deleteFor && deleteFor.length > 1 ? ` ${deleteFor.length}` : ""}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <SelfServiceCheckDialog
         open={selfKioskOpen}
