@@ -58,7 +58,9 @@ const REQUIRED = [
 ] as const;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const COUNTRY_CODE_RE = /^\+\d{1,4}$/;
+// Accept country codes with or without a leading `+`. Plain `91` is valid;
+// `+91` is too. We normalise to the canonical `+91` form before insert.
+const COUNTRY_CODE_RE = /^\+?\d{1,4}$/;
 const MOBILE_RE = /^\d{6,15}$/;
 
 /**
@@ -202,11 +204,12 @@ export default function ImportRegistrationsDialog({
       if (!obj.email)                      obj.errors.push("Email required");
       else if (!EMAIL_RE.test(obj.email))  obj.errors.push("Invalid email");
 
-      const cc = (obj.mobile_country_code || "").trim();
-      if (!cc)                          obj.errors.push("Country code required");
-      else if (!COUNTRY_CODE_RE.test(cc)) obj.errors.push("Country code must start with + and 1–4 digits");
-      // Country code is normalised below.
-      obj.mobile_country_code = cc;
+      const ccRaw = (obj.mobile_country_code || "").trim();
+      if (!ccRaw) obj.errors.push("Country code required");
+      else if (!COUNTRY_CODE_RE.test(ccRaw)) obj.errors.push("Country code must be 1–4 digits (e.g. 1, 91, or +44)");
+      // Normalise: ensure leading `+`. Spreadsheet apps sometimes drop the
+      // plus sign on numeric cells like `+91` → `91`. We accept both.
+      obj.mobile_country_code = ccRaw.startsWith("+") ? ccRaw : (ccRaw ? `+${ccRaw}` : ccRaw);
 
       const mob = (obj.mobile_number || "").replace(/[^\d]/g, "");
       if (!mob)                       obj.errors.push("Mobile number required");
@@ -385,7 +388,9 @@ export default function ImportRegistrationsDialog({
                 <span className="text-foreground font-medium">Required *</span>:{" "}
                 <code>first_name</code>, <code>last_name</code>, <code>designation</code>,
                 {" "}<code>company</code>, <code>mobile_country_code</code>{" "}
-                (e.g. <code>+1</code>), <code>mobile_number</code> (6–15 digits),
+                (e.g. <code>1</code>, <code>91</code>, or <code>+44</code> — the
+                {" "}<code>+</code> is added automatically if missing),
+                {" "}<code>mobile_number</code> (6–15 digits),
                 {" "}<code>email</code>
               </p>
               <p>
