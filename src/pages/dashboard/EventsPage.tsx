@@ -414,8 +414,8 @@ const EventsPage = () => {
                 >
                   {/* Cover image */}
                   <div className="aspect-video bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center relative overflow-hidden">
-                    {event.image_url ? (
-                      <img src={event.image_url} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                    {(event.banner_landscape_url || event.image_url) ? (
+                      <img src={event.banner_landscape_url || event.image_url!} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                     ) : (
                       <Calendar className="h-10 w-10 text-muted-foreground/50" />
                     )}

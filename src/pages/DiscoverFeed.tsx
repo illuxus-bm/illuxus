@@ -31,7 +31,7 @@ export default function DiscoverFeed() {
       // ongoing/today's events too.
       const { data, error } = await supabase
         .from("events")
-        .select("id, slug, title, description, date, end_date, venue, location, image_url, price, organizations(name, slug, subdomain, logo_url)")
+        .select("id, slug, title, description, date, end_date, venue, location, image_url, banner_landscape_url, price, organizations(name, slug, subdomain, logo_url)")
         .eq("status", "published")
         .order("date", { ascending: true })
         .limit(100);

@@ -24,6 +24,7 @@ interface Row {
     venue: string | null;
     location: string | null;
     image_url: string | null;
+    banner_landscape_url?: string | null;
     description: string | null;
     timezone: string | null;
     organizations?: { slug?: string | null; subdomain?: string | null } | null;
@@ -42,7 +43,7 @@ export default function MyEventsPage() {
     (async () => {
       const { data } = await supabase
         .from("registrations")
-        .select("id, approval_status, status, checked_in, events:events(id, title, slug, date, end_date, venue, location, image_url, description, timezone, organizations(slug, subdomain))")
+        .select("id, approval_status, status, checked_in, events:events(id, title, slug, date, end_date, venue, location, image_url, banner_landscape_url, description, timezone, organizations(slug, subdomain))")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
       if (cancel) return;
@@ -124,7 +125,7 @@ function RowCard({ row }: { row: Row }) {
 
   return (
     <li className="bg-card border border-border rounded-2xl overflow-hidden flex flex-col sm:flex-row sm:items-stretch">
-      {ev.image_url && <img src={ev.image_url} alt={ev.title} className="w-full aspect-video sm:w-72 sm:h-full object-cover shrink-0" />}
+      {(ev.banner_landscape_url || ev.image_url) && <img src={ev.banner_landscape_url || ev.image_url!} alt={ev.title} className="w-full aspect-video sm:w-72 sm:h-full object-cover shrink-0" />}
       <div className="flex-1 p-4 flex flex-col sm:flex-row gap-3 sm:items-center">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">

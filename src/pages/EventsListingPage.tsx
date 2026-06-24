@@ -36,6 +36,7 @@ interface EventRow {
   timezone?: string | null;
   status: string;
   image_url: string | null;
+  banner_landscape_url?: string | null;
   organizations?: { name: string | null; slug: string | null; subdomain: string | null; logo_url: string | null } | null;
 }
 
@@ -63,7 +64,7 @@ export default function EventsListingPage() {
     (async () => {
       const { data } = await supabase
         .from("events")
-        .select("id, slug, title, description, date, end_date, location, venue, capacity, tickets_sold, price, currency, timezone, status, image_url, organizations(name, slug, subdomain, logo_url)")
+        .select("id, slug, title, description, date, end_date, location, venue, capacity, tickets_sold, price, currency, timezone, status, image_url, banner_landscape_url, organizations(name, slug, subdomain, logo_url)")
         .eq("status", "published")
         .gte("date", new Date().toISOString())
         .order("date", { ascending: true })
@@ -293,9 +294,9 @@ function EventRow({
         </div>
       </div>
       <div className="shrink-0 w-40 sm:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
-        {event.image_url ? (
+        {(event.banner_landscape_url || event.image_url) ? (
           <img
-            src={event.image_url}
+            src={event.banner_landscape_url || event.image_url!}
             alt={event.title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
           />
@@ -353,7 +354,7 @@ function EventQuickView({
           >
             {event.image_url ? (
               <img
-                src={event.image_url}
+                src={event.banner_landscape_url || event.image_url}
                 alt={event.title}
                 className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500"
               />

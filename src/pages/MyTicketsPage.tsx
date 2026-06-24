@@ -25,6 +25,7 @@ interface RegistrationRow {
     location: string | null;
     venue: string | null;
     image_url: string | null;
+    banner_landscape_url?: string | null;
     timezone: string | null;
     org_id: string | null;
   } | null;
@@ -42,7 +43,7 @@ const MyTicketsPage = () => {
     (async () => {
       const { data, error } = await supabase
         .from("registrations")
-        .select("id, event_id, ticket_type, status, amount_paid, checked_in, created_at, events:events(id,title,slug,date,location,venue,image_url,timezone,org_id)")
+        .select("id, event_id, ticket_type, status, amount_paid, checked_in, created_at, events:events(id,title,slug,date,location,venue,image_url,banner_landscape_url,timezone,org_id)")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
       if (error) {
@@ -90,11 +91,11 @@ const MyTicketsPage = () => {
               const dateLabel = ev?.date ? formatEventDateTime(ev.date, ev?.timezone) : null;
               return (
                 <div key={r.id} className="bg-card border border-border rounded-xl overflow-hidden flex flex-col sm:flex-row">
-                  {ev?.image_url && (
+                  {(ev?.banner_landscape_url || ev?.image_url) && (
                     <img
-                      src={ev.image_url}
+                      src={ev.banner_landscape_url || ev.image_url!}
                       alt={ev.title}
-                      className="sm:w-40 h-32 sm:h-auto object-cover"
+                      className="sm:w-40 h-32 sm:h-auto object-cover aspect-video"
                     />
                   )}
                   <div className="flex-1 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
