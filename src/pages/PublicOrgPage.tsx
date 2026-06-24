@@ -214,7 +214,7 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
 
       {/* LinkedIn-style hero: full-bleed cover, then identity row with overlapping logo. */}
       <section className="relative">
-        {/* Cover — full-bleed, displays full 4:1 image with no cropping and no gap above. */}
+        {/* Cover — full-bleed, displays full 1128:191 image with no cropping and no gap above. */}
         {cover ? (
           <img
             src={cover}
@@ -223,8 +223,9 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
           />
         ) : (
           <div
-            className="w-full aspect-[4/1]"
+            className="w-full"
             style={{
+              aspectRatio: "1128 / 191",
               background: `linear-gradient(135deg, ${theme.accentColor}33, ${theme.accentColor}10)`,
             }}
             aria-hidden

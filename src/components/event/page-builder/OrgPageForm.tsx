@@ -273,7 +273,7 @@ export default function OrgPageForm() {
             />
             <ImageUploadField
               label="Cover banner"
-              hint="Wide image (4:1). Recommended 1600×400."
+              hint="Wide image. Recommended 1128×191 px."
               aspect="banner"
               value={state.cover || ""}
               onChange={v => setState(s => ({ ...s, cover: v }))}
@@ -545,12 +545,13 @@ function ProfilePreview({
       }}
     >
       <div
-        className="w-full aspect-[4/1] overflow-hidden flex items-center justify-center"
-        style={
-          state.cover
+        className="w-full overflow-hidden flex items-center justify-center"
+        style={{
+          aspectRatio: "1128 / 191",
+          ...(state.cover
             ? { backgroundColor: theme.backgroundColor }
-            : { background: `linear-gradient(135deg, ${theme.accentColor}33, ${theme.accentColor}10)` }
-        }
+            : { background: `linear-gradient(135deg, ${theme.accentColor}33, ${theme.accentColor}10)` })
+        }}
       >
         {state.cover && (
           <img
@@ -758,7 +759,7 @@ function ImageUploadField({
       <div className={aspect === "square" ? "flex items-start gap-3" : "space-y-2"}>
         <div
           className={`${previewClass} relative overflow-hidden border border-border bg-muted/40 flex items-center justify-center shrink-0`}
-          style={aspect === "banner" ? { aspectRatio: "4 / 1", height: "auto" } : undefined}
+          style={aspect === "banner" ? { aspectRatio: "1128 / 191", height: "auto" } : undefined}
         >
           {value ? (
             <>
