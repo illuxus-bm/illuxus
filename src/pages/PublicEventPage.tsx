@@ -188,7 +188,17 @@ const PublicEventPage = () => {
     if (orgId) {
       const { data: orgRows } = await supabaseRpc("get_public_org_brief", { _org_id: orgId });
       const orgRow = Array.isArray(orgRows) ? orgRows[0] : orgRows;
-      if (orgRow) setOrg(orgRow as { name: string; logo_url: string | null; slug: string; subdomain?: string | null });
+      if (orgRow) {
+        setOrg(orgRow as { name: string; logo_url: string | null; slug: string; subdomain?: string | null });
+      } else {
+        // Fallback: org landing page may not be published yet — still fetch name for display
+        const { data: rawOrg } = await supabase
+          .from("organizations")
+          .select("id, name, slug, subdomain, logo_url")
+          .eq("id", orgId)
+          .maybeSingle();
+        if (rawOrg) setOrg(rawOrg as { name: string; logo_url: string | null; slug: string; subdomain?: string | null });
+      }
     }
 
     setLoading(false);
