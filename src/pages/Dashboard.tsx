@@ -181,7 +181,7 @@ const Dashboard = () => {
       const tEndForTab = effectiveEnd(e);
       const matchesTab =
         (activeTab === "draft" && e.status === "draft") ||
-        (activeTab === "upcoming" && e.status === "published" && tEndForTab >= now) ||
+        (activeTab === "upcoming" && (e.status === "published" || e.status === "draft") && tEndForTab >= now) ||
         (activeTab === "past" && e.status === "published" && tEndForTab < now);
       const q = searchQuery.trim().toLowerCase();
       const matchesSearch =
@@ -225,7 +225,7 @@ const Dashboard = () => {
     });
 
   const tabCounts: Record<string, number> = {
-    upcoming: events.filter(e => e.status === "published" && effectiveEnd(e) >= now).length,
+    upcoming: events.filter(e => (e.status === "published" || e.status === "draft") && effectiveEnd(e) >= now).length,
     past: events.filter(e => e.status === "published" && effectiveEnd(e) < now).length,
     draft: events.filter(e => e.status === "draft").length,
   };
