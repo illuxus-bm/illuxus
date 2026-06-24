@@ -161,7 +161,7 @@ const EventsPage = () => {
     let matchesTime = true;
     
     if (timeFilter === "upcoming") {
-      matchesTime = eventDate >= now && e.status !== "draft" && e.status !== "cancelled";
+      matchesTime = eventDate >= now || e.status === "draft";
     } else if (timeFilter === "past") {
       matchesTime = eventDate < now && e.status !== "draft" && e.status !== "cancelled";
     } else if (timeFilter === "pending") {
