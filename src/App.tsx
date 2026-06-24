@@ -372,7 +372,7 @@ function GlobalFooter() {
     "/events/",
   ];
   if (hiddenPrefixes.some((p) => {
-    if (p === "/") return pathname === "/";
+    if (p === "/" || p === "/discover") return pathname === p;
     return pathname === p || pathname.startsWith(p);
   })) {
     return null;
