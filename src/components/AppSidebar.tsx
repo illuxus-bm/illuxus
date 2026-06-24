@@ -1,7 +1,7 @@
 import {
   Calendar, Settings, Ticket,
   Megaphone, FileText, HelpCircle, CreditCard, Shield, Layout, Users,
-  Building2, Mic,
+  Building2, Mic, ChevronsUpDown, Check,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -20,6 +20,10 @@ import {
   SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
 
 const mainItems = [
   { title: "Events",    url: "/dashboard/events",    icon: Calendar   },
@@ -48,15 +52,13 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
-  const { org } = useOrg();
+  const { org, memberships, setActiveOrg, myRole } = useOrg();
+  const planName = PLAN_DETAILS[org?.plan || "free"]?.name || "Free";
   const { isAdmin } = useAuth();
 
   const adminItems = [
     { title: "Admin Panel", url: "/dashboard/admin", icon: Shield },
   ];
-
-  const currentPlan = org?.plan || "free";
-  const planName = PLAN_DETAILS[currentPlan]?.name || "Free";
 
   const isActive = (path: string) => {
     // Events lives at /dashboard/events but / dashboard is the home redirect
@@ -91,16 +93,77 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="border-r border-border/60 bg-sidebar">
       <SidebarContent className="pb-2 flex flex-col" style={{ paddingTop: '78px' }}>
-        {/* Org + Plan badge */}
+        {/* Workspace switcher */}
         {!collapsed && org && (
-          <div className="mx-3 mb-2 flex items-center gap-2.5 px-2 py-1.5">
-            <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: "hsl(var(--brand-blue))" }} />
-            <div className="min-w-0 flex-1">
-              <p className="text-[12px] font-semibold truncate text-foreground">{org.name}</p>
-              <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
-                {planName}
-              </span>
-            </div>
+          <div className="mx-3 mb-2">
+            {memberships.length <= 1 ? (
+              // Single workspace — render a static label, no dropdown clutter.
+              <div className="flex items-center gap-2.5 px-2 py-1.5">
+                <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: "hsl(var(--brand-blue))" }} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12px] font-semibold truncate text-foreground">{org.name}</p>
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+                    {planName}{myRole && myRole !== "owner" ? ` · ${myRole}` : ""}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-muted/50 transition-colors text-left"
+                    aria-label="Switch workspace"
+                  >
+                    {org.logo_url ? (
+                      <img src={org.logo_url} alt="" className="h-5 w-5 rounded object-cover shrink-0" />
+                    ) : (
+                      <span className="h-5 w-5 rounded bg-primary/10 text-primary font-bold text-[11px] flex items-center justify-center shrink-0">
+                        {org.name.charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12px] font-semibold truncate text-foreground">{org.name}</p>
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+                        {planName}{myRole && myRole !== "owner" ? ` · ${myRole}` : ""}
+                      </span>
+                    </div>
+                    <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                    Switch workspace
+                  </DropdownMenuLabel>
+                  {memberships.map((m) => (
+                    <DropdownMenuItem
+                      key={m.org_id}
+                      onClick={() => setActiveOrg(m.org_id)}
+                      className="gap-2 cursor-pointer"
+                    >
+                      {m.org_logo_url ? (
+                        <img src={m.org_logo_url} alt="" className="h-5 w-5 rounded object-cover shrink-0" />
+                      ) : (
+                        <span className="h-5 w-5 rounded bg-muted text-foreground font-semibold text-[11px] flex items-center justify-center shrink-0">
+                          {m.org_name.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[12.5px] font-medium truncate">{m.org_name}</p>
+                        <p className="text-[10px] capitalize text-muted-foreground truncate">{m.role}</p>
+                      </div>
+                      {m.org_id === org.id && (
+                        <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild className="text-[12px]">
+                    <NavLink to="/dashboard/settings">Manage workspaces</NavLink>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         )}
 
