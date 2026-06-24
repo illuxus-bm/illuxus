@@ -698,6 +698,31 @@ function ImageUploadField({
       fr.readAsDataURL(file);
     });
 
+  const TARGET_ASPECT = aspect === "square" ? 1 : (1128 / 191);
+  const TOLERANCE = 0.03; // ±3%
+
+  const probeImage = (src: string) =>
+    new Promise<{ w: number; h: number }>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+      img.onerror = () => reject(new Error("Could not load image"));
+      img.src = src;
+    });
+
+  const uploadRaw = async (file: File) => {
+    setUploading(true);
+    try {
+      const url = await uploadOrgAsset(file, prefix, file.name.split(".").pop() || "jpg");
+      onChange(url);
+      toast({ title: "Uploaded", description: "Remember to save your changes." });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Upload failed";
+      toast({ title: "Upload failed", description: msg, variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const onFile = async (file: File | null) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
@@ -712,11 +737,21 @@ function ImageUploadField({
       });
       return;
     }
-    
+
     try {
       const dataUrl = await fileToDataUrl(file);
-      setCropSrc(dataUrl);
-      setCropOpen(true);
+      // Check if the image already matches the target aspect — skip crop if so.
+      const { w, h } = await probeImage(dataUrl);
+      const ratio = w / h;
+      const onTarget = Math.abs(ratio - TARGET_ASPECT) / TARGET_ASPECT <= TOLERANCE;
+      if (onTarget) {
+        // Perfect dimensions — upload directly without showing the crop dialog.
+        await uploadRaw(file);
+      } else {
+        // Dimensions differ — open the crop dialog.
+        setCropSrc(dataUrl);
+        setCropOpen(true);
+      }
     } catch (err) {
       toast({ title: "Read failed", description: "Could not read image file.", variant: "destructive" });
     }
@@ -806,7 +841,7 @@ function ImageUploadField({
       <CoverCropDialog
         open={cropOpen}
         src={cropSrc}
-        aspect={aspect === "square" ? 1 : 4}
+        aspect={TARGET_ASPECT}
         onCancel={() => { setCropOpen(false); setCropSrc(null); }}
         onConfirm={handleCropConfirm}
         busy={uploading}
