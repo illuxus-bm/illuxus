@@ -187,16 +187,23 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
 
   const openEdit = (s: Session) => {
     setEditing(s);
-    const st = new Date(s.start_time);
-    const et = new Date(s.end_time);
-    const d = `${st.getFullYear()}-${String(st.getMonth() + 1).padStart(2, "0")}-${String(st.getDate()).padStart(2, "0")}`;
+    // Split the stored ISO string directly to avoid UTC→local timezone shift.
+    // Supabase timestamptz values come back as "2025-07-04T09:00:00+00" — parsing
+    // through new Date() and then calling getHours()/getDate() would shift the
+    // time in non-UTC timezones. Strip the timezone suffix first.
+    const startLocal = s.start_time ? s.start_time.split("+")[0].split("Z")[0] : "";
+    const endLocal   = s.end_time   ? s.end_time.split("+")[0].split("Z")[0]   : "";
+    const [datePart, startTimePart = "00:00:00"] = startLocal.split("T");
+    const [, endTimePart = "00:00:00"]            = endLocal.split("T");
+    const d = datePart || "";
+    const toHHmm = (t: string) => t.slice(0, 5); // "HH:mm:ss" → "HH:mm"
     const isCustom = !PRESET_VALUES.has(s.session_type);
     setForm({
       title: s.title,
       description: s.description || "",
       session_type: s.session_type,
-      start_time: `${st.getHours().toString().padStart(2, "0")}:${st.getMinutes().toString().padStart(2, "0")}`,
-      end_time: `${et.getHours().toString().padStart(2, "0")}:${et.getMinutes().toString().padStart(2, "0")}`,
+      start_time: toHHmm(startTimePart),
+      end_time: toHHmm(endTimePart),
       location: s.location || "",
       speaker_ids: s.speaker_ids || [],
       date: d,
@@ -206,7 +213,15 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
     setOpen(true);
   };
 
-  const fmt = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  const fmt = (iso: string) => {
+    // Strip timezone suffix to avoid UTC→local shift in displayed times
+    const local = iso ? iso.split("+")[0].split("Z")[0] : "";
+    const timePart = local.split("T")[1] || "00:00";
+    const [h, m] = timePart.split(":").map(Number);
+    const period = h >= 12 ? "PM" : "AM";
+    const h12 = h % 12 || 12;
+    return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+  };
   const speakerNames = (ids: string[]) => ids.map((id) => speakers.find((s) => s.id === id)?.name).filter(Boolean).join(", ");
   const toggleSpeaker = (id: string) => {
     setForm((f) => ({
@@ -216,7 +231,7 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
   };
 
   const fmtDayHeader = (iso: string) => {
-    const d = new Date(`${iso}T00:00:00`);
+    const d = new Date(`${iso}T00:00:00`); // bare date — no timezone shift
     const idx = eventDays.indexOf(iso);
     const dayLabel = idx >= 0 ? `Day ${idx + 1} · ` : "";
     return `${dayLabel}${d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`;
@@ -225,8 +240,11 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
   const sessionsByDay = useMemo(() => {
     const map = new Map<string, Session[]>();
     for (const s of sessions) {
-      const d = new Date(s.start_time);
-      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      // Strip timezone suffix before parsing so "2025-07-04T20:00:00Z" is
+      // keyed as 2025-07-04 regardless of local timezone (same logic as
+      // computeEventDays / isoToDateStr in session-day-utils).
+      const k = s.start_time ? s.start_time.split("T")[0] : "";
+      if (!k) continue;
       if (!map.has(k)) map.set(k, []);
       map.get(k)!.push(s);
     }
