@@ -155,7 +155,10 @@ export default function PublicEventRenderer({
         backgroundColor: theme.backgroundColor,
         color: theme.textColor,
         fontFamily: `${theme.fontFamily}, sans-serif`,
-        fontSize: theme.fontScale ? `${theme.fontScale * 100}%` : undefined,
+        // zoom scales rem-based Tailwind classes (which don't respond to a
+        // parent fontSize %) as well as images and spacing — exactly what
+        // the organizer expects when dragging the Font Size slider.
+        zoom: theme.fontScale && theme.fontScale !== 1 ? theme.fontScale : undefined,
       }}
       className={`w-full ${flushSections ? "[&_section]:!px-0 [&_section]:!py-10 [&_section]:!border-t-0" : ""}`}
     >
