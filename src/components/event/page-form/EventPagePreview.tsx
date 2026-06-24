@@ -93,7 +93,8 @@ export default function EventPagePreview({
       style={{
         backgroundColor: bg,
         color: text,
-        fontFamily: BODY,
+        fontFamily: `"${selectedFont}", ui-sans-serif, system-ui, sans-serif`,
+        zoom: config.theme.fontScale && config.theme.fontScale !== 1 ? config.theme.fontScale : undefined,
         ["--font-display" as any]: `"${selectedFont}", ui-sans-serif, system-ui, sans-serif`,
         ["--font-body" as any]: `"${selectedFont}", ui-sans-serif, system-ui, sans-serif`,
       }}
