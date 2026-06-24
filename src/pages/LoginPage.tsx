@@ -72,7 +72,7 @@ const LoginPage = () => {
       return null;
     }
     const row = Array.isArray(data) ? data[0] : data;
-    const role = (row as { role?: string } | null)?.role || "member";
+    const role = (row as { assigned_role?: string } | null)?.assigned_role || "member";
     toast({
       title: "Invitation accepted",
       description: `You're in as ${role}. Redirecting to the dashboard…`,

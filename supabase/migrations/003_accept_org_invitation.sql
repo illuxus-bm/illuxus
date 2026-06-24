@@ -16,18 +16,27 @@
 -- Email matching is enforced server-side so a leaked token can't be redeemed
 -- by a different account. The function is idempotent: re-calling it with the
 -- same token after success returns the same org_id without errors.
+--
+-- ── 2026-06-25 fix ───────────────────────────────────────────────────────────
+-- Dropped the previous version which used `org_id` and `role` as OUT column
+-- names. PostgreSQL throws `column reference "org_id" is ambiguous` inside
+-- INSERT / ON CONFLICT clauses because those identifiers also exist on
+-- `public.org_members`. Renaming the OUT columns to `accepted_org_id` and
+-- `assigned_role` resolves the conflict.
 -- ─────────────────────────────────────────────────────────────────────────────
 
+DROP FUNCTION IF EXISTS public.accept_org_invitation(uuid);
+
 CREATE OR REPLACE FUNCTION public.accept_org_invitation(_token uuid)
-RETURNS TABLE (org_id uuid, role text)
+RETURNS TABLE (accepted_org_id uuid, assigned_role text)
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  _uid       uuid := auth.uid();
-  _email     text := lower(coalesce(auth.jwt() ->> 'email', ''));
-  _inv       record;
+  _uid    uuid := auth.uid();
+  _email  text := lower(coalesce(auth.jwt() ->> 'email', ''));
+  _inv    record;
 BEGIN
   IF _uid IS NULL THEN
     RAISE EXCEPTION 'Must be signed in to accept an invitation' USING ERRCODE = '28000';
@@ -72,8 +81,8 @@ BEGIN
    WHERE id = _inv.id
      AND status <> 'accepted';
 
-  org_id := _inv.org_id;
-  role   := _inv.role;
+  accepted_org_id := _inv.org_id;
+  assigned_role   := _inv.role;
   RETURN NEXT;
 END;
 $$;
@@ -81,4 +90,4 @@ $$;
 GRANT EXECUTE ON FUNCTION public.accept_org_invitation(uuid) TO authenticated;
 
 COMMENT ON FUNCTION public.accept_org_invitation(uuid) IS
-  'Accepts a team invitation by token. Caller must be authenticated and their auth.email() must match the invitation address. Inserts or refreshes the org_members row and stamps the invitation accepted. Idempotent.';
+  'Accepts a team invitation by token. Caller must be authenticated and their auth.email() must match the invitation address. Inserts or refreshes the org_members row and stamps the invitation accepted. Idempotent. Returns (accepted_org_id, assigned_role).';
