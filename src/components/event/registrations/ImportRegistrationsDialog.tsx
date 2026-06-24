@@ -17,12 +17,14 @@ const COLUMN_ALIASES: Record<string, string> = {
   name: "name", fullname: "name", attendee: "name", participant: "name",
   email: "email", emailaddress: "email", mail: "email",
   title: "title", honorific: "title", salutation: "title",
-  firstname: "first_name", givenname: "first_name",
-  lastname: "last_name", surname: "last_name", familyname: "last_name",
+  firstname: "first_name", givenname: "first_name", fname: "first_name",
+  lastname: "last_name", surname: "last_name", familyname: "last_name", lname: "last_name",
   designation: "designation", role: "designation", jobtitle: "designation", position: "designation",
   company: "company", organization: "company", organisation: "company", employer: "company",
-  mobilecountrycode: "mobile_country_code", countrycode: "mobile_country_code", dialcode: "mobile_country_code",
-  mobile: "mobile_number", mobilenumber: "mobile_number", phone: "mobile_number", phonenumber: "mobile_number",
+  mobilecountrycode: "mobile_country_code", countrycode: "mobile_country_code",
+  dialcode: "mobile_country_code", code: "mobile_country_code",
+  mobile: "mobile_number", mobilenumber: "mobile_number", phone: "mobile_number",
+  phonenumber: "mobile_number", contact: "mobile_number",
   linkedin: "linkedin_url", linkedinurl: "linkedin_url",
   website: "company_website", companywebsite: "company_website",
   industry: "industry",
@@ -47,9 +49,17 @@ type ImportRow = {
   errors: string[];
 };
 
-const REQUIRED = ["name", "email"] as const;
+/** Required CSV columns — mirrors the Add Participant form's starred fields.
+ *  `name` is derived from first_name + last_name, so it isn't required as a
+ *  separate column. `title` stays optional. */
+const REQUIRED = [
+  "first_name", "last_name", "designation", "company",
+  "email", "mobile_country_code", "mobile_number",
+] as const;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const COUNTRY_CODE_RE = /^\+\d{1,4}$/;
+const MOBILE_RE = /^\d{6,15}$/;
 
 /**
  * Minimal RFC-4180-style CSV parser. Handles quoted fields, embedded commas,
@@ -177,9 +187,32 @@ export default function ImportRegistrationsDialog({
         const v = (cells[Number(colIdx)] ?? "").trim();
         (obj as unknown as Record<string, string>)[dbCol] = v;
       });
-      if (!obj.name) obj.errors.push("Missing name");
-      if (!obj.email) obj.errors.push("Missing email");
-      else if (!EMAIL_RE.test(obj.email)) obj.errors.push("Invalid email");
+
+      // Derive `name` from first_name + last_name if not supplied directly.
+      // Mirrors `displayName(...)` used by the Add Participant form.
+      if (!obj.name) {
+        obj.name = [obj.first_name, obj.last_name].filter(Boolean).join(" ").trim();
+      }
+
+      // Mirror the form's starred-field validation, with friendly messages.
+      if (!(obj.first_name || "").trim()) obj.errors.push("First name required");
+      if (!(obj.last_name  || "").trim()) obj.errors.push("Last name required");
+      if (!(obj.designation || "").trim()) obj.errors.push("Designation required");
+      if (!(obj.company || "").trim())    obj.errors.push("Company required");
+      if (!obj.email)                      obj.errors.push("Email required");
+      else if (!EMAIL_RE.test(obj.email))  obj.errors.push("Invalid email");
+
+      const cc = (obj.mobile_country_code || "").trim();
+      if (!cc)                          obj.errors.push("Country code required");
+      else if (!COUNTRY_CODE_RE.test(cc)) obj.errors.push("Country code must start with + and 1–4 digits");
+      // Country code is normalised below.
+      obj.mobile_country_code = cc;
+
+      const mob = (obj.mobile_number || "").replace(/[^\d]/g, "");
+      if (!mob)                       obj.errors.push("Mobile number required");
+      else if (!MOBILE_RE.test(mob))  obj.errors.push("Mobile number must be 6–15 digits");
+      obj.mobile_number = mob;
+
       out.push(obj);
     }
     setParsed(out);
@@ -259,14 +292,18 @@ export default function ImportRegistrationsDialog({
   };
 
   const downloadTemplate = () => {
+    // Headers match the Add Participant form's starred fields, plus the
+    // common optional ones. The asterisks aren't included in the header
+    // names themselves — the documentation below the upload area explains
+    // which are required.
     const headers = [
-      "name", "email", "title", "first_name", "last_name",
-      "designation", "company", "mobile_country_code", "mobile_number",
+      "first_name", "last_name", "title", "designation", "company",
+      "mobile_country_code", "mobile_number", "email",
       "linkedin_url", "company_website", "industry", "ticket_type",
     ];
     const sample = [
-      "Jane Doe", "jane@example.com", "Ms", "Jane", "Doe",
-      "Engineer", "Acme Inc.", "+1", "5551234567",
+      "Jane", "Doe", "Ms", "CEO", "Acme Inc.",
+      "+1", "5551234567", "jane@example.com",
       "https://linkedin.com/in/janedoe", "https://acme.com", "Technology", "general",
     ];
     const csv = headers.join(",") + "\n" + sample.map(csvEscape).join(",") + "\n";
@@ -287,8 +324,11 @@ export default function ImportRegistrationsDialog({
             <Upload className="h-4 w-4" /> Import registrations from CSV
           </DialogTitle>
           <DialogDescription className="text-[12px]">
-            Upload a CSV with at minimum a <code>name</code> and <code>email</code> column.
-            Rows whose email is already registered for this event are skipped.
+            CSV columns must mirror the Add Participant form's starred fields:
+            {" "}<code>first_name</code>, <code>last_name</code>, <code>designation</code>,
+            {" "}<code>company</code>, <code>mobile_country_code</code>, <code>mobile_number</code>,
+            {" "}and <code>email</code>. Rows whose email is already registered for this
+            event are skipped.
           </DialogDescription>
         </DialogHeader>
 
@@ -342,17 +382,22 @@ export default function ImportRegistrationsDialog({
             <div className="rounded-md border border-dashed border-border bg-muted/20 p-4 text-[12px] text-muted-foreground space-y-2">
               <p className="font-medium text-foreground">Supported columns</p>
               <p>
-                Required: <code>name</code>, <code>email</code>
+                <span className="text-foreground font-medium">Required *</span>:{" "}
+                <code>first_name</code>, <code>last_name</code>, <code>designation</code>,
+                {" "}<code>company</code>, <code>mobile_country_code</code>{" "}
+                (e.g. <code>+1</code>), <code>mobile_number</code> (6–15 digits),
+                {" "}<code>email</code>
               </p>
               <p>
-                Optional: <code>title</code>, <code>first_name</code>, <code>last_name</code>,
-                {" "}<code>designation</code>, <code>company</code>, <code>mobile_country_code</code>,
-                {" "}<code>mobile_number</code>, <code>linkedin_url</code>, <code>company_website</code>,
-                {" "}<code>industry</code>, <code>ticket_type</code>
+                Optional: <code>title</code>, <code>linkedin_url</code>,
+                {" "}<code>company_website</code>, <code>industry</code>,
+                {" "}<code>ticket_type</code>
               </p>
               <p>
-                Header matching is forgiving — <code>Full Name</code>, <code>full_name</code>, and{" "}
-                <code>FULL-NAME</code> all map to <code>name</code>.
+                Header matching is forgiving — <code>First Name</code>, <code>first_name</code>,
+                {" "}<code>FName</code> all map to the same column. The display name shown in the
+                Registrations list is built automatically from <code>first_name</code>
+                {" "}+ <code>last_name</code>.
               </p>
             </div>
           )}
