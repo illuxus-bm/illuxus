@@ -155,6 +155,7 @@ export default function PublicEventRenderer({
         backgroundColor: theme.backgroundColor,
         color: theme.textColor,
         fontFamily: `${theme.fontFamily}, sans-serif`,
+        fontSize: theme.fontScale ? `${theme.fontScale * 100}%` : undefined,
       }}
       className={`w-full ${flushSections ? "[&_section]:!px-0 [&_section]:!py-10 [&_section]:!border-t-0" : ""}`}
     >

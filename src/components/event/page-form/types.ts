@@ -28,6 +28,8 @@ export interface ThemeConfig {
   backgroundColor: string;
   textColor: string;
   fontFamily: string;
+  /** Scale factor for body/section text. 1.0 = default. Range 0.75–1.5. */
+  fontScale?: number;
 }
 
 export interface SeoConfig {
@@ -221,7 +223,6 @@ export const SECTION_CATALOG: SectionMeta[] = [
   { id: "faq",          label: "FAQ",               description: "Questions & answers",                   group: "common" },
   // Engagement
   { id: "networking",   label: "Networking",        description: "Slack / Discord / Telegram links",      group: "engagement" },
-  { id: "cfp",          label: "Call for Speakers", description: "Submit a talk / abstract",              group: "engagement" },
   { id: "contact",      label: "Contact",           description: "Organizer name, email, social links",   group: "engagement" },
   // Advanced
   { id: "customHtml",   label: "Custom HTML",       description: "Raw HTML block (sanitized)",            group: "advanced" },
