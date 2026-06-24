@@ -198,8 +198,8 @@ function PopularRow({ event }: { event: LumaEvent }) {
         </div>
       </div>
       <div className="shrink-0 w-40 sm:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
-        {event.image_url ? (
-          <img src={event.image_url} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+        {(event.banner_landscape_url || event.image_url) ? (
+          <img src={event.banner_landscape_url || event.image_url!} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <CalendarDays className="h-7 w-7 text-muted-foreground/30" />
