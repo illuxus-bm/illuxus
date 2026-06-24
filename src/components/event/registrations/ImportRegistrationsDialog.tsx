@@ -326,6 +326,7 @@ export default function ImportRegistrationsDialog({
       void (async () => {
         let sent = 0;
         let failed = 0;
+        const failureReasons = new Set<string>();
         // Send sequentially in small chunks so we don't blow past Resend's
         // burst rate-limit. 5 at a time keeps the dashboard responsive
         // while finishing 100 rows in ~20s.
@@ -352,16 +353,19 @@ export default function ImportRegistrationsDialog({
           );
           for (const r of results) {
             if (r.ok) sent += 1;
-            else failed += 1;
+            else { failed += 1; failureReasons.add(r.error); }
           }
         }
         if (sent > 0) {
           toast.success(`Welcome emails sent (${sent})`, {
-            description: failed > 0 ? `${failed} failed — check logs` : undefined,
+            description: failed > 0
+              ? `${failed} failed: ${[...failureReasons].slice(0, 2).join("; ")}`
+              : undefined,
           });
         } else if (failed > 0) {
           toast.warning(`Welcome emails failed (${failed})`, {
-            description: "Check Resend secrets / domain verification.",
+            description: [...failureReasons].slice(0, 2).join("; ")
+              || "Check Resend secrets / domain verification.",
           });
         }
       })();
