@@ -43,15 +43,31 @@ function formatDisplay(value: string): string {
 }
 
 const colCls =
-  "max-h-[220px] overflow-y-auto flex flex-col items-center gap-0.5 px-1.5 py-1 snap-y snap-mandatory scroll-py-2 outline-none " +
+  // overscroll-contain stops the wheel from bubbling up to the Dialog's
+  // RemoveScroll guard; snap-proximity keeps the items aligned without
+  // hard-snapping the user back to the selected value on every nudge.
+  "max-h-[220px] overflow-y-auto overscroll-contain flex flex-col items-center gap-0.5 px-1.5 py-1 snap-y snap-proximity scroll-py-2 outline-none touch-pan-y " +
   "[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full";
 
 function ColumnButton({
   selected, onClick, children, ariaLabel,
 }: { selected: boolean; onClick: () => void; children: React.ReactNode; ariaLabel?: string }) {
   const ref = React.useRef<HTMLButtonElement>(null);
+  // Only center the *initially* selected value on mount — never on a
+  // subsequent re-render. Re-firing `scrollIntoView` every time `selected`
+  // flips makes the column feel stuck because the browser keeps yanking the
+  // scroll position back to whichever item is currently selected, fighting
+  // the user's wheel input.
+  const centeredRef = React.useRef(false);
   React.useEffect(() => {
-    if (selected) ref.current?.scrollIntoView({ block: "center", behavior: "auto" });
+    if (!selected || centeredRef.current) return;
+    const node = ref.current;
+    const parent = node?.parentElement;
+    if (!node || !parent) return;
+    // Scroll only the column container, not any ancestor. Avoids
+    // accidentally scrolling the surrounding Dialog/page.
+    parent.scrollTop = node.offsetTop - parent.clientHeight / 2 + node.clientHeight / 2;
+    centeredRef.current = true;
   }, [selected]);
   return (
     <button
@@ -120,12 +136,41 @@ export function TimePickerColumns({
 function Column({
   label, listLabel, children, width,
 }: { label: string; listLabel: string; children: React.ReactNode; width?: string }) {
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  // Radix Dialog ships with react-remove-scroll, which installs a non-passive
+  // `wheel` listener at the document root that cancels scroll events for any
+  // element outside its allow-list. The Popover content is portalled OUTSIDE
+  // the dialog, so its column never gets to receive wheel deltas — that's why
+  // hovering and scrolling appears to do nothing. We attach our own
+  // non-passive wheel handler here and do the scrollTop update ourselves,
+  // then call preventDefault so the document-level guard treats it as
+  // already-consumed. Same trick works for trackpad two-finger pans.
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const deltaY = e.deltaY * (e.deltaMode === 1 ? 16 : 1); // line→px when applicable
+      if (!deltaY) return;
+      const before = el.scrollTop;
+      const max = el.scrollHeight - el.clientHeight;
+      const next = Math.max(0, Math.min(max, before + deltaY));
+      if (next !== before) {
+        el.scrollTop = next;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel as EventListener);
+  }, []);
+
   return (
     <div className="flex flex-col items-center">
       <div className="h-5 mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
-      <div className={cn(colCls, width)} role="listbox" aria-label={listLabel}>
+      <div ref={scrollRef} className={cn(colCls, width)} role="listbox" aria-label={listLabel}>
         {children}
       </div>
     </div>

@@ -99,7 +99,7 @@ export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {
     expanded.map(async (b) => {
       if (isDesigned) return await renderDesigned(b, opts.design!, dims, fullBleed);
       if (mode === "name") return renderName(b, dims, eventTitle, opts.nameDesign, opts.font);
-      return await renderDefaultBadge(b, dims, eventTitle);
+      return await renderDefaultBadge(b, dims, eventTitle, opts.font);
     })
   );
 
@@ -125,7 +125,7 @@ export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {
     ${pageCss}
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:#fff;color:#111}
-    body{font-family:Inter,system-ui,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    body{font-family:Poppins,system-ui,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .sheet{${sheetCss}}
     .card{
       width:${dims.w}mm;height:${dims.h}mm;position:relative;overflow:hidden;background:#fff;
@@ -380,7 +380,12 @@ function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: s
   `;
 }
 
-async function renderDefaultBadge(b: BadgeData, dims: { w: number; h: number }, eventTitle: string): Promise<string> {
+async function renderDefaultBadge(
+  b: BadgeData,
+  dims: { w: number; h: number },
+  eventTitle: string,
+  fontOverride?: PrintOptions["font"],
+): Promise<string> {
   // Compute layout sizes proportional to the badge dimensions so the same
   // template scales cleanly from a 63×34mm Avery cell up to A6 / A4-2up.
   const clamp = (lo: number, v: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -390,7 +395,13 @@ async function renderDefaultBadge(b: BadgeData, dims: { w: number; h: number }, 
   const orgPt = clamp(5, dims.h * 0.045, 10);
   const eventPt = clamp(8, dims.h * 0.095, 16);
   const metaPt = clamp(5, dims.h * 0.04, 9);
-  const namePt = clamp(11, dims.h * 0.14, 26);
+  // Base name size derived from badge height, allowing the user's chosen
+  // font.sizePt (default 22 in FontStylePanel) to scale it proportionally.
+  // sizePt = 22 → no change; 44 → double; 11 → half.
+  const baseNamePt = clamp(11, dims.h * 0.14, 26);
+  const namePt = fontOverride?.sizePt
+    ? clamp(8, baseNamePt * (fontOverride.sizePt / 22), 48)
+    : baseNamePt;
   const gapMm = clamp(0.8, dims.h * 0.015, 2.5);
 
   const qrPxTarget = Math.max(160, Math.round(qrMm * 12));
@@ -417,15 +428,50 @@ async function renderDefaultBadge(b: BadgeData, dims: { w: number; h: number }, 
     ? `<div class="meta" style="font-size:${metaPt}pt;margin-top:${gapMm}mm">${metaParts.join(`<span class="dot">·</span>`)}</div>`
     : "";
 
+  // Resolve the FontStylePanel choices into inline CSS applied to the name.
+  // Defaults match the global Poppins so unchanged settings produce the same
+  // output as before.
+  const family    = fontOverride?.family || "Poppins";
+  const fontColor = fontOverride?.color  || "#0f172a";
+  const align     = fontOverride?.align  || "center";
+  const weight    = fontOverride?.bold   ? 800 : 700;
+  const italic    = fontOverride?.italic ? "italic" : "normal";
+  const decor     = [
+    fontOverride?.underline     ? "underline"    : "",
+    fontOverride?.strikethrough ? "line-through" : "",
+  ].filter(Boolean).join(" ");
+  const wordSpacing = fontOverride?.wordSpacingPt ? `word-spacing:${fontOverride.wordSpacingPt}pt;` : "";
+  const scale       = fontOverride?.scalePct && fontOverride.scalePct !== 100
+                    ? `transform:scaleX(${fontOverride.scalePct / 100});transform-origin:${align};`
+                    : "";
+  const nameStyle = [
+    `font-size:${namePt}pt`,
+    `font-family:'${family}',Poppins,system-ui,sans-serif`,
+    `font-weight:${weight}`,
+    `font-style:${italic}`,
+    decor ? `text-decoration:${decor}` : "",
+    `color:${fontColor}`,
+    `text-align:${align}`,
+    wordSpacing,
+    scale,
+  ].filter(Boolean).join(";");
+
+  // Body alignment follows the user's text-align choice so name + meta + QR
+  // visually anchor consistently (left / center / right / justify→left).
+  const bodyAlign = align === "justify" ? "left" : align;
+  const itemsAlign = bodyAlign === "left" ? "flex-start"
+                  : bodyAlign === "right" ? "flex-end"
+                  : "center";
+
   return `
     <div class="card basic">
       ${bannerEl}
-      <div class="body" style="padding:${padMm * 1.2}mm ${padMm}mm;gap:${gapMm}mm">
+      <div class="body" style="padding:${padMm * 1.2}mm ${padMm}mm;gap:${gapMm}mm;align-items:${itemsAlign};text-align:${bodyAlign}">
         ${org ? `<div class="org" style="font-size:${orgPt}pt">${escapeHtml(org)}</div>` : ""}
         ${title ? `<div class="event" style="font-size:${eventPt}pt;margin-top:${gapMm * 0.6}mm">${escapeHtml(title)}</div>` : ""}
         ${metaEl}
         <div class="divider" style="margin:${gapMm * 1.4}mm 0"></div>
-        <div class="name" style="font-size:${namePt}pt">${escapeHtml(b.name)}</div>
+        <div class="name" style="${nameStyle}">${escapeHtml(b.name)}</div>
         <div class="qr-wrap" style="width:${qrMm}mm;height:${qrMm}mm;margin-top:${gapMm * 1.2}mm">
           <img src="${qr}" alt="QR" />
         </div>

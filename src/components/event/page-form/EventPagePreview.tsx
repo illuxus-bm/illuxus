@@ -43,13 +43,13 @@ export default function EventPagePreview({
   org = null, going = { count: 0, sample: [] },
   previewMode = false, darkMode = false, registrationSlot,
 }: Props) {
-  const selectedFont = config.theme.fontFamily || "Inter";
+  const selectedFont = config.theme.fontFamily || "Poppins";
 
   // Load Google Font dynamically when the theme fontFamily changes
   useEffect(() => {
     if (!config.theme.fontFamily) return;
     const fontName = config.theme.fontFamily.trim();
-    const systemFonts = ["sans-serif", "serif", "monospace", "Arial", "Helvetica", "Times New Roman", "Courier New", "Inter"];
+    const systemFonts = ["sans-serif", "serif", "monospace", "Arial", "Helvetica", "Times New Roman", "Courier New", "Inter", "Poppins"];
     if (systemFonts.includes(fontName)) return;
 
     const linkId = `google-font-${fontName.replace(/\s+/g, "-").toLowerCase()}`;

@@ -64,7 +64,14 @@ function buildCorsHeaders(req: Request): Record<string, string> {
   };
   const origin = req.headers.get("Origin") ?? "";
   const allowed = envAllowedOrigins();
-  if (origin && allowed.has(stripTrailingSlash(origin))) {
+
+  // Vercel deployments (production + every preview/branch URL) end in
+  // `.vercel.app`. We allow any HTTPS subdomain of vercel.app so the
+  // dashboard can be deployed without re-listing each preview URL in
+  // ALLOWED_ORIGINS. Custom domains still need to be listed explicitly.
+  const isVercel = /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin);
+
+  if (origin && (allowed.has(stripTrailingSlash(origin)) || isVercel)) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Access-Control-Allow-Credentials"] = "true";
   } else {

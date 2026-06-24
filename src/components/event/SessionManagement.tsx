@@ -42,6 +42,7 @@ interface Props {
 const SESSION_TYPE_PRESETS = [
   { value: "talk",         label: "Talk" },
   { value: "keynote",      label: "Keynote" },
+  { value: "speaker",      label: "Speaker" },
   { value: "panel",        label: "Panel" },
   { value: "workshop",     label: "Workshop" },
   { value: "fireside",     label: "Fireside Chat" },
@@ -53,13 +54,14 @@ const SESSION_TYPE_PRESETS = [
 const PRESET_VALUES = new Set(SESSION_TYPE_PRESETS.map((p) => p.value));
 const CUSTOM_TYPE_SENTINEL = "__custom__";
 const typeIcons: Record<string, typeof Presentation> = {
-  talk: Presentation, keynote: Mic, panel: Users, workshop: Wrench,
+  talk: Presentation, keynote: Mic, speaker: Mic, panel: Users, workshop: Wrench,
   fireside: MessageSquare, networking: Users, qa: MessageSquare,
   break: Coffee, lunch: Utensils,
 };
 const typeColors: Record<string, string> = {
   talk: "bg-primary/10 text-primary",
   keynote: "bg-primary/10 text-primary",
+  speaker: "bg-indigo-500/10 text-indigo-600",
   panel: "bg-blue-500/10 text-blue-600",
   workshop: "bg-amber-500/10 text-amber-600",
   fireside: "bg-purple-500/10 text-purple-600",

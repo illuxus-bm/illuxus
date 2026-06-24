@@ -152,6 +152,12 @@ export function buildCorsHeaders(
   if (origin && allowed.has(stripTrailingSlash(origin))) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Access-Control-Allow-Credentials"] = "true";
+  } else if (origin && /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin)) {
+    // Vercel production + preview deployments share the `*.vercel.app`
+    // suffix. Allow any subdomain so each new preview / branch deploy
+    // doesn't need an ops-side ALLOWED_ORIGINS update.
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers["Access-Control-Allow-Credentials"] = "true";
   } else {
     headers["Access-Control-Allow-Origin"] = "null";
   }

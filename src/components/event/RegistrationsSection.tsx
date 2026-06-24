@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { logger, supabaseRpc } from "@/lib/observability";
-import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX, Copy, ExternalLink, Link2 } from "lucide-react";
+import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX, Copy, ExternalLink, Link2, Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,10 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { Tables } from "@/integrations/supabase/types";
 import QRScannerDialog, { type ScanResult, type ScannerTab } from "./registrations/QRScannerDialog";
 import SelfServiceCheckDialog from "./registrations/SelfServiceCheckDialog";
@@ -22,6 +26,7 @@ import AddParticipantDialog from "./AddParticipantDialog";
 import PrintBadgesDialog from "./registrations/PrintBadgesDialog";
 import BulkCheckInDialog from "./registrations/BulkCheckInDialog";
 import RegistrantQuickView, { type QuickViewRow } from "./registrations/RegistrantQuickView";
+import ImportRegistrationsDialog from "./registrations/ImportRegistrationsDialog";
 import AttendanceHistoryDialog from "./attendance/AttendanceHistoryDialog";
 import EventAttendanceHistoryDialog from "./attendance/EventAttendanceHistoryDialog";
 import type { BadgeData, PrintMode } from "@/lib/print-badges";
@@ -122,6 +127,12 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [qrOpen, setQrOpen] = useState(false);
   const [selfKioskOpen, setSelfKioskOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  // `deleteFor` holds the list of rows pending confirmation. Single-row
+  // delete used to live here as `Row | null`; now the trash action is
+  // exclusively driven by row selection, so we always work with an array.
+  const [deleteFor, setDeleteFor] = useState<Row[] | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [printState, setPrintState] = useState<{ open: boolean; rowIds: string[] | null; mode: PrintMode }>({ open: false, rowIds: null, mode: "badge" });
   const [eventInfo, setEventInfo] = useState<{
     event_format: string | null;
@@ -588,72 +599,6 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   };
 
   /**
-   * Change the role of a participant inline from the Role column.
-   *
-   * Source of truth is `registrations.ticket_type`. The visible kind on the
-   * row is derived from ticket_type plus the event_speakers / event_sponsors
-   * content links (see allRows). Updating ticket_type therefore updates the
-   * visible role.
-   *
-   * For "virtual" extras that have no registration row (a speaker added via
-   * event_speakers without ever registering), we create a registration on the
-   * fly so the role becomes editable from then on.
-   */
-  const changeRole = async (row: Row, newRole: RowKind) => {
-    if (row.kind === newRole) return;
-    const newTicketType =
-      newRole === "speaker" ? "speaker" :
-      newRole === "sponsor" ? "sponsor" :
-      "general";
-
-    if (row.registration) {
-      const { data: updated, error } = await supabase
-        .from("registrations")
-        .update({ ticket_type: newTicketType })
-        .eq("id", row.registration.id)
-        .select();
-      if (error) {
-        toast.error("Failed to change role", { description: error.message });
-        return;
-      }
-      if (!updated || updated.length === 0) {
-        toast.error("Failed to change role", {
-          description: "You don't have permission to edit this registration.",
-        });
-        return;
-      }
-      await reload();
-      toast.success(`Role set to ${newRole}`);
-      return;
-    }
-
-    // No registration yet — promote the virtual speaker/sponsor row by creating
-    // a registration record. Email is required for the row to be deduplicated
-    // correctly on subsequent renders.
-    if (!row.email) {
-      toast.error("Cannot change role", {
-        description: "This entry has no email. Edit the participant first to add an email.",
-      });
-      return;
-    }
-    const { error } = await supabase.from("registrations").insert({
-      event_id: eventId,
-      name: row.name,
-      email: row.email.toLowerCase(),
-      company: row.company,
-      ticket_type: newTicketType,
-      status: "confirmed",
-      approval_status: "approved",
-    });
-    if (error) {
-      toast.error("Failed to change role", { description: error.message });
-      return;
-    }
-    await Promise.all([reload(), reloadExtras()]);
-    toast.success(`Role set to ${newRole}`);
-  };
-
-  /**
    * Handler invoked by `<QRScannerDialog>` after every applied scan.
    * Reload the registrations list (the realtime subscription will
    * eventually catch up too, but `reload()` keeps the table snappy on
@@ -814,6 +759,79 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     a.download = `registrations-${eventId}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  /**
+   * Remove one or more participants from this event. Behaviour depends on
+   * each row's source so we never accidentally wipe a shared people record:
+   *
+   *   - registration  → DELETE from `registrations`. Cascade rules also clean
+   *                     up `attendance_events` rows tied to the registration.
+   *   - speaker       → DELETE from `event_speakers` for *this event only*.
+   *                     The underlying `speakers` row is untouched.
+   *   - sponsor       → DELETE from `sponsor_members` (the per-event contact).
+   *                     The underlying `sponsors` row is untouched.
+   *
+   * Reachable only via the selection toolbar — the per-row Trash icon was
+   * removed so destructive actions can't be triggered without an explicit
+   * tick first.
+   */
+  const deleteParticipants = async (rows: Row[]) => {
+    if (rows.length === 0) return;
+    setDeleting(true);
+    try {
+      const regIds = rows.filter((r) => r.source === "registration").map((r) => r.refId);
+      const speakerIds = rows.filter((r) => r.source === "speaker").map((r) => r.refId);
+      const sponsorMemberIds = rows.filter((r) => r.source === "sponsor").map((r) => r.refId);
+
+      const results = await Promise.all([
+        regIds.length === 0
+          ? Promise.resolve({ error: null })
+          : supabase.from("registrations").delete().in("id", regIds),
+        speakerIds.length === 0
+          ? Promise.resolve({ error: null })
+          : supabase
+              .from("event_speakers")
+              .delete()
+              .eq("event_id", eventId)
+              .in("speaker_id", speakerIds),
+        sponsorMemberIds.length === 0
+          ? Promise.resolve({ error: null })
+          : supabase.from("sponsor_members").delete().in("id", sponsorMemberIds),
+      ]);
+
+      const firstError = results.find((r) => r.error)?.error;
+      if (firstError) {
+        toast.error("Some deletions failed", { description: firstError.message });
+      } else {
+        toast.success(
+          rows.length === 1
+            ? `${rows[0].name} removed`
+            : `Removed ${rows.length} participants`,
+        );
+      }
+
+      // Refresh both data sources only when needed.
+      const reloadJobs: Array<Promise<unknown>> = [];
+      if (regIds.length > 0) reloadJobs.push(reload());
+      if (speakerIds.length > 0 || sponsorMemberIds.length > 0) reloadJobs.push(reloadExtras());
+      await Promise.all(reloadJobs);
+
+      // Clear the selection of any deleted rows.
+      const deletedIds = new Set(rows.map((r) => r.id));
+      setSelected((prev) => {
+        const next = new Set<string>();
+        prev.forEach((id) => { if (!deletedIds.has(id)) next.add(id); });
+        return next;
+      });
+    } catch (err) {
+      toast.error("Delete failed", {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setDeleting(false);
+      setDeleteFor(null);
+    }
   };
 
   // ─── Per-attendee tracked join links ───────────────────────────────────
@@ -1003,6 +1021,9 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                 <ScanLine className="h-3.5 w-3.5 mr-2" /> Self-service kiosk
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setImportOpen(true)}>
+                <Upload className="h-3.5 w-3.5 mr-2" /> Import CSV…
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={exportCSV}>
                 <Download className="h-3.5 w-3.5 mr-2" /> Export CSV
               </DropdownMenuItem>
@@ -1126,6 +1147,35 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         </div>
       ) : (
         <div className="bg-card border border-border rounded-lg overflow-hidden">
+          {selected.size > 0 && (
+            <div className="flex items-center gap-3 px-3 py-2 bg-primary/5 border-b border-primary/20 text-[12px]">
+              <span className="font-medium text-foreground">
+                {selected.size} selected
+              </span>
+              <span className="text-muted-foreground hidden sm:inline">·</span>
+              <button
+                type="button"
+                onClick={() => setSelected(new Set())}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Clear
+              </button>
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[12px] gap-1.5 text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => {
+                    const rows = filtered.filter((r) => selected.has(r.id));
+                    if (rows.length > 0) setDeleteFor(rows);
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete selected
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="w-full">
             <table className="w-full table-fixed text-[12px] sm:text-[13px]">
               <thead>
@@ -1137,8 +1187,8 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                     />
                   </th>
                   <SortHeader label="Attendee" k="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="" />
-                  <th className="text-left p-2 sm:p-3 font-medium text-muted-foreground hidden md:table-cell w-[110px]">Role</th>
-                  <th className="text-left p-2 sm:p-3 font-medium text-muted-foreground hidden lg:table-cell w-[130px]">Reg. status</th>
+                  <th className="text-center px-3 sm:px-4 py-2 sm:py-3 font-medium text-muted-foreground hidden md:table-cell w-[150px]">Role</th>
+                  <th className="text-center px-3 sm:px-4 py-2 sm:py-3 font-medium text-muted-foreground hidden lg:table-cell w-[160px]">Reg. status</th>
                   <th className="p-2 sm:p-3 w-[120px]"></th>
                 </tr>
               </thead>
@@ -1182,26 +1232,23 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                         </div>
                       </div>
                     </td>
-                    <td className="p-2 sm:p-3 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
-                      <Select value={r.kind} onValueChange={(v) => changeRole(r, v as RowKind)}>
-                        <SelectTrigger
-                          className={`h-7 text-[11px] capitalize font-medium border rounded-full px-2 w-[110px] ${kindColors[r.kind]}`}
-                          aria-label="Change role"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="attendee">Attendee</SelectItem>
-                          <SelectItem value="speaker">Speaker</SelectItem>
-                          <SelectItem value="sponsor">Sponsor</SelectItem>
-                        </SelectContent>
-                      </Select>
+                    <td className="px-3 sm:px-4 py-2 sm:py-3 hidden md:table-cell text-center">
+                      {/* Role is read-only — the organiser sees what the
+                          person registered as. To re-assign roles, use the
+                          Speakers / Sponsors management tabs. */}
+                      <span
+                        className={`inline-flex items-center justify-center h-7 text-[11px] capitalize font-medium border rounded-full px-3 w-[120px] ${kindColors[r.kind]}`}
+                        aria-label={`Role: ${r.kind}`}
+                        title={`Role: ${r.kind}`}
+                      >
+                        {r.kind}
+                      </span>
                     </td>
-                    <td className="p-2 sm:p-3 hidden lg:table-cell" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-3 sm:px-4 py-2 sm:py-3 hidden lg:table-cell text-center" onClick={(e) => e.stopPropagation()}>
                       {r.kind === "attendee" ? (
                         <Select value={r.status} onValueChange={(v) => updateStatus(r, v)}>
                           <SelectTrigger
-                            className={`h-7 text-[11px] capitalize font-medium border rounded-full px-2 w-[110px] ${statusColors[r.status] || ""}`}
+                            className={`h-7 text-[11px] capitalize font-medium border rounded-full px-3 w-[130px] mx-auto justify-center ${statusColors[r.status] || ""}`}
                           >
                             <SelectValue />
                           </SelectTrigger>
@@ -1212,7 +1259,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                           </SelectContent>
                         </Select>
                       ) : (
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border capitalize ${statusColors[r.status] || ""}`}>
+                        <span className={`inline-flex items-center justify-center h-7 px-3 w-[130px] rounded-full text-[11px] font-medium border capitalize ${statusColors[r.status] || ""}`}>
                           {r.status}
                         </span>
                       )}
@@ -1298,6 +1345,61 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       />
 
       <BulkCheckInDialog open={bulkOpen} onOpenChange={setBulkOpen} eventId={eventId} />
+
+      <ImportRegistrationsDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        eventId={eventId}
+        existingEmails={new Set(registrations.map((r) => (r.email || "").toLowerCase()).filter(Boolean))}
+        onImported={() => { reload(); reloadExtras(); }}
+      />
+
+      <AlertDialog open={!!deleteFor && deleteFor.length > 0} onOpenChange={(o) => { if (!o && !deleting) setDeleteFor(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteFor && deleteFor.length === 1 ? "Remove participant?" : `Remove ${deleteFor?.length ?? 0} participants?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {(() => {
+                if (!deleteFor || deleteFor.length === 0) return null;
+                if (deleteFor.length === 1) {
+                  const row = deleteFor[0];
+                  if (row.source === "registration") {
+                    return <>Permanently delete <strong>{row.name}</strong>'s registration for this event. Attendance records tied to this registration will also be removed. This cannot be undone.</>;
+                  }
+                  if (row.source === "speaker") {
+                    return <>Unlink <strong>{row.name}</strong> from this event. The speaker profile itself is preserved and can be re-added to this or other events later.</>;
+                  }
+                  return <>Remove <strong>{row.name}</strong> from this sponsor's contacts.</>;
+                }
+                const regs     = deleteFor.filter((r) => r.source === "registration").length;
+                const speakers = deleteFor.filter((r) => r.source === "speaker").length;
+                const sponsors = deleteFor.filter((r) => r.source === "sponsor").length;
+                const parts: string[] = [];
+                if (regs > 0)     parts.push(`${regs} registration${regs === 1 ? "" : "s"}`);
+                if (speakers > 0) parts.push(`${speakers} speaker link${speakers === 1 ? "" : "s"}`);
+                if (sponsors > 0) parts.push(`${sponsors} sponsor contact${sponsors === 1 ? "" : "s"}`);
+                return (
+                  <>
+                    This will remove {parts.join(", ")} from this event. Speaker and sponsor profiles themselves stay intact; registrations are permanently deleted along with their attendance history. This cannot be undone.
+                  </>
+                );
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(e) => { e.preventDefault(); if (deleteFor) void deleteParticipants(deleteFor); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Removing…" : `Remove${deleteFor && deleteFor.length > 1 ? ` ${deleteFor.length}` : ""}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <SelfServiceCheckDialog
         open={selfKioskOpen}

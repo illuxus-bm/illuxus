@@ -427,7 +427,7 @@ function ElementControl({
                   className="h-7 text-[12px]" />
               )}
               <div className="grid grid-cols-2 gap-1.5">
-                <select value={el.fontFamily || "Inter"}
+                <select value={el.fontFamily || "Poppins"}
                   onChange={(e) => updateEl(k, { fontFamily: e.target.value as typeof BADGE_FONT_OPTIONS[number] })}
                   className="h-7 rounded border border-border bg-background text-[11px] px-1"
                   aria-label={`${ELEMENT_LABELS[k]} font family`}>

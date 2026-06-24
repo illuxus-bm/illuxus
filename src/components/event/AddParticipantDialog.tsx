@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { UserPlus, Copy, Ticket, Link2 } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
 import { logger } from "@/lib/observability";
+import { sendParticipantWelcomeEmail } from "@/lib/participant-email";
 
 // Secondary Supabase client for creating participant accounts.
 // Uses a separate storage key so it won't sign out the organizer.
@@ -36,84 +37,39 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
 }) {
   const [open, setOpen] = useState(false);
   const [fields, setFields] = useState<PersonFields>(() => emptyPersonFields());
-  const [ticketType, setTicketType] = useState("general");
-  const [role, setRole] = useState<"attendee" | "speaker">("attendee");
+  // Role is now required for every event — the welcome email needs it to
+  // tell the participant what they've been registered as. Empty string
+  // forces the organiser to make an explicit choice.
+  const [role, setRole] = useState<"" | "attendee" | "speaker" | "sponsor">("");
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ join_token: string; qr_code: string; speakerLink?: string } | null>(null);
   const isVirtual = eventFormat === "virtual";
 
-  const reset = () => { setFields(emptyPersonFields()); setTicketType("general"); setRole("attendee"); setCreated(null); };
+  const reset = () => { setFields(emptyPersonFields()); setRole(""); setCreated(null); };
 
   const submit = async () => {
     const v = validatePersonFields(fields);
     if (!v.ok) return toast.error(v.error);
+    if (!role) return toast.error("Pick a role for this participant (Attendee, Speaker, or Sponsor)");
     setBusy(true);
     const fullName = displayName(fields);
     const email = fields.email.trim().toLowerCase();
     const mobileNum = fields.mobile_number.trim();
 
-    // ── Step 1: Create auth account (sends confirmation email) ────────────────
-    // Uses a separate client so the organizer stays signed in.
-    // The participant receives a confirmation email — once confirmed, they can
-    // sign in with email + phone number (initial password).
-    let newUserId: string | null = null;
-    let accountAlreadyExists = false;
+    // Map the organiser's role choice to the ticket_type column. The
+    // welcome-email helper derives the same `role` back from ticket_type so
+    // a single source-of-truth column carries it through the system.
+    const resolvedTicketType =
+      role === "speaker" ? "speaker" :
+      role === "sponsor" ? "sponsor" :
+      isVirtual ? "webinar" : "general";
 
-    if (mobileNum) {
-      // Check if user already exists
-      const { data: existingReg } = await supabase
-        .from("registrations")
-        .select("user_id")
-        .eq("email", email)
-        .not("user_id", "is", null)
-        .limit(1)
-        .maybeSingle();
-
-      if (existingReg?.user_id) {
-        newUserId = existingReg.user_id;
-        accountAlreadyExists = true;
-      } else {
-        const { data: signUpResult, error: signUpErr } = await anonClient.auth.signUp({
-          email,
-          password: mobileNum,
-          options: {
-            emailRedirectTo: `${window.location.origin}/login`,
-            data: {
-              must_change_password: true,
-              account_type: "attendee",
-              title: fields.title || "",
-              first_name: fields.first_name.trim(),
-              last_name: fields.last_name.trim(),
-              designation: fields.designation.trim(),
-              company: fields.company.trim() || "",
-              mobile_country_code: fields.mobile_country_code,
-              mobile_number: mobileNum,
-              linkedin_url: fields.linkedin_url.trim() || "",
-              company_website: fields.company_website.trim() || "",
-              company_employee_count: fields.company_employee_count || "",
-              industry: fields.industry || "",
-              display_name: fullName,
-            },
-          },
-        });
-
-        if (signUpErr) {
-          if (signUpErr.message?.includes("already") ) {
-            accountAlreadyExists = true;
-          } else {
-            logger.warn("signup error", {
-              error_message: signUpErr instanceof Error ? signUpErr.message : String(signUpErr),
-            });
-            // Non-fatal — continue to create registration anyway
-          }
-        } else if (signUpResult?.user) {
-          newUserId = signUpResult.user.id;
-        }
-      }
-    }
-
-    // ── Step 2: Create registration ──────────────────────────────────────────
-    const { data, error } = await supabase.from("registrations").insert({
+    // ── Step 1 (fast, await): Create the registration row ──────────────────
+    // We hit `registrations` first so the organizer sees the success screen
+    // (with join link, QR, credentials) in well under a second. Auth signup
+    // takes several seconds because it sends the confirmation email server-
+    // side; we run that AFTER showing the success state.
+    const { data: reg, error } = await supabase.from("registrations").insert({
       event_id: eventId,
       name: fullName,
       email,
@@ -128,43 +84,137 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
       company_website: fields.company_website.trim() || null,
       company_employee_count: fields.company_employee_count || null,
       industry: fields.industry || null,
-      ticket_type: isVirtual ? "webinar" : ticketType, status: "confirmed", approval_status: "approved",
+      ticket_type: resolvedTicketType,
+      status: "confirmed",
+      approval_status: "approved",
     }).select("id, join_token, qr_code").single();
-    if (error || !data) { setBusy(false); return toast.error(error?.message || "Failed to add"); }
+    if (error || !reg) { setBusy(false); return toast.error(error?.message || "Failed to add"); }
 
-    // Link registration to user (done via UPDATE which the organizer has permission for)
-    if (newUserId) {
-      await supabase.from("registrations").update({ user_id: newUserId }).eq("id", data.id);
-      // Also link any other unlinked registrations for same email
-      await supabase.from("registrations")
-        .update({ user_id: newUserId })
-        .eq("email", email)
-        .is("user_id", null);
-    }
-
-    let speakerLink: string | undefined;
-    if (isVirtual && role === "speaker") {
-      const { data: sess } = await supabase.from("webinar_sessions").select("id").eq("event_id", eventId)
-        .order("created_at", { ascending: false }).limit(1).maybeSingle();
-      if (sess) {
-        const { data: sp } = await supabase.from("webinar_speakers").insert({
-          session_id: sess.id, email, display_name: fullName, role: "speaker",
-        }).select("invite_token").single();
-        if (sp) speakerLink = `${publicOrigin()}/e/${eventSlug || eventId}/live?speaker=${sp.invite_token}`;
-      } else {
-        toast.warning("No webinar session yet — speaker can join once you create one.");
-      }
-    }
-    setCreated({ join_token: data.join_token, qr_code: data.qr_code || "", speakerLink });
+    // ── Step 2: Reveal success state immediately ───────────────────────────
+    // Speaker link starts undefined; it fills in below once the webinar
+    // speaker row is created in the background.
+    setCreated({ join_token: reg.join_token, qr_code: reg.qr_code || "", speakerLink: undefined });
     setBusy(false);
     onAdded?.();
-    if (accountAlreadyExists) {
-      toast.success("Participant added — existing account linked.");
-    } else if (mobileNum) {
-      toast.success("Participant added — confirmation email sent to " + email);
-    } else {
-      toast.success("Participant added");
-    }
+    toast.success("Participant added");
+
+    // ── Step 3 (background, fire-and-forget): auth signup, user_id linking,
+    // and speaker token. None of this blocks the success screen. Errors
+    // here are non-fatal — the registration already exists, the join link
+    // already works, and the participant can always be linked to their auth
+    // account when they sign in via the magic link or password reset flow.
+    void (async () => {
+      try {
+        let userId: string | null = null;
+        let accountAlreadyExists = false;
+
+        if (mobileNum) {
+          const { data: existingReg } = await supabase
+            .from("registrations")
+            .select("user_id")
+            .eq("email", email)
+            .not("user_id", "is", null)
+            .limit(1)
+            .maybeSingle();
+
+          if (existingReg?.user_id) {
+            userId = existingReg.user_id;
+            accountAlreadyExists = true;
+          } else {
+            const { data: signUpResult, error: signUpErr } = await anonClient.auth.signUp({
+              email,
+              password: mobileNum,
+              options: {
+                emailRedirectTo: `${window.location.origin}/login`,
+                data: {
+                  must_change_password: true,
+                  account_type: "attendee",
+                  title: fields.title || "",
+                  first_name: fields.first_name.trim(),
+                  last_name: fields.last_name.trim(),
+                  designation: fields.designation.trim(),
+                  company: fields.company.trim() || "",
+                  mobile_country_code: fields.mobile_country_code,
+                  mobile_number: mobileNum,
+                  linkedin_url: fields.linkedin_url.trim() || "",
+                  company_website: fields.company_website.trim() || "",
+                  company_employee_count: fields.company_employee_count || "",
+                  industry: fields.industry || "",
+                  display_name: fullName,
+                },
+              },
+            });
+            if (signUpErr) {
+              if (signUpErr.message?.includes("already")) accountAlreadyExists = true;
+              else logger.warn("signup error", {
+                error_message: signUpErr instanceof Error ? signUpErr.message : String(signUpErr),
+              });
+            } else if (signUpResult?.user) {
+              userId = signUpResult.user.id;
+            }
+          }
+        }
+
+        // Link this registration (and any other unlinked rows for the same
+        // email) to the resolved user. Done after-the-fact so the join link
+        // works regardless.
+        if (userId) {
+          await Promise.all([
+            supabase.from("registrations").update({ user_id: userId }).eq("id", reg.id),
+            supabase.from("registrations")
+              .update({ user_id: userId })
+              .eq("email", email)
+              .is("user_id", null),
+          ]);
+        }
+
+        // Webinar speaker token (only for virtual events when role === speaker).
+        if (isVirtual && role === "speaker") {
+          const { data: sess } = await supabase.from("webinar_sessions")
+            .select("id").eq("event_id", eventId)
+            .order("created_at", { ascending: false }).limit(1).maybeSingle();
+          if (sess) {
+            const { data: sp } = await supabase.from("webinar_speakers").insert({
+              session_id: sess.id, email, display_name: fullName, role: "speaker",
+            }).select("invite_token").single();
+            if (sp) {
+              const link = `${publicOrigin()}/e/${eventSlug || eventId}/live?speaker=${sp.invite_token}`;
+              setCreated((prev) => prev ? { ...prev, speakerLink: link } : prev);
+            }
+          } else {
+            toast.warning("No webinar session yet — speaker can join once you create one.");
+          }
+        }
+
+        if (accountAlreadyExists) {
+          toast.message("Existing account linked", { description: email });
+        } else if (mobileNum) {
+          toast.message("Confirmation email sent", { description: email });
+        }
+
+        // Welcome email — confirms the role and shares the join link. Fired
+        // after the speaker token block so virtual speakers can receive a
+        // single email that carries their attendee join URL too (the
+        // dedicated speaker link is shown to the organiser only).
+        const welcomeJoinUrl = `${publicOrigin()}/e/${eventSlug || eventId}/live?join=${reg.join_token}`;
+        const welcomeEventUrl = `${publicOrigin()}/e/${eventSlug || eventId}`;
+        void sendParticipantWelcomeEmail({
+          eventId,
+          recipientName: fullName,
+          recipientEmail: email,
+          role: role === "speaker" ? "speaker" : role === "sponsor" ? "sponsor" : "attendee",
+          initialPassword: mobileNum || null,
+          joinUrl: isVirtual ? welcomeJoinUrl : null,
+          eventUrl: welcomeEventUrl,
+        }).then((res) => {
+          if (res.ok) toast.message("Welcome email sent", { description: email });
+        });
+      } catch (bgErr) {
+        logger.warn("add-participant background work failed", {
+          error_message: bgErr instanceof Error ? bgErr.message : String(bgErr),
+        });
+      }
+    })();
   };
 
   const joinUrl = created ? `${publicOrigin()}/e/${eventSlug || eventId}/live?join=${created.join_token}` : "";
@@ -180,21 +230,25 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
         {!created ? (
           <div className="space-y-3">
             <PersonFieldsForm value={fields} onChange={setFields} />
-            {isVirtual && (
-              <div>
-                <Label className="text-[12px]">Role</Label>
-                <Select value={role} onValueChange={(v) => setRole(v as "attendee" | "speaker")}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="attendee">Attendee</SelectItem>
-                    <SelectItem value="speaker">Speaker (on-stage)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            <div>
+              <Label className="text-[12px]">Role *</Label>
+              <Select value={role} onValueChange={(v) => setRole(v as typeof role)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="attendee">Attendee</SelectItem>
+                  <SelectItem value="speaker">Speaker{isVirtual ? " (on-stage)" : ""}</SelectItem>
+                  <SelectItem value="sponsor">Sponsor</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Used in the welcome email to tell the participant what they've been registered as.
+              </p>
+            </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button onClick={submit} disabled={busy}>{busy ? "Adding…" : "Add"}</Button>
+              <Button onClick={submit} disabled={busy || !role}>{busy ? "Adding…" : "Add"}</Button>
             </DialogFooter>
           </div>
         ) : (
