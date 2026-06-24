@@ -48,6 +48,23 @@ describe("computeEventDays", () => {
     const days = computeEventDays("2025-07-04T03:30:00Z", "2025-07-04T18:29:00Z");
     expect(days).toEqual(["2025-07-04"]);
   });
+
+  it("treats midnight end_date as end-of-previous-day (common date picker default)", () => {
+    // Organiser sets event end to midnight: "2026-06-26T00:00:00" — this
+    // should still count as a single-day event on June 25.
+    const days = computeEventDays("2026-06-25T09:00:00", "2026-06-26T00:00:00");
+    expect(days).toEqual(["2026-06-25"]);
+  });
+
+  it("treats UTC midnight end_date as end-of-previous-day", () => {
+    const days = computeEventDays("2026-06-25T03:30:00Z", "2026-06-26T00:00:00Z");
+    expect(days).toEqual(["2026-06-25"]);
+  });
+
+  it("keeps 2-day event when end_date has non-midnight time on next day", () => {
+    const days = computeEventDays("2026-06-25T09:00:00", "2026-06-26T18:00:00");
+    expect(days).toEqual(["2026-06-25", "2026-06-26"]);
+  });
 });
 
 describe("isDayInRange", () => {

@@ -7,18 +7,31 @@ export function toDayKey(d: Date): string {
  * any timezone conversion. This prevents a UTC-midnight timestamp like
  * "2025-07-04T00:00:00Z" from rolling back to "2025-07-03" in timezones east
  * of UTC or rolling forward in timezones west of UTC.
+ *
+ * For end dates: if the time component is exactly 00:00 (midnight) the
+ * organiser almost certainly meant "end of the previous day", so we subtract
+ * one day. This prevents a single-day event with end_date set to midnight
+ * from appearing as a two-day event.
  */
-function isoToDateStr(iso: string): string {
-  // Fast path: already a bare date string
+function isoToDateStr(iso: string, isEndDate = false): string {
+  // Fast path: already a bare date string — no time to inspect
   if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
-  // Take only the date portion before the T
-  return iso.split("T")[0];
+  const [datePart, timePart = ""] = iso.split("T");
+  // Strip timezone offset from the time part to get bare "HH:MM:SS" or "HH:MM"
+  const bareTime = timePart.replace(/[+Z].*$/, "");
+  if (isEndDate && (bareTime === "00:00:00" || bareTime === "00:00")) {
+    // Midnight end date → treat as end of previous calendar day
+    const [y, m, d] = datePart.split("-").map(Number);
+    const prev = new Date(y, m - 1, d - 1);
+    return toDayKey(prev);
+  }
+  return datePart;
 }
 
 export function computeEventDays(startIso: string | null | undefined, endIso?: string | null): string[] {
   if (!startIso) return [];
   const startStr = isoToDateStr(startIso);
-  const endStr   = endIso ? isoToDateStr(endIso) : startStr;
+  const endStr   = endIso ? isoToDateStr(endIso, true) : startStr;
   // Build dates using local constructor so no UTC conversion occurs
   const [sy, sm, sd] = startStr.split("-").map(Number);
   const [ey, em, ed] = endStr.split("-").map(Number);
