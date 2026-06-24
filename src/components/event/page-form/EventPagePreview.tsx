@@ -130,30 +130,42 @@ export default function EventPagePreview({
           {event.title}
         </h1>
         {/* Organised by line */}
-        {org && (
-          <div className="flex items-center gap-2 mt-3">
-            {org.logo_url ? (
-              <img
-                src={org.logo_url}
-                alt={org.name}
-                className="h-6 w-6 rounded-full object-cover shrink-0"
-              />
-            ) : (
-              <div
-                className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
-                style={{ backgroundColor: `${accent}20`, color: accent }}
-              >
-                {org.name.charAt(0).toUpperCase()}
-              </div>
-            )}
-            <p className="text-[14px] opacity-70" style={{ color: text }}>
-              Organised by{" "}
-              <span className="font-semibold opacity-100" style={{ color: text }}>
-                {org.name}
-              </span>
-            </p>
-          </div>
-        )}
+        {org && (() => {
+          const orgHandle = org.subdomain || org.slug;
+          const orgHref = orgHandle ? `/org/${orgHandle}` : null;
+          const inner = (
+            <div className={`inline-flex items-center gap-2 mt-3 ${orgHref ? "cursor-pointer group" : ""}`}>
+              {org.logo_url ? (
+                <img
+                  src={org.logo_url}
+                  alt={org.name}
+                  className="h-6 w-6 rounded-full object-cover shrink-0"
+                />
+              ) : (
+                <div
+                  className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+                  style={{ backgroundColor: `${accent}20`, color: accent }}
+                >
+                  {org.name.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <p className="text-[14px] opacity-70" style={{ color: text }}>
+                Organised by{" "}
+                <span
+                  className={`font-semibold opacity-100 ${orgHref ? "group-hover:underline" : ""}`}
+                  style={{ color: text }}
+                >
+                  {org.name}
+                </span>
+              </p>
+            </div>
+          );
+          return orgHref ? (
+            <Link to={orgHref} className="block w-fit">
+              {inner}
+            </Link>
+          ) : inner;
+        })()}
       </section>
       )}
 
