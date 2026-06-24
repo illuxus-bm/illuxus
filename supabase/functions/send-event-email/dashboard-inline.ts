@@ -1,22 +1,35 @@
 /**
- * send-event-email — self-contained Dashboard build.
+ * send-event-email — self-contained Dashboard build (SMTP transport).
  *
- * The repo version splits CORS / Resend / logger into ../_shared/* modules,
+ * The repo version splits CORS / SMTP / logger into ../_shared/* modules,
  * but the Supabase Dashboard editor only deploys this single file, so we
- * inline the helpers here. Paste the contents of THIS file into the
- * Dashboard "Edit function" view for `send-event-email` and click Deploy.
+ * inline the helpers here. Paste THIS file's contents into the Dashboard
+ * "Edit function" view for `send-event-email` and click Deploy.
  *
- * Required Supabase secrets:
- *   RESEND_API_KEY     — from https://resend.com/api-keys
- *   RESEND_FROM_EMAIL  — e.g. "Illuxus <noreply@eliteform.in>"
+ * ── Required Supabase secrets ────────────────────────────────────────────
+ *   SMTP_HOST        e.g. smtp.gmail.com
+ *   SMTP_PORT        465 (SSL) or 587 (STARTTLS). Default 465.
+ *   SMTP_USERNAME    full mailbox used to authenticate
+ *   SMTP_PASSWORD    Gmail App Password (NOT the regular Google password).
+ *                    Generate at https://myaccount.google.com/apppasswords
+ *                    after enabling 2-Step Verification.
+ *   SMTP_FROM        optional. e.g. "Illuxus <noreply@yourdomain.com>".
+ *                    Gmail rewrites the mailbox to SMTP_USERNAME, so you
+ *                    can customise the display name but not the address.
  *
  * Optional:
- *   ALLOWED_ORIGINS    — comma-separated extra origins for CORS allowlist
+ *   ALLOWED_ORIGINS  comma-separated extra origins for CORS allowlist
  *   PUBLIC_DOMAIN / VITE_PUBLIC_DOMAIN
  *   PUBLIC_PUBLISHED_HOST / VITE_PUBLIC_PUBLISHED_HOST
+ *
+ * ── Gmail caveats ────────────────────────────────────────────────────────
+ *   • Free Gmail caps at ~500 outbound emails/day. Workspace at 2000/day.
+ *   • If you see `534-5.7.9 Application-specific password required`, you
+ *     pasted the regular Gmail password. Generate an App Password instead.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
 // ────────────────────────────────────────────────────────────────────────────
 // CORS helpers (inlined from ../_shared/cors.ts)
@@ -65,10 +78,9 @@ function buildCorsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("Origin") ?? "";
   const allowed = envAllowedOrigins();
 
-  // Vercel deployments (production + every preview/branch URL) end in
-  // `.vercel.app`. We allow any HTTPS subdomain of vercel.app so the
-  // dashboard can be deployed without re-listing each preview URL in
-  // ALLOWED_ORIGINS. Custom domains still need to be listed explicitly.
+  // Vercel production + preview deployments share the `*.vercel.app`
+  // suffix. Allow any subdomain so each new preview / branch deploy
+  // doesn't need an ops-side ALLOWED_ORIGINS update.
   const isVercel = /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin);
 
   if (origin && (allowed.has(stripTrailingSlash(origin)) || isVercel)) {
@@ -86,7 +98,7 @@ function handlePreflight(req: Request, cors: Record<string, string>): Response |
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Resend helpers (inlined from ../_shared/resend.ts)
+// SMTP helpers (inlined from ../_shared/smtp.ts)
 // ────────────────────────────────────────────────────────────────────────────
 
 function escapeHtml(text: string): string {
@@ -121,7 +133,7 @@ function textToHtml(text: string, footer?: string): string {
 </html>`;
 }
 
-interface ResendEmailPayload {
+interface SmtpEmailPayload {
   from: string;
   to: string[];
   subject: string;
@@ -130,31 +142,63 @@ interface ResendEmailPayload {
   reply_to?: string;
 }
 
-async function sendViaResend(
-  apiKey: string,
-  payload: ResendEmailPayload,
-): Promise<{ ok: true; id?: string } | { ok: false; error: string }> {
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    return { ok: false, error: `${res.status} ${errText.slice(0, 500)}` };
+function smtpConfigured(): boolean {
+  return !!(Deno.env.get("SMTP_HOST") && Deno.env.get("SMTP_USERNAME") && Deno.env.get("SMTP_PASSWORD"));
+}
+
+function buildSmtpClient(): SMTPClient {
+  const host = Deno.env.get("SMTP_HOST");
+  const port = Number(Deno.env.get("SMTP_PORT") || "465");
+  const username = Deno.env.get("SMTP_USERNAME");
+  const password = Deno.env.get("SMTP_PASSWORD");
+
+  if (!host || !username || !password) {
+    throw new Error("SMTP not configured: set SMTP_HOST, SMTP_USERNAME, and SMTP_PASSWORD in Supabase secrets.");
   }
-  const data = (await res.json().catch(() => ({}))) as { id?: string };
-  return { ok: true, id: data.id };
+  return new SMTPClient({
+    connection: {
+      hostname: host,
+      port,
+      // 465 → implicit TLS. 587 / 25 → opportunistic STARTTLS, denomailer
+      // handles the upgrade after EHLO.
+      tls: port === 465,
+      auth: { username, password },
+    },
+  });
+}
+
+async function sendViaSmtp(
+  payload: SmtpEmailPayload,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  let client: SMTPClient | null = null;
+  try {
+    client = buildSmtpClient();
+    await client.send({
+      from: payload.from,
+      to: payload.to,
+      subject: payload.subject,
+      content: payload.text,
+      html: payload.html,
+      ...(payload.reply_to ? { replyTo: payload.reply_to } : {}),
+    });
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg.slice(0, 500) };
+  } finally {
+    if (client) { try { await client.close(); } catch { /* noop */ } }
+  }
 }
 
 function defaultFromAddress(displayName = "Illuxus"): string {
-  // Accept either secret name. `RESEND_FROM_EMAIL` is the original; `RESEND_FROM`
-  // is the shorter alias already used elsewhere in the project (see
-  // send-communication-email). Whichever you set in Supabase secrets is fine.
-  const from =
+  // Resolution order mirrors the project's other email functions, so
+  // existing deploys can swap providers without losing the From header.
+  const explicit =
+    Deno.env.get("SMTP_FROM") ??
     Deno.env.get("RESEND_FROM_EMAIL") ??
-    Deno.env.get("RESEND_FROM") ??
-    "Illuxus <onboarding@resend.dev>";
+    Deno.env.get("RESEND_FROM");
+  const username = Deno.env.get("SMTP_USERNAME") ?? "";
+  const from = explicit || username || `${displayName} <noreply@example.com>`;
   if (from.includes("<")) return from;
   return `${displayName} <${from}>`;
 }
@@ -239,7 +283,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (!emailSettings?.domain_configured) {
-      log.warn("domain not configured", { hint: "verify your domain in Resend first" });
+      log.warn("domain not configured", { hint: "verify your sender domain before high-volume sends" });
     }
 
     let fromName = "Illuxus";
@@ -265,15 +309,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    const resendApiKey = Deno.env.get("RESEND_API_KEY");
     const from = defaultFromAddress(fromName);
     const htmlContent = textToHtml(emailBody);
     const normalizedRecipients = [
       ...new Set(recipient_emails.map((e) => e.trim().toLowerCase()).filter(Boolean)),
     ];
 
-    if (!resendApiKey) {
-      log.info("not delivered — no API key", {
+    if (!smtpConfigured()) {
+      log.info("not delivered — SMTP not configured", {
         subject,
         recipient_count: normalizedRecipients.length,
         recipient_excerpt: normalizedRecipients.slice(0, 5),
@@ -291,30 +334,25 @@ Deno.serve(async (req) => {
         sent: normalizedRecipients.length,
         failed: 0,
         provider: "console",
-        note: "RESEND_API_KEY not set — email logged only. Add the secret in Supabase Dashboard → Edge Functions → Secrets.",
+        note: "SMTP not configured — email logged only. Set SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD in Supabase secrets.",
       });
     }
 
-    const BATCH_SIZE = 50;
+    // SMTP: one envelope per recipient. Gmail in particular silently
+    // throttles when many `To:` addresses are batched together.
     const failures: string[] = [];
-
-    for (let i = 0; i < normalizedRecipients.length; i += BATCH_SIZE) {
-      const batch = normalizedRecipients.slice(i, i + BATCH_SIZE);
-      const result = await sendViaResend(resendApiKey, {
+    for (const to of normalizedRecipients) {
+      const result = await sendViaSmtp({
         from,
-        to: batch,
+        to: [to],
         subject,
         html: htmlContent,
         text: emailBody,
         ...(replyTo ? { reply_to: replyTo } : {}),
       });
-
       if (!result.ok) {
-        log.error("resend batch failed", {
-          batch_index: i / BATCH_SIZE + 1,
-          error_message: result.error,
-        });
-        failures.push(...batch);
+        log.error("smtp send failed", { to, error_message: result.error });
+        failures.push(to);
       }
     }
 
@@ -328,7 +366,7 @@ Deno.serve(async (req) => {
       return json(
         {
           error:
-            "All email batches failed. Check RESEND_API_KEY and domain verification in Resend.",
+            "All email sends failed. Check SMTP credentials and that the From address matches your verified sender.",
           failed_count: failures.length,
         },
         500,
@@ -346,7 +384,7 @@ Deno.serve(async (req) => {
       success: true,
       sent: normalizedRecipients.length - failures.length,
       failed: failures.length,
-      provider: "resend",
+      provider: "smtp",
     });
   } catch (err) {
     log.error("unexpected error", toErrorFields(err));

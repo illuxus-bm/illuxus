@@ -2,13 +2,16 @@
  * send-communication-email
  *
  * Reads `email_status='pending'` recipient rows for a communication and
- * ships them through Resend's batch API. Updates each row's status to
+ * ships them through SMTP (Gmail by default). Updates each row's status to
  * `'sent'` (or `'failed'` with `error_message` populated) and rolls up the
  * counts on the parent `communications` row.
  *
  * Required env (Supabase secrets):
- *   RESEND_API_KEY  — your Resend project API key
- *   RESEND_FROM     — verified sender address (e.g. "Illuxus <events@yourdomain.com>")
+ *   SMTP_HOST       e.g. smtp.gmail.com
+ *   SMTP_PORT       465 (SSL) or 587 (STARTTLS)
+ *   SMTP_USERNAME   the SMTP login (full mailbox)
+ *   SMTP_PASSWORD   Gmail App Password (16 chars), NOT the account password
+ *   SMTP_FROM       optional, e.g. "Illuxus <events@yourdomain.com>"
  *
  * Request body:
  *   { communication_id: string, batch_size?: number }
@@ -16,7 +19,8 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
-import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+import { createEdgeLogger } from "../_shared/edge-logger.ts";
+import { defaultFromAddress, sendViaSmtp, smtpConfigured } from "../_shared/smtp.ts";
 
 const log = createEdgeLogger("send-communication-email");
 
@@ -28,11 +32,7 @@ interface RecipientRow {
   rendered_body: string | null;
 }
 
-interface ResendBatchResultItem {
-  id?: string;
-}
-
-const RESEND_BATCH_LIMIT = 100;
+const SMTP_CHUNK_LIMIT = 50;
 
 Deno.serve(async (req) => {
   const corsHeaders = buildCorsHeaders(req);
@@ -51,17 +51,18 @@ Deno.serve(async (req) => {
   let step = "init";
   try {
     step = "read-secrets";
-    const apiKey = Deno.env.get("RESEND_API_KEY");
-    // Accept either RESEND_FROM (legacy) or RESEND_FROM_EMAIL (matches the
-    // other email edge functions in this project). Pick whichever is set.
-    const from   = Deno.env.get("RESEND_FROM") ?? Deno.env.get("RESEND_FROM_EMAIL");
-    if (!apiKey || !from) {
-      log.error("missing secrets", { hasApiKey: !!apiKey, hasFrom: !!from });
+    if (!smtpConfigured()) {
+      log.error("missing secrets", {
+        hasHost: !!Deno.env.get("SMTP_HOST"),
+        hasUser: !!Deno.env.get("SMTP_USERNAME"),
+        hasPass: !!Deno.env.get("SMTP_PASSWORD"),
+      });
       return json({
-        error: "Resend not configured: set RESEND_API_KEY and RESEND_FROM_EMAIL secrets first.",
+        error: "SMTP not configured: set SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD secrets first.",
         step,
       }, 500);
     }
+    const from = defaultFromAddress();
 
     step = "parse-body";
     const body = await req.json() as { communication_id?: string; batch_size?: number };
@@ -69,7 +70,7 @@ Deno.serve(async (req) => {
     if (!communication_id) {
       return json({ error: "communication_id is required", step }, 400);
     }
-    const limit = Math.min(Math.max(1, body.batch_size ?? RESEND_BATCH_LIMIT), RESEND_BATCH_LIMIT);
+    const limit = Math.min(Math.max(1, body.batch_size ?? SMTP_CHUNK_LIMIT), SMTP_CHUNK_LIMIT);
 
     step = "create-client";
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -116,87 +117,51 @@ Deno.serve(async (req) => {
       return json({ error: `Mark sending failed: ${markErr.message}`, step }, 500);
     }
 
-    step = "build-batch";
-    // Resend's batch endpoint accepts up to 100 emails. Each entry has its
-    // own subject + html + to thanks to per-recipient pre-rendering.
-    const items = rows.map((r) => ({
-      from,
-      to: [r.email!],
-      subject: r.rendered_subject ?? "",
-      html: textToHtml(r.rendered_body ?? ""),
-      text: r.rendered_body ?? "",
-      tags: [
-        { name: "communication_id", value: communication_id },
-        { name: "recipient_id",     value: r.id },
-      ],
-    }));
-
-    step = "resend-batch";
-    let batchOk = false;
-    let batchData: { data?: ResendBatchResultItem[] } | null = null;
-    let batchError: string | null = null;
-    try {
-      const resp = await fetch("https://api.resend.com/emails/batch", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(items),
-      });
-      const responseText = await resp.text();
-      log.info("resend response", { status: resp.status, body_length: responseText.length });
-      if (!resp.ok) {
-        batchError = `Resend ${resp.status}: ${responseText.slice(0, 500)}`;
-        log.error("resend non-2xx", { status: resp.status, body_excerpt: responseText.slice(0, 500) });
-      } else {
-        try {
-          batchData = JSON.parse(responseText) as { data?: ResendBatchResultItem[] };
-          batchOk = true;
-        } catch (parseErr) {
-          batchError = `Resend returned non-JSON: ${responseText.slice(0, 200)}`;
-          log.error("resend body parse failed", toErrorFields(parseErr));
-        }
-      }
-    } catch (err) {
-      batchError = err instanceof Error ? err.message : String(err);
-      log.error("resend fetch threw", toErrorFields(err));
-    }
-
-    step = "update-statuses";
+    step = "smtp-send-loop";
+    // SMTP relays don't support batch sends the way Resend's API does — we
+    // open one session per recipient. denomailer closes the connection
+    // inside `sendViaSmtp`, so this is one TCP roundtrip per recipient.
+    // For Gmail this is fine up to a few hundred per minute; if higher
+    // throughput is needed, swap the transport for SES / SendGrid.
     let sent = 0;
     let failed = 0;
     const errors: Array<{ recipient_id: string; error: string }> = [];
+    const now = new Date().toISOString();
 
-    if (batchOk && batchData?.data && batchData.data.length === rows.length) {
-      const now = new Date().toISOString();
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const result = batchData.data[i];
-        if (result?.id) {
-          await supabase
-            .from("communication_recipients")
-            .update({ email_status: "sent", email_sent_at: now })
-            .eq("id", row.id);
-          sent += 1;
-        } else {
-          await supabase
-            .from("communication_recipients")
-            .update({ email_status: "failed", error_message: "No id returned by Resend" })
-            .eq("id", row.id);
-          failed += 1;
-          errors.push({ recipient_id: row.id, error: "No id returned by Resend" });
-        }
-      }
-    } else {
-      const reason = batchError ?? "Unknown Resend batch failure";
-      for (const row of rows) {
+    for (const row of rows) {
+      const to = (row.email || "").trim().toLowerCase();
+      if (!to) {
         await supabase
           .from("communication_recipients")
-          .update({ email_status: "failed", error_message: reason.slice(0, 500) })
+          .update({ email_status: "failed", error_message: "Recipient has no email" })
           .eq("id", row.id);
         failed += 1;
-        errors.push({ recipient_id: row.id, error: reason });
+        errors.push({ recipient_id: row.id, error: "Recipient has no email" });
+        continue;
+      }
+      const subject  = row.rendered_subject ?? "";
+      const bodyText = row.rendered_body ?? "";
+      const result = await sendViaSmtp({
+        from,
+        to: [to],
+        subject,
+        html: textToHtml(bodyText),
+        text: bodyText,
+      });
+      if (result.ok) {
+        await supabase
+          .from("communication_recipients")
+          .update({ email_status: "sent", email_sent_at: now })
+          .eq("id", row.id);
+        sent += 1;
+      } else {
+        log.error("smtp send failed", { recipient_id: row.id, error_message: result.error });
+        await supabase
+          .from("communication_recipients")
+          .update({ email_status: "failed", error_message: result.error.slice(0, 500) })
+          .eq("id", row.id);
+        failed += 1;
+        errors.push({ recipient_id: row.id, error: result.error });
       }
     }
 

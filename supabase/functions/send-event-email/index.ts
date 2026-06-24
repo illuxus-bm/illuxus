@@ -1,7 +1,7 @@
 /**
  * send-event-email
  *
- * Sends bulk event / system emails via Resend.
+ * Sends bulk event / system emails via SMTP (Gmail by default).
  * Reads org context from `events` + `organizations`; honours the singleton
  * `email_settings` row for feature toggles.
  *
@@ -15,12 +15,15 @@
  * }
  *
  * Required Supabase secrets:
- *   RESEND_API_KEY       — from https://resend.com/api-keys
- *   RESEND_FROM_EMAIL    — optional, e.g. "Illuxus <noreply@yourdomain.com>"
+ *   SMTP_HOST        e.g. smtp.gmail.com
+ *   SMTP_PORT        465 (SSL) or 587 (STARTTLS)
+ *   SMTP_USERNAME    full mailbox address used to authenticate
+ *   SMTP_PASSWORD    Gmail App Password (NOT the account password)
+ *   SMTP_FROM        optional, e.g. "Illuxus <noreply@yourdomain.com>"
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { defaultFromAddress, sendViaResend, textToHtml } from "../_shared/resend.ts";
+import { defaultFromAddress, sendViaSmtp, smtpConfigured, textToHtml } from "../_shared/smtp.ts";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
 
@@ -114,15 +117,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    const resendApiKey = Deno.env.get("RESEND_API_KEY");
     const from = defaultFromAddress(fromName);
     const htmlContent = textToHtml(emailBody);
     const normalizedRecipients = [
       ...new Set(recipient_emails.map((e) => e.trim().toLowerCase()).filter(Boolean)),
     ];
 
-    if (!resendApiKey) {
-      log.info("not delivered — no API key", {
+    if (!smtpConfigured()) {
+      log.info("not delivered — SMTP not configured", {
         subject,
         recipient_count: normalizedRecipients.length,
         recipient_excerpt: normalizedRecipients.slice(0, 5),
@@ -140,30 +142,27 @@ Deno.serve(async (req) => {
         sent: normalizedRecipients.length,
         failed: 0,
         provider: "console",
-        note: "RESEND_API_KEY not set — email logged only. Add the secret in Supabase Dashboard → Edge Functions → Secrets.",
+        note: "SMTP not configured — email logged only. Set SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD in Supabase secrets.",
       });
     }
 
-    const BATCH_SIZE = 50;
+    // SMTP relays expect one envelope per recipient; some providers (Gmail
+    // especially) silently rate-limit when batched with many `To:` addrs.
+    // Sending one-by-one keeps deliverability predictable and lets us
+    // record exactly which addresses failed.
     const failures: string[] = [];
-
-    for (let i = 0; i < normalizedRecipients.length; i += BATCH_SIZE) {
-      const batch = normalizedRecipients.slice(i, i + BATCH_SIZE);
-      const result = await sendViaResend(resendApiKey, {
+    for (const to of normalizedRecipients) {
+      const result = await sendViaSmtp({
         from,
-        to: batch,
+        to: [to],
         subject,
         html: htmlContent,
         text: emailBody,
         ...(replyTo ? { reply_to: replyTo } : {}),
       });
-
       if (!result.ok) {
-        log.error("resend batch failed", {
-          batch_index: i / BATCH_SIZE + 1,
-          error_message: result.error,
-        });
-        failures.push(...batch);
+        log.error("smtp send failed", { to, error_message: result.error });
+        failures.push(to);
       }
     }
 
@@ -175,7 +174,7 @@ Deno.serve(async (req) => {
           .eq("id", email_id);
       }
       return json({
-        error: "All email batches failed. Check RESEND_API_KEY and domain verification in Resend.",
+        error: "All email sends failed. Check SMTP credentials and that the From address matches your verified sender.",
         failed_count: failures.length,
       }, 500);
     }
@@ -191,7 +190,7 @@ Deno.serve(async (req) => {
       success: true,
       sent: normalizedRecipients.length - failures.length,
       failed: failures.length,
-      provider: "resend",
+      provider: "smtp",
     });
   } catch (err) {
     log.error("unexpected error", toErrorFields(err));

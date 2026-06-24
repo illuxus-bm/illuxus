@@ -2,13 +2,16 @@
  * send-email
  *
  * Delivers per-recipient emails for the unified `communications` module via
- * Resend. Call AFTER `communications_dispatch` returns — the dispatch RPC
+ * SMTP. Call AFTER `communications_dispatch` returns — the dispatch RPC
  * fans out rows into `communication_recipients` with rendered subject/body;
  * this function ships them and updates delivery status on each row.
  *
  * Required env (Supabase secrets):
- *   RESEND_API_KEY       — Resend API key
- *   RESEND_FROM_EMAIL    — optional verified sender, e.g. "Illuxus <noreply@yourdomain.com>"
+ *   SMTP_HOST       e.g. smtp.gmail.com
+ *   SMTP_PORT       465 (SSL) or 587 (STARTTLS)
+ *   SMTP_USERNAME   the SMTP login (full mailbox)
+ *   SMTP_PASSWORD   Gmail App Password (16 chars), NOT the account password
+ *   SMTP_FROM       optional, e.g. "Illuxus <noreply@yourdomain.com>"
  *
  * Request body:
  *   { communication_id: string }
@@ -18,7 +21,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { defaultFromAddress, sendViaResend, textToHtml } from "../_shared/resend.ts";
+import { defaultFromAddress, sendViaSmtp, smtpConfigured, textToHtml } from "../_shared/smtp.ts";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 
 interface RecipientRow {
@@ -65,10 +68,9 @@ Deno.serve(async (req) => {
     });
 
   try {
-    const resendApiKey = Deno.env.get("RESEND_API_KEY");
-    if (!resendApiKey) {
+    if (!smtpConfigured()) {
       return json({
-        error: "Email not configured: set RESEND_API_KEY in Supabase Edge Function secrets first.",
+        error: "Email not configured: set SMTP_HOST, SMTP_USERNAME, and SMTP_PASSWORD in Supabase Edge Function secrets first.",
       }, 500);
     }
 
@@ -137,7 +139,7 @@ Deno.serve(async (req) => {
         .update({ email_status: "sending" })
         .eq("id", row.id);
 
-      const result = await sendViaResend(resendApiKey, {
+      const result = await sendViaSmtp({
         from,
         to: [to],
         subject,
