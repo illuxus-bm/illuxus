@@ -67,18 +67,24 @@ const EventsPage = () => {
   const [communityCategory, setCommunityCategory] = useState("other");
 
   const fetchEvents = useCallback(async () => {
-    if (!org?.id) {
+    if (!org?.id && !user?.id) {
       setLoading(false);
       return;
     }
-    const { data, error } = await supabase
+    let query = supabase
       .from("events")
       .select("*")
-      .eq("org_id", org.id)
       .order("date", { ascending: false });
+    // Org members see all org events; fallback to user_id for accounts without an org (e.g. super admin)
+    if (org?.id) {
+      query = query.eq("org_id", org.id);
+    } else if (user?.id) {
+      query = query.eq("user_id", user.id);
+    }
+    const { data, error } = await query;
     if (!error && data) setEvents(data);
     setLoading(false);
-  }, [org?.id]);
+  }, [org?.id, user?.id]);
 
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
 

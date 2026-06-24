@@ -67,15 +67,20 @@ const Dashboard = () => {
   const [bannerPortraitUrl, setBannerPortraitUrl] = useState("");
 
   const fetchEvents = async () => {
-    if (!org?.id) {
+    if (!org?.id && !user?.id) {
       setLoading(false);
       return;
     }
-    const { data, error } = await supabase
+    let query = supabase
       .from("events")
       .select("*")
-      .eq("org_id", org.id)
       .order("date", { ascending: true });
+    if (org?.id) {
+      query = query.eq("org_id", org.id);
+    } else if (user?.id) {
+      query = query.eq("user_id", user.id);
+    }
+    const { data, error } = await query;
     if (!error && data) setEvents(data);
     if (!error && data && data.length) {
       const PAID = new Set(["confirmed", "approved", "registered", "paid", "checked_in"]);
@@ -93,7 +98,7 @@ const Dashboard = () => {
     setLoading(false);
   };
 
-  useEffect(() => { fetchEvents(); }, [org?.id]);
+  useEffect(() => { fetchEvents(); }, [org?.id, user?.id]);
 
   const resetForm = () => {
     setTitle(""); setDescription(""); setDate(""); setEndDate("");
