@@ -256,7 +256,7 @@ export default function EventPagePreview({
                 className="rounded-3xl border p-6"
                 style={{ borderColor: surf.border, backgroundColor: surf.surface }}
               >
-                <div className="text-[11px] uppercase tracking-[0.2em] opacity-50 mb-3" style={{ fontFamily: MONO }}>
+                <div className="text-[11px] uppercase tracking-[0.2em] opacity-50 mb-3" style={{ fontFamily: "'Poppins', sans-serif" }}>
                   Hosted by
                 </div>
                 {previewMode ? (
@@ -344,7 +344,7 @@ function MetaRow({
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] uppercase tracking-[0.22em] opacity-50" style={{ fontFamily: MONO }}>
+        <div className="text-[10px] uppercase tracking-[0.22em] opacity-50" style={{ fontFamily: "'Poppins', sans-serif" }}>
           {label}
         </div>
         <div className="text-[14px] font-semibold leading-tight mt-1 truncate" style={{ fontFamily: DISPLAY }}>
