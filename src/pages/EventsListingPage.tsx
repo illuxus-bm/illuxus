@@ -61,11 +61,12 @@ export default function EventsListingPage() {
   useEffect(() => {
     let cancel = false;
     (async () => {
+      const now = new Date().toISOString();
       const { data } = await supabase
         .from("events")
         .select("id, slug, title, description, date, end_date, location, venue, capacity, tickets_sold, price, currency, timezone, status, image_url, banner_landscape_url, organizations(name, slug, subdomain, logo_url)")
         .eq("status", "published")
-        .gte("date", new Date().toISOString())
+        .or(`end_date.gte.${now},and(end_date.is.null,date.gte.${now})`)
         .order("date", { ascending: true })
         .limit(200);
       if (cancel) return;
