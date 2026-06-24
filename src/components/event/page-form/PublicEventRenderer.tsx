@@ -1057,32 +1057,29 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
           role="timer"
           aria-live="off"
           aria-label={srLabel}
-          // 4 cells in a single row across all breakpoints; uses fluid
-          // gap + clamp()-style font sizing to stay readable from 320px
-          // viewports up to 1400px+ without horizontal scroll.
-          className="grid grid-cols-4 gap-2 sm:gap-3 md:gap-4 max-w-3xl mb-4"
+          className="grid grid-cols-4 gap-3 max-w-3xl mb-4"
         >
           {cells.map((cell) => (
             <div
               key={cell.label}
-              className="rounded-xl sm:rounded-2xl py-3 px-1 sm:py-4 sm:px-2 md:py-6 border min-w-0"
+              className="rounded-2xl border flex flex-col items-center justify-center py-5 px-2 min-w-0"
               style={{
                 backgroundColor: `${theme.primaryColor}0D`,
                 borderColor: `${theme.primaryColor}26`,
               }}
             >
               <p
-                className="font-extrabold font-mono tabular-nums leading-none"
+                className="font-extrabold tabular-nums leading-none text-3xl sm:text-4xl md:text-5xl"
                 style={{
                   color: theme.primaryColor,
-                  fontSize: "clamp(1.5rem, 7vw, 3.25rem)",
+                  fontFamily: theme.fontFamily ? `${theme.fontFamily}, sans-serif` : undefined,
                 }}
               >
                 {String(cell.value).padStart(2, "0")}
               </p>
               <p
-                className="text-[9px] sm:text-[10px] md:text-[11px] uppercase tracking-widest mt-1.5 sm:mt-2 truncate"
-                style={{ color: theme.textColor, opacity: 0.6 }}
+                className="text-[10px] uppercase tracking-widest mt-2"
+                style={{ color: theme.textColor, opacity: 0.55 }}
               >
                 {cell.label}
               </p>
