@@ -103,6 +103,7 @@ export default function SponsorEventDetailPage() {
           <p className="text-sm text-muted-foreground text-center py-12">No one to show.</p>
         ) : (
           <div className="border border-border rounded-lg overflow-hidden">
+            <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
@@ -133,6 +134,7 @@ export default function SponsorEventDetailPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </main>

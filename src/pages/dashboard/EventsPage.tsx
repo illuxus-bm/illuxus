@@ -222,22 +222,22 @@ const EventsPage = () => {
         </div>
 
         {/* Tabs Above Grid */}
-        <div className="flex bg-muted/40 p-1 rounded-full w-fit border border-border/50 shadow-sm">
+        <div className="flex bg-muted/40 p-1 rounded-full w-full sm:w-fit max-w-full border border-border/50 shadow-sm">
           <button 
             onClick={() => setTimeFilter("upcoming")} 
-            className={`px-5 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 ${timeFilter === 'upcoming' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
+            className={`flex-1 sm:flex-none px-3 sm:px-5 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 ${timeFilter === 'upcoming' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
           >
             Upcoming
           </button>
           <button 
             onClick={() => setTimeFilter("pending")} 
-            className={`px-5 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 ${timeFilter === 'pending' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
+            className={`flex-1 sm:flex-none px-3 sm:px-5 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 ${timeFilter === 'pending' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
           >
             Pending
           </button>
           <button 
             onClick={() => setTimeFilter("past")} 
-            className={`px-5 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 ${timeFilter === 'past' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
+            className={`flex-1 sm:flex-none px-3 sm:px-5 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 ${timeFilter === 'past' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
           >
             Past
           </button>
@@ -274,8 +274,8 @@ const EventsPage = () => {
               </div>
               <div className="md:col-span-2">
                 <Label className="flex items-center gap-1.5"><LinkIcon className="h-3.5 w-3.5" /> URL slug</Label>
-                <div className="flex items-center mt-1">
-                  <span className="px-3 h-10 inline-flex items-center text-[12px] text-muted-foreground bg-muted border border-r-0 border-input rounded-l-md whitespace-nowrap">
+                <div className="flex flex-col sm:flex-row sm:items-center mt-1">
+                  <span className="px-3 h-10 inline-flex items-center text-[12px] text-muted-foreground bg-muted border border-input rounded-t-md sm:rounded-t-none sm:rounded-l-md sm:border-r-0 whitespace-nowrap overflow-hidden">
                     /org/{"<workspace>"}/events/
                   </span>
                   <Input
@@ -285,7 +285,7 @@ const EventsPage = () => {
                       setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, "-"));
                     }}
                     placeholder="my-event-name"
-                    className="rounded-l-none"
+                    className="rounded-t-none sm:rounded-t-md sm:rounded-l-none border-t-0 sm:border-t"
                   />
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-1">

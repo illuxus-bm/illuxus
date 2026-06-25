@@ -83,7 +83,7 @@ export default function EventCardLuma({ event, compact = false }: { event: LumaE
           })()}
         </div>
       </div>
-      <div className={`shrink-0 aspect-video rounded-lg overflow-hidden bg-secondary ${compact ? "w-40" : "w-40 sm:w-56"}`}>
+      <div className={`shrink-0 aspect-video rounded-lg overflow-hidden bg-secondary ${compact ? "w-24 sm:w-40" : "w-24 sm:w-40 md:w-56"}`}>
         {(event.banner_landscape_url || event.image_url) ? (
           <img src={event.banner_landscape_url || event.image_url!} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
         ) : (

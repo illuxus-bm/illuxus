@@ -337,7 +337,7 @@ function EmailCampaignsTab() {
         <div className="flex items-center gap-2">
           <Label className="text-[12px] text-muted-foreground shrink-0">Event:</Label>
           <Select value={selectedEventId} onValueChange={setSelectedEventId}>
-            <SelectTrigger className="h-8 text-[13px] w-[260px]">
+            <SelectTrigger className="h-8 text-[13px] w-full sm:w-[260px]">
               <SelectValue placeholder="Select event…" />
             </SelectTrigger>
             <SelectContent>
@@ -606,7 +606,7 @@ function SocialSharingTab() {
             <div className="flex items-center gap-2">
               <Label className="text-[12px] text-muted-foreground shrink-0">Event:</Label>
               <Select value={selectedEventId} onValueChange={setSelectedEventId}>
-                <SelectTrigger className="h-8 text-[13px] w-[260px]">
+                <SelectTrigger className="h-8 text-[13px] w-full sm:w-[260px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

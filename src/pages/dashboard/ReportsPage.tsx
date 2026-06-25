@@ -170,11 +170,11 @@ function Section({
   full?: boolean;
 }) {
   return (
-    <div className={cn("bg-card border border-border rounded-xl p-5", full && "lg:col-span-2")}>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold flex items-center gap-2">
-          <Icon className="h-4 w-4 text-muted-foreground" />
-          {title}
+    <div className={cn("bg-card border border-border rounded-xl p-4 sm:p-5", full && "lg:col-span-2")}>
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <h3 className="text-sm font-semibold flex items-center gap-2 min-w-0">
+          <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+          <span className="truncate">{title}</span>
         </h3>
         {action}
       </div>
@@ -901,7 +901,7 @@ const ReportsPage = () => {
           </div>
 
           <Select value={eventFilter} onValueChange={setEventFilter}>
-            <SelectTrigger className="h-8 w-[200px] text-[13px]">
+            <SelectTrigger className="h-8 w-full sm:w-[200px] text-[13px]">
               <SelectValue placeholder="All events" />
             </SelectTrigger>
             <SelectContent>
@@ -915,7 +915,7 @@ const ReportsPage = () => {
           </Select>
 
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-8 w-[160px] text-[13px]">
+            <SelectTrigger className="h-8 w-full sm:w-[160px] text-[13px]">
               <SelectValue placeholder="All statuses" />
             </SelectTrigger>
             <SelectContent>
@@ -1030,7 +1030,7 @@ const ReportsPage = () => {
                 {analytics.statusPie.length === 0 ? (
                   <p className="text-[13px] text-muted-foreground text-center py-10">No data.</p>
                 ) : (
-                  <div className="flex items-center gap-6">
+                  <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
                     <ResponsiveContainer width={160} height={160}>
                       <PieChart>
                         <Pie
@@ -1046,7 +1046,7 @@ const ReportsPage = () => {
                         <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
                       </PieChart>
                     </ResponsiveContainer>
-                    <div className="space-y-2 flex-1">
+                    <div className="space-y-2 flex-1 w-full">
                       {analytics.statusPie.map((d, i) => (
                         <div key={d.name} className="flex items-center gap-2 text-[13px]">
                           <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />

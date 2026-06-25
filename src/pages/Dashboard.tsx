@@ -486,21 +486,21 @@ const Dashboard = () => {
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-medium truncate">{event.title}</h3>
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${statusColors[event.status] || ""}`}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm font-medium truncate min-w-0">{event.title}</h3>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${statusColors[event.status] || ""}`}>
                       {event.status}
                     </span>
                   </div>
-                  <p className="text-[12px] text-muted-foreground flex items-center gap-3 mt-0.5">
+                  <p className="text-[12px] text-muted-foreground flex items-center gap-x-3 gap-y-0.5 mt-0.5 flex-wrap">
                     <span className="inline-flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
                       {formatEventDate(event.date)}
                     </span>
                     {(event.location || event.venue) && (
-                      <span className="inline-flex items-center gap-1">
-                        <MapPin className="h-3 w-3" />
-                        {event.location || event.venue}
+                      <span className="inline-flex items-center gap-1 min-w-0">
+                        <MapPin className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{event.location || event.venue}</span>
                       </span>
                     )}
                   </p>
@@ -515,10 +515,11 @@ const Dashboard = () => {
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button
-                        className="h-7 w-7 flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 hover:bg-muted transition-all"
+                        className="h-8 w-8 flex items-center justify-center rounded-md sm:opacity-0 sm:group-hover:opacity-100 hover:bg-muted transition-all"
                         onClick={(e) => e.stopPropagation()}
+                        aria-label="Event actions"
                       >
-                        <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+                        <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-36">

@@ -292,7 +292,7 @@ function EventRow({
           <span className="truncate">{venue || event.organizations?.name || "Online"}</span>
         </div>
       </div>
-      <div className="shrink-0 w-40 sm:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
+      <div className="shrink-0 w-24 sm:w-40 md:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
         {(event.banner_landscape_url || event.image_url) ? (
           <img
             src={event.banner_landscape_url || event.image_url!}

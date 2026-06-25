@@ -260,7 +260,7 @@ function Section({
     <section
       id={id}
       style={{ backgroundColor: bg, borderColor: `${theme.textColor}10` }}
-      className={`w-full ${flush ? "px-0" : "px-5 sm:px-8 lg:px-20"} py-12 lg:py-16 ${tone === "default" ? "border-t" : ""}`}
+      className={`w-full ${flush ? "px-0" : "px-4 sm:px-8 lg:px-20"} py-10 sm:py-12 lg:py-16 ${tone === "default" ? "border-t" : ""}`}
     >
       <div className={flush ? "w-full" : "max-w-[1400px] mx-auto"}>{children}</div>
     </section>

@@ -559,12 +559,12 @@ const EventDetailPage = () => {
                     {publishing ? (
                       <>
                         <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-                        Updating…
+                        <span className="hidden sm:inline">Updating…</span>
                       </>
                     ) : (
                       <>
                         <RefreshCw className="h-3 w-3" />
-                        Update
+                        <span className="hidden sm:inline">Update</span>
                       </>
                     )}
                   </Button>
@@ -807,11 +807,11 @@ function MetricCard({ label, value, sub, color }: { label: string; value: string
 
 function NumberCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-3">
-      {icon}
-      <div>
-        <p className="text-lg font-semibold mono">{value}</p>
-        <p className="text-[11px] text-muted-foreground">{label}</p>
+    <div className="bg-card border border-border rounded-lg p-3 sm:p-4 flex items-center gap-2 sm:gap-3 min-w-0">
+      <span className="shrink-0">{icon}</span>
+      <div className="min-w-0">
+        <p className="text-base sm:text-lg font-semibold mono">{value}</p>
+        <p className="text-[11px] text-muted-foreground truncate">{label}</p>
       </div>
     </div>
   );

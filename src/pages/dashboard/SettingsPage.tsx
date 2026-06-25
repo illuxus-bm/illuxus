@@ -391,13 +391,13 @@ const SettingsPage = () => {
         </div>
 
         <div className="flex flex-col md:flex-row gap-5">
-          <div className="md:w-48 shrink-0">
-            <nav className="flex md:flex-col gap-0.5">
+          <div className="md:w-48 shrink-0 -mx-4 md:mx-0 md:overflow-visible">
+            <nav className="flex md:flex-col gap-0.5 overflow-x-auto md:overflow-visible px-4 md:px-0 pb-1 md:pb-0">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-md text-[13px] font-medium transition-colors text-left ${
+                  className={`flex items-center gap-2 px-3 py-2 rounded-md text-[13px] font-medium transition-colors text-left whitespace-nowrap shrink-0 md:shrink ${
                     activeTab === tab.id
                       ? "bg-muted text-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/50"

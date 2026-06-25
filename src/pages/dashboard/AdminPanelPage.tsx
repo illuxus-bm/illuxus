@@ -290,6 +290,7 @@ export default function AdminPanelPage() {
 
           <TabsContent value="orgs">
             <div className="border border-border rounded-xl overflow-hidden bg-card">
+              <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
@@ -428,11 +429,13 @@ export default function AdminPanelPage() {
                   )}
                 </tbody>
               </table>
+              </div>
             </div>
           </TabsContent>
 
           <TabsContent value="users">
             <div className="border border-border rounded-xl overflow-hidden bg-card">
+              <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
                 <thead>
                   <tr className="border-b border-border bg-muted/30">
@@ -501,6 +504,7 @@ export default function AdminPanelPage() {
                   )}
                 </tbody>
               </table>
+              </div>
             </div>
           </TabsContent>
         </Tabs>

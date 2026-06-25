@@ -100,7 +100,7 @@ export default function EventPagePreview({
     >
       {/* ───────── Cinematic banner (only when an image is uploaded AND hero is enabled) ───────── */}
       {hasImage && showHero && (
-        <header className="relative mx-auto w-full max-w-[1400px] px-5 sm:px-8 lg:px-20 pt-4 sm:pt-6 lg:pt-8">
+        <header className="relative mx-auto w-full max-w-[1400px] px-4 sm:px-8 lg:px-20 pt-4 sm:pt-6 lg:pt-8">
           <div className="relative aspect-[4/5] md:aspect-[16/9] w-full overflow-hidden rounded-2xl sm:rounded-3xl">
             <picture>
               {portrait && <source media="(max-width: 767px)" srcSet={portrait} />}
@@ -118,9 +118,9 @@ export default function EventPagePreview({
 
       {/* ───────── Title block (below banner, on page bg) ───────── */}
       {showHero && (
-      <section className={`mx-auto w-full max-w-[1400px] px-5 sm:px-8 lg:px-20 ${hasImage ? "pt-8 sm:pt-12 lg:pt-16" : "pt-6 sm:pt-8 lg:pt-10"}`}>
+      <section className={`mx-auto w-full max-w-[1400px] px-4 sm:px-8 lg:px-20 ${hasImage ? "pt-8 sm:pt-12 lg:pt-16" : "pt-6 sm:pt-8 lg:pt-10"}`}>
         <h1
-          className="font-bold tracking-[-0.02em] leading-[1.05] pb-1 break-words text-[clamp(2.5rem,8vw,7rem)]"
+          className="font-bold tracking-[-0.02em] leading-[1.05] pb-1 break-words text-[clamp(2rem,8vw,7rem)]"
           style={{
             fontFamily: DISPLAY,
             color: text,
@@ -170,8 +170,8 @@ export default function EventPagePreview({
       )}
 
       {/* ───────── Body ───────── */}
-      <div className="mx-auto w-full max-w-[1400px] px-5 sm:px-8 lg:px-20 pt-10 sm:pt-14 lg:pt-20 pb-10 sm:pb-14 lg:pb-20">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-x-20 lg:gap-y-16">
+      <div className="mx-auto w-full max-w-[1400px] px-4 sm:px-8 lg:px-20 pt-10 sm:pt-14 lg:pt-20 pb-10 sm:pb-14 lg:pb-20">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 sm:gap-12 lg:gap-x-20 lg:gap-y-16">
           {/* MAIN COLUMN */}
           <main className="min-w-0 lg:col-span-8 space-y-10 order-2 lg:order-1">
             {showAbout && (

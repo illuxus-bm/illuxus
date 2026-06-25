@@ -129,7 +129,7 @@ export default function TermsPage() {
 
       <section className="pt-24 pb-10 text-center px-4">
         <p className="text-sm font-medium text-primary mb-3 uppercase tracking-widest">Legal</p>
-        <h1 className="text-4xl font-bold tracking-tight mb-3">Terms of Service</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-3">Terms of Service</h1>
         <p className="text-muted-foreground text-[14px]">Last updated: 20 June 2026 · Effective: 20 June 2026</p>
       </section>
 

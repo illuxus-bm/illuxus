@@ -141,6 +141,7 @@ export default function GuestListPage() {
           <div className="border border-dashed border-border rounded-xl py-16 text-center text-[13px] text-muted-foreground">No guests in this view.</div>
         ) : (
           <div className="border border-border rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
             <table className="w-full text-[13px]">
               <thead className="bg-secondary/60 text-muted-foreground">
                 <tr>
@@ -162,7 +163,7 @@ export default function GuestListPage() {
                       <StatusBadge status={r.approval_status} checkedIn={r.checked_in} />
                     </td>
                     <td className="px-3 py-2.5">
-                      <div className="flex items-center justify-end gap-1.5">
+                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
                         {r.approval_status === "pending" && (
                           <>
                             <Button size="sm" variant="outline" className="h-7 text-[12px] gap-1" onClick={() => setApproval(r, "approved")}><Check className="h-3 w-3" /> Approve</Button>
@@ -183,6 +184,7 @@ export default function GuestListPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </div>

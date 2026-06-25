@@ -71,6 +71,7 @@ export default function AuditLogPage() {
         </div>
 
         <div className="border border-border rounded-xl overflow-hidden bg-card">
+          <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
               <tr className="border-b border-border bg-muted/30">
@@ -111,6 +112,7 @@ export default function AuditLogPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
     </DashboardLayout>
