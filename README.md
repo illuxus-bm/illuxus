@@ -25,7 +25,7 @@ toward observability, property-based testing, and shadcn/Linear-flavored UI.
 | Forms            | `react-hook-form` + `zod`                                                                |
 | Charts           | Recharts                                                                                 |
 | Drag & drop      | `@dnd-kit`                                                                               |
-| Live video       | LiveKit (`@livekit/components-react`) for webinar stage                                  |
+| Live video       | Agora (`agora-rtc-sdk-ng`) + LiveKit (`@livekit/components-react`) for webinar stage     |
 | QR / badges      | `html5-qrcode`, `qrcode.react`, `jspdf`                                                  |
 | Observability    | Sentry (via DSN), unified internal Logger + RPC wrapper, Error Boundaries                |
 | Tests            | Vitest, fast-check (property-based), Playwright (e2e + visual)                           |
@@ -78,6 +78,7 @@ flowchart LR
   end
 
   subgraph External
+    AG[Agora RTC]
     LK[LiveKit Cloud]
     Sentry[Sentry / DSN sink]
     FX[Open exchange rates]
@@ -91,8 +92,10 @@ flowchart LR
   UI --> RT
   UI --> Storage
   Edge --> DB
+  Edge --> AG
   Edge --> LK
   Edge --> FX
+  AG -.events.-> Edge
   LK -.webhook.-> Edge
 ```
 
@@ -109,6 +112,9 @@ Key principles:
 - **Auth + org context wrap every authenticated route**: `AuthProvider` →
   `OrgProvider` → `ProfileGate` → optional role-specific gate (organizer / admin /
   attendee).
+- **Public domain resolution**: every share URL uses `publicOrigin()` from
+  `src/lib/publicUrl.ts` (env `VITE_PUBLIC_ORIGIN` → `window.location.origin` →
+  `https://illuxus.com`). Never inline a host.
 
 ---
 
@@ -116,14 +122,15 @@ Key principles:
 
 ```
 src/
-├── App.tsx                     route table + auth gates
+├── App.tsx                     route table + auth gates + GlobalFooter
 ├── main.tsx                    entrypoint, boots Logger, mounts <App/>
 ├── components/
 │   ├── ui/                     shadcn primitives (do not edit casually)
 │   ├── event/                  event-management surfaces (registrations, settings,
-│   │                           sessions, sponsors, speakers, attendance, reports)
+│   │                           sessions, sponsors, speakers, attendance, reports,
+│   │                           page-form, page-builder)
 │   ├── community/              feed, comments, layout, notifications
-│   ├── webinar/                LiveKit stage, sidebar, lobby, controls
+│   ├── webinar/                AgoraWebinarStage, LiveKit stage, lobby, controls
 │   ├── applications/           speaker / sponsor application dialogs
 │   ├── auth/                   password meter, 2FA challenge
 │   ├── people/                 PersonFieldsForm
@@ -131,6 +138,7 @@ src/
 ├── pages/
 │   ├── Index, LoginPage, DiscoverFeed, EventsListingPage,
 │   ├── PublicEventPage, PublicOrgPage, EventLivePage, SelfCheckInPage,
+│   ├── FeaturesPage, PricingPage, AboutPage, ContactPage, PrivacyPage, TermsPage,
 │   ├── u/                      attendee surfaces (profile, my events, applications)
 │   ├── t/                      ticket detail
 │   ├── speaker/, sponsor/      portal pages
@@ -149,19 +157,24 @@ src/
 │   ├── community/              rbac + shared types
 │   ├── currency.ts, fx.ts      money formatting + 5-min cached FX
 │   ├── datetime.ts, timezones  time utilities (event-local time is canonical)
+│   ├── publicUrl.ts            canonical share-URL builder (env-aware)
+│   ├── attendee-link.ts        per-attendee tracked join URLs with UTM
 │   ├── ticket-pdf, print-badges, badge-design
 │   └── event-routes.ts         canonical /org/:slug/events/:slug builders
 ├── integrations/supabase/      generated types + browser client
 └── types/                      cross-feature TS types
 
 supabase/
-├── migrations/                 001_tables → 007_self_check_in_no_out
-├── functions/                  edge functions (livekit-*, fx-rates, send-event-email,
-│                               recording-*, org-events, create-participant-account,
-│                               seed-cities)
+├── migrations/
+│   └── 000_full_schema.sql     consolidated schema + all incremental migrations
+├── functions/                  edge functions (livekit-*, fx-rates,
+│                               send-event-email, send-communication-email,
+│                               recording-*, org-events,
+│                               create-participant-account, seed-cities,
+│                               whatsapp-*)
 └── config.toml
 
-docs/                           observability docs (see below)
+docs/                           observability + agora setup docs
 .kiro/specs/                    in-flight specs (kiro spec-driven dev)
 .kiro/steering/                 always-included project context for AI agents
 tests/                          Playwright e2e + visual regression
@@ -176,11 +189,12 @@ Public:
 
 - `/` — landing (signed-out + admins) or `/discover` feed (signed-in users)
 - `/discover` — Lu.ma-style discovery feed
-- `/events` — public events listing
+- `/events` — public events listing (shows ongoing + future events)
 - `/events/:id` — single event by id/slug
 - `/org/:slug` — org public page
 - `/org/:orgSlug/events/:eventSlug` — canonical event URL
 - `/o/:slug` and `/o/:orgSlug/:eventSlug` — legacy redirects (preserved forever)
+- `/features`, `/pricing`, `/about`, `/contact`, `/privacy`, `/terms` — marketing/legal
 
 Auth + onboarding:
 
@@ -191,8 +205,8 @@ Attendee:
 - `/u/me`, `/u/me/events`, `/u/me/applications`, `/u/me/settings`
 - `/t/:id` — ticket detail
 - `/checkin/:eventId` — public self-check-in
-- `/checkout/:eventId` — public self-check-out (requires migration `008_self_check_out.sql`)
-- `/e/:id/live` — live event page
+- `/checkout/:eventId` — public self-check-out
+- `/e/:id/live` — live event page (with optional `?join=` token for unique attendee links)
 
 Organizer dashboard (gated by `OrganizerRoute` + `OnboardingGuard`):
 
@@ -221,32 +235,31 @@ Admin (super-admin only):
 
 ## Data layer
 
-Migrations in `supabase/migrations/`:
+The Supabase schema lives as a single consolidated file:
 
-| File                                  | Scope                                               |
-| ------------------------------------- | --------------------------------------------------- |
-| `001_tables.sql`                      | core tables (events, registrations, orgs, tickets…) |
-| `002_functions.sql`                   | RLS-tested SECURITY DEFINER RPCs                    |
-| `003_realtime_seeds.sql`              | replication identity + initial seeds                |
-| `004_apply_attendance_helper.sql`     | attendance state-machine SQL primitive              |
-| `004_community.sql`                   | community tables (phase 1)                          |
-| `005_community_complete.sql`          | community tables (phases 2–4)                       |
-| `005_set_attendance_rpc.sql`          | `set_attendance` RPC                                |
-| `006_bulk_set_attendance_per_row.sql` | per-row bulk attendance                             |
-| `007_self_check_in_no_out.sql`        | public self-check-in (no checkout)                  |
+```
+supabase/migrations/000_full_schema.sql
+```
+
+This file holds the cumulative DDL: tables, RLS policies, RPCs, triggers, and any
+later additions (event-owner edits to speakers/sponsors, person-title normalisation,
+org invitation acceptance, etc.). Apply it via `supabase db push` or paste into
+the SQL editor on a fresh project. The file is idempotent (`DROP POLICY IF EXISTS`
+and `CREATE OR REPLACE FUNCTION` throughout) so re-runs are safe.
 
 Edge functions in `supabase/functions/`:
 
 - LiveKit suite (`livekit-token`, `livekit-room-create`, `livekit-room-end`,
   `livekit-go-live`, `livekit-promote`, `livekit-webhook`)
+- Agora-related stage and webhook helpers
 - `recording-start`, `recording-stop` — Supabase Storage-backed recordings
 - `fx-rates` — 5-minute cached currency exchange
-- `send-event-email` — transactional email (Resend integration was removed; the
-  function is now a UI-driven dispatcher)
+- `send-event-email`, `send-communication-email` — transactional email
 - `create-participant-account`, `seed-cities`, `org-events`
+- WhatsApp suite (`send-whatsapp`, `whatsapp-sync-templates`, `whatsapp-webhook`)
 
 Generated database types live at `src/integrations/supabase/types.ts`. Regenerate
-after a migration; never edit by hand.
+after a schema change; never edit by hand.
 
 ---
 
@@ -270,6 +283,39 @@ Read first:
   structured-field conventions, correlation ids, adding a new sink.
 - [`docs/observability-privacy.md`](./docs/observability-privacy.md) — what is
   collected, retention window, opt-out mechanism.
+- [`docs/agora-setup.md`](./docs/agora-setup.md) — Agora webinar configuration.
+
+---
+
+## Theming
+
+The event landing page renderer (`src/components/event/page-form/PublicEventRenderer.tsx`)
+reads from a `ThemeConfig` stored on `events.page_config`:
+
+- `primaryColor`, `accentColor`, `backgroundColor`, `textColor` — palette tokens
+- `fontFamily` — Google Font name, loaded dynamically when not a system font
+- `titleScale` — heading size multiplier (12–32px in the editor, default 1.0 = 16px)
+- `bodyScale` — body content size multiplier (10–22px in the editor, default 1.0 = 16px)
+
+The Design tab in `EventPageForm.tsx` exposes these as sliders. Both scales apply
+via CSS `zoom` so rem-based Tailwind classes scale correctly. Older configs that
+only stored `fontScale` are read back as the title scale for backward compatibility.
+
+The application itself has a separate light/dark mode (`src/contexts/ThemeContext.tsx`)
+that toggles a `dark` class on `<html>` and is applied synchronously at module load
+to avoid FOUC.
+
+---
+
+## Mobile
+
+The app is responsive down to 375px (iPhone SE). Patterns to follow:
+
+- Wrap tables in `<div className="overflow-x-auto">` rather than letting them overflow.
+- Use `grid-cols-1 sm:grid-cols-2` style breakpoints instead of fixed columns.
+- Header and toolbar buttons collapse to icon-only on mobile via `<span className="hidden sm:inline">…</span>`.
+- Touch targets ≥ `h-9` (36px) — the standard shadcn `size="sm"` button.
+- Hover-only UI is forbidden; use always-visible affordances on mobile that fade in on hover at `sm:` and up.
 
 ---
 
@@ -299,6 +345,9 @@ other; use the existing PBTs as the contract.
 - **`checkin-checkout-tabs`** — DB foundation, TS port + 13 PBTs, client UI, and
   cleanup are done. Outstanding: example/integration tests for `QRScannerDialog`
   and live-update components.
+- **`agora-migration`** — Migration of the live-stage from LiveKit to Agora. Both
+  systems coexist for now; LiveKit is preserved as the recording/edge-function path.
+- **`security-and-scale`** — Backlog of hardening + capacity work.
 
 See `tasks.md` inside each spec for the granular task list and acceptance criteria.
 
@@ -310,14 +359,21 @@ See `tasks.md` inside each spec for the granular task list and acceptance criter
   event's currency; `useFxRates` (5-minute TTL, refresh on visibility change)
   converts to display currency.
 - **Datetimes** are stored UTC and formatted in event-local time using helpers from
-  `@/lib/datetime` and the `timezones` whitelist.
+  `@/lib/datetime` and the `timezones` whitelist. **Never** call `new Date(iso).getDate()`
+  on a stored timestamptz — strip the `T` suffix or use the helpers (the agenda
+  Day-N tab bug is a recurring failure mode of doing this wrong).
 - **Routing** to org/event pages goes through `event-routes.ts` builders; never
-  string-concat URLs.
+  string-concat URLs. Share URLs go through `publicOrigin()` (see `src/lib/publicUrl.ts`).
 - **shadcn primitives** in `components/ui/` are generated. Wrap them in feature
   components rather than editing them.
 - **Design tokens** are CSS variables on `:root` — Tailwind classes use
   `bg-card`, `border-border`, `text-foreground`, etc. New colors require a token,
   not a hex value.
+- **Person titles** must be one of `('Mr','Ms','Mrs','Prefer not to say')` — the DB
+  has a validation trigger. The canonical list lives in `src/lib/phone-country.ts`
+  as `TITLE_OPTIONS`.
+- **Footer is global**: `<GlobalFooter />` in `App.tsx` renders the shared `Footer`
+  on every public route. Don't add per-page `<Footer />` calls.
 - **PBT first** when behavior has a clear invariant (state machines, idempotence,
   ordering, redaction). Use `fast-check` and pattern off the existing PBT files.
 
