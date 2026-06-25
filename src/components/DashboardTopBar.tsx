@@ -312,7 +312,7 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
       <header
-        className="flex items-center justify-between border-b border-border bg-card sticky top-0 z-50 px-4 py-2"
+        className="app-chrome flex items-center justify-between border-b border-border bg-card sticky top-0 z-50 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]"
         style={{ minHeight: `${headerHeight}px` }}
       >
         <div className="flex items-center gap-2">

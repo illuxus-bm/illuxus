@@ -145,12 +145,30 @@
     @apply border-border;
   }
 
+  /* Native-app feel:
+     - `overscroll-behavior: none` on <html> blocks the iOS rubber-band
+       bounce on the app shell. Scroll containers inside the app keep their
+       natural overscroll because this only suppresses the document-level one.
+     - `tap-highlight-color: transparent` removes the gray flash on iOS
+       Safari when tapping links and buttons.
+     - `text-size-adjust` keeps the layout stable when the user rotates a
+       phone in landscape (Safari otherwise zooms text).
+     - The `viewport-fit=cover` viewport meta is set in index.html so that
+       env(safe-area-inset-*) actually returns non-zero values on notched
+       devices. */
+  html {
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'Poppins', system-ui, -apple-system, sans-serif;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body,
@@ -185,6 +203,45 @@
 }
 
 @layer utilities {
+  /* Safe-area utilities for notched / pill-cutout devices.
+     Apply to fixed top/bottom UI chrome so it sits below the status bar /
+     above the home indicator when the app is launched standalone. The
+     vars also expose the raw env() values for inline-style consumers. */
+  :root {
+    --safe-area-top: env(safe-area-inset-top);
+    --safe-area-bottom: env(safe-area-inset-bottom);
+    --safe-area-left: env(safe-area-inset-left);
+    --safe-area-right: env(safe-area-inset-right);
+  }
+
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .pl-safe { padding-left: env(safe-area-inset-left); }
+  .pr-safe { padding-right: env(safe-area-inset-right); }
+  .px-safe {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  .py-safe {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .mt-safe { margin-top: env(safe-area-inset-top); }
+  .mb-safe { margin-bottom: env(safe-area-inset-bottom); }
+  .min-h-screen-safe {
+    min-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+
+  /* App chrome (top bar, sidebar, sticky toolbars). Disable text selection
+     and the iOS callout so it feels like a real app, not a web page. Do
+     NOT apply to event content, descriptions, or any user-readable copy. */
+  .app-chrome {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+
   /* Editorial heading scale used by landing + dashboard for consistency */
   /* Headings use Poppins which has taller vertical metrics than Inter — keep
      line-heights slightly looser to avoid descender clipping / overlap. */

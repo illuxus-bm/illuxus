@@ -134,6 +134,17 @@ mindmap
 The cumulative work of the last several weeks. These are not in flight — they
 are live in `main`.
 
+- **PWA polish** — installable on iOS, Android, and desktop. Workbox service
+  worker (precached app shell + Supabase storage cache-first + Supabase REST
+  network-first with 3s timeout + Google Fonts long-lived cache); Sonner-driven
+  update prompt that never auto-reloads; capture of `beforeinstallprompt` for
+  Chrome/Edge install pill plus a passive Add-to-Home-Screen tip on iOS Safari;
+  `useStandaloneMode()` hook; `pt-safe`/`pb-safe`/`px-safe` utilities backed by
+  `env(safe-area-inset-*)`; `apple-touch-startup-image` splash entries for
+  notched iPhones; `.app-chrome` selection-disable utility on navigation
+  surfaces; `overscroll-behavior: none` to kill the iOS rubber-band bounce on
+  the app shell.
+
 - **Schema consolidation** — All migrations folded into `supabase/migrations/000_full_schema.sql`.
   The file is idempotent; apply via `supabase db push` or the SQL editor on a
   fresh project.
@@ -205,9 +216,10 @@ day's worth of work.
   banner per code, retry without camera restart) and live-updates indicator.
 - **Agora migration phase 2.** Recording, simulcast / multi-device tolerance,
   parity with the LiveKit feature set so the legacy stage can be retired.
-- **PWA shell + offline scanner queue.** Called out in observability requirements
-  as the next dependency layers. Logger already exposes the offline queue
-  primitives needed.
+- **PWA — offline scanner queue.** App shell + service-worker caching shipped
+  (see Recently shipped). The remaining piece is queueing QR check-in/check-out
+  events when the device is offline and draining them on reconnect; the Logger
+  already exposes the offline-queue primitives needed.
 - **WhatsApp broadcasts.** `send-whatsapp` and `whatsapp-sync-templates` edge
   functions exist; UI surfacing in `MarketingPage` and `EventCommunicate` needs
   template approval flow + delivery surface.

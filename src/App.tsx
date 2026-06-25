@@ -15,6 +15,8 @@ import { LazyRouteBoundary } from "@/components/LazyRouteBoundary";
 import RootErrorBoundary from "@/lib/observability/boundaries/RootErrorBoundary";
 import RouteErrorBoundary from "@/lib/observability/boundaries/RouteErrorBoundary";
 import { logger } from "@/lib/observability";
+import { PWAUpdatePrompt } from "@/components/pwa/PWAUpdatePrompt";
+import { PWAInstallPrompt } from "@/components/pwa/PWAInstallPrompt";
 // Eagerly-loaded landing & auth pages (small + needed for first paint / SEO)
 import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
@@ -219,6 +221,8 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
+        <PWAUpdatePrompt />
+        <PWAInstallPrompt />
         <BrowserRouter>
           <RootErrorBoundary>
             <AuthProvider>

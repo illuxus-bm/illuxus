@@ -111,7 +111,7 @@ export default function SiteHeader({
     : "border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60";
 
   return (
-    <header className={`sticky top-0 z-40 ${surfaceClass} ${className}`} style={styleVars}>
+    <header className={`app-chrome sticky top-0 z-40 ${surfaceClass} ${className}`} style={{ ...styleVars, paddingTop: "env(safe-area-inset-top)" }}>
       <SiteContainer className="h-14 flex items-center justify-between gap-4">
         {/* Brand area — wordmark only. Always navigates to the canonical
             illuxus deployment, regardless of which segment we're in. */}
