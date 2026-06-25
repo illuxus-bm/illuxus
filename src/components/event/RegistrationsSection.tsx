@@ -1176,7 +1176,9 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
               </div>
             </div>
           )}
-          <div className="w-full">
+          {/* overflow-x-auto ensures the table scrolls horizontally on narrow
+              (≤375 px) screens instead of overflowing the viewport. */}
+          <div className="w-full overflow-x-auto">
             <table className="w-full table-fixed text-[12px] sm:text-[13px]">
               <thead>
                 <tr className="border-b border-border bg-muted/30">

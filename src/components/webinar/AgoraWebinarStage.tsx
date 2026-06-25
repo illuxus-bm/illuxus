@@ -367,7 +367,11 @@ function LocalTile({
 
   return (
     <div className="relative rounded-lg overflow-hidden bg-zinc-900 ring-1 ring-white/10 min-h-[180px]">
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* [agora-contain] Force the SDK-injected <video> to show the full
+          camera frame without cropping. Agora sets object-fit: cover by
+          default; we override it to contain so no part of the image is
+          clipped when the aspect ratio differs from the tile. */}
+      <div ref={containerRef} className="absolute inset-0 [&_video]:object-contain" />
       <TileLabel
         label={label}
         muted={muted}
@@ -416,7 +420,8 @@ function RemoteTile({ user }: { user: IAgoraRTCRemoteUser }) {
 
   return (
     <div className="relative rounded-lg overflow-hidden bg-zinc-900 ring-1 ring-white/10 min-h-[180px]">
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* [agora-contain] Same override as LocalTile — full frame, no crop. */}
+      <div ref={containerRef} className="absolute inset-0 [&_video]:object-contain" />
       {!hasVideo && (
         <div className="absolute inset-0 flex items-center justify-center text-white/60 text-sm">
           Camera off
