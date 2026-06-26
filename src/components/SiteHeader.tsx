@@ -121,7 +121,7 @@ export default function SiteHeader({
   const surfaceClass = themed
     ? "border-b"
     : landingMode
-      ? "border-b border-white/[0.06] bg-[#09090B]/70 backdrop-blur-xl supports-[backdrop-filter]:bg-[#09090B]/55"
+      ? "border-b border-white/[0.08] bg-white/[0.06] backdrop-blur-xl supports-[backdrop-filter]:bg-white/[0.04] shadow-[0_1px_0_0_rgba(255,255,255,0.06)]"
       : "border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60";
 
   return (
@@ -142,11 +142,6 @@ export default function SiteHeader({
             <button
               type="button"
               onClick={() => {
-                // Best-effort cmd-K trigger: dispatch a synthetic keypress so any
-                // existing command-palette listener picks it up. The dashboard's
-                // DashboardTopBar listens for this — on marketing pages where no
-                // listener exists we still surface the affordance for muscle
-                // memory consistency.
                 const ev = new KeyboardEvent("keydown", {
                   key: "k",
                   code: "KeyK",
@@ -156,12 +151,12 @@ export default function SiteHeader({
                 });
                 window.dispatchEvent(ev);
               }}
-              className="hidden h-8 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 text-[12px] text-white/55 transition-colors hover:border-white/20 hover:text-white/85 sm:inline-flex"
+              className="hidden h-8 items-center gap-2 rounded-full border border-foreground/10 bg-foreground/[0.04] px-3 text-[12px] text-foreground/55 transition-colors hover:border-foreground/20 hover:text-foreground/85 sm:inline-flex"
               aria-label="Open quick search"
             >
               <Search className="h-3 w-3" />
               <span>Quick search</span>
-              <span className="ml-2 inline-flex items-center gap-0.5 rounded-md border border-white/10 bg-white/[0.04] px-1 py-0.5 text-[10px] font-medium text-white/55">
+              <span className="ml-2 inline-flex items-center gap-0.5 rounded-md border border-foreground/10 bg-foreground/[0.04] px-1 py-0.5 text-[10px] font-medium text-foreground/55">
                 <Command className="h-2.5 w-2.5" />K
               </span>
             </button>
@@ -170,7 +165,7 @@ export default function SiteHeader({
             to="/discover"
             className={
               landingMode
-                ? "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-white/75 transition-colors hover:bg-white/[0.06] hover:text-white"
+                ? "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-foreground/75 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
                 : "text-[13px] font-medium px-3 h-8 inline-flex items-center gap-1.5 rounded-full hover:bg-secondary transition-colors"
             }
             style={themed ? { color: theme?.textColor } : undefined}
@@ -180,27 +175,31 @@ export default function SiteHeader({
           </Link>
           {/*
             Theme toggle is shown everywhere — including themed event/org pages —
-            so visitors can switch light/dark from any surface. The landing
-            page is intentionally locked to its dark luminous canvas, so we
-            hide the toggle there.
+            so visitors can switch light/dark from any surface. In landing mode
+            we wrap it in a subtle glass pill so it stays visible on the dark canvas
+            and lets the visitor switch to light mode.
             On themed pages we wrap it in a translucent scrim that adapts to the
             page text color so the pill stays visible on any branded background.
           */}
-          {!landingMode && (
-            <div
-              className={themed ? "rounded-full p-0.5" : undefined}
-              style={
-                themed
-                  ? {
-                      backgroundColor: `${theme?.textColor ?? "#000"}10`,
-                      border: `1px solid ${theme?.textColor ?? "#000"}20`,
-                    }
+          <div
+            className={
+              landingMode
+                ? "rounded-full border border-white/[0.12] bg-white/[0.06] p-0.5"
+                : themed
+                  ? "rounded-full p-0.5"
                   : undefined
-              }
-            >
-              <ThemeToggle size="sm" />
-            </div>
-          )}
+            }
+            style={
+              themed && !landingMode
+                ? {
+                    backgroundColor: `${theme?.textColor ?? "#000"}10`,
+                    border: `1px solid ${theme?.textColor ?? "#000"}20`,
+                  }
+                : undefined
+            }
+          >
+            <ThemeToggle size="sm" />
+          </div>
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -273,13 +272,13 @@ export default function SiteHeader({
             <div className="flex items-center gap-2">
               <Link
                 to="/login"
-                className="inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium text-white/75 transition-colors hover:text-white"
+                className="inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium text-foreground/70 transition-colors hover:text-foreground"
               >
                 Sign in
               </Link>
               <Link
                 to="/login"
-                className="group inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-4 text-[13px] font-semibold text-[#09090B] shadow-[0_8px_24px_-8px_rgba(255,255,255,0.4)] transition-all duration-150 hover:bg-white/90 hover:shadow-[0_12px_30px_-8px_rgba(255,255,255,0.55)] active:scale-[0.98]"
+                className="group inline-flex h-9 items-center gap-1.5 rounded-full bg-foreground px-4 text-[13px] font-semibold text-background transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
               >
                 Start for free
                 <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />

@@ -6,26 +6,29 @@ import TestimonialsSection from "@/components/TestimonialsSection";
 import CTASection from "@/components/CTASection";
 
 /**
- * Landing page — Attio-inspired dark luminous canvas.
+ * Landing page.
  *
- * Forces the dark palette regardless of the app-wide theme by stamping
- * `dark` and `data-landing` on the root wrapper. CSS variables cascade from
- * the `.dark` selector so SiteHeader, shadcn primitives, and any nested
- * components automatically pick up dark tokens within this subtree, while
- * leaving the rest of the app (dashboard, themed event pages) untouched.
+ * Respects the app-wide light/dark theme — no forced `dark` class.
+ * In dark mode the near-black canvas + glow gradients look great;
+ * in light mode the gradient backdrop fades naturally on a white/cream
+ * surface and the glass navbar reads correctly in both palettes.
  */
 const Index = () => {
   return (
     <div
       data-landing="true"
-      className="dark relative min-h-screen overflow-x-hidden bg-[#09090B] text-white"
-      style={{
-        // Subtle base-layer gradient so the canvas never reads as flat black.
-        backgroundImage:
-          "radial-gradient(80% 50% at 50% 0%, rgba(99, 102, 241, 0.10), transparent 70%)," +
-          "radial-gradient(60% 60% at 50% 120%, rgba(168, 85, 247, 0.08), transparent 70%)",
-      }}
+      className="relative min-h-screen overflow-x-hidden"
     >
+      {/* Ambient gradient layer — visible in dark mode, subtle in light */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 -z-10 dark:opacity-100 opacity-30"
+        style={{
+          backgroundImage:
+            "radial-gradient(80% 50% at 50% 0%, rgba(99, 102, 241, 0.14), transparent 70%)," +
+            "radial-gradient(60% 60% at 50% 120%, rgba(168, 85, 247, 0.10), transparent 70%)",
+        }}
+      />
       <SiteHeader landingMode />
       <main>
         <HeroSection />
