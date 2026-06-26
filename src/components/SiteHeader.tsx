@@ -137,7 +137,7 @@ export default function SiteHeader({
           <IlluxusWordmark height={22} ariaLabel="" className="shrink-0" />
         </a>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {landingMode && (
             <button
               type="button"
@@ -165,19 +165,14 @@ export default function SiteHeader({
             to="/discover"
             className={
               landingMode
-                ? "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-gray-600 dark:text-white/75 transition-colors hover:bg-gray-100 dark:hover:bg-white/[0.06] hover:text-gray-900 dark:hover:text-white"
+                ? "inline-flex h-8 w-8 sm:w-auto items-center justify-center gap-1.5 rounded-full px-0 sm:px-3 text-[13px] font-medium text-gray-600 dark:text-white/75 transition-colors hover:bg-gray-100 dark:hover:bg-white/[0.06] hover:text-gray-900 dark:hover:text-white"
                 : "text-[13px] font-medium px-3 h-8 inline-flex items-center gap-1.5 rounded-full hover:bg-secondary transition-colors"
             }
             style={themed ? { color: theme?.textColor } : undefined}
           >
-            <Compass className="h-3.5 w-3.5" />
+            <Compass className="h-3.5 w-3.5 shrink-0" />
             <span className="hidden sm:inline">Discover</span>
           </Link>
-          {/*
-            Theme toggle is always shown. In landingMode it is wrapped in a
-            glass pill that adapts to dark/light. On themed pages we wrap it
-            in a translucent scrim that adapts to the page text color.
-          */}
           {landingMode ? (
             <div className="rounded-full border border-gray-200 dark:border-white/[0.12] bg-gray-100/80 dark:bg-white/[0.06] p-0.5">
               <ThemeToggle size="sm" />
@@ -266,19 +261,20 @@ export default function SiteHeader({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : landingMode ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <Link
                 to="/login"
-                className="inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium text-gray-600 dark:text-white/75 transition-colors hover:text-gray-900 dark:hover:text-white"
+                className="hidden sm:inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium text-gray-600 dark:text-white/75 transition-colors hover:text-gray-900 dark:hover:text-white"
               >
                 Sign in
               </Link>
               <Link
                 to="/login"
-                className="group inline-flex h-9 items-center gap-1.5 rounded-full bg-gray-900 dark:bg-white px-4 text-[13px] font-semibold text-white dark:text-[#09090B] shadow-[0_8px_24px_-8px_rgba(0,0,0,0.3)] dark:shadow-[0_8px_24px_-8px_rgba(255,255,255,0.4)] transition-all duration-150 hover:bg-gray-800 dark:hover:bg-white/90 active:scale-[0.98]"
+                className="group inline-flex h-8 sm:h-9 items-center gap-1 sm:gap-1.5 rounded-full bg-gray-900 dark:bg-white px-3 sm:px-4 text-[12px] sm:text-[13px] font-semibold text-white dark:text-[#09090B] shadow-[0_8px_24px_-8px_rgba(0,0,0,0.3)] dark:shadow-[0_8px_24px_-8px_rgba(255,255,255,0.4)] transition-all duration-150 hover:bg-gray-800 dark:hover:bg-white/90 active:scale-[0.98] whitespace-nowrap"
               >
-                Start for free
-                <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                <span className="hidden sm:inline">Start for free</span>
+                <span className="sm:hidden">Sign up</span>
+                <ArrowRight className="h-3 w-3 sm:h-3.5 sm:w-3.5 transition-transform group-hover:translate-x-0.5" />
               </Link>
             </div>
           ) : (

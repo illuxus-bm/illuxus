@@ -278,16 +278,16 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold">Agenda</h2>
           <p className="text-sm text-muted-foreground">
             {sessions.length} {sessions.length === 1 ? "session" : "sessions"} scheduled · Appears in the Agenda block of your event landing page.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {publicUrl && (
-            <Button size="sm" variant="outline" asChild>
+            <Button size="sm" variant="outline" asChild className="text-xs">
               <a
                 href={`${publicUrl}${publicUrl.includes("?") ? "&" : "?"}t=${Date.now()}#agenda`}
                 target="_blank"
@@ -517,23 +517,23 @@ function SessionRow({
   const Icon = typeIcons[s.session_type] || Presentation;
   const color = typeColors[s.session_type] || typeColors.talk;
   return (
-    <div className="bg-card border border-border rounded-xl p-4 flex items-start gap-3">
+    <div className="bg-card border border-border rounded-xl p-3 sm:p-4 flex items-start gap-3">
       <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${color}`}>
         <Icon className="h-4 w-4" />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="font-semibold text-sm">{s.title}</p>
-          <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{s.session_type}</span>
+        <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+          <p className="font-semibold text-sm break-words min-w-0">{s.title}</p>
+          <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-muted text-muted-foreground whitespace-nowrap shrink-0">{s.session_type}</span>
         </div>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 flex-wrap">
-          <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{fmt(s.start_time)} – {fmt(s.end_time)}</span>
-          {s.location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{s.location}</span>}
-          {s.speaker_ids.length > 0 && <span>🎤 {speakerNames(s.speaker_ids)}</span>}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground mt-1">
+          <span className="flex items-center gap-1 whitespace-nowrap"><Clock className="h-3 w-3 shrink-0" />{fmt(s.start_time)} – {fmt(s.end_time)}</span>
+          {s.location && <span className="flex items-center gap-1 min-w-0"><MapPin className="h-3 w-3 shrink-0" /><span className="truncate">{s.location}</span></span>}
+          {s.speaker_ids.length > 0 && <span className="min-w-0 truncate">🎤 {speakerNames(s.speaker_ids)}</span>}
         </div>
-        {s.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{s.description}</p>}
+        {s.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{s.description}</p>}
       </div>
-      <div className="flex gap-1">
+      <div className="flex gap-1 shrink-0">
         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(s)}><Pencil className="h-3 w-3" /></Button>
         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(s.id)}><Trash2 className="h-3 w-3" /></Button>
       </div>
