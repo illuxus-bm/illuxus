@@ -457,7 +457,7 @@ function SectionListAside({
               <div className="flex items-center justify-between">
                 <Label className="text-[11px] text-muted-foreground">Title size</Label>
                 <span className="text-[11px] text-muted-foreground tabular-nums">
-                  {Math.round((theme.titleScale ?? theme.fontScale ?? 1) * 16)}px
+                  {Math.min(32, Math.max(12, Math.round((theme.titleScale ?? 1) * 16)))}px
                 </span>
               </div>
               <input
@@ -465,9 +465,9 @@ function SectionListAside({
                 min={12}
                 max={32}
                 step={1}
-                value={Math.round((theme.titleScale ?? theme.fontScale ?? 1) * 16)}
+                value={Math.min(32, Math.max(12, Math.round((theme.titleScale ?? 1) * 16)))}
                 onChange={e => setTheme({ titleScale: Number(e.target.value) / 16 })}
-                className="mt-1 w-full h-1.5 accent-primary"
+                className="mt-1 w-full h-1.5 accent-primary cursor-pointer"
                 aria-label="Title font size in pixels"
               />
               <div className="flex justify-between text-[9px] text-muted-foreground/60 mt-0.5">
@@ -480,7 +480,7 @@ function SectionListAside({
               <div className="flex items-center justify-between">
                 <Label className="text-[11px] text-muted-foreground">Body size</Label>
                 <span className="text-[11px] text-muted-foreground tabular-nums">
-                  {Math.round((theme.bodyScale ?? 1) * 16)}px
+                  {Math.min(22, Math.max(10, Math.round((theme.bodyScale ?? 1) * 16)))}px
                 </span>
               </div>
               <input
@@ -488,9 +488,9 @@ function SectionListAside({
                 min={10}
                 max={22}
                 step={1}
-                value={Math.round((theme.bodyScale ?? 1) * 16)}
+                value={Math.min(22, Math.max(10, Math.round((theme.bodyScale ?? 1) * 16)))}
                 onChange={e => setTheme({ bodyScale: Number(e.target.value) / 16 })}
-                className="mt-1 w-full h-1.5 accent-primary"
+                className="mt-1 w-full h-1.5 accent-primary cursor-pointer"
                 aria-label="Body font size in pixels"
               />
               <div className="flex justify-between text-[9px] text-muted-foreground/60 mt-0.5">

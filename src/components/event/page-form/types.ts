@@ -250,6 +250,10 @@ export const DEFAULT_THEME: ThemeConfig = {
   // and the Google Font preloaded in index.html. Per-event presets in
   // `presets.ts` may override this (Playfair, JetBrains Mono, etc.).
   fontFamily:      "Poppins",
+  // Font scale defaults — 1.0 = 16px base. Always defined so sliders
+  // render at the correct midpoint position rather than falling back to 0.
+  titleScale: 1.0,
+  bodyScale:  1.0,
 };
 
 function emptyDataFor(id: SectionId): SectionData["data"] {
@@ -326,7 +330,14 @@ export function normalizeConfig(raw: unknown): EventPageConfig {
 
   return {
     v: 2,
-    theme: { ...fresh.theme, ...(r.theme || {}) },
+    theme: {
+      ...fresh.theme,
+      ...(r.theme || {}),
+      // Always ensure scale values are within sane bounds — old saves may have
+      // stored 0.75 (= 12px) as a result of a previous buggy slider default.
+      titleScale: Math.min(2, Math.max(0.75, (r.theme?.titleScale ?? r.theme?.fontScale ?? fresh.theme.titleScale ?? 1))),
+      bodyScale:  Math.min(1.375, Math.max(0.625, (r.theme?.bodyScale ?? fresh.theme.bodyScale ?? 1))),
+    },
     seo:   r.seo || {},
     sections: merged,
   };
