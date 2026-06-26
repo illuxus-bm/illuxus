@@ -377,14 +377,12 @@ function RequireAuthOnly({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Public landing for signed-out visitors and platform admins.
- * Signed-in attendees and organizers see the Lu.ma-style discovery feed instead.
+ * Public landing page. Always renders the Index marketing page at `/`
+ * regardless of auth state — signed-in users can navigate to `/discover`
+ * (linked from the header / sidebar / nav) when they want the discovery feed.
  */
 function HomeRoute() {
-  const { user, loading, isAdmin } = useAuth();
-  if (loading) return <Index />;
-  if (!user || isAdmin) return <Index />;
-  return <DiscoverFeed />;
+  return <Index />;
 }
 
 /** Permanent redirect from `/e/<id>` (used by the back-button on the live
