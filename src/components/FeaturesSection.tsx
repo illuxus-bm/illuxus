@@ -31,9 +31,9 @@ import {
  */
 function WorkflowGraph() {
   const nodes = [
-    { icon: Ticket, label: "RSVP", tint: "from-indigo-400/30 to-indigo-600/15", ring: "ring-indigo-400/30", color: "text-indigo-200" },
-    { icon: UserCheck, label: "Check-in", tint: "from-purple-400/30 to-purple-600/15", ring: "ring-purple-400/30", color: "text-purple-200" },
-    { icon: Mail, label: "Follow-up", tint: "from-amber-400/30 to-amber-600/15", ring: "ring-amber-400/30", color: "text-amber-200" },
+    { icon: Ticket, label: "RSVP", tint: "from-indigo-400/30 to-indigo-600/15", ring: "ring-indigo-400/30", color: "text-indigo-600 dark:text-indigo-300" },
+    { icon: UserCheck, label: "Check-in", tint: "from-purple-400/30 to-purple-600/15", ring: "ring-purple-400/30", color: "text-purple-600 dark:text-purple-300" },
+    { icon: Mail, label: "Follow-up", tint: "from-amber-400/30 to-amber-600/15", ring: "ring-amber-400/30", color: "text-amber-600 dark:text-amber-300" },
   ];
 
   return (
@@ -52,7 +52,6 @@ function WorkflowGraph() {
                 className={`relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${node.tint} ring-1 ring-inset ${node.ring} backdrop-blur-md`}
               >
                 <Icon className={`h-5 w-5 ${node.color}`} strokeWidth={2.25} />
-                <span className="absolute inset-0 rounded-2xl ring-1 ring-gray-200 dark:ring-white/10" />
               </div>
               <span className="text-[11px] font-medium text-gray-500 dark:text-white/70">{node.label}</span>
             </div>
@@ -82,7 +81,7 @@ function CheckinSyncVisual() {
               <div className="rounded-xl border border-gray-200 dark:border-white/[0.06] bg-gray-50 dark:bg-white/[0.03] p-2.5">
                 <div className="text-[8px] uppercase tracking-widest text-gray-400 dark:text-white/40">Scanning</div>
                 <div className="mt-1 flex aspect-square items-center justify-center rounded-lg bg-gray-200 dark:bg-black/40">
-                  <QrCode className="h-10 w-10 text-indigo-300" strokeWidth={1.5} />
+                  <QrCode className="h-10 w-10 text-indigo-500 dark:text-indigo-300" strokeWidth={1.5} />
                 </div>
                 <div className="mt-2 flex items-center gap-1.5 rounded-md bg-emerald-400/10 px-1.5 py-1">
                   <CheckCircle2 className="h-2.5 w-2.5 text-emerald-300" />
@@ -101,7 +100,7 @@ function CheckinSyncVisual() {
           transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
           className="motion-reduce:!translate-x-0"
         >
-          <ArrowRight className="h-5 w-5 text-indigo-300" />
+          <ArrowRight className="h-5 w-5 text-indigo-500 dark:text-indigo-300" />
         </motion.div>
       </div>
 
@@ -153,7 +152,7 @@ function InstantBiosVisual() {
         <div className="w-full max-w-[280px] rounded-2xl border border-gray-200 dark:border-white/[0.08] bg-gray-50 dark:bg-white/[0.02] p-4 backdrop-blur-sm">
           <div className="flex items-center gap-3">
             <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-pink-400/40 to-purple-500/30 ring-1 ring-gray-200 dark:ring-white/10">
-              <Bot className="absolute inset-0 m-auto h-4 w-4 text-gray-700 dark:text-white/80" />
+              <Bot className="absolute inset-0 m-auto h-4 w-4 text-pink-600 dark:text-white/80" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
@@ -239,7 +238,7 @@ function PreEventVisual() {
 
       <div className="mt-5 flex items-center gap-3 rounded-xl border border-gray-100 dark:border-white/[0.06] bg-gray-100/50 dark:bg-white/[0.03] p-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-pink-400/25 to-purple-500/20 ring-1 ring-inset ring-pink-400/25">
-          <Megaphone className="h-3.5 w-3.5 text-pink-200" />
+          <Megaphone className="h-3.5 w-3.5 text-pink-600 dark:text-pink-200" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-[11px] font-medium text-gray-800 dark:text-white/85">
@@ -291,9 +290,9 @@ function DayOfVisual() {
 
       <div className="space-y-2">
         {[
-          { icon: Bell, msg: "Push sent · Workshop B starts in 10 min", time: "2m ago", color: "text-purple-300", tint: "from-purple-400/25 to-purple-600/10" },
-          { icon: UserCheck, msg: "Marcus Rivera checked in", time: "3m ago", color: "text-indigo-300", tint: "from-indigo-400/25 to-indigo-600/10" },
-          { icon: Smartphone, msg: "Stage A capacity 88% — usher alerted", time: "5m ago", color: "text-amber-300", tint: "from-amber-400/25 to-amber-600/10" },
+          { icon: Bell, msg: "Push sent · Workshop B starts in 10 min", time: "2m ago", color: "text-purple-600 dark:text-purple-300", tint: "from-purple-400/25 to-purple-600/10" },
+          { icon: UserCheck, msg: "Marcus Rivera checked in", time: "3m ago", color: "text-indigo-600 dark:text-indigo-300", tint: "from-indigo-400/25 to-indigo-600/10" },
+          { icon: Smartphone, msg: "Stage A capacity 88% — usher alerted", time: "5m ago", color: "text-amber-600 dark:text-amber-300", tint: "from-amber-400/25 to-amber-600/10" },
         ].map((row, i) => {
           const Icon = row.icon;
           return (
@@ -349,7 +348,7 @@ function DeepDiveRow({
     >
       <AnimatedStack>
         <AnimatedItem>
-          <span className="text-[11px] font-semibold uppercase tracking-[0.32em] text-indigo-300">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.32em] text-indigo-500 dark:text-indigo-300">
             {eyebrow}
           </span>
         </AnimatedItem>
@@ -371,7 +370,7 @@ function DeepDiveRow({
             {bullets.map((bullet) => (
               <li key={bullet} className="flex items-start gap-3 text-[14px] text-gray-600 dark:text-white/75">
                 <CheckCircle2
-                  className="mt-0.5 h-4 w-4 shrink-0 text-indigo-300"
+                  className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500 dark:text-indigo-300"
                   strokeWidth={2.25}
                 />
                 <span>{bullet}</span>
@@ -383,7 +382,7 @@ function DeepDiveRow({
           <AnimatedItem>
             <Link
               to={cta.href}
-              className="mt-7 inline-flex items-center gap-1.5 text-[13px] font-semibold text-gray-700 dark:text-white/90 transition-colors hover:text-gray-900 dark:hover:text-white"
+              className="mt-7 inline-flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600 dark:text-white/90 transition-colors hover:text-indigo-700 dark:hover:text-white"
             >
               {cta.label}
               <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
@@ -439,7 +438,7 @@ const FeaturesSection = () => {
           )}
           <AnimatedItem>
             <h2
-              className="mt-5 text-balance text-3xl font-semibold leading-[1.1] tracking-[-0.03em] text-gray-900 dark:text-white sm:text-4xl md:text-[52px]"
+              className="mt-5 text-balance text-3xl font-semibold leading-tight tracking-[-0.03em] text-gray-900 dark:text-white sm:text-4xl md:text-[52px] md:leading-[1.15]"
               style={{ fontFamily: "Poppins, system-ui, sans-serif" }}
             >
               {f.title}
@@ -463,7 +462,7 @@ const FeaturesSection = () => {
           >
             <div className="flex h-full flex-col p-7 sm:p-8">
               <div className="mb-6 flex items-center gap-2">
-                <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-indigo-400/10 px-2.5 text-[10px] font-medium text-indigo-300 ring-1 ring-inset ring-indigo-400/20">
+                <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-indigo-400/10 px-2.5 text-[10px] font-medium text-indigo-600 dark:text-indigo-300 ring-1 ring-inset ring-indigo-400/20">
                   <Bot className="h-3 w-3" />
                   Always-on
                 </span>
@@ -488,7 +487,7 @@ const FeaturesSection = () => {
           <BentoCard glowColor="rgba(168, 85, 247, 0.22)">
             <div className="flex h-full flex-col p-7 sm:p-8">
               <div className="mb-6 flex items-center gap-2">
-                <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-purple-400/10 px-2.5 text-[10px] font-medium text-purple-300 ring-1 ring-inset ring-purple-400/20">
+                <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-purple-400/10 px-2.5 text-[10px] font-medium text-purple-600 dark:text-purple-300 ring-1 ring-inset ring-purple-400/20">
                   <Smartphone className="h-3 w-3" />
                   Realtime
                 </span>
@@ -517,7 +516,7 @@ const FeaturesSection = () => {
             <div className="flex h-full flex-col gap-6 p-7 sm:flex-row sm:items-center sm:p-8">
               <div className="flex-1">
                 <div className="mb-5 flex items-center gap-2">
-                  <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-pink-400/10 px-2.5 text-[10px] font-medium text-pink-300 ring-1 ring-inset ring-pink-400/20">
+                  <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-pink-400/10 px-2.5 text-[10px] font-medium text-pink-600 dark:text-pink-300 ring-1 ring-inset ring-pink-400/20">
                     <Sparkles className="h-3 w-3" />
                     AI assist
                   </span>
