@@ -22,6 +22,169 @@
     <!-- Canonical -->
     <link rel="canonical" href="https://illuxus.com/" />
 
+    <!-- Splash screen styles (inline so it renders without waiting for CSS) -->
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; padding: 0; background: #0b0b1a; }
+
+      #illuxus-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(80% 50% at 50% 0%, rgba(99, 102, 241, 0.22), transparent 70%),
+          radial-gradient(60% 60% at 50% 100%, rgba(168, 85, 247, 0.18), transparent 70%),
+          radial-gradient(40% 40% at 90% 90%, rgba(34, 211, 238, 0.10), transparent 70%),
+          linear-gradient(180deg, #0b0b1a 0%, #15152a 100%);
+        color: #fafafa;
+        font-family: 'Poppins', system-ui, -apple-system, sans-serif;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        transition: opacity 420ms ease, visibility 420ms ease;
+        will-change: opacity;
+        opacity: 1;
+        animation: splash-enter 600ms ease both;
+      }
+      #illuxus-splash.is-leaving { opacity: 0; pointer-events: none; }
+      #illuxus-splash.is-leaving .splash-card { transform: translateY(-6px) scale(0.985); }
+
+      @keyframes splash-enter {
+        from { opacity: 0; }
+        to   { opacity: 1; }
+      }
+
+      /* Decorative orbs that drift behind the logo */
+      #illuxus-splash::before,
+      #illuxus-splash::after {
+        content: "";
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(60px);
+        opacity: 0.45;
+        pointer-events: none;
+        will-change: transform, opacity;
+      }
+      #illuxus-splash::before {
+        width: 320px; height: 320px;
+        top: -80px; left: -80px;
+        background: radial-gradient(circle, #6366f1 0%, transparent 70%);
+        animation: orb-drift-a 9s ease-in-out infinite alternate;
+      }
+      #illuxus-splash::after {
+        width: 360px; height: 360px;
+        bottom: -100px; right: -100px;
+        background: radial-gradient(circle, #a855f7 0%, transparent 70%);
+        animation: orb-drift-b 11s ease-in-out infinite alternate;
+      }
+      @keyframes orb-drift-a {
+        0%   { transform: translate(0, 0)        scale(1); }
+        100% { transform: translate(40px, 30px)  scale(1.1); }
+      }
+      @keyframes orb-drift-b {
+        0%   { transform: translate(0, 0)        scale(1); }
+        100% { transform: translate(-30px, -40px) scale(1.08); }
+      }
+
+      /* The card holds the wordmark + tagline + loading dots */
+      .splash-card {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 24px;
+        transition: transform 420ms ease;
+        will-change: transform;
+      }
+
+      .splash-logo {
+        position: relative;
+        animation: logo-glow 2.6s ease-in-out infinite;
+        filter: drop-shadow(0 0 24px rgba(99, 102, 241, 0.35));
+      }
+      .splash-logo img { display: block; height: 48px; width: auto; }
+      @media (min-width: 768px) { .splash-logo img { height: 60px; } }
+
+      @keyframes logo-glow {
+        0%, 100% { filter: drop-shadow(0 0 20px rgba(99, 102, 241, 0.30)); }
+        50%      { filter: drop-shadow(0 0 32px rgba(168, 85, 247, 0.45)); }
+      }
+
+      .splash-tagline {
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        font-weight: 500;
+        color: rgba(250, 250, 250, 0.62);
+        text-transform: uppercase;
+        text-align: center;
+      }
+      @media (min-width: 768px) {
+        .splash-tagline { font-size: 14px; }
+      }
+
+      .splash-tagline strong {
+        color: rgba(250, 250, 250, 0.92);
+        font-weight: 600;
+      }
+
+      .splash-dots {
+        display: inline-flex;
+        gap: 6px;
+        margin-top: 28px;
+      }
+      .splash-dots span {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(250, 250, 250, 0.6);
+        animation: dot-bounce 1.2s ease-in-out infinite;
+      }
+      .splash-dots span:nth-child(2) { animation-delay: 0.15s; }
+      .splash-dots span:nth-child(3) { animation-delay: 0.3s; }
+      @keyframes dot-bounce {
+        0%, 80%, 100% { transform: translateY(0);    opacity: 0.4; }
+        40%           { transform: translateY(-6px); opacity: 1; }
+      }
+
+      .splash-foot {
+        position: absolute;
+        bottom: calc(env(safe-area-inset-bottom) + 24px);
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: rgba(250, 250, 250, 0.34);
+        font-weight: 500;
+      }
+
+      /* Reduce motion: drop animations to a static brand frame */
+      @media (prefers-reduced-motion: reduce) {
+        #illuxus-splash,
+        #illuxus-splash::before,
+        #illuxus-splash::after,
+        .splash-logo,
+        .splash-dots span { animation: none !important; }
+      }
+
+      /* If the user has overridden to light mode before JS runs, recolour. */
+      html:not(.dark) #illuxus-splash {
+        background:
+          radial-gradient(80% 50% at 50% 0%, rgba(99, 102, 241, 0.18), transparent 70%),
+          radial-gradient(60% 60% at 50% 100%, rgba(168, 85, 247, 0.12), transparent 70%),
+          linear-gradient(180deg, #ffffff 0%, #f4f3fb 100%);
+        color: #15152a;
+      }
+      html:not(.dark) .splash-tagline { color: rgba(21, 21, 42, 0.62); }
+      html:not(.dark) .splash-tagline strong { color: rgba(21, 21, 42, 0.92); }
+      html:not(.dark) .splash-dots span { background: rgba(21, 21, 42, 0.5); }
+      html:not(.dark) .splash-foot { color: rgba(21, 21, 42, 0.34); }
+    </style>
+
     <!-- Favicons + manifest -->
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
@@ -152,6 +315,28 @@
         document.documentElement.style.colorScheme = t;
       })();
     </script>
+
+    <!-- Splash screen: visible immediately on cold start. Fades out from main.tsx
+         when React has mounted. Designed to look great in standalone PWA mode
+         where there is no browser chrome to mask a white flash. -->
+    <div id="illuxus-splash" role="status" aria-label="Loading illuxus">
+      <div class="splash-card">
+        <div class="splash-logo">
+          <picture>
+            <source srcset="/illuxus-wordmark-light.svg" media="(prefers-color-scheme: dark)" />
+            <img src="/illuxus-wordmark-dark.svg" alt="illuxus" />
+          </picture>
+        </div>
+        <p class="splash-tagline">
+          Events you'll <strong>remember</strong>
+        </p>
+        <div class="splash-dots" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+      <p class="splash-foot">Hosted on Illuxus</p>
+    </div>
+
     <div id="root"></div>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <script type="module" src="/src/main.tsx"></script>
