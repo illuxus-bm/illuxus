@@ -63,9 +63,9 @@ export function BentoCard({
       onClick={onClick}
       className={[
         "group relative overflow-hidden rounded-3xl",
-        "border border-white/[0.08] bg-white/[0.02]",
+        "border border-gray-200 dark:border-white/[0.08] bg-gray-50/50 dark:bg-white/[0.02]",
         "backdrop-blur-xl",
-        "transition-colors duration-300 hover:border-white/[0.16]",
+        "transition-colors duration-300 hover:border-gray-300 dark:hover:border-white/[0.16]",
         fullHeight ? "h-full" : "",
         onClick ? "cursor-pointer" : "",
         className,
@@ -85,7 +85,7 @@ export function BentoCard({
       {/* Inner highlight stroke for the glassmorphism feel. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-px rounded-[calc(theme(borderRadius.3xl)-1px)] ring-1 ring-inset ring-white/[0.04]"
+        className="pointer-events-none absolute inset-px rounded-[calc(theme(borderRadius.3xl)-1px)] ring-1 ring-inset ring-gray-100 dark:ring-white/[0.04]"
       />
       <div className="relative">{children}</div>
     </div>

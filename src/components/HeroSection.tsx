@@ -10,10 +10,9 @@ import { AnimatedStack, AnimatedItem } from "@/components/landing/AnimatedHeadin
 const isInternal = (href: string) => href.startsWith("/");
 
 /**
- * Dark luminous hero. The headline copy comes from `useSiteContent()` so the
- * marketing team can edit it in the CMS without touching code. Two large glow
- * orbs radiate behind the dashboard mockup to lift it off the near-black
- * canvas in the Attio style.
+ * Hero section. Uses dual Tailwind tokens so it renders correctly in both
+ * light and dark mode. The `dark:` variants activate because `Index.tsx`
+ * stamps the `dark` class on the wrapper whenever the user's theme is dark.
  */
 const HeroSection = () => {
   const { content } = useSiteContent();
@@ -45,8 +44,8 @@ const HeroSection = () => {
         <AnimatedStack className="mx-auto max-w-4xl text-center">
           {h.badge && (
             <AnimatedItem className="flex justify-center">
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-1.5 text-[12px] font-medium tracking-wide text-white/75 backdrop-blur-xl">
-                <Sparkles className="h-3.5 w-3.5 text-indigo-300" />
+              <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-white/10 bg-gray-100/60 dark:bg-white/[0.04] px-3.5 py-1.5 text-[12px] font-medium tracking-wide text-gray-600 dark:text-white/75 backdrop-blur-xl">
+                <Sparkles className="h-3.5 w-3.5 text-indigo-400 dark:text-indigo-300" />
                 {h.badge}
               </span>
             </AnimatedItem>
@@ -54,7 +53,7 @@ const HeroSection = () => {
 
           <AnimatedItem>
             <h1
-              className="mt-6 text-balance text-[44px] font-semibold leading-[1.02] tracking-[-0.04em] text-white sm:text-[60px] md:text-[76px] lg:text-[88px]"
+              className="mt-6 text-balance text-[44px] font-semibold leading-[1.02] tracking-[-0.04em] text-gray-900 dark:text-white sm:text-[60px] md:text-[76px] lg:text-[88px]"
               style={{ fontFamily: "Poppins, system-ui, sans-serif" }}
             >
               {h.title}
@@ -62,7 +61,7 @@ const HeroSection = () => {
           </AnimatedItem>
 
           <AnimatedItem>
-            <p className="mx-auto mt-6 max-w-2xl text-[15px] leading-relaxed text-white/60 sm:text-base md:text-lg [text-wrap:pretty]">
+            <p className="mx-auto mt-6 max-w-2xl text-[15px] leading-relaxed text-gray-500 dark:text-white/60 sm:text-base md:text-lg [text-wrap:pretty]">
               {h.subtitle}
             </p>
           </AnimatedItem>
@@ -73,7 +72,7 @@ const HeroSection = () => {
                 (isInternal(h.primaryCtaHref) ? (
                   <Link
                     to={h.primaryCtaHref}
-                    className="group inline-flex h-12 items-center justify-center rounded-xl bg-white px-6 text-[14px] font-semibold text-[#09090B] shadow-[0_10px_40px_-10px_rgba(255,255,255,0.4)] transition-all duration-150 hover:bg-white/90 hover:shadow-[0_14px_50px_-10px_rgba(255,255,255,0.55)] active:scale-[0.98]"
+                    className="group inline-flex h-12 items-center justify-center rounded-xl bg-gray-900 dark:bg-white px-6 text-[14px] font-semibold text-white dark:text-[#09090B] shadow-[0_10px_40px_-10px_rgba(0,0,0,0.3)] dark:shadow-[0_10px_40px_-10px_rgba(255,255,255,0.4)] transition-all duration-150 hover:bg-gray-800 dark:hover:bg-white/90 hover:shadow-[0_14px_50px_-10px_rgba(0,0,0,0.4)] dark:hover:shadow-[0_14px_50px_-10px_rgba(255,255,255,0.55)] active:scale-[0.98]"
                   >
                     {h.primaryCtaLabel}
                     <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
@@ -81,7 +80,7 @@ const HeroSection = () => {
                 ) : (
                   <a
                     href={h.primaryCtaHref}
-                    className="group inline-flex h-12 items-center justify-center rounded-xl bg-white px-6 text-[14px] font-semibold text-[#09090B] shadow-[0_10px_40px_-10px_rgba(255,255,255,0.4)] transition-all duration-150 hover:bg-white/90 hover:shadow-[0_14px_50px_-10px_rgba(255,255,255,0.55)] active:scale-[0.98]"
+                    className="group inline-flex h-12 items-center justify-center rounded-xl bg-gray-900 dark:bg-white px-6 text-[14px] font-semibold text-white dark:text-[#09090B] shadow-[0_10px_40px_-10px_rgba(0,0,0,0.3)] dark:shadow-[0_10px_40px_-10px_rgba(255,255,255,0.4)] transition-all duration-150 hover:bg-gray-800 dark:hover:bg-white/90 hover:shadow-[0_14px_50px_-10px_rgba(0,0,0,0.4)] dark:hover:shadow-[0_14px_50px_-10px_rgba(255,255,255,0.55)] active:scale-[0.98]"
                   >
                     {h.primaryCtaLabel}
                     <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
@@ -91,14 +90,14 @@ const HeroSection = () => {
                 (isInternal(h.secondaryCtaHref) ? (
                   <Link
                     to={h.secondaryCtaHref}
-                    className="inline-flex h-12 items-center justify-center rounded-xl border border-white/15 bg-white/[0.03] px-6 text-[14px] font-semibold text-white/90 transition-all duration-150 hover:border-white/30 hover:bg-white/[0.06] active:scale-[0.98]"
+                    className="inline-flex h-12 items-center justify-center rounded-xl border border-gray-300 dark:border-white/15 bg-transparent dark:bg-white/[0.03] px-6 text-[14px] font-semibold text-gray-700 dark:text-white/90 transition-all duration-150 hover:border-gray-400 dark:hover:border-white/30 hover:bg-gray-100 dark:hover:bg-white/[0.06] active:scale-[0.98]"
                   >
                     {h.secondaryCtaLabel}
                   </Link>
                 ) : (
                   <a
                     href={h.secondaryCtaHref}
-                    className="inline-flex h-12 items-center justify-center rounded-xl border border-white/15 bg-white/[0.03] px-6 text-[14px] font-semibold text-white/90 transition-all duration-150 hover:border-white/30 hover:bg-white/[0.06] active:scale-[0.98]"
+                    className="inline-flex h-12 items-center justify-center rounded-xl border border-gray-300 dark:border-white/15 bg-transparent dark:bg-white/[0.03] px-6 text-[14px] font-semibold text-gray-700 dark:text-white/90 transition-all duration-150 hover:border-gray-400 dark:hover:border-white/30 hover:bg-gray-100 dark:hover:bg-white/[0.06] active:scale-[0.98]"
                   >
                     {h.secondaryCtaLabel}
                   </a>

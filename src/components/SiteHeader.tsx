@@ -116,12 +116,12 @@ export default function SiteHeader({
     : {};
 
   // Themed pages skip backdrop blur to avoid washing out the page palette.
-  // Landing mode renders a darker glass surface tuned to sit on top of the
-  // near-black canvas with a subtle hairline border.
+  // Landing mode renders a glass surface that adapts: in dark mode it sits on
+  // the near-black canvas; in light mode it uses a subtle white/gray glass.
   const surfaceClass = themed
     ? "border-b"
     : landingMode
-      ? "border-b border-white/[0.08] bg-white/[0.06] backdrop-blur-xl supports-[backdrop-filter]:bg-white/[0.04]"
+      ? "border-b border-gray-200 dark:border-white/[0.08] bg-white/80 dark:bg-white/[0.06] backdrop-blur-xl supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-white/[0.04]"
       : "border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60";
 
   return (
@@ -151,12 +151,12 @@ export default function SiteHeader({
                 });
                 window.dispatchEvent(ev);
               }}
-              className="hidden h-8 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 text-[12px] text-white/55 transition-colors hover:border-white/20 hover:text-white/85 sm:inline-flex"
+              className="hidden h-8 items-center gap-2 rounded-full border border-gray-200 dark:border-white/10 bg-gray-100/60 dark:bg-white/[0.04] px-3 text-[12px] text-gray-500 dark:text-white/55 transition-colors hover:border-gray-300 dark:hover:border-white/20 hover:text-gray-700 dark:hover:text-white/85 sm:inline-flex"
               aria-label="Open quick search"
             >
               <Search className="h-3 w-3" />
               <span>Quick search</span>
-              <span className="ml-2 inline-flex items-center gap-0.5 rounded-md border border-white/10 bg-white/[0.04] px-1 py-0.5 text-[10px] font-medium text-white/55">
+              <span className="ml-2 inline-flex items-center gap-0.5 rounded-md border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.04] px-1 py-0.5 text-[10px] font-medium text-gray-400 dark:text-white/55">
                 <Command className="h-2.5 w-2.5" />K
               </span>
             </button>
@@ -165,7 +165,7 @@ export default function SiteHeader({
             to="/discover"
             className={
               landingMode
-                ? "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-white/75 transition-colors hover:bg-white/[0.06] hover:text-white"
+                ? "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-gray-600 dark:text-white/75 transition-colors hover:bg-gray-100 dark:hover:bg-white/[0.06] hover:text-gray-900 dark:hover:text-white"
                 : "text-[13px] font-medium px-3 h-8 inline-flex items-center gap-1.5 rounded-full hover:bg-secondary transition-colors"
             }
             style={themed ? { color: theme?.textColor } : undefined}
@@ -174,14 +174,15 @@ export default function SiteHeader({
             <span className="hidden sm:inline">Discover</span>
           </Link>
           {/*
-            Theme toggle is shown everywhere except the landing page.
-            The landing canvas is always dark (the `dark` class is stamped on
-            the wrapper in Index.tsx), so the toggle would have no visible
-            effect there and is therefore hidden.
-            On themed pages we wrap it in a translucent scrim that adapts to the
-            page text color so the pill stays visible on any branded background.
+            Theme toggle is always shown. In landingMode it is wrapped in a
+            glass pill that adapts to dark/light. On themed pages we wrap it
+            in a translucent scrim that adapts to the page text color.
           */}
-          {!landingMode && (
+          {landingMode ? (
+            <div className="rounded-full border border-gray-200 dark:border-white/[0.12] bg-gray-100/80 dark:bg-white/[0.06] p-0.5">
+              <ThemeToggle size="sm" />
+            </div>
+          ) : (
             <div
               className={themed ? "rounded-full p-0.5" : undefined}
               style={
@@ -268,13 +269,13 @@ export default function SiteHeader({
             <div className="flex items-center gap-2">
               <Link
                 to="/login"
-                className="inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium text-white/75 transition-colors hover:text-white"
+                className="inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium text-gray-600 dark:text-white/75 transition-colors hover:text-gray-900 dark:hover:text-white"
               >
                 Sign in
               </Link>
               <Link
                 to="/login"
-                className="group inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-4 text-[13px] font-semibold text-[#09090B] shadow-[0_8px_24px_-8px_rgba(255,255,255,0.4)] transition-all duration-150 hover:bg-white/90 active:scale-[0.98]"
+                className="group inline-flex h-9 items-center gap-1.5 rounded-full bg-gray-900 dark:bg-white px-4 text-[13px] font-semibold text-white dark:text-[#09090B] shadow-[0_8px_24px_-8px_rgba(0,0,0,0.3)] dark:shadow-[0_8px_24px_-8px_rgba(255,255,255,0.4)] transition-all duration-150 hover:bg-gray-800 dark:hover:bg-white/90 active:scale-[0.98]"
               >
                 Start for free
                 <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />

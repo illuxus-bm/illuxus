@@ -36,7 +36,7 @@ const PricingSection = () => {
         <AnimatedStack className="mx-auto mb-14 max-w-2xl text-center md:mb-16">
           {p.eyebrow && (
             <AnimatedItem>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-purple-300 backdrop-blur-xl">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 dark:border-white/10 bg-gray-100/60 dark:bg-white/[0.04] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-purple-500 dark:text-purple-300 backdrop-blur-xl">
                 <Sparkles className="h-3 w-3" />
                 {p.eyebrow}
               </span>
@@ -44,7 +44,7 @@ const PricingSection = () => {
           )}
           <AnimatedItem>
             <h2
-              className="mt-5 text-balance text-3xl font-semibold leading-[1.1] tracking-[-0.03em] text-white sm:text-4xl md:text-[52px]"
+              className="mt-5 text-balance text-3xl font-semibold leading-[1.1] tracking-[-0.03em] text-gray-900 dark:text-white sm:text-4xl md:text-[52px]"
               style={{ fontFamily: "Poppins, system-ui, sans-serif" }}
             >
               {p.title}
@@ -52,7 +52,7 @@ const PricingSection = () => {
           </AnimatedItem>
           {p.subtitle && (
             <AnimatedItem>
-              <p className="mt-5 text-[15px] leading-relaxed text-white/55 md:text-base [text-wrap:pretty]">
+              <p className="mt-5 text-[15px] leading-relaxed text-gray-500 dark:text-white/55 md:text-base [text-wrap:pretty]">
                 {p.subtitle}
               </p>
             </AnimatedItem>
@@ -82,8 +82,8 @@ const PricingSection = () => {
               <div
                 className={`relative flex h-full flex-col rounded-3xl border backdrop-blur-xl ${
                   plan.highlight
-                    ? "border-white/15 bg-[#0E0E12]/90"
-                    : "border-white/[0.08] bg-white/[0.02]"
+                    ? "border-gray-200 dark:border-white/15 bg-gray-50 dark:bg-[#0E0E12]/90"
+                    : "border-gray-200 dark:border-white/[0.08] bg-gray-50/50 dark:bg-white/[0.02]"
                 } p-7`}
               >
                 {plan.highlight && (
@@ -93,19 +93,19 @@ const PricingSection = () => {
                   </div>
                 )}
 
-                <h3 className="text-[13px] font-semibold uppercase tracking-[0.16em] text-white/80">
+                <h3 className="text-[13px] font-semibold uppercase tracking-[0.16em] text-gray-700 dark:text-white/80">
                   {plan.name}
                 </h3>
-                <p className="mt-1 text-[12px] text-white/45">{plan.description}</p>
+                <p className="mt-1 text-[12px] text-gray-400 dark:text-white/45">{plan.description}</p>
 
                 <div className="mt-5 flex items-baseline gap-1">
                   <span
-                    className="text-[40px] font-semibold tracking-[-0.03em] text-white"
+                    className="text-[40px] font-semibold tracking-[-0.03em] text-gray-900 dark:text-white"
                     style={{ fontFamily: "Poppins, system-ui, sans-serif" }}
                   >
                     {plan.price}
                   </span>
-                  <span className="text-[13px] text-white/45">{plan.period}</span>
+                  <span className="text-[13px] text-gray-400 dark:text-white/45">{plan.period}</span>
                 </div>
 
                 {isInternal(plan.ctaHref) ? (
@@ -113,8 +113,8 @@ const PricingSection = () => {
                     to={plan.ctaHref}
                     className={`mt-6 inline-flex h-10 w-full items-center justify-center rounded-xl text-[13px] font-semibold transition-all duration-150 active:scale-[0.98] ${
                       plan.highlight
-                        ? "bg-white text-[#09090B] hover:bg-white/90 shadow-[0_8px_30px_-8px_rgba(255,255,255,0.4)]"
-                        : "border border-white/15 bg-white/[0.03] text-white hover:border-white/30 hover:bg-white/[0.06]"
+                        ? "bg-gray-900 text-white dark:bg-white dark:text-[#09090B] hover:bg-gray-800 dark:hover:bg-white/90 shadow-[0_8px_30px_-8px_rgba(0,0,0,0.3)] dark:shadow-[0_8px_30px_-8px_rgba(255,255,255,0.4)]"
+                        : "border border-gray-300 dark:border-white/15 bg-transparent dark:bg-white/[0.03] text-gray-700 dark:text-white hover:border-gray-400 dark:hover:border-white/30 hover:bg-gray-100 dark:hover:bg-white/[0.06]"
                     }`}
                   >
                     {plan.ctaLabel}
@@ -124,8 +124,8 @@ const PricingSection = () => {
                     href={plan.ctaHref}
                     className={`mt-6 inline-flex h-10 w-full items-center justify-center rounded-xl text-[13px] font-semibold transition-all duration-150 active:scale-[0.98] ${
                       plan.highlight
-                        ? "bg-white text-[#09090B] hover:bg-white/90 shadow-[0_8px_30px_-8px_rgba(255,255,255,0.4)]"
-                        : "border border-white/15 bg-white/[0.03] text-white hover:border-white/30 hover:bg-white/[0.06]"
+                        ? "bg-gray-900 text-white dark:bg-white dark:text-[#09090B] hover:bg-gray-800 dark:hover:bg-white/90 shadow-[0_8px_30px_-8px_rgba(0,0,0,0.3)] dark:shadow-[0_8px_30px_-8px_rgba(255,255,255,0.4)]"
+                        : "border border-gray-300 dark:border-white/15 bg-transparent dark:bg-white/[0.03] text-gray-700 dark:text-white hover:border-gray-400 dark:hover:border-white/30 hover:bg-gray-100 dark:hover:bg-white/[0.06]"
                     }`}
                   >
                     {plan.ctaLabel}
@@ -136,7 +136,7 @@ const PricingSection = () => {
                   {plan.features.map((feature, i) => (
                     <li
                       key={`${feature}-${i}`}
-                      className="flex items-start gap-2.5 text-[13px] text-white/75"
+                      className="flex items-start gap-2.5 text-[13px] text-gray-600 dark:text-white/75"
                     >
                       <Check
                         className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-300"

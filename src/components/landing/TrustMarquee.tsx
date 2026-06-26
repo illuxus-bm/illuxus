@@ -36,7 +36,7 @@ export function TrustMarquee() {
   return (
     <section
       aria-label="Trusted by event teams worldwide"
-      className="relative border-y border-white/[0.06] py-20 sm:py-24"
+      className="relative border-y border-gray-100 dark:border-white/[0.06] py-20 sm:py-24"
     >
       <SiteContainer className="relative">
         {/* Centered testimonial */}
@@ -47,21 +47,21 @@ export function TrustMarquee() {
           transition={{ duration: 0.6 }}
           className="mx-auto mb-16 max-w-3xl text-center"
         >
-          <blockquote className="text-2xl font-medium leading-snug text-white/95 sm:text-[28px] sm:leading-[1.25] [text-wrap:balance]">
+          <blockquote className="text-2xl font-medium leading-snug text-gray-900 dark:text-white/95 sm:text-[28px] sm:leading-[1.25] [text-wrap:balance]">
             &ldquo;{lead.quote}&rdquo;
           </blockquote>
-          <figcaption className="mt-6 flex items-center justify-center gap-3 text-[13px] text-white/55">
-            <span className="h-px w-8 bg-white/20" aria-hidden="true" />
+          <figcaption className="mt-6 flex items-center justify-center gap-3 text-[13px] text-gray-400 dark:text-white/55">
+            <span className="h-px w-8 bg-gray-200 dark:bg-white/20" aria-hidden="true" />
             <span>
-              <span className="font-semibold text-white/80">{lead.author}</span>
+              <span className="font-semibold text-gray-700 dark:text-white/80">{lead.author}</span>
               {lead.role ? ` — ${lead.role}` : ""}
             </span>
-            <span className="h-px w-8 bg-white/20" aria-hidden="true" />
+            <span className="h-px w-8 bg-gray-200 dark:bg-white/20" aria-hidden="true" />
           </figcaption>
         </motion.figure>
 
         {/* Eyebrow */}
-        <p className="mb-8 text-center text-[11px] font-semibold uppercase tracking-[0.32em] text-white/40">
+        <p className="mb-8 text-center text-[11px] font-semibold uppercase tracking-[0.32em] text-gray-400 dark:text-white/40">
           Trusted by event teams worldwide
         </p>
       </SiteContainer>
@@ -72,15 +72,15 @@ export function TrustMarquee() {
           {[...FALLBACK_LOGOS, ...FALLBACK_LOGOS].map((logo, i) => (
             <span
               key={`${logo}-${i}`}
-              className="shrink-0 text-2xl font-semibold tracking-tight text-white/35 grayscale transition-colors hover:text-white/70 sm:text-[26px]"
+              className="shrink-0 text-2xl font-semibold tracking-tight text-gray-300 dark:text-white/35 grayscale transition-colors hover:text-gray-500 dark:hover:text-white/70 sm:text-[26px]"
             >
               {logo}
             </span>
           ))}
         </div>
         {/* Edge fades to mask the loop seam */}
-        <div className="pointer-events-none absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-[#09090B] to-transparent sm:w-40" />
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-[#09090B] to-transparent sm:w-40" />
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-background to-transparent sm:w-40" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-background to-transparent sm:w-40" />
       </div>
     </section>
   );
