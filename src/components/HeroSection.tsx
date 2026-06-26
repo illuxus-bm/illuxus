@@ -3,96 +3,129 @@ import { ArrowRight, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { SiteContainer } from "@/components/layout/SiteContainer";
+import { GlowOrb } from "@/components/landing/GlowOrb";
+import { DashboardMockup } from "@/components/landing/DashboardMockup";
+import { AnimatedStack, AnimatedItem } from "@/components/landing/AnimatedHeading";
 
 const isInternal = (href: string) => href.startsWith("/");
 
+/**
+ * Dark luminous hero. The headline copy comes from `useSiteContent()` so the
+ * marketing team can edit it in the CMS without touching code. Two large glow
+ * orbs radiate behind the dashboard mockup to lift it off the near-black
+ * canvas in the Attio style.
+ */
 const HeroSection = () => {
   const { content } = useSiteContent();
   const h = content.hero;
 
   return (
-    <section
-      className="relative overflow-hidden pt-24 pb-20 sm:pt-28 sm:pb-24 md:pt-36 md:pb-28 lg:pt-40 lg:pb-32 border-b border-border bg-background"
-    >
-      <SiteContainer className="relative !max-w-4xl text-center">
-        {h.badge && (
-          <motion.span
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-[12px] font-medium tracking-wide mb-6 sm:mb-7 border border-border bg-card text-foreground/80 shadow-sm"
-          >
-            <Sparkles className="h-3.5 w-3.5" style={{ color: "hsl(var(--brand-blue))" }} />
-            {h.badge}
-          </motion.span>
-        )}
+    <section className="relative isolate overflow-hidden pt-16 pb-28 sm:pt-20 sm:pb-32 md:pt-24 md:pb-40">
+      {/* Layered glow orbs — give the section depth without an image. */}
+      <GlowOrb
+        className="left-1/2 top-[-220px] -translate-x-1/2"
+        size={900}
+        color="rgba(99, 102, 241, 0.32)"
+        blur={120}
+      />
+      <GlowOrb
+        className="left-[-120px] top-[200px]"
+        size={520}
+        color="rgba(168, 85, 247, 0.22)"
+        blur={100}
+      />
+      <GlowOrb
+        className="right-[-120px] top-[300px]"
+        size={520}
+        color="rgba(249, 115, 22, 0.18)"
+        blur={100}
+      />
 
-        <motion.h1
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.05 }}
-          className="h-display text-[40px] sm:text-[56px] md:text-[72px] lg:text-[84px] text-foreground"
-        >
-          {h.title}
-        </motion.h1>
-
-        <motion.p
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.15 }}
-          className="text-[15px] sm:text-base md:text-lg max-w-2xl mt-5 sm:mt-6 leading-[1.55] mx-auto text-muted-foreground [text-wrap:pretty]"
-        >
-          {h.subtitle}
-        </motion.p>
-
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.25 }}
-          className="mt-8 sm:mt-9 flex flex-wrap items-center justify-center gap-3"
-        >
-          {h.primaryCtaLabel && (
-            isInternal(h.primaryCtaHref) ? (
-              <Link to={h.primaryCtaHref} className="group inline-flex items-center justify-center h-12 px-6 rounded-xl text-[15px] font-semibold bg-foreground text-background hover:bg-foreground/90 shadow-md hover:shadow-lg active:scale-[0.98] transition-all duration-150">
-                {h.primaryCtaLabel}
-                <ArrowRight className="h-4 w-4 ml-2 transition-transform group-hover:translate-x-0.5" />
-              </Link>
-            ) : (
-              <a href={h.primaryCtaHref} className="group inline-flex items-center justify-center h-12 px-6 rounded-xl text-[15px] font-semibold bg-foreground text-background hover:bg-foreground/90 shadow-md hover:shadow-lg active:scale-[0.98] transition-all duration-150">
-                {h.primaryCtaLabel}
-                <ArrowRight className="h-4 w-4 ml-2 transition-transform group-hover:translate-x-0.5" />
-              </a>
-            )
-          )}
-          {h.secondaryCtaLabel && (
-            isInternal(h.secondaryCtaHref) ? (
-              <Link to={h.secondaryCtaHref} className="inline-flex items-center justify-center h-12 px-6 rounded-xl text-[15px] font-semibold border border-border text-foreground hover:bg-secondary hover:border-foreground/30 active:scale-[0.98] transition-all duration-150">
-                {h.secondaryCtaLabel}
-              </Link>
-            ) : (
-              <a href={h.secondaryCtaHref} className="inline-flex items-center justify-center h-12 px-6 rounded-xl text-[15px] font-semibold border border-border text-foreground hover:bg-secondary hover:border-foreground/30 active:scale-[0.98] transition-all duration-150">
-                {h.secondaryCtaLabel}
-              </a>
-            )
-          )}
-        </motion.div>
-
-        {/* Recognition strip */}
-        <div className="mt-20 sm:mt-24 md:mt-28 lg:mt-32 pt-8 md:pt-10 border-t border-border/70">
-          <div className="text-[11px] uppercase tracking-[0.24em] font-semibold text-muted-foreground mb-6">
-            Trusted by event teams worldwide
-          </div>
-          <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3">
-            {["TechCrunch", "Summit Global", "DevConf", "Forge Labs", "Northwind"].map((logo) => (
-              <span
-                key={logo}
-                className="text-[15px] font-semibold tracking-tight text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {logo}
+      <SiteContainer className="relative">
+        <AnimatedStack className="mx-auto max-w-4xl text-center">
+          {h.badge && (
+            <AnimatedItem className="flex justify-center">
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-1.5 text-[12px] font-medium tracking-wide text-white/75 backdrop-blur-xl">
+                <Sparkles className="h-3.5 w-3.5 text-indigo-300" />
+                {h.badge}
               </span>
-            ))}
-          </div>
-        </div>
+            </AnimatedItem>
+          )}
+
+          <AnimatedItem>
+            <h1
+              className="mt-6 text-balance text-[44px] font-semibold leading-[1.02] tracking-[-0.04em] text-white sm:text-[60px] md:text-[76px] lg:text-[88px]"
+              style={{ fontFamily: "Poppins, system-ui, sans-serif" }}
+            >
+              {h.title}
+            </h1>
+          </AnimatedItem>
+
+          <AnimatedItem>
+            <p className="mx-auto mt-6 max-w-2xl text-[15px] leading-relaxed text-white/60 sm:text-base md:text-lg [text-wrap:pretty]">
+              {h.subtitle}
+            </p>
+          </AnimatedItem>
+
+          <AnimatedItem>
+            <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
+              {h.primaryCtaLabel &&
+                (isInternal(h.primaryCtaHref) ? (
+                  <Link
+                    to={h.primaryCtaHref}
+                    className="group inline-flex h-12 items-center justify-center rounded-xl bg-white px-6 text-[14px] font-semibold text-[#09090B] shadow-[0_10px_40px_-10px_rgba(255,255,255,0.4)] transition-all duration-150 hover:bg-white/90 hover:shadow-[0_14px_50px_-10px_rgba(255,255,255,0.55)] active:scale-[0.98]"
+                  >
+                    {h.primaryCtaLabel}
+                    <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                  </Link>
+                ) : (
+                  <a
+                    href={h.primaryCtaHref}
+                    className="group inline-flex h-12 items-center justify-center rounded-xl bg-white px-6 text-[14px] font-semibold text-[#09090B] shadow-[0_10px_40px_-10px_rgba(255,255,255,0.4)] transition-all duration-150 hover:bg-white/90 hover:shadow-[0_14px_50px_-10px_rgba(255,255,255,0.55)] active:scale-[0.98]"
+                  >
+                    {h.primaryCtaLabel}
+                    <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                  </a>
+                ))}
+              {h.secondaryCtaLabel &&
+                (isInternal(h.secondaryCtaHref) ? (
+                  <Link
+                    to={h.secondaryCtaHref}
+                    className="inline-flex h-12 items-center justify-center rounded-xl border border-white/15 bg-white/[0.03] px-6 text-[14px] font-semibold text-white/90 transition-all duration-150 hover:border-white/30 hover:bg-white/[0.06] active:scale-[0.98]"
+                  >
+                    {h.secondaryCtaLabel}
+                  </Link>
+                ) : (
+                  <a
+                    href={h.secondaryCtaHref}
+                    className="inline-flex h-12 items-center justify-center rounded-xl border border-white/15 bg-white/[0.03] px-6 text-[14px] font-semibold text-white/90 transition-all duration-150 hover:border-white/30 hover:bg-white/[0.06] active:scale-[0.98]"
+                  >
+                    {h.secondaryCtaLabel}
+                  </a>
+                ))}
+            </div>
+          </AnimatedItem>
+        </AnimatedStack>
+
+        {/* Dashboard mockup */}
+        <motion.div
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1, delay: 0.4, ease: [0.21, 0.47, 0.32, 0.98] }}
+          className="relative mt-16 sm:mt-20"
+        >
+          {/* Soft halo behind the mockup */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 -top-10 mx-auto h-[420px] max-w-[820px] rounded-full opacity-70"
+            style={{
+              background:
+                "radial-gradient(ellipse at center, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.12) 40%, transparent 70%)",
+              filter: "blur(60px)",
+            }}
+          />
+          <DashboardMockup />
+        </motion.div>
       </SiteContainer>
     </section>
   );

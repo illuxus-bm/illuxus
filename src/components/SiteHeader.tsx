@@ -16,7 +16,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useTheme } from "@/contexts/ThemeContext";
 import { SiteContainer } from "@/components/layout/SiteContainer";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
-import { CalendarDays, ChevronDown, ClipboardList, Compass, LogOut, Mic, Building2, Settings as SettingsIcon, Ticket, Users2 } from "lucide-react";
+import { ArrowRight, CalendarDays, ChevronDown, ClipboardList, Command, Compass, LogOut, Mic, Building2, Search, Settings as SettingsIcon, Ticket, Users2 } from "lucide-react";
 
 /**
  * Centralized site header used across every public segment
@@ -40,11 +40,21 @@ export default function SiteHeader({
   homeHref = "/",
   className = "",
   transparent = false,
+  landingMode = false,
 }: {
   theme?: SiteHeaderTheme;
   homeHref?: string;
   className?: string;
   transparent?: boolean;
+  /**
+   * When true, the header renders the marketing landing variant:
+   *  - Quick-search (⌘K) pill on the left of the actions
+   *  - "Start for free" CTA button as the rightmost action (when signed out)
+   *  - Slightly lifted glass surface tuned for the dark luminous canvas
+   * Other surfaces (dashboard, themed event pages) pass nothing and get the
+   * compact default.
+   */
+  landingMode?: boolean;
 }) {
   const { user, signOut, accountType, isAdmin } = useAuth();
   const { data: portalAccess } = usePortalAccess();
@@ -106,9 +116,13 @@ export default function SiteHeader({
     : {};
 
   // Themed pages skip backdrop blur to avoid washing out the page palette.
+  // Landing mode renders a darker glass surface tuned to sit on top of the
+  // near-black canvas with a subtle hairline border.
   const surfaceClass = themed
     ? "border-b"
-    : "border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60";
+    : landingMode
+      ? "border-b border-white/[0.06] bg-[#09090B]/70 backdrop-blur-xl supports-[backdrop-filter]:bg-[#09090B]/55"
+      : "border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60";
 
   return (
     <header className={`app-chrome sticky top-0 z-40 ${surfaceClass} ${className}`} style={{ ...styleVars, paddingTop: "env(safe-area-inset-top)" }}>
@@ -124,9 +138,41 @@ export default function SiteHeader({
         </a>
 
         <div className="flex items-center gap-2">
+          {landingMode && (
+            <button
+              type="button"
+              onClick={() => {
+                // Best-effort cmd-K trigger: dispatch a synthetic keypress so any
+                // existing command-palette listener picks it up. The dashboard's
+                // DashboardTopBar listens for this — on marketing pages where no
+                // listener exists we still surface the affordance for muscle
+                // memory consistency.
+                const ev = new KeyboardEvent("keydown", {
+                  key: "k",
+                  code: "KeyK",
+                  metaKey: true,
+                  ctrlKey: true,
+                  bubbles: true,
+                });
+                window.dispatchEvent(ev);
+              }}
+              className="hidden h-8 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 text-[12px] text-white/55 transition-colors hover:border-white/20 hover:text-white/85 sm:inline-flex"
+              aria-label="Open quick search"
+            >
+              <Search className="h-3 w-3" />
+              <span>Quick search</span>
+              <span className="ml-2 inline-flex items-center gap-0.5 rounded-md border border-white/10 bg-white/[0.04] px-1 py-0.5 text-[10px] font-medium text-white/55">
+                <Command className="h-2.5 w-2.5" />K
+              </span>
+            </button>
+          )}
           <Link
             to="/discover"
-            className="text-[13px] font-medium px-3 h-8 inline-flex items-center gap-1.5 rounded-full hover:bg-secondary transition-colors"
+            className={
+              landingMode
+                ? "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-white/75 transition-colors hover:bg-white/[0.06] hover:text-white"
+                : "text-[13px] font-medium px-3 h-8 inline-flex items-center gap-1.5 rounded-full hover:bg-secondary transition-colors"
+            }
             style={themed ? { color: theme?.textColor } : undefined}
           >
             <Compass className="h-3.5 w-3.5" />
@@ -134,23 +180,27 @@ export default function SiteHeader({
           </Link>
           {/*
             Theme toggle is shown everywhere — including themed event/org pages —
-            so visitors can switch light/dark from any surface.
+            so visitors can switch light/dark from any surface. The landing
+            page is intentionally locked to its dark luminous canvas, so we
+            hide the toggle there.
             On themed pages we wrap it in a translucent scrim that adapts to the
             page text color so the pill stays visible on any branded background.
           */}
-          <div
-            className={themed ? "rounded-full p-0.5" : undefined}
-            style={
-              themed
-                ? {
-                    backgroundColor: `${theme?.textColor ?? "#000"}10`,
-                    border: `1px solid ${theme?.textColor ?? "#000"}20`,
-                  }
-                : undefined
-            }
-          >
-            <ThemeToggle size="sm" />
-          </div>
+          {!landingMode && (
+            <div
+              className={themed ? "rounded-full p-0.5" : undefined}
+              style={
+                themed
+                  ? {
+                      backgroundColor: `${theme?.textColor ?? "#000"}10`,
+                      border: `1px solid ${theme?.textColor ?? "#000"}20`,
+                    }
+                  : undefined
+              }
+            >
+              <ThemeToggle size="sm" />
+            </div>
+          )}
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -219,6 +269,22 @@ export default function SiteHeader({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          ) : landingMode ? (
+            <div className="flex items-center gap-2">
+              <Link
+                to="/login"
+                className="inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium text-white/75 transition-colors hover:text-white"
+              >
+                Sign in
+              </Link>
+              <Link
+                to="/login"
+                className="group inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-4 text-[13px] font-semibold text-[#09090B] shadow-[0_8px_24px_-8px_rgba(255,255,255,0.4)] transition-all duration-150 hover:bg-white/90 hover:shadow-[0_12px_30px_-8px_rgba(255,255,255,0.55)] active:scale-[0.98]"
+              >
+                Start for free
+                <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+              </Link>
+            </div>
           ) : (
             <Link
               to="/login"

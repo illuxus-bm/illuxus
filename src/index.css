@@ -13,6 +13,44 @@
   scroll-margin-top: 80px;
 }
 
+/* ─── Landing-page animations ─────────────────────────────────────────────
+   Seamless logo strip — duplicate the content in markup, then translate by
+   exactly -50% so the back half slides into the front half's original spot. */
+@keyframes marquee-seamless {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-marquee-seamless {
+  animation: marquee-seamless 36s linear infinite;
+}
+
+/* Dashed stroke flow for "data sync" SVG lines. */
+@keyframes sync-flow {
+  0%   { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -120; }
+}
+.animate-sync-flow {
+  animation: sync-flow 4s linear infinite;
+}
+
+/* Soft pulse for the live indicator dot on dashboard mockups. */
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(1.35); }
+}
+.animate-live-pulse {
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+
+/* Respect prefers-reduced-motion for all infinite landing animations. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee-seamless,
+  .animate-sync-flow,
+  .animate-live-pulse {
+    animation: none !important;
+  }
+}
+
 @layer base {
   :root {
     /* Public site horizontal gutters — mirrored by <SiteContainer />.
