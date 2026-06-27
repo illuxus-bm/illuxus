@@ -38,7 +38,8 @@ function WorkflowGraph() {
 
   return (
     <div className="relative h-[220px] w-full">
-      <SyncLines idSuffix="workflow" color="rgba(165, 180, 252, 0.7)" />
+      {/* Light mode: dark indigo lines; dark mode: soft indigo/purple lines */}
+      <SyncLines idSuffix="workflow" color="rgba(99, 102, 241, 0.55)" strokeWidth={1.75} className="dark:opacity-100 opacity-80" />
       <div className="relative z-10 flex h-full items-center justify-between gap-3 px-2 sm:px-6">
         {nodes.map((node, i) => {
           const Icon = node.icon;
