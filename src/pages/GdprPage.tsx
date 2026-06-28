@@ -1,4 +1,5 @@
 import SiteHeader from "@/components/SiteHeader";
+import RouteSeo from "@/components/RouteSeo";
 
 /**
  * GDPR Notice — for users in the EU/EEA, UK, and Switzerland (and any user
@@ -252,6 +253,65 @@ export default function GdprPage() {
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
+      <RouteSeo
+        title="GDPR Notice — EU/UK/Swiss data subjects | illuxus"
+        description="GDPR Articles 6, 9, 15-22, 27, 30, 77 coverage. SCCs and IDTA for international transfers. EU/UK supervisory authority complaint paths."
+        canonical="https://illuxus.com/gdpr"
+        keywords={[
+          "illuxus GDPR notice",
+          "event platform GDPR",
+          "UK GDPR event platform",
+          "Swiss FADP event SaaS",
+          "GDPR Article 6 lawful basis event",
+          "GDPR Article 9 special category event",
+          "GDPR Article 15 right of access event",
+          "GDPR Article 17 right to erasure event",
+          "GDPR Article 20 data portability event",
+          "GDPR Article 21 right to object event",
+          "GDPR Article 27 EU representative event",
+          "GDPR Article 30 ROPA event SaaS",
+          "GDPR Article 77 supervisory authority",
+          "SCC standard contractual clauses event",
+          "IDTA UK international data transfer",
+          "EU-US Data Privacy Framework event SaaS",
+          "EEA data subject event platform",
+          "UK ICO complaint event platform",
+          "Irish DPC complaint event platform",
+          "Information Commissioner event SaaS",
+          "DSAR event platform Europe",
+          "data subject request EU event",
+          "right to rectification event GDPR",
+          "automated decision making event GDPR",
+          "DPIA event platform",
+          "international data transfer event SaaS",
+          "EU controller-processor event platform",
+          "LGPD event platform Brazil",
+          "CCPA event platform California",
+          "POPIA event platform South Africa",
+        ].join(", ")}
+        ogImage="https://illuxus.com/og-image.png"
+        ogType="website"
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "WebPage",
+              url: "https://illuxus.com/gdpr",
+              name: "GDPR Notice",
+              inLanguage: "en-GB",
+              dateModified: "2026-06-20",
+              publisher: { "@id": "https://illuxus.com/#organization" },
+            },
+            {
+              "@type": "BreadcrumbList",
+              itemListElement: [
+                { "@type": "ListItem", position: 1, name: "Home", item: "https://illuxus.com/" },
+                { "@type": "ListItem", position: 2, name: "GDPR", item: "https://illuxus.com/gdpr" },
+              ],
+            },
+          ],
+        }}
+      />
 
       <section className="pt-24 pb-10 text-center px-4">
         <p className="text-sm font-medium text-primary mb-3 uppercase tracking-widest">Legal</p>

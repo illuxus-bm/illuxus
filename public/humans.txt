@@ -1,0 +1,47 @@
+/* TEAM */
+  Built by the illuxus team
+  Headquarters: Mumbai, Maharashtra, India
+  Contact: hello@illuxus.com
+  Site: https://illuxus.com
+
+  Product: illuxus — all-in-one event management platform
+  Founded: 2023
+  Tagline: Run unforgettable events — ticketing, check-in, webinars, communities.
+
+/* THANKS */
+  To every organizer who has run a conference, summit, meetup, or workshop on illuxus.
+  To the open-source community whose tools make this product possible.
+  To India's vibrant events ecosystem for the constant feedback.
+
+/* TECHNOLOGY COLOPHON */
+  Language    : TypeScript 5
+  Frontend    : Vite 5, React 18, Tailwind CSS 3, shadcn/ui (Radix primitives)
+  State       : TanStack Query v5, React Context
+  Routing     : react-router-dom v6 with route-level code-splitting
+  Forms       : react-hook-form + zod
+  Charts      : Recharts
+  Drag-drop   : @dnd-kit
+  Motion      : framer-motion
+  Live video  : LiveKit (@livekit/components-react)
+  Backend     : Supabase — Postgres + Realtime + Storage + Edge Functions
+  Payments    : Stripe + Razorpay (with UPI support)
+  Email       : Resend + Postmark
+  Observability : Sentry-compatible structured logger
+  Testing     : Vitest, fast-check (property-based), Playwright (e2e + visual)
+  Package mgr : Bun (canonical)
+  CI / Hosting : Vercel
+
+/* PRINCIPLES */
+  - Built for India first, designed for the world.
+  - No vendor lock-in: export everything, anytime, in CSV / PDF / Excel.
+  - Privacy by default: DPDPA 2023 + GDPR + IT Act 2000 compliant.
+  - Speed matters: every page should feel instant.
+  - Property-based tests for state machines, not just example tests.
+
+                              .--.
+                             |o_o |    illuxus
+                             |:_/ |    https://illuxus.com
+                            //   \ \
+                           (|     | )
+                          /'\_   _/`\\
+                          \___)=(___/

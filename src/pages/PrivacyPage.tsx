@@ -1,4 +1,5 @@
 import SiteHeader from "@/components/SiteHeader";
+import RouteSeo from "@/components/RouteSeo";
 
 /**
  * Privacy Policy — Illuxus Technologies.
@@ -373,6 +374,65 @@ export default function PrivacyPage() {
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
+      <RouteSeo
+        title="Privacy Policy — DPDPA 2023 & IT Act compliant | illuxus"
+        description="Read how illuxus collects, uses, and protects your data under DPDPA 2023, IT Act 2000, SPDI Rules 2011, and CERT-In 2022 directive. 28 sections, transparent retention timelines, named DPO and Grievance Officer."
+        canonical="https://illuxus.com/privacy"
+        keywords={[
+          "illuxus privacy policy",
+          "DPDPA 2023 event platform",
+          "IT Act 2000 event platform",
+          "SPDI Rules 2011 compliance",
+          "CERT-In 2022 directive",
+          "Indian event platform privacy",
+          "DPO illuxus",
+          "data fiduciary event platform",
+          "data principal rights India",
+          "consent manager DPDPA",
+          "data retention event platform",
+          "ticket data privacy India",
+          "attendee data privacy",
+          "GDPR + DPDPA event platform",
+          "lawful basis processing event",
+          "data subject access request India",
+          "right to erasure DPDPA",
+          "grievance officer India event platform",
+          "CERT-In 180 day log retention",
+          "SDF significant data fiduciary",
+          "PII protection event platform",
+          "event platform compliance India",
+          "DPDPA-compliant event ticketing",
+          "DPDPA-compliant webinar platform",
+          "event organiser data processor",
+          "event organiser data controller",
+          "event platform data security India",
+          "encryption at rest event data",
+          "incident reporting CERT-In event",
+          "privacy notice India event SaaS",
+        ].join(", ")}
+        ogImage="https://illuxus.com/og-image.png"
+        ogType="website"
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "PrivacyPolicy",
+              url: "https://illuxus.com/privacy",
+              name: "Privacy Policy",
+              inLanguage: "en-IN",
+              dateModified: "2026-06-20",
+              publisher: { "@id": "https://illuxus.com/#organization" },
+            },
+            {
+              "@type": "BreadcrumbList",
+              itemListElement: [
+                { "@type": "ListItem", position: 1, name: "Home", item: "https://illuxus.com/" },
+                { "@type": "ListItem", position: 2, name: "Privacy", item: "https://illuxus.com/privacy" },
+              ],
+            },
+          ],
+        }}
+      />
 
       <section className="pt-24 pb-10 text-center px-4">
         <p className="text-sm font-medium text-primary mb-3 uppercase tracking-widest">Legal</p>

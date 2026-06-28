@@ -1,14 +1,156 @@
+# illuxus robots.txt — generated 2026-06-20
+#
+# Public, anonymous-readable marketing and legal pages are crawlable.
+# Authenticated app surfaces, organiser dashboards, sponsor/speaker portals,
+# and check-in flows are excluded — they require sign-in and contain no
+# content that helps search-engine relevance.
+#
+# AI training crawlers are denied by default. Lightweight on-demand answer
+# bots (ChatGPT-User, Claude-Web, PerplexityBot) are allowed because they
+# drive end-user traffic. Comment out the Disallow lines to opt back in to
+# training scrapes if the policy changes.
+
+# --- Major search engines ---------------------------------------------------
 User-agent: Googlebot
 Allow: /
+Disallow: /dashboard
+Disallow: /onboarding
+Disallow: /login
+Disallow: /reset-password
+Disallow: /complete-profile
+Disallow: /sponsor
+Disallow: /speaker
+Disallow: /checkin
+Disallow: /checkout
+Disallow: /e/
+Disallow: /__preview
+Disallow: /api/
+Disallow: /u/me
+Disallow: /t/
+Disallow: /support/ticket/
 
 User-agent: Bingbot
 Allow: /
+Disallow: /dashboard
+Disallow: /onboarding
+Disallow: /login
+Disallow: /reset-password
+Disallow: /complete-profile
+Disallow: /sponsor
+Disallow: /speaker
+Disallow: /checkin
+Disallow: /checkout
+Disallow: /e/
+Disallow: /__preview
+Disallow: /api/
+Disallow: /u/me
+Disallow: /t/
+Disallow: /support/ticket/
 
+User-agent: Applebot
+Allow: /
+Disallow: /dashboard
+Disallow: /onboarding
+Disallow: /login
+Disallow: /reset-password
+Disallow: /complete-profile
+Disallow: /sponsor
+Disallow: /speaker
+Disallow: /checkin
+Disallow: /checkout
+Disallow: /e/
+Disallow: /__preview
+Disallow: /api/
+
+# --- Social-card previewers — these need access to OG tags ------------------
 User-agent: Twitterbot
 Allow: /
 
 User-agent: facebookexternalhit
 Allow: /
 
+User-agent: LinkedInBot
+Allow: /
+
+User-agent: Slackbot
+Allow: /
+
+User-agent: WhatsApp
+Allow: /
+
+User-agent: TelegramBot
+Allow: /
+
+User-agent: Discordbot
+Allow: /
+
+# --- AI training crawlers ---------------------------------------------------
+# Block bulk training scrapers. Uncomment the Allow lines below if you want
+# your content used to train these models.
+User-agent: GPTBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: Amazonbot
+Disallow: /
+
+# --- AI answer bots (on-demand, drive traffic) ------------------------------
+# These hit pages on behalf of a user actively asking a question. Allowing
+# them surfaces illuxus inside ChatGPT, Claude, and Perplexity answers.
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+# --- Default fall-through ---------------------------------------------------
 User-agent: *
 Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+Allow: /ai.txt
+Allow: /humans.txt
+Allow: /.well-known/security.txt
+Disallow: /dashboard
+Disallow: /onboarding
+Disallow: /login
+Disallow: /reset-password
+Disallow: /complete-profile
+Disallow: /sponsor
+Disallow: /speaker
+Disallow: /checkin
+Disallow: /checkout
+Disallow: /e/
+Disallow: /__preview
+Disallow: /api/
+Disallow: /u/me
+Disallow: /t/
+Disallow: /support/ticket/
+
+# Sitemaps — point every crawler at both the per-resource sitemap and the
+# index pointer. Multiple Sitemap: directives are valid per the spec.
+Sitemap: https://illuxus.com/sitemap.xml
+Sitemap: https://illuxus.com/sitemap-index.xml
+
+# AI / LLM discovery files
+# Crawlers that respect llms.txt, llms-full.txt, and ai.txt can find them here.
+# See https://illuxus.com/llms.txt for the structured site index and
+# https://illuxus.com/llms-full.txt for one-fetch marketing-content ingestion.
+
+# Slow down misbehaving crawlers (Googlebot and Bingbot ignore this and use
+# their own crawl-budget heuristics, which is what we want).
+Crawl-delay: 5

@@ -1,0 +1,41 @@
+# illuxus — Security Disclosure (RFC 9116)
+# https://illuxus.com/.well-known/security.txt
+#
+# Thank you for helping keep illuxus and our customers safe. We take security
+# reports seriously and will acknowledge, validate, and remediate confirmed
+# issues as quickly as possible. We will not pursue legal action against
+# good-faith security research conducted under the policy linked below.
+
+Contact: mailto:security@illuxus.com
+Contact: https://illuxus.com/contact
+Expires: 2027-06-28T23:59:59.000Z
+Preferred-Languages: en, hi
+Canonical: https://illuxus.com/.well-known/security.txt
+Policy: https://illuxus.com/security
+Acknowledgments: https://illuxus.com/security#hall-of-fame
+Encryption: https://illuxus.com/.well-known/pgp-key.txt
+Hiring: https://illuxus.com/about#careers
+
+# When reporting a vulnerability, please include:
+#  - A clear description of the issue and affected URL / endpoint
+#  - Step-by-step reproduction (curl, screenshots, or a short PoC)
+#  - The impact you believe the bug could have
+#  - Whether you would like public credit and under what handle
+#
+# We aim to:
+#  - Acknowledge new reports within 24 business hours (Mon–Fri, IST)
+#  - Provide a triage outcome within 5 business days
+#  - Resolve confirmed critical issues within 30 days
+#
+# Please do NOT:
+#  - Run scans that materially degrade service for other customers
+#  - Access, modify, or exfiltrate data that does not belong to you
+#  - Publicly disclose a vulnerability before we have shipped a fix
+#  - Conduct social engineering against illuxus staff or customers
+#
+# Out of scope:
+#  - Reports based purely on missing security headers without exploitation
+#  - Theoretical attacks without a working proof of concept
+#  - Findings on third-party services we embed (Stripe, Razorpay, LiveKit, etc.)
+#    — please report those to the respective vendor directly
+#  - Denial of service via volumetric traffic

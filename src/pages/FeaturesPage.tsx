@@ -1,11 +1,86 @@
 import { Link } from "react-router-dom";
 import SiteHeader from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
+import RouteSeo from "@/components/RouteSeo";
 import {
   CalendarDays, Ticket, Mic2, Users, BarChart3, Globe,
   Shield, Sparkles, Mail, ScanLine, Zap, Crown, Rocket,
   CheckCircle2, ArrowRight,
 } from "lucide-react";
+
+const FEATURES_KEYWORDS = [
+  "event ticketing software",
+  "QR code event check-in",
+  "event check-in app",
+  "attendee check-in software",
+  "self check-in kiosk",
+  "badge printing event",
+  "speaker management software",
+  "event sponsor management",
+  "sponsor portal",
+  "sponsorship management software",
+  "webinar platform",
+  "live webinar tool",
+  "LiveKit webinar",
+  "webinar with chat",
+  "webinar with Q&A",
+  "webinar recording",
+  "event analytics",
+  "event reporting tool",
+  "attendance analytics",
+  "ticket sales analytics",
+  "conversion tracking events",
+  "event ROI dashboard",
+  "event app builder",
+  "branded event pages",
+  "drag and drop event page builder",
+  "AI matchmaking events",
+  "white-label event platform",
+  "SSO event platform",
+  "event community platform",
+  "post-event community",
+].join(", ");
+
+const FEATURES_JSON_LD = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://illuxus.com/features#software",
+      name: "illuxus",
+      operatingSystem: "Web, iOS, Android",
+      applicationCategory: "BusinessApplication",
+      url: "https://illuxus.com/features",
+      featureList: [
+        "Drag-and-drop event page builder",
+        "Custom branding and themes",
+        "Multi-day and recurring events",
+        "Multiple ticket tiers and pricing",
+        "Promo codes and early-bird discounts",
+        "QR check-in and self check-in",
+        "Badge printing",
+        "Speaker invitations and content collection",
+        "Sponsor portal and lead capture",
+        "Live webinar studio (LiveKit)",
+        "Webinar recording and playback",
+        "Event communities and feeds",
+        "Real-time analytics dashboards",
+        "Email + WhatsApp messaging",
+        "AI matchmaking for attendees",
+        "White-label and custom domains",
+        "SSO and advanced role management",
+        "DPDPA + GDPR compliant data handling",
+      ],
+    },
+    {
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Home", item: "https://illuxus.com/" },
+        { "@type": "ListItem", position: 2, name: "Features", item: "https://illuxus.com/features" },
+      ],
+    },
+  ],
+};
 
 const features = [
   {
@@ -158,6 +233,15 @@ export default function FeaturesPage() {
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
+      <RouteSeo
+        title="Features — Event ticketing, check-in, webinars & community tools | illuxus"
+        description="Complete feature suite for event organizers: branded event pages, smart ticketing, speaker management, QR check-in, live webinars, sponsor portals, communities, analytics, AI matchmaking, white-label, and enterprise-grade security."
+        canonical="https://illuxus.com/features"
+        keywords={FEATURES_KEYWORDS}
+        ogImage="https://illuxus.com/og-image.png"
+        ogType="website"
+        jsonLd={FEATURES_JSON_LD}
+      />
 
       {/* Hero */}
       <section className="pt-24 pb-16 text-center px-4">

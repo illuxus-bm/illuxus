@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import SiteHeader from "@/components/SiteHeader";
+import RouteSeo from "@/components/RouteSeo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -235,6 +236,120 @@ export default function ContactPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <RouteSeo
+        title="Contact illuxus — Sales, support, privacy, grievance officer"
+        description="Get in touch with illuxus. Sales, support, privacy/DPO, grievance officer, press, legal — 7 dedicated channels. Mumbai HQ. Response within 1 business day."
+        canonical="https://illuxus.com/contact"
+        keywords={[
+          "contact illuxus",
+          "illuxus support",
+          "illuxus sales",
+          "illuxus grievance officer",
+          "illuxus DPO",
+          "illuxus privacy contact",
+          "illuxus press contact",
+          "illuxus legal contact",
+          "event platform support",
+          "event platform sales India",
+          "event SaaS contact",
+          "event management contact Mumbai",
+          "event tech contact India",
+          "contact event organiser platform",
+          "Mumbai event platform contact",
+          "Bengaluru event platform support",
+          "Delhi event platform sales",
+          "DPDPA grievance officer India",
+          "GDPR contact event platform",
+          "consumer protection contact event platform",
+          "event refund support",
+          "event ticketing help",
+          "event check-in support",
+          "webinar platform support",
+          "speaker portal support",
+          "sponsor portal support",
+          "event community support",
+          "event analytics support",
+          "event API support",
+          "illuxus enterprise sales",
+        ].join(", ")}
+        ogImage="https://illuxus.com/og-image.png"
+        ogType="website"
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "ContactPage",
+              url: "https://illuxus.com/contact",
+              name: "Contact illuxus",
+              about: { "@id": "https://illuxus.com/#organization" },
+            },
+            {
+              "@type": "Organization",
+              "@id": "https://illuxus.com/#organization",
+              name: "Illuxus Technologies Private Limited",
+              url: "https://illuxus.com/",
+              contactPoint: [
+                {
+                  "@type": "ContactPoint",
+                  contactType: "sales",
+                  email: "sales@illuxus.com",
+                  areaServed: ["IN", "SG", "AE", "GB", "US"],
+                  availableLanguage: ["English", "Hindi"],
+                },
+                {
+                  "@type": "ContactPoint",
+                  contactType: "customer support",
+                  email: "support@illuxus.com",
+                  areaServed: "IN",
+                  availableLanguage: ["English", "Hindi"],
+                },
+                {
+                  "@type": "ContactPoint",
+                  contactType: "technical support",
+                  email: "tech@illuxus.com",
+                  areaServed: "IN",
+                  availableLanguage: ["English"],
+                },
+                {
+                  "@type": "ContactPoint",
+                  contactType: "privacy",
+                  email: "privacy@illuxus.com",
+                  areaServed: "Worldwide",
+                  availableLanguage: ["English"],
+                },
+                {
+                  "@type": "ContactPoint",
+                  contactType: "grievance officer",
+                  email: "grievance@illuxus.com",
+                  areaServed: "IN",
+                  availableLanguage: ["English", "Hindi"],
+                },
+                {
+                  "@type": "ContactPoint",
+                  contactType: "press",
+                  email: "press@illuxus.com",
+                  areaServed: "Worldwide",
+                  availableLanguage: ["English"],
+                },
+                {
+                  "@type": "ContactPoint",
+                  contactType: "legal",
+                  email: "legal@illuxus.com",
+                  areaServed: "IN",
+                  availableLanguage: ["English"],
+                },
+              ],
+            },
+            {
+              "@type": "BreadcrumbList",
+              itemListElement: [
+                { "@type": "ListItem", position: 1, name: "Home", item: "https://illuxus.com/" },
+                { "@type": "ListItem", position: 2, name: "Contact", item: "https://illuxus.com/contact" },
+              ],
+            },
+          ],
+        }}
+      />
       {/* Header is hidden in print mode so the PDF only shows the confirmation. */}
       <div className="print:hidden">
         <SiteHeader />

@@ -1,4 +1,5 @@
 import SiteHeader from "@/components/SiteHeader";
+import RouteSeo from "@/components/RouteSeo";
 
 /**
  * Terms of Service — Illuxus Technologies.
@@ -387,6 +388,65 @@ export default function TermsPage() {
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
+      <RouteSeo
+        title="Terms of Service — illuxus event platform"
+        description="Legally binding electronic contract under IT Act Section 10A. Covers GST, TDS Section 194-O, refunds under Consumer Protection Act 2019, IT Rules 2021 intermediary status, grievance redressal."
+        canonical="https://illuxus.com/terms"
+        keywords={[
+          "illuxus terms of service",
+          "event platform terms India",
+          "IT Act 10A electronic contract",
+          "Indian Contract Act event SaaS",
+          "Consumer Protection Act 2019 event refunds",
+          "IT Rules 2021 intermediary status",
+          "GST event ticketing",
+          "TDS Section 194-O event platform",
+          "TDS 194-H event commission",
+          "Equalisation Levy event SaaS",
+          "Arbitration Conciliation Act 1996",
+          "PMLA event payouts KYC",
+          "event platform liability",
+          "event refund policy India",
+          "event organiser obligations India",
+          "event attendee rights India",
+          "ticket terms India event",
+          "e-commerce rules event tickets",
+          "Indian event SaaS terms",
+          "intermediary safe harbour event platform",
+          "grievance redressal event platform",
+          "DPDPA + Consumer Act event terms",
+          "GST e-invoicing event platform",
+          "FIU-IND event payouts",
+          "event platform jurisdiction Mumbai",
+          "arbitration seat Mumbai event SaaS",
+          "force majeure event platform",
+          "indemnification event organiser",
+          "warranty event platform India",
+          "limitation of liability event SaaS",
+        ].join(", ")}
+        ogImage="https://illuxus.com/og-image.png"
+        ogType="website"
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "TermsOfService",
+              url: "https://illuxus.com/terms",
+              name: "Terms of Service",
+              inLanguage: "en-IN",
+              dateModified: "2026-06-20",
+              publisher: { "@id": "https://illuxus.com/#organization" },
+            },
+            {
+              "@type": "BreadcrumbList",
+              itemListElement: [
+                { "@type": "ListItem", position: 1, name: "Home", item: "https://illuxus.com/" },
+                { "@type": "ListItem", position: 2, name: "Terms", item: "https://illuxus.com/terms" },
+              ],
+            },
+          ],
+        }}
+      />
 
       <section className="pt-24 pb-10 text-center px-4">
         <p className="text-sm font-medium text-primary mb-3 uppercase tracking-widest">Legal</p>

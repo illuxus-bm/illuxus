@@ -1,4 +1,5 @@
 import SiteHeader from "@/components/SiteHeader";
+import RouteSeo from "@/components/RouteSeo";
 
 /**
  * Cookie Policy — Illuxus Technologies.
@@ -166,6 +167,65 @@ export default function CookiePolicyPage() {
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
+      <RouteSeo
+        title="Cookie Policy — illuxus event platform"
+        description="Specific cookies we use, why, for how long, and how to manage them. DPDPA, GDPR, and ePrivacy compliant. Honours DNT and Global Privacy Control."
+        canonical="https://illuxus.com/cookies"
+        keywords={[
+          "illuxus cookie policy",
+          "event platform cookies",
+          "DPDPA cookie consent",
+          "GDPR cookie consent India",
+          "ePrivacy cookie consent",
+          "Do Not Track event platform",
+          "Global Privacy Control event SaaS",
+          "essential cookies event ticketing",
+          "functional cookies event",
+          "analytics cookies event platform",
+          "marketing cookies opt-in India",
+          "first-party cookies event SaaS",
+          "third-party cookies event SaaS",
+          "session cookies event platform",
+          "persistent cookies event",
+          "Supabase auth cookie sb-access-token",
+          "Stripe cookies event payments",
+          "Razorpay cookies event payments",
+          "consent banner DPDPA",
+          "cookie duration event platform",
+          "cookie purposes event platform",
+          "cookie controls event platform",
+          "cookie withdraw consent DPDPA",
+          "browser cookie controls",
+          "cookie audit event SaaS",
+          "fingerprinting event platform",
+          "local storage event platform privacy",
+          "tracking technologies event SaaS",
+          "anonymous analytics event platform",
+          "cookie compliance India event",
+        ].join(", ")}
+        ogImage="https://illuxus.com/og-image.png"
+        ogType="website"
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "WebPage",
+              url: "https://illuxus.com/cookies",
+              name: "Cookie Policy",
+              inLanguage: "en-IN",
+              dateModified: "2026-06-20",
+              publisher: { "@id": "https://illuxus.com/#organization" },
+            },
+            {
+              "@type": "BreadcrumbList",
+              itemListElement: [
+                { "@type": "ListItem", position: 1, name: "Home", item: "https://illuxus.com/" },
+                { "@type": "ListItem", position: 2, name: "Cookies", item: "https://illuxus.com/cookies" },
+              ],
+            },
+          ],
+        }}
+      />
 
       <section className="pt-24 pb-10 text-center px-4">
         <p className="text-sm font-medium text-primary mb-3 uppercase tracking-widest">Legal</p>

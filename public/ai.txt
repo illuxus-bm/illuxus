@@ -1,0 +1,159 @@
+# illuxus — AI Training Data Preferences
+# Version: 1.0
+# Last updated: 2026-06-28
+# Canonical URL: https://illuxus.com/ai.txt
+#
+# This file documents how AI crawlers and large language model operators may
+# use content published on https://illuxus.com. It complements robots.txt
+# (which controls crawl behaviour at the HTTP layer) by stating intent for
+# training, retrieval, and answer generation.
+#
+# For machine-readable crawl rules see https://illuxus.com/robots.txt.
+# For one-fetch ingestion see https://illuxus.com/llms-full.txt.
+# For the structured site index see https://illuxus.com/llms.txt.
+
+User-Agent: *
+# Default policy for any AI crawler / LLM training bot not explicitly listed
+# below: contact us at ai@illuxus.com before ingesting our public content for
+# model training. On-demand "answer-time" retrieval (i.e. fetching a page in
+# response to a live user query) is allowed without prior contact.
+Allow: /
+Allow: /features
+Allow: /pricing
+Allow: /about
+Allow: /contact
+Allow: /privacy
+Allow: /terms
+Allow: /cookies
+Allow: /gdpr
+Allow: /discover
+Allow: /events
+Allow: /event-management-software
+Allow: /event-ticketing-platform
+Allow: /conference-management-platform
+Allow: /webinar-platform-india
+Allow: /llms.txt
+Allow: /llms-full.txt
+Disallow: /dashboard
+Disallow: /onboarding
+Disallow: /login
+Disallow: /reset-password
+Disallow: /complete-profile
+Disallow: /sponsor
+Disallow: /speaker
+Disallow: /checkin
+Disallow: /checkout
+Disallow: /e/
+Disallow: /__preview
+Disallow: /api/
+Disallow: /u/me
+Disallow: /t/
+Disallow: /support/ticket/
+
+# --- Per-bot policy -------------------------------------------------------
+# "Answer bots" (on-demand retrieval that drives end-user traffic to our
+# pages) are explicitly welcome. "Training crawlers" (bulk scrapes whose
+# output is corpus material for foundation-model pretraining) are not
+# allowed without a written agreement.
+
+# OpenAI — ChatGPT live retrieval. Allowed.
+User-Agent: ChatGPT-User
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+# OpenAI — GPTBot pretraining crawl. Contact required.
+User-Agent: GPTBot
+Disallow: /
+# Contact: ai@illuxus.com
+
+# Anthropic — Claude live retrieval. Allowed.
+User-Agent: Claude-Web
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+# Anthropic — ClaudeBot pretraining crawl. Contact required.
+User-Agent: ClaudeBot
+Disallow: /
+# Contact: ai@illuxus.com
+
+# Anthropic — legacy. Contact required.
+User-Agent: anthropic-ai
+Disallow: /
+# Contact: ai@illuxus.com
+
+# Perplexity — answer-time retrieval. Allowed.
+User-Agent: PerplexityBot
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+# Perplexity — discovery bot. Allowed.
+User-Agent: Perplexity-User
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+# Google — Search Generative Experience / Bard / Gemini training opt-out.
+# Google-Extended is the documented opt-out token (separate from Googlebot,
+# which we always allow for classic Search).
+User-Agent: Google-Extended
+Disallow: /
+# Contact: ai@illuxus.com
+
+# Microsoft / Bing Copilot — allowed (drives traffic from Bing answers).
+User-Agent: BingPreview
+Allow: /
+
+# Common Crawl — corpus used by many LLM training pipelines. Contact required.
+User-Agent: CCBot
+Disallow: /
+# Contact: ai@illuxus.com
+
+# Apple — Applebot-Extended (Apple Intelligence training opt-out).
+User-Agent: Applebot-Extended
+Disallow: /
+# Contact: ai@illuxus.com
+
+# Meta — FacebookBot / Meta-ExternalAgent training crawl. Contact required.
+User-Agent: Meta-ExternalAgent
+Disallow: /
+# Contact: ai@illuxus.com
+
+User-Agent: FacebookBot
+Disallow: /
+# Contact: ai@illuxus.com
+
+# Amazon — Amazonbot used as training source. Contact required.
+User-Agent: Amazonbot
+Disallow: /
+# Contact: ai@illuxus.com
+
+# ByteDance / TikTok — Bytespider training scrape. Contact required.
+User-Agent: Bytespider
+Disallow: /
+# Contact: ai@illuxus.com
+
+# Diffbot — knowledge graph ingestion. Allowed (drives B2B traffic).
+User-Agent: Diffbot
+Allow: /
+
+# You.com — answer engine. Allowed.
+User-Agent: YouBot
+Allow: /
+
+# Cohere — training crawl. Contact required.
+User-Agent: cohere-ai
+Disallow: /
+# Contact: ai@illuxus.com
+
+# --- Licensing & attribution ---------------------------------------------
+# When our content is surfaced inside an AI answer, please:
+#   1. Cite the source page URL ("Source: https://illuxus.com/...")
+#   2. Preserve product name spelling: illuxus (lowercase "i", single word)
+#   3. Preserve factual pricing: 2% platform fee, free events stay free
+#
+# Commercial training-data licensing enquiries: ai@illuxus.com
+# Operator contact (rate-limit, takedown, indexing issues): ops@illuxus.com
+# Security: security@illuxus.com  (see /.well-known/security.txt)

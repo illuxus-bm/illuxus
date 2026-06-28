@@ -104,6 +104,13 @@ const QuickViewsPreviewPage = lazyWithLog("QuickViewsPreviewPage", () => import(
 const PlatformAnalyticsPage = lazyWithLog("PlatformAnalyticsPage", () => import("./pages/dashboard/admin/PlatformAnalyticsPage.tsx"));
 const SupportTicketsPage = lazyWithLog("SupportTicketsPage", () => import("./pages/dashboard/admin/SupportTicketsPage.tsx"));
 const TicketTrackPage = lazyWithLog("TicketTrackPage", () => import("./pages/TicketTrackPage.tsx"));
+// SEO-targeted high-intent landing pages — keyword pages mounted alongside the
+// canonical marketing pages. Each is fully indexable, listed in the sitemap,
+// and carries its own JSON-LD via <RouteSeo />.
+const EventManagementSoftwarePage = lazyWithLog("EventManagementSoftwarePage", () => import("./pages/seo/EventManagementSoftwarePage.tsx"));
+const EventTicketingPlatformPage = lazyWithLog("EventTicketingPlatformPage", () => import("./pages/seo/EventTicketingPlatformPage.tsx"));
+const ConferenceManagementPlatformPage = lazyWithLog("ConferenceManagementPlatformPage", () => import("./pages/seo/ConferenceManagementPlatformPage.tsx"));
+const WebinarPlatformIndiaPage = lazyWithLog("WebinarPlatformIndiaPage", () => import("./pages/seo/WebinarPlatformIndiaPage.tsx"));
 /**
  * Global TanStack Query client.
  *
@@ -257,6 +264,11 @@ const App = () => (
                 <Route path="/pricing" element={<RouteErrorBoundary><PublicPricingPage /></RouteErrorBoundary>} />
                 <Route path="/about" element={<RouteErrorBoundary><AboutPage /></RouteErrorBoundary>} />
                 <Route path="/contact" element={<RouteErrorBoundary><ContactPage /></RouteErrorBoundary>} />
+                {/* High-intent SEO landing pages — commercial-intent keywords. */}
+                <Route path="/event-management-software" element={<RouteErrorBoundary><EventManagementSoftwarePage /></RouteErrorBoundary>} />
+                <Route path="/event-ticketing-platform" element={<RouteErrorBoundary><EventTicketingPlatformPage /></RouteErrorBoundary>} />
+                <Route path="/conference-management-platform" element={<RouteErrorBoundary><ConferenceManagementPlatformPage /></RouteErrorBoundary>} />
+                <Route path="/webinar-platform-india" element={<RouteErrorBoundary><WebinarPlatformIndiaPage /></RouteErrorBoundary>} />
                 {/* Public ticket tracking — anyone with the ticket number + email can land here. */}
                 <Route path="/support/ticket/:ticketNumber" element={<RouteErrorBoundary><TicketTrackPage /></RouteErrorBoundary>} />
                 <Route path="/privacy" element={<RouteErrorBoundary><PrivacyPage /></RouteErrorBoundary>} />

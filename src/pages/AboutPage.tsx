@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import SiteHeader from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
+import RouteSeo from "@/components/RouteSeo";
 import {
   Heart,
   Rocket,
@@ -13,6 +14,89 @@ import {
   MapPin,
   PiggyBank,
 } from "lucide-react";
+
+const ABOUT_KEYWORDS = [
+  "about illuxus",
+  "illuxus founders",
+  "illuxus team",
+  "event management platform Mumbai",
+  "event tech Bengaluru",
+  "event software Delhi",
+  "Indian event platform",
+  "event platform Hindi support",
+  "bootstrapped event SaaS",
+  "Mumbai event startup",
+  "event tech startup India",
+  "event SaaS Mumbai",
+  "Indian event tech 2023",
+  "event platform for India",
+  "event platform Southeast Asia",
+  "event management India story",
+  "events you'll remember",
+  "Lu.ma alternative India",
+  "Eventbrite alternative India",
+  "Cvent alternative India",
+  "Splash alternative India",
+  "Whova alternative India",
+  "Hopin alternative India",
+  "Bevy alternative India",
+  "Meetup alternative India",
+  "event organiser tools India",
+  "ticket platform India",
+  "DPDPA compliant event platform",
+  "GDPR compliant event platform",
+  "illuxus mission",
+  "illuxus values",
+].join(", ");
+
+const ABOUT_JSON_LD = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://illuxus.com/about#organization",
+      name: "Illuxus Technologies Private Limited",
+      alternateName: "illuxus",
+      url: "https://illuxus.com/",
+      logo: "https://illuxus.com/favicon-512.png",
+      foundingDate: "2023",
+      foundingLocation: {
+        "@type": "Place",
+        name: "Mumbai, Maharashtra, India",
+      },
+      address: {
+        "@type": "PostalAddress",
+        streetAddress: "4th Floor, Lighthouse Tower, Bandra Kurla Complex",
+        addressLocality: "Mumbai",
+        addressRegion: "Maharashtra",
+        postalCode: "400051",
+        addressCountry: "IN",
+      },
+      numberOfEmployees: { "@type": "QuantitativeValue", value: 32 },
+      slogan: "Events you'll remember",
+      description:
+        "Illuxus is a bootstrapped, Mumbai-based event management platform serving 1,200+ events and 50,000+ tickets across India and Southeast Asia.",
+      award: [
+        "1,200+ events hosted",
+        "50,000+ tickets processed",
+        "32-person team",
+      ],
+    },
+    {
+      "@type": "AboutPage",
+      url: "https://illuxus.com/about",
+      name: "About illuxus",
+      about: { "@id": "https://illuxus.com/about#organization" },
+    },
+    {
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Home", item: "https://illuxus.com/" },
+        { "@type": "ListItem", position: 2, name: "About", item: "https://illuxus.com/about" },
+      ],
+    },
+  ],
+};
 
 const values = [
   {
@@ -153,6 +237,15 @@ export default function AboutPage() {
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
+      <RouteSeo
+        title="About illuxus — Mumbai-based event management platform"
+        description="Founded 2023 in Mumbai. Bootstrapped. 32-person team. 1,200+ events, 50,000+ tickets processed. Building the event platform India and Southeast Asia deserve."
+        canonical="https://illuxus.com/about"
+        keywords={ABOUT_KEYWORDS}
+        ogImage="https://illuxus.com/og-image.png"
+        ogType="website"
+        jsonLd={ABOUT_JSON_LD}
+      />
 
       {/* Hero */}
       <section className="pt-24 pb-16 text-center px-4">

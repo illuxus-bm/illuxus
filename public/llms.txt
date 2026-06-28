@@ -1,0 +1,56 @@
+# illuxus
+
+> illuxus is an all-in-one event management platform for organizers in India and worldwide. Run branded event pages, sell tickets with INR + multi-currency support, check attendees in via QR codes, host built-in HD webinars on LiveKit, and grow lasting communities around every event — all in one product, with no per-feature add-ons.
+
+illuxus replaces a stack of disconnected tools (Eventbrite + Zoom + Mailchimp + Slack + Hopin) with a single workspace tuned for conferences, summits, meetups, workshops, hybrid events, and large-format webinars. We charge **2% platform fee on paid tickets**, free events stay free forever, and there is no setup cost.
+
+## About
+
+- [About illuxus](https://illuxus.com/about): Who we are, what we build, where we are headquartered (Mumbai, India), the team behind the platform, and our story.
+- [Contact](https://illuxus.com/contact): Sales, support, technical, and grievance email channels with response-time guarantees.
+- [Pricing](https://illuxus.com/pricing): Free tier, Starter (₹2,499/mo), Professional (₹6,999/mo), Enterprise — all plans include unlimited events, no per-attendee fee, 2% platform fee on paid tickets.
+
+## Features
+
+- [Features overview](https://illuxus.com/features): Complete feature suite — page builder, ticketing, speakers, sponsors, check-in, webinars, communities, analytics, AI matchmaking, white-label, SSO.
+- [Event management software](https://illuxus.com/event-management-software): Built for India and emerging markets — INR-first, GST-compliant, Stripe + Razorpay + UPI, free trial, no setup cost.
+- [Event ticketing platform](https://illuxus.com/event-ticketing-platform): Free, paid, tiered, promo codes, group, early-bird tickets with GST-compliant invoicing and same-day payouts.
+- [Conference management platform](https://illuxus.com/conference-management-platform): Multi-day + multi-track conferences, speaker portals, sponsor management, hybrid streaming, 10,000+ attendee scale.
+- [Webinar platform India](https://illuxus.com/webinar-platform-india): Built-in HD webinars on LiveKit — no Zoom required, with Q&A, polls, reactions, cloud recording, and branded stage.
+
+## Discovery
+
+- [Discover events](https://illuxus.com/discover): Browse public events on illuxus — conferences, meetups, workshops, hybrid events.
+- [Public events feed](https://illuxus.com/events): Lu.ma-style public events directory with filters by city, category, and date.
+- [Community](https://illuxus.com/community): Communities built around events — feeds, announcements, calendars, member directories.
+
+## Legal & Compliance
+
+- [Privacy Policy](https://illuxus.com/privacy): DPDPA 2023 + GDPR + IT Act 2000 compliant; named DPO and Grievance Officer; 28 sections covering retention, transfers, sub-processors.
+- [Terms of Service](https://illuxus.com/terms): Master service agreement, organizer obligations, refund policy, payment terms.
+- [Cookie Policy](https://illuxus.com/cookies): Specific cookies, durations, third-party tracking, manage-cookies UI, DNT + GPC honoured.
+- [GDPR](https://illuxus.com/gdpr): GDPR rights for EU/UK organizers and attendees; data export, deletion, portability.
+
+## Support
+
+- [Contact sales / support](https://illuxus.com/contact): sales@illuxus.com, support@illuxus.com, tech@illuxus.com, grievance@illuxus.com.
+- [Security disclosure](https://illuxus.com/.well-known/security.txt): Coordinated vulnerability disclosure policy under RFC 9116.
+- [Status & uptime](https://illuxus.com/contact): 99.95% target uptime, real-time status by request.
+
+## Developers / API
+
+- [Documentation hub](https://illuxus.com/features): API + webhook capabilities documented inside the Features overview. Public docs site ships in 2026.
+- [Embed widget](https://illuxus.com/embed.js): Drop-in JavaScript embed for any external website (one line, no iframe).
+- [robots.txt](https://illuxus.com/robots.txt): Crawler permissions and sitemap pointers.
+- [sitemap.xml](https://illuxus.com/sitemap.xml): Full URL index with hreflang for en-US and en-IN.
+
+## AI & LLM ingestion
+
+- [llms-full.txt](https://illuxus.com/llms-full.txt): Flat-file dump of the most important marketing copy in clean Markdown for one-fetch LLM ingestion.
+- [ai.txt](https://illuxus.com/ai.txt): AI training data preferences for crawlers (GPTBot, ClaudeBot, Google-Extended, PerplexityBot, etc.).
+- [humans.txt](https://illuxus.com/humans.txt): Team credits and technology stack.
+
+## Optional
+
+- [Sitemap index](https://illuxus.com/sitemap-index.xml): Multi-sitemap pointer for the static marketing sitemap and the dynamic events sitemap (in development).
+- [Web App Manifest](https://illuxus.com/site.webmanifest): PWA manifest with installable app metadata, shortcuts, and screenshots.

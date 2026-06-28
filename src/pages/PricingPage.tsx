@@ -1,7 +1,41 @@
 import { Link } from "react-router-dom";
 import SiteHeader from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
+import RouteSeo from "@/components/RouteSeo";
 import { CheckCircle2, X, ArrowRight } from "lucide-react";
+
+const PRICING_KEYWORDS = [
+  "event ticketing pricing",
+  "event management cost",
+  "event platform pricing",
+  "event SaaS pricing India",
+  "transparent event pricing",
+  "free event registration",
+  "free event platform",
+  "Stripe event payments",
+  "Razorpay event tickets",
+  "UPI event tickets",
+  "GST-compliant event invoicing",
+  "no setup cost event platform",
+  "monthly event platform subscription",
+  "annual event platform pricing",
+  "enterprise event platform",
+  "white-label event platform pricing",
+  "event organiser pricing India",
+  "small event platform free",
+  "conference platform pricing",
+  "hackathon platform pricing",
+  "meetup platform pricing",
+  "festival ticketing pricing",
+  "wedding event tools pricing",
+  "corporate event platform pricing",
+  "Cvent pricing alternative",
+  "Eventbrite pricing alternative",
+  "Lu.ma pricing alternative",
+  "Splash pricing alternative",
+  "Hopin pricing alternative",
+  "Bevy pricing alternative",
+].join(", ");
 
 const plans = [
   {
@@ -97,9 +131,64 @@ const faqs = [
 ];
 
 export default function PricingPage() {
+  // Build the FAQPage + Product JSON-LD from the local pricing data so the
+  // schema stays in lock-step with the rendered UI.
+  const pricingJsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Product",
+        "@id": "https://illuxus.com/pricing#product",
+        name: "illuxus event management platform",
+        description:
+          "All-in-one event management platform with ticketing, check-in, webinars, communities, and analytics.",
+        brand: { "@type": "Brand", name: "illuxus" },
+        offers: {
+          "@type": "AggregateOffer",
+          priceCurrency: "INR",
+          lowPrice: "0",
+          highPrice: "16999",
+          offerCount: plans.length.toString(),
+          offers: plans.map((p) => ({
+            "@type": "Offer",
+            name: p.name,
+            price: p.price === "Free" ? "0" : p.price === "Custom" ? "0" : p.price.replace(/[^0-9.]/g, ""),
+            priceCurrency: "INR",
+            availability: "https://schema.org/InStock",
+            url: "https://illuxus.com/pricing",
+          })),
+        },
+      },
+      {
+        "@type": "FAQPage",
+        mainEntity: faqs.map((f) => ({
+          "@type": "Question",
+          name: f.q,
+          acceptedAnswer: { "@type": "Answer", text: f.a },
+        })),
+      },
+      {
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Home", item: "https://illuxus.com/" },
+          { "@type": "ListItem", position: 2, name: "Pricing", item: "https://illuxus.com/pricing" },
+        ],
+      },
+    ],
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
+      <RouteSeo
+        title="Pricing — Transparent event management pricing | Free trial | illuxus"
+        description="Start free. Scale on Starter (₹2,499/mo), Professional (₹6,999/mo), or Enterprise. Only 2% platform fee on paid tickets. No setup cost. No hidden fees. Cancel anytime."
+        canonical="https://illuxus.com/pricing"
+        keywords={PRICING_KEYWORDS}
+        ogImage="https://illuxus.com/og-image.png"
+        ogType="website"
+        jsonLd={pricingJsonLd}
+      />
 
       {/* Hero */}
       <section className="pt-24 pb-12 text-center px-4">

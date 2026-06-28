@@ -1,7 +1,7 @@
 {
-  "name": "illuxus — events, communities, and webinars",
+  "name": "illuxus — event management, ticketing, webinars, communities",
   "short_name": "illuxus",
-  "description": "Run branded events, sell tickets, check attendees in via QR, host live webinars, and grow communities — all in one platform.",
+  "description": "All-in-one event management platform for India and the world. Sell tickets in INR with UPI + Razorpay + Stripe, check attendees in via QR codes, host built-in HD webinars on LiveKit, run multi-track conferences, and grow lasting communities — all in one workspace at 2% per paid ticket.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
@@ -12,7 +12,8 @@
   "orientation": "portrait-primary",
   "lang": "en-US",
   "dir": "ltr",
-  "categories": ["business", "events", "productivity", "social"],
+  "categories": ["business", "productivity", "events", "social", "education"],
+  "iarc_rating_id": "",
   "prefer_related_applications": false,
   "icons": [
     {
@@ -60,28 +61,37 @@
   ],
   "shortcuts": [
     {
-      "name": "My events",
-      "short_name": "Events",
-      "description": "Open the events you're attending or running",
-      "url": "/u/me/events",
-      "icons": [
-        { "src": "/favicon-192.png", "sizes": "192x192", "type": "image/png" }
-      ]
-    },
-    {
       "name": "Organizer dashboard",
       "short_name": "Dashboard",
-      "description": "Manage your events, attendees, and settings",
+      "description": "Manage your events, attendees, ticketing, and settings",
       "url": "/dashboard/events",
       "icons": [
         { "src": "/favicon-192.png", "sizes": "192x192", "type": "image/png" }
       ]
     },
     {
-      "name": "Discover",
+      "name": "Discover events",
       "short_name": "Discover",
-      "description": "Browse public events near you",
+      "description": "Browse public events on illuxus near you",
       "url": "/discover",
+      "icons": [
+        { "src": "/favicon-192.png", "sizes": "192x192", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "Sell tickets",
+      "short_name": "Sell tickets",
+      "description": "Create an event and start selling tickets in under 5 minutes",
+      "url": "/dashboard/events/new",
+      "icons": [
+        { "src": "/favicon-192.png", "sizes": "192x192", "type": "image/png" }
+      ]
+    },
+    {
+      "name": "My events",
+      "short_name": "My events",
+      "description": "Open the events you are attending or running",
+      "url": "/u/me/events",
       "icons": [
         { "src": "/favicon-192.png", "sizes": "192x192", "type": "image/png" }
       ]
@@ -94,6 +104,20 @@
       "type": "image/png",
       "form_factor": "wide",
       "label": "illuxus — events, communities, and webinars"
+    },
+    {
+      "src": "/og-image.png",
+      "sizes": "1200x630",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "illuxus — events, communities, and webinars"
     }
-  ]
+  ],
+  "related_applications": [],
+  "launch_handler": {
+    "client_mode": ["navigate-existing", "auto"]
+  },
+  "edge_side_panel": {
+    "preferred_width": 480
+  }
 }
