@@ -88,7 +88,9 @@
   var orgSlug = getConf("org",    "");
   var filter  = getConf("filter", "upcoming");
   var limit   = getConf("limit",  "9");
-  var theme   = getConf("theme",  "light");
+  /* data-theme="auto" (default) → follows OS/browser prefers-color-scheme.
+     Set data-theme="light" or data-theme="dark" to force a specific theme. */
+  var themePref = getConf("theme", "auto");
 
   if (!orgSlug) {
     console.warn(
@@ -112,7 +114,23 @@
     }
   }
   container.setAttribute("data-illuxus-embed", "true");
-  container.setAttribute("data-theme", theme);
+
+  /* ── theme detection ────────────────────────────────────────── */
+  var mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+
+  function applyTheme() {
+    var resolved = themePref === "auto"
+      ? (mq && mq.matches ? "dark" : "light")
+      : themePref;
+    container.setAttribute("data-theme", resolved);
+  }
+
+  applyTheme();
+
+  /* React to OS theme changes in real time. */
+  if (themePref === "auto" && mq && mq.addEventListener) {
+    mq.addEventListener("change", applyTheme);
+  }
 
   /* ──────────────────────────────────────────────────────────────
      4. Styles — injected once per page.

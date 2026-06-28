@@ -327,7 +327,7 @@ export default function OrgPageForm() {
   data-org="${effective}"
   data-filter="${embedFilter}"
   data-limit="10"
-  data-theme="light"
+  data-theme="auto"
 ></div>
 <script src="${embedScriptUrl}"></script>`;
 
