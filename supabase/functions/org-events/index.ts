@@ -26,10 +26,12 @@ Deno.serve(async (req) => {
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const supabase = createClient(supabaseUrl, serviceKey);
-    // or the raw org UUID under the `org` param so embed snippets keep
-    // working regardless of which identifier the user pasted.
+    // Use anon key for public data — organizations and published events
+    // are readable without service role. This avoids dependency on the
+    // SUPABASE_SERVICE_ROLE_KEY secret which can get out of sync.
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const supabase = createClient(supabaseUrl, anonKey);
+    // Accept workspace handle (subdomain), legacy slug, or UUID.
     const handle = (orgSlug || subdomain || "").toLowerCase();
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(handle);
     const { data: org } = await supabase
