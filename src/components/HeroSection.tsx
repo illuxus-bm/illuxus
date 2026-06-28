@@ -53,7 +53,7 @@ const HeroSection = () => {
 
           <AnimatedItem>
             <h1
-              className="mt-6 text-balance text-[44px] font-semibold leading-[1.02] tracking-[-0.04em] text-gray-900 dark:text-white sm:text-[60px] md:text-[76px] lg:text-[88px]"
+              className="mt-6 text-balance text-[44px] font-semibold leading-[1.1] tracking-[-0.04em] text-gray-900 dark:text-white sm:text-[60px] md:text-[76px] md:leading-[1.08] lg:text-[88px] lg:leading-[1.05] pb-2"
               style={{ fontFamily: "Poppins, system-ui, sans-serif" }}
             >
               {h.title}

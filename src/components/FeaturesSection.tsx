@@ -355,7 +355,7 @@ function DeepDiveRow({
         </AnimatedItem>
         <AnimatedItem>
           <h3
-            className="mt-4 text-balance text-3xl font-semibold leading-[1.1] tracking-[-0.03em] text-gray-900 dark:text-white sm:text-4xl md:text-[40px]"
+            className="mt-4 text-balance text-3xl font-semibold leading-tight tracking-[-0.03em] text-gray-900 dark:text-white sm:text-4xl md:text-[40px] md:leading-[1.18] pb-1"
             style={{ fontFamily: "Poppins, system-ui, sans-serif" }}
           >
             {title}

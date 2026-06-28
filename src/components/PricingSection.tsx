@@ -44,7 +44,7 @@ const PricingSection = () => {
           )}
           <AnimatedItem>
             <h2
-              className="mt-5 text-balance text-3xl font-semibold leading-[1.1] tracking-[-0.03em] text-gray-900 dark:text-white sm:text-4xl md:text-[52px]"
+              className="mt-5 text-balance text-3xl font-semibold leading-tight tracking-[-0.03em] text-gray-900 dark:text-white sm:text-4xl md:text-[52px] md:leading-[1.15] pb-1"
               style={{ fontFamily: "Poppins, system-ui, sans-serif" }}
             >
               {p.title}

@@ -45,7 +45,7 @@ const CTASection = () => {
         <AnimatedStack className="mx-auto max-w-3xl text-center">
           <AnimatedItem>
             <h2
-              className="text-balance text-3xl font-semibold leading-[1.05] tracking-[-0.035em] text-gray-900 dark:text-white sm:text-5xl md:text-[64px]"
+              className="text-balance text-3xl font-semibold leading-tight tracking-[-0.035em] text-gray-900 dark:text-white sm:text-5xl md:text-[64px] md:leading-[1.1] pb-2"
               style={{ fontFamily: "Poppins, system-ui, sans-serif" }}
             >
               {c.title}
