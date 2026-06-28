@@ -32,7 +32,7 @@ const COLUMN_ALIASES: Record<string, string> = {
   title: "title", honorific: "title", salutation: "title",
   firstname: "first_name", givenname: "first_name", fname: "first_name",
   lastname: "last_name", surname: "last_name", familyname: "last_name", lname: "last_name",
-  designation: "designation", role: "designation", jobtitle: "designation", position: "designation",
+  designation: "designation", jobtitle: "designation", position: "designation",
   company: "company", organization: "company", organisation: "company", employer: "company",
   mobilecountrycode: "mobile_country_code", countrycode: "mobile_country_code",
   dialcode: "mobile_country_code", code: "mobile_country_code",
