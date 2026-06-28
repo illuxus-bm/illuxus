@@ -325,12 +325,9 @@ export default function OrgPageForm() {
               const embedSnippet = `<div
   id="my-events"
   data-org="${effective}"
-  data-fn="${fnUrl}"
-  data-anon-key="${anonKey}"
   data-filter="${embedFilter}"
   data-limit="10"
   data-theme="light"
-  data-api="${protocol}//${preferred.host}"
 ></div>
 <script src="${embedScriptUrl}"></script>`;
 

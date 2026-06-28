@@ -67,11 +67,10 @@
   var targetId = attr(scriptEl, "data-target", "");
   /* Find the target div:
      1. explicit data-target id
-     2. first div with both data-org and data-fn (new snippet format)
-     3. first div with data-org (fallback)                              */
+     2. first div with data-org (new clean snippet format)             */
   var targetDiv = (targetId ? document.getElementById(targetId) : null) ||
-                  document.querySelector("[data-org][data-fn]") ||
                   document.querySelector("[data-org]");
+
   var cfg = window.IlluxusEmbed || {};
   function getConf(key, def) {
     return attr(scriptEl, "data-" + key, "") ||
@@ -79,19 +78,22 @@
            (cfg[key] || def || "");
   }
 
-  var apiBase    = getConf("api",      scriptEl ? scriptEl.src.replace(/\/embed\.js.*$/, "") : "https://illuxus.com");
-  var orgSlug    = getConf("org",      "");
-  var supabaseFn = getConf("fn",       "");
-  var anonKey    = getConf("anon-key", "");
-  var filter     = getConf("filter",   "upcoming");
-  var limit      = getConf("limit",    "9");
-  var theme      = getConf("theme",    "light");
+  /* apiBase is the only server config needed — everything else is handled
+     server-side. Defaults to the origin the script was served from so
+     self-hosted deployments work without any extra config.              */
+  var apiBase = getConf("api", scriptEl
+    ? scriptEl.src.replace(/\/embed\.js.*$/, "")
+    : "https://illuxus.com");
 
-  if (!orgSlug || !supabaseFn) {
+  var orgSlug = getConf("org",    "");
+  var filter  = getConf("filter", "upcoming");
+  var limit   = getConf("limit",  "9");
+  var theme   = getConf("theme",  "light");
+
+  if (!orgSlug) {
     console.warn(
-      "[illuxus-embed] Could not find data-org and data-fn.\n" +
-      "Add them to the <script> tag or to your target <div>.\n" +
-      "See https://illuxus.com/docs/embed for examples."
+      "[illuxus-embed] Missing data-org attribute.\n" +
+      "Add data-org=\"your-org-slug\" to your <div>."
     );
     return;
   }
@@ -172,17 +174,13 @@
   ────────────────────────────────────────────────────────────── */
   container.innerHTML = '<div class="ee-msg">Loading events…</div>';
 
-  var url = supabaseFn +
+  /* Always call our own API proxy — no Supabase URL or anon key exposed. */
+  var url = apiBase + "/api/widget" +
     "?org="    + encodeURIComponent(orgSlug) +
     "&filter=" + encodeURIComponent(filter) +
     "&limit="  + encodeURIComponent(limit);
 
-  var init = { method: "GET" };
-  if (anonKey) {
-    init.headers = { "Authorization": "Bearer " + anonKey, "apikey": anonKey };
-  }
-
-  fetch(url, init)
+  fetch(url, { method: "GET" })
     .then(function (r) {
       if (!r.ok) throw new Error("HTTP " + r.status + " from org-events function");
       return r.json();
