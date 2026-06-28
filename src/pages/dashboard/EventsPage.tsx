@@ -74,7 +74,7 @@ const EventsPage = () => {
     let query = supabase
       .from("events")
       .select("*")
-      .order("date", { ascending: false });
+      .order("date", { ascending: true });
     // Org members see all org events; fallback to user_id for accounts without an org (e.g. super admin)
     if (org?.id) {
       query = query.eq("org_id", org.id);
@@ -176,27 +176,34 @@ const EventsPage = () => {
     else { toast({ title: "Event deleted" }); fetchEvents(); }
   };
 
-  const filteredEvents = events.filter((e) => {
-    const matchesSearch = e.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (e.venue || "").toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredEvents = events
+    .filter((e) => {
+      const matchesSearch = e.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (e.venue || "").toLowerCase().includes(searchQuery.toLowerCase());
 
-    const now = new Date();
-    // Treat an event as ongoing/upcoming until its END date passes (or its
-    // START date if no end was set). That way a 3-day conference still shows
-    // in Upcoming on day 2, and flips into Past on day 3 + 1.
-    const endOrStart = new Date(e.end_date || e.date);
-    let matchesTime = true;
+      const now = new Date();
+      // Treat an event as ongoing/upcoming until its END date passes (or its
+      // START date if no end was set). That way a 3-day conference still shows
+      // in Upcoming on day 2, and flips into Past on day 3 + 1.
+      const endOrStart = new Date(e.end_date || e.date);
+      let matchesTime = true;
 
-    if (timeFilter === "upcoming") {
-      matchesTime = endOrStart >= now || e.status === "draft";
-    } else if (timeFilter === "past") {
-      matchesTime = endOrStart < now && e.status !== "draft" && e.status !== "cancelled";
-    } else if (timeFilter === "pending") {
-      matchesTime = e.status === "draft" || e.status === "pending";
-    }
+      if (timeFilter === "upcoming") {
+        matchesTime = endOrStart >= now || e.status === "draft";
+      } else if (timeFilter === "past") {
+        matchesTime = endOrStart < now && e.status !== "draft" && e.status !== "cancelled";
+      } else if (timeFilter === "pending") {
+        matchesTime = e.status === "draft" || e.status === "pending";
+      }
 
-    return matchesSearch && matchesTime;
-  });
+      return matchesSearch && matchesTime;
+    })
+    .sort((a, b) => {
+      const ta = new Date(a.date).getTime();
+      const tb = new Date(b.date).getTime();
+      // Past tab: most recent first (descending). All other tabs: soonest first (ascending).
+      return timeFilter === "past" ? tb - ta : ta - tb;
+    });
 
   return (
     <DashboardLayout>
