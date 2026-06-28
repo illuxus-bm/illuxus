@@ -179,8 +179,9 @@
       "[data-illuxus-embed] .ee-msg{padding:32px 20px;text-align:center;font-size:13px;color:#6b7280;border:1px dashed #e5e7eb;border-radius:12px;}",
       "[data-illuxus-embed][data-theme=dark] .ee-msg{color:#9ca3af;border-color:#374151;}",
 
-      /* footer */
-      "[data-illuxus-embed] .ee-foot{margin-top:12px;display:flex;align-items:center;justify-content:flex-end;gap:4px;font-size:10px;color:#9ca3af;}",
+      /* footer — fixed to bottom-right of the widget wrapper */
+      "[data-illuxus-embed] .ee-wrap{position:relative;padding-bottom:24px;}",
+      "[data-illuxus-embed] .ee-foot{position:absolute;bottom:0;right:0;display:flex;align-items:center;gap:4px;font-size:10px;color:#9ca3af;}",
       "[data-illuxus-embed] .ee-foot a{color:inherit;text-decoration:none;font-weight:600;}",
       "[data-illuxus-embed] .ee-foot a:hover{text-decoration:underline;}",
     ].join("");
@@ -247,8 +248,10 @@
       }).join("");
 
       container.innerHTML =
-        '<div class="ee-grid">' + cards + '</div>' +
-        '<div class="ee-foot">Powered by <a href="https://illuxus.com" target="_blank" rel="noopener noreferrer">illuxus</a></div>';
+        '<div class="ee-wrap">' +
+          '<div class="ee-grid">' + cards + '</div>' +
+          '<div class="ee-foot">Powered by <a href="https://illuxus.com" target="_blank" rel="noopener noreferrer">illuxus</a></div>' +
+        '</div>';
     })
     .catch(function (err) {
       container.innerHTML = '<div class="ee-msg">Could not load events. Check the browser console for details.</div>';
