@@ -1066,7 +1066,7 @@ function BannerCard({
       <div className="mb-3">
         <h3 className="text-sm font-semibold">Banners</h3>
         <p className="text-[11px] text-muted-foreground mt-0.5">
-          Landscape shows on desktop &amp; tablet (1128×191 px). Portrait shows on phones — optional, landscape is used as fallback.
+          Landscape shows on desktop &amp; tablet (16:9). Portrait shows on phones — optional, landscape is used as fallback.
         </p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1074,10 +1074,10 @@ function BannerCard({
           eventId={eventId}
           userId={userId}
           label="Cover banner (desktop)"
-          aspect={1128 / 191}
-          aspectLabel="1128×191"
-          recommendedPx="1128×191 px"
-          outputLongSide={1128}
+          aspect={16 / 9}
+          aspectLabel="16:9 (landscape)"
+          recommendedPx="1920×1080 px"
+          outputLongSide={1920}
           variant="landscape"
           imageUrl={bannerLandscapeUrl ?? ""}
           onChange={(url) => onBannerChange("landscape", url || null)}
