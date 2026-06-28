@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, Link, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
@@ -9,15 +9,18 @@ import {
   RendererEvent, RendererSpeaker, RendererSession, RendererSponsor,
 } from "@/components/event/page-form/PublicEventRenderer";
 import { normalizeConfig } from "@/components/event/page-form/types";
-import { checkRouteParam, isUuid } from "@/lib/event-routes";
+import { checkRouteParam, eventPublicUrl, isUuid } from "@/lib/event-routes";
 import PreviewHostBanner from "@/components/PreviewHostBanner";
 import SiteHeader from "@/components/SiteHeader";
+import RouteSeo from "@/components/RouteSeo";
 import EventRsvpCard from "@/components/EventRsvpCard";
 import EventPagePreview from "@/components/event/page-form/EventPagePreview";
 import { EventApplicationButtons } from "@/components/applications/EventApplicationButtons";
 import LiveStatusBanner from "@/components/event/LiveStatusBanner";
 import { useTheme } from "@/contexts/ThemeContext";
 import { validateTheme } from "@/lib/theme-contrast";
+import { stripMarkdown } from "@/lib/markdown";
+import { formatEventDateTime } from "@/lib/datetime";
 
 // Sponsors are ordered purely by their display_order in event_sponsors,
 // which the organizer controls via drag-and-drop (both within tiers and across tier groups).
@@ -204,6 +207,154 @@ const PublicEventPage = () => {
     setLoading(false);
   }, []);
 
+  // ─── Per-event SEO + Event JSON-LD ──────────────────────────────────────
+  // Mounted only once the event row resolves so we never publish meta tags
+  // for a stale or missing event. Re-computes when the event or org changes.
+  const seo = useMemo(() => {
+    if (!event) return null;
+
+    const orgHandle = org?.subdomain || org?.slug || null;
+    const canonical = eventPublicUrl({ id: event.id, slug: event.slug ?? null }, orgHandle);
+    const orgName = org?.name ?? "illuxus";
+    const tz = (event as { timezone?: string | null }).timezone ?? null;
+
+    // ── Title (≤60 chars, brand suffix). ────────────────────────────────
+    const rawTitle = `${event.title} — ${orgName}`;
+    const title = rawTitle.length > 60 ? `${rawTitle.slice(0, 59).trimEnd()}…` : rawTitle;
+
+    // ── Description (≤155 chars). Prefer the event description, fall back
+    //    to a templated string built from date + venue/location/orgName. ──
+    const fromDesc = stripMarkdown(event.description ?? "");
+    const dateLabel = formatEventDateTime(event.date, tz ?? undefined);
+    const venueLabel = (event as { venue?: string | null }).venue
+      || (event as { location?: string | null }).location
+      || "online";
+    const templated = `Join ${orgName} for ${event.title} on ${dateLabel} at ${venueLabel}.`;
+    const baseDesc = fromDesc && fromDesc.length > 20 ? fromDesc : templated;
+    const description = baseDesc.length > 155
+      ? `${baseDesc.slice(0, 154).trimEnd()}…`
+      : baseDesc;
+
+    // ── OG image — dynamic edge function rendering banner + watermark. ──
+    const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
+    const ogImage = supabaseUrl
+      ? `${supabaseUrl}/functions/v1/og-event?id=${encodeURIComponent(event.id)}`
+      : (event as { banner_landscape_url?: string | null }).banner_landscape_url
+        || (event as { image_url?: string | null }).image_url
+        || "https://illuxus.com/og-image.png";
+
+    // ── Keywords — assembled from category, city, org, format. ─────────
+    const cityPart = ((event as { location?: string | null }).location ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)[0];
+    const category = (event as { community_category?: string | null }).community_category;
+    const format = (event as { event_format?: string | null }).event_format;
+    const keywordTokens = [
+      event.title,
+      orgName,
+      category && category !== "other" ? `${category} events` : null,
+      cityPart ? `events in ${cityPart}` : null,
+      format === "virtual" ? "virtual event"
+        : format === "hybrid" ? "hybrid event"
+          : "in-person event",
+      "illuxus",
+    ].filter((s): s is string => !!s && s.length > 0);
+    const keywords = Array.from(new Set(keywordTokens)).slice(0, 12).join(", ");
+
+    // ── schema.org Event JSON-LD. ──────────────────────────────────────
+    const status = (event as { status?: string | null }).status;
+    const eventStatus = status === "cancelled"
+      ? "https://schema.org/EventCancelled"
+      : "https://schema.org/EventScheduled";
+
+    const attendanceMode = format === "virtual"
+      ? "https://schema.org/OnlineEventAttendanceMode"
+      : format === "hybrid"
+        ? "https://schema.org/MixedEventAttendanceMode"
+        : "https://schema.org/OfflineEventAttendanceMode";
+
+    const virtualUrl = (event as { virtual_url?: string | null }).virtual_url || canonical;
+    const location = format === "virtual"
+      ? { "@type": "VirtualLocation", url: virtualUrl }
+      : {
+        "@type": "Place",
+        name: (event as { venue?: string | null }).venue || orgName,
+        address: (event as { location?: string | null }).location || undefined,
+      };
+    // Hybrid events report BOTH a physical and virtual location.
+    const locations = format === "hybrid"
+      ? [
+        {
+          "@type": "Place",
+          name: (event as { venue?: string | null }).venue || orgName,
+          address: (event as { location?: string | null }).location || undefined,
+        },
+        { "@type": "VirtualLocation", url: virtualUrl },
+      ]
+      : location;
+
+    const price = Number((event as { price?: number | null }).price ?? 0);
+    const currency = (event as { currency?: string | null }).currency || "INR";
+    const offers = {
+      "@type": "Offers",
+      url: canonical,
+      price: price.toFixed(2),
+      priceCurrency: currency,
+      availability: status === "cancelled"
+        ? "https://schema.org/SoldOut"
+        : "https://schema.org/InStock",
+      validFrom: new Date().toISOString(),
+    };
+
+    const performer = speakers.map((s) => ({
+      "@type": "Person",
+      name: s.name,
+      jobTitle: s.title || s.designation || undefined,
+      worksFor: s.company ? { "@type": "Organization", name: s.company } : undefined,
+      image: s.photo_url || undefined,
+    }));
+
+    const orgLanding = orgHandle ? `/org/${orgHandle}` : null;
+    const orgSameOrigin = typeof window !== "undefined"
+      ? `${window.location.protocol}//${window.location.host}${orgLanding ?? ""}`
+      : `https://illuxus.com${orgLanding ?? ""}`;
+
+    const jsonLd: Record<string, unknown> = {
+      "@context": "https://schema.org",
+      "@type": "Event",
+      name: event.title,
+      description: fromDesc || templated,
+      startDate: event.date,
+      endDate: event.end_date || event.date,
+      eventStatus,
+      eventAttendanceMode: attendanceMode,
+      location: locations,
+      image: [ogImage],
+      url: canonical,
+      organizer: {
+        "@type": "Organization",
+        name: orgName,
+        url: orgLanding ? orgSameOrigin : "https://illuxus.com/",
+        logo: org?.logo_url || undefined,
+      },
+      offers,
+      performer: performer.length ? performer : undefined,
+      inLanguage: "en",
+      isAccessibleForFree: price === 0,
+    };
+
+    return {
+      title,
+      description,
+      canonical,
+      keywords,
+      ogImage,
+      ogType: "event",
+      jsonLd,
+    };
+  }, [event, org, speakers]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
@@ -273,6 +424,7 @@ const PublicEventPage = () => {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: config.theme.backgroundColor }}>
+      {seo && <RouteSeo {...seo} />}
       <PreviewHostBanner />
       {event.id && (
         <LiveStatusBanner

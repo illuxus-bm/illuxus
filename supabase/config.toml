@@ -11,6 +11,12 @@ verify_jwt = false
 [functions.org-events]
 verify_jwt = false
 
+# Dynamic OG / Twitter share-card image. Social crawlers (WhatsApp, Twitter,
+# LinkedIn, iMessage, Slack…) hit this URL with no auth header — must remain
+# anonymous-readable so link previews render outside the platform.
+[functions.og-event]
+verify_jwt = false
+
 # Public contact-form endpoint — submitted by anonymous visitors.
 [functions.submit-support-ticket]
 verify_jwt = false
