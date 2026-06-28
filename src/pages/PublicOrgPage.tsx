@@ -240,7 +240,7 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
                 <img
                   src={org.logo_url}
                   alt={org.name}
-                  className="-mt-16 sm:-mt-20 h-28 w-28 sm:h-32 sm:w-32 lg:h-36 lg:w-36 rounded-2xl object-cover shrink-0"
+                  className="-mt-10 sm:-mt-20 h-20 w-20 sm:h-32 sm:w-32 lg:h-36 lg:w-36 rounded-2xl object-cover shrink-0"
                   style={{
                     background: theme.backgroundColor,
                     boxShadow: `0 0 0 4px ${theme.backgroundColor}, 0 12px 28px -12px rgba(0,0,0,0.35)`,
@@ -248,7 +248,7 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
                 />
               ) : (
                 <div
-                  className="-mt-16 sm:-mt-20 h-28 w-28 sm:h-32 sm:w-32 lg:h-36 lg:w-36 rounded-2xl flex items-center justify-center text-white text-4xl font-bold shrink-0"
+                  className="-mt-10 sm:-mt-20 h-20 w-20 sm:h-32 sm:w-32 lg:h-36 lg:w-36 rounded-2xl flex items-center justify-center text-white text-4xl font-bold shrink-0"
                   style={{
                     backgroundColor: theme.accentColor,
                     boxShadow: `0 0 0 4px ${theme.backgroundColor}, 0 12px 28px -12px rgba(0,0,0,0.35)`,
