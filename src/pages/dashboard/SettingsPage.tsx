@@ -366,7 +366,13 @@ const SettingsPage = () => {
     fetchTeam();
   };
 
-  const isOwner = org?.owner_id === user?.id;
+  // A workspace can have multiple owners — the singular `organizations.owner_id`
+  // is the original owner, plus any teammates promoted to the "owner" role via
+  // org_members. All owners can manage members. This mirrors the
+  // `is_org_owner` SQL helper after migration 007.
+  const isOwner =
+    org?.owner_id === user?.id ||
+    members.some((m) => m.user_id === user?.id && m.role === "owner");
 
   const tabs = [
     { id: "profile", label: "Profile", icon: User },
