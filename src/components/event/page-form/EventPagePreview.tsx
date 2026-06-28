@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { format, isSameDay } from "date-fns";
 import { Link } from "react-router-dom";
-import { MapPin, Calendar, Clock } from "lucide-react";
+import { MapPin, Calendar, Clock, ArrowUpRight } from "lucide-react";
 import PublicEventRenderer, {
   RendererEvent, RendererSpeaker, RendererSession, RendererSponsor,
 } from "./PublicEventRenderer";
@@ -360,12 +360,20 @@ function MetaRow({
         <div className="text-[10px] uppercase tracking-[0.22em] opacity-50" style={{ fontFamily: "'Poppins', sans-serif" }}>
           {label}
         </div>
-        <div className="text-[14px] font-semibold leading-tight mt-1 truncate" style={{ fontFamily: DISPLAY }}>
-          {value}
-          {href && <span className="ml-1.5 text-[11px] opacity-60 font-normal">↗</span>}
+        <div className="text-[14px] font-semibold leading-tight mt-1 flex items-center gap-2">
+          <span className="truncate" style={{ fontFamily: DISPLAY }}>{value}</span>
         </div>
         {sub && <div className="text-[12px] opacity-60 mt-0.5">{sub}</div>}
       </div>
+      {href && (
+        <div
+          className="shrink-0 self-center size-9 rounded-lg flex items-center justify-center transition-transform group-hover:scale-110 group-hover:-translate-y-0.5"
+          style={{ backgroundColor: `${accent}1a`, color: accent }}
+          aria-hidden="true"
+        >
+          <ArrowUpRight className="h-5 w-5" strokeWidth={2.5} />
+        </div>
+      )}
     </div>
   );
   if (href) {
@@ -375,7 +383,8 @@ function MetaRow({
         target="_blank"
         rel="noopener noreferrer"
         title="Open in Maps"
-        className="block hover:bg-foreground/5 transition-colors"
+        aria-label={`Open ${value} in Maps`}
+        className="group block hover:bg-foreground/5 transition-colors"
       >
         {inner}
       </a>
