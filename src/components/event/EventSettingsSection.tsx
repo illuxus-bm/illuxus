@@ -3,7 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,6 +13,7 @@ import { SUPPORTED_CURRENCIES, formatMoney, formatPriceOrFree } from "@/lib/curr
 import { COMMON_TIMEZONES, detectBrowserTimezone, isValidTimezone } from "@/lib/timezones";
 import { formatEventDateTime, formatEventRange } from "@/lib/datetime";
 import { DateTimePicker } from "@/components/ui/datetime-picker";
+import MarkdownEditor from "@/components/MarkdownEditor";
 
 interface EventForm {
   title: string;
@@ -276,10 +276,11 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
           </div>
           <div>
             <Label className="text-[12px]">Description</Label>
-            <Textarea
+            <MarkdownEditor
               value={form.description}
-              onChange={(e) => update("description", e.target.value)}
-              rows={4}
+              onChange={(v) => update("description", v)}
+              rows={6}
+              placeholder="Describe what attendees can expect…"
             />
           </div>
           <div>
