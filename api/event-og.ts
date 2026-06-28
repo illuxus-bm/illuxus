@@ -124,7 +124,27 @@ function escapeHtml(s: string): string {
 }
 
 function stripMarkdown(input: string): string {
-  return (input || '')
+  if (!input) return '';
+  // If the value contains any prose tags it came from the WYSIWYG editor
+  // (which always emits HTML). Strip tags + decode the entities the
+  // sanitizer emits so the OG description and image card stay readable.
+  if (/<\s*(p|div|span|h[1-6]|ul|ol|li|blockquote|strong|em|b|i|a|br|hr|table)\b/i.test(input)) {
+    return input
+      .replace(/<\/(p|div|h[1-6]|li|blockquote|tr|td|th)>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, ' ')
+      .replace(/<[^>]*>?/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(Number(code)))
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  // Legacy markdown branch.
+  return input
     .replace(/```[\s\S]*?```/g, '')   // fenced code
     .replace(/`([^`]+)`/g, '$1')      // inline code
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1') // links / images keep label

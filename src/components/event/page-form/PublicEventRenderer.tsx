@@ -9,7 +9,7 @@ import SpeakerQuickViewDialog from "./sections/SpeakerQuickViewDialog";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatPriceOrFree } from "@/lib/currency";
 import { sanitizeHtml } from "@/lib/sanitize-html";
-import { renderMarkdown } from "@/lib/markdown";
+import { renderRichText } from "@/lib/markdown";
 import type {
   EventPageConfig, EventSection, ThemeConfig,
   HeroData, AboutData, DateVenueData, TicketsData, AgendaData, SpeakersData,
@@ -385,7 +385,7 @@ function AboutSec({ data, theme, event, flush = false }: { data: AboutData; them
   // `data.body` field stays in the schema as a read-only fallback for
   // events saved before the Markdown editor shipped.
   const source = event.description?.trim() || data.body?.trim() || "";
-  const html = source ? renderMarkdown(source) : "";
+  const html = source ? renderRichText(source) : "";
   return (
     <Section theme={theme} id="about" flush={flush}>
       <SectionHeader title={data.title} theme={theme} />
@@ -393,7 +393,7 @@ function AboutSec({ data, theme, event, flush = false }: { data: AboutData; them
         <div
           className="prose prose-sm sm:prose-base dark:prose-invert max-w-3xl leading-relaxed"
           style={{ color: theme.textColor }}
-          // renderMarkdown sanitises via DOMPurify before returning.
+          // renderRichText sanitises via DOMPurify before returning.
           dangerouslySetInnerHTML={{ __html: html }}
         />
       )}

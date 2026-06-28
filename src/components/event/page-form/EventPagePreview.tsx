@@ -8,7 +8,7 @@ import PublicEventRenderer, {
 import type { EventPageConfig } from "./types";
 import { mapsUrlFor } from "@/lib/utils";
 import { surfaceTokens } from "@/lib/theme-contrast";
-import { renderMarkdown } from "@/lib/markdown";
+import { renderRichText } from "@/lib/markdown";
 
 /**
  * Editorial magazine-style public event page.
@@ -187,8 +187,8 @@ export default function EventPagePreview({
                 <div
                   className="prose prose-sm sm:prose-base dark:prose-invert max-w-2xl leading-relaxed opacity-90"
                   style={{ color: text }}
-                  // renderMarkdown sanitises via DOMPurify before returning.
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(event.description) }}
+                  // renderRichText sanitises via DOMPurify before returning.
+                  dangerouslySetInnerHTML={{ __html: renderRichText(event.description) }}
                 />
               ) : (
                 <p className="mt-4 text-[16px] leading-[1.65] opacity-40 italic">No description added yet.</p>

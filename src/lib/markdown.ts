@@ -182,3 +182,60 @@ export function stripMarkdown(md: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/**
+ * Detect whether `input` already contains HTML block-level markup. This is
+ * the discriminator that lets `renderRichText`/`stripRichText` accept either
+ * the legacy Markdown format (everything saved before the WYSIWYG ship) or
+ * the new WYSIWYG HTML format. We look for any of the prose tags the
+ * sanitizer allows; if none of them appear the content is treated as
+ * Markdown so historical event descriptions keep rendering correctly.
+ */
+function looksLikeHtml(input: string): boolean {
+  return /<\s*(p|div|span|h[1-6]|ul|ol|li|blockquote|strong|em|b|i|u|s|a|br|hr|table)\b/i.test(input);
+}
+
+/**
+ * Render organiser-supplied content to safe HTML. Accepts either the
+ * legacy Markdown format or the new WYSIWYG HTML format and dispatches to
+ * the right pipeline; output is always sanitised before being returned.
+ */
+export function renderRichText(input: string): string {
+  if (!input) return "";
+  if (looksLikeHtml(input)) return sanitizeHtml(input);
+  return renderMarkdown(input);
+}
+
+/**
+ * Strip rich-text markup (HTML or Markdown) to plain text. Used by
+ * og:description, listing snippets, and the OG image card — surfaces that
+ * can't render HTML and need a flat string safe to truncate.
+ *
+ * The HTML branch is intentionally regex-based (no `document` calls) so it
+ * stays usable from Edge runtimes that don't have a DOM. Numeric character
+ * references and the named entities the renderer emits are decoded back to
+ * their literal characters.
+ */
+export function stripRichText(input: string): string {
+  if (!input) return "";
+  if (!looksLikeHtml(input)) return stripMarkdown(input);
+  return input
+    // Block-closing tags become spaces so adjacent paragraphs don't collide.
+    .replace(/<\/(p|div|h[1-6]|li|blockquote|tr|td|th)>/gi, " ")
+    .replace(/<br\s*\/?>/gi, " ")
+    // Drop every remaining tag. The `>?` makes the closing optional so
+    // malformed fragments like `</a` (no terminating `>`) get stripped
+    // too — without this guard a sanitiser bypass could leak markup
+    // through stripRichText into og:description.
+    .replace(/<[^>]*>?/g, "")
+    // Decode the entities our renderer / sanitizer emit.
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(Number(code)))
+    .replace(/\s+/g, " ")
+    .trim();
+}

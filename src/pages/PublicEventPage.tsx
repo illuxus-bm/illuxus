@@ -19,7 +19,7 @@ import { EventApplicationButtons } from "@/components/applications/EventApplicat
 import LiveStatusBanner from "@/components/event/LiveStatusBanner";
 import { useTheme } from "@/contexts/ThemeContext";
 import { validateTheme } from "@/lib/theme-contrast";
-import { stripMarkdown } from "@/lib/markdown";
+import { stripRichText } from "@/lib/markdown";
 import { formatEventDateTime } from "@/lib/datetime";
 
 // Sponsors are ordered purely by their display_order in event_sponsors,
@@ -224,7 +224,7 @@ const PublicEventPage = () => {
 
     // ── Description (≤155 chars). Prefer the event description, fall back
     //    to a templated string built from date + venue/location/orgName. ──
-    const fromDesc = stripMarkdown(event.description ?? "");
+    const fromDesc = stripRichText(event.description ?? "");
     const dateLabel = formatEventDateTime(event.date, tz ?? undefined);
     const venueLabel = (event as { venue?: string | null }).venue
       || (event as { location?: string | null }).location
