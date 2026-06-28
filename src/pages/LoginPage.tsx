@@ -170,7 +170,23 @@ const LoginPage = () => {
 
           const { data: profile } = await supabaseRpc("get_my_profile");
           const p = profile as { account_type?: string; two_factor_enabled?: boolean } | null;
-          const defaultNext = p?.account_type === "attendee" ? "/discover" : "/dashboard";
+
+          // Super admin check — has the platform-level `admin` role grant.
+          // We look this up directly (don't trust profile data which is org-facing).
+          // Super admins skip the organizer dashboard and land on the Control Tower.
+          const { data: adminRow } = await supabase
+            .from("user_roles")
+            .select("role")
+            .eq("user_id", user.id)
+            .eq("role", "admin")
+            .maybeSingle();
+          const isSuperAdmin = !!adminRow;
+
+          const defaultNext = isSuperAdmin
+            ? "/dashboard/admin"
+            : p?.account_type === "attendee"
+              ? "/discover"
+              : "/dashboard";
           // If the URL carries `?invite=<token>`, consume it now. Successful
           // redemption forces a `/dashboard` next-route because the user has
           // just joined an org and should land on the org's dashboard.

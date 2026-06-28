@@ -228,6 +228,9 @@ const OnboardingGuard = ({ children }: { children: React.ReactNode }) => {
   if (loading) return <FullPageLoader />;
   // Attendees never go through organizer onboarding — push them to their tickets page.
   if (accountType === "attendee" && !isAdmin) return <Navigate to="/my/tickets" replace />;
+  // Super admins (platform owners) don't need an org — they manage the whole SaaS.
+  // Without this bypass they'd get bounced into the organizer onboarding flow.
+  if (isAdmin) return <>{children}</>;
   // If the user has an org, they've completed onboarding regardless of the profile flag.
   // The profile flag can get out of sync if it wasn't set during legacy onboarding.
   if (!org && !onboardingCompleted) return <Navigate to="/onboarding" replace />;
@@ -299,7 +302,7 @@ const App = () => (
                 <Route path="/u/me/communities" element={<RouteErrorBoundary><AttendeeRoute><MyCommunitiesPage /></AttendeeRoute></RouteErrorBoundary>} />
                 <Route path="/u/me/settings" element={<RouteErrorBoundary><AttendeeRoute><SettingsPage /></AttendeeRoute></RouteErrorBoundary>} />
                 <Route path="/t/:id" element={<RouteErrorBoundary><AttendeeRoute><TicketDetailPage /></AttendeeRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard" element={<RouteErrorBoundary><Navigate to="/dashboard/events" replace /></RouteErrorBoundary>} />
+                <Route path="/dashboard" element={<RouteErrorBoundary><DashboardLanding /></RouteErrorBoundary>} />
                 <Route path="/dashboard/events" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><EventsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/events/new" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><EventQuickCreatePage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/events/:id/guests" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><GuestListPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
@@ -458,6 +461,21 @@ function HomeRoute() {
 function EventShortRedirect() {
   const { id } = useParams<{ id: string }>();
   return <Navigate to={`/events/${id || ""}`} replace />;
+}
+
+/**
+ * `/dashboard` smart landing — super admins (SaaS owners) bypass the
+ * organizer dashboard and go straight to the Control Tower at
+ * `/dashboard/admin`. Everyone else lands on the organizer events page.
+ *
+ * Without this, super admins who hit `/dashboard` directly (logo click,
+ * bookmark, header link) get dropped into the organizer view, which doesn't
+ * surface any of the platform-level surfaces (users, orgs, revenue, etc.).
+ */
+function DashboardLanding() {
+  const { loading, isAdmin } = useAuth();
+  if (loading) return <FullPageLoader />;
+  return <Navigate to={isAdmin ? "/dashboard/admin" : "/dashboard/events"} replace />;
 }
 
 /** Permanent redirect from the legacy `/o/<slug>` org URL to `/org/<slug>`. */
