@@ -422,6 +422,15 @@ const PublicEventPage = () => {
     page_config: unknown; timezone?: string | null; requires_approval?: boolean | null;
   };
 
+  // An event is "over" once its end_date has passed (or its start date if no
+  // end_date was set). Registration and speaker/sponsor applications are both
+  // gated on this so past events become read-only for new sign-ups.
+  const isEventOver = (() => {
+    const endRaw = (event as { end_date?: string | null }).end_date ?? null;
+    const ts = new Date(endRaw || event.date).getTime();
+    return Number.isFinite(ts) && ts < Date.now();
+  })();
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: config.theme.backgroundColor }}>
       {seo && <RouteSeo {...seo} />}
@@ -450,11 +459,12 @@ const PublicEventPage = () => {
         org={org}
         going={going}
         darkMode={appTheme === "dark"}
-        registrationSlot={<EventRsvpCard event={event as never} accentColor={config.theme.primaryColor} />}
+        registrationSlot={<EventRsvpCard event={event as never} accentColor={config.theme.primaryColor} isEventOver={isEventOver} />}
       />
 
-      {/* Speaker & Sponsor application CTAs — shown to logged-in attendees */}
-      {event && eventExt.status === "published" && (
+      {/* Speaker & Sponsor application CTAs — shown to logged-in attendees.
+          Hidden once the event is over — no point applying to a past event. */}
+      {event && eventExt.status === "published" && !isEventOver && (
         <div className="max-w-4xl mx-auto px-4 py-2">
           <EventApplicationButtons
             eventId={event.id}

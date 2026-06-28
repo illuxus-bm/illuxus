@@ -30,15 +30,22 @@ interface RsvpEvent {
 type RsvpState = "idle" | "approved" | "pending" | "waitlisted" | "declined";
 
 /**
- * Lu.ma-style sticky RSVP card. Drops onto any public event page.
- * Handles three flows: instant approve, request-to-join, and waitlist when capacity is full.
- */
-/**
  * Lu.ma-style registration card. Shown on the public event page above the
  * About section. Renders only the registration UX (state + CTA); date / venue
  * details live in the page header above it.
+ *
+ * When `isEventOver` is true new registrations are blocked and the card
+ * shows an "Event has ended" notice instead of a Register button.
  */
-export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent; accentColor?: string }) {
+export default function EventRsvpCard({
+  event,
+  accentColor,
+  isEventOver = false,
+}: {
+  event: RsvpEvent;
+  accentColor?: string;
+  isEventOver?: boolean;
+}) {
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -160,6 +167,7 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
   const isFull = hasCapacity && remaining === 0;
 
   const handleRsvp = async () => {
+    if (isEventOver) return;
     if (!user) {
       navigate(`/login?next=${encodeURIComponent(window.location.pathname)}`);
       return;
@@ -280,6 +288,20 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
       </div>
 
       <div className="p-5 space-y-4">
+        {/* Event-over notice — replaces the registration flow for past events */}
+        {isEventOver && state === "idle" && (
+          <div className="flex items-start gap-3">
+            <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
+              <CalendarDays className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[14px] font-semibold leading-tight">Event has ended</div>
+              <div className="text-[12.5px] text-muted-foreground mt-0.5">
+                Registration for this event is now closed.
+              </div>
+            </div>
+          </div>
+        )}
         {user && !emailVerified && (
           <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
             <MailWarning className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
@@ -443,6 +465,15 @@ export default function EventRsvpCard({ event, accentColor }: { event: RsvpEvent
           <div className="flex items-center gap-2 text-[13px] font-medium text-destructive">
             <XCircle className="h-4 w-4" /> Request declined
           </div>
+        ) : isEventOver ? (
+          // Event already over — show a muted disabled button instead of Register
+          <Button
+            disabled
+            className="w-full h-11 text-[14px] font-semibold opacity-50 cursor-not-allowed"
+            variant="outline"
+          >
+            Registration closed
+          </Button>
         ) : (
           <Button
             onClick={handleRsvp}
