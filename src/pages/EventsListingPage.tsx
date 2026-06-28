@@ -203,9 +203,6 @@ export default function EventsListingPage() {
               {category} <X className="h-3 w-3" />
             </button>
           )}
-          <span className="text-[12px] text-muted-foreground ml-auto">
-            {filtered.length} event{filtered.length !== 1 ? "s" : ""}
-          </span>
         </div>
 
         {/* Body */}
