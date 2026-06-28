@@ -103,6 +103,12 @@ const SpeakerEventDetailPage = lazyWithLog("SpeakerEventDetailPage", () => impor
 const QuickViewsPreviewPage = lazyWithLog("QuickViewsPreviewPage", () => import("./pages/dev/QuickViewsPreviewPage.tsx"));
 const PlatformAnalyticsPage = lazyWithLog("PlatformAnalyticsPage", () => import("./pages/dashboard/admin/PlatformAnalyticsPage.tsx"));
 const SupportTicketsPage = lazyWithLog("SupportTicketsPage", () => import("./pages/dashboard/admin/SupportTicketsPage.tsx"));
+const UserManagementPage = lazyWithLog("UserManagementPage", () => import("./pages/dashboard/admin/UserManagementPage.tsx"));
+const OrganizationManagementPage = lazyWithLog("OrganizationManagementPage", () => import("./pages/dashboard/admin/OrganizationManagementPage.tsx"));
+const EventModerationPage = lazyWithLog("EventModerationPage", () => import("./pages/dashboard/admin/EventModerationPage.tsx"));
+const RevenuePage = lazyWithLog("RevenuePage", () => import("./pages/dashboard/admin/RevenuePage.tsx"));
+const SystemHealthPage = lazyWithLog("SystemHealthPage", () => import("./pages/dashboard/admin/SystemHealthPage.tsx"));
+const ActivityFeedPage = lazyWithLog("ActivityFeedPage", () => import("./pages/dashboard/admin/ActivityFeedPage.tsx"));
 const TicketTrackPage = lazyWithLog("TicketTrackPage", () => import("./pages/TicketTrackPage.tsx"));
 // SEO-targeted high-intent landing pages — keyword pages mounted alongside the
 // canonical marketing pages. Each is fully indexable, listed in the sitemap,
@@ -325,6 +331,12 @@ const App = () => (
                 <Route path="/dashboard/admin/audit" element={<RouteErrorBoundary><SuperAdminRoute><AuditLogPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/analytics" element={<RouteErrorBoundary><SuperAdminRoute><PlatformAnalyticsPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/tickets" element={<RouteErrorBoundary><SuperAdminRoute><SupportTicketsPage /></SuperAdminRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/admin/users" element={<RouteErrorBoundary><SuperAdminRoute><UserManagementPage /></SuperAdminRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/admin/organizations" element={<RouteErrorBoundary><SuperAdminRoute><OrganizationManagementPage /></SuperAdminRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/admin/events" element={<RouteErrorBoundary><SuperAdminRoute><EventModerationPage /></SuperAdminRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/admin/revenue" element={<RouteErrorBoundary><SuperAdminRoute><RevenuePage /></SuperAdminRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/admin/system" element={<RouteErrorBoundary><SuperAdminRoute><SystemHealthPage /></SuperAdminRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/admin/activity" element={<RouteErrorBoundary><SuperAdminRoute><ActivityFeedPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 {/* Standalone /community area — open to any authenticated user (AttendeeRoute);
                     community-level RBAC is handled inside CommunityLayout via useCommunityBySlug */}
                 <Route path="/community" element={<RouteErrorBoundary><AttendeeRoute><CommunityHubPage /></AttendeeRoute></RouteErrorBoundary>} />
