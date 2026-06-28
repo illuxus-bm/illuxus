@@ -5,6 +5,8 @@
   "outputDirectory": "dist",
   "trailingSlash": false,
   "rewrites": [
+    { "source": "/org/:orgSlug/events/:eventSlug", "destination": "/api/event-og?orgSlug=:orgSlug&eventSlug=:eventSlug" },
+    { "source": "/events/:eventId", "destination": "/api/event-og?eventId=:eventId" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
