@@ -17,6 +17,7 @@ import { usePublicCommunities } from "@/hooks/community/useCommunity";
  */
 export default function DiscoverFeed() {
   const [events, setEvents] = useState<LumaEvent[]>([]);
+  const [pastEvents, setPastEvents] = useState<LumaEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const explore = usePublicCommunities();
@@ -38,20 +39,34 @@ export default function DiscoverFeed() {
       if (error) {
         logger.error("discover events query failed", { error_message: error?.message ?? String(error) });
       }
-      // Filter out events that have already ended.
+      // Split into upcoming/ongoing vs past based on end_date (fallback to date).
+      // Past = ended; Upcoming = not yet ended OR still ongoing.
       const now = Date.now();
-      const upcoming = (data || []).filter((e: { date: string; end_date: string | null }) => {
+      const rows = (data || []) as unknown as LumaEvent[];
+      const upcoming: LumaEvent[] = [];
+      const past: LumaEvent[] = [];
+      for (const e of rows) {
         const endTs = e.end_date ? new Date(e.end_date).getTime() : null;
         const startTs = e.date ? new Date(e.date).getTime() : 0;
-        return endTs ? endTs >= now : startTs >= now;
+        const ended = endTs ? endTs < now : startTs < now;
+        if (ended) past.push(e); else upcoming.push(e);
+      }
+      // Past events most-recent-first.
+      past.sort((a, b) => {
+        const aTs = new Date(a.end_date || a.date).getTime();
+        const bTs = new Date(b.end_date || b.date).getTime();
+        return bTs - aTs;
       });
-      setEvents(upcoming as unknown as LumaEvent[]);
+      setEvents(upcoming);
+      setPastEvents(past);
       setLoading(false);
     })();
     return () => { cancel = true; };
   }, []);
 
   // Filter by event title, host (organization) name, venue, or location.
+  // Searching applies to BOTH upcoming and past so visitors can find an event
+  // by name regardless of whether it has already happened.
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
     if (!term) return events;
@@ -66,10 +81,28 @@ export default function DiscoverFeed() {
     });
   }, [events, query]);
 
+  const filteredPast = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return pastEvents;
+    return pastEvents.filter((e) => {
+      const host = e.organizations?.name || "";
+      return (
+        e.title.toLowerCase().includes(term) ||
+        host.toLowerCase().includes(term) ||
+        (e.venue || "").toLowerCase().includes(term) ||
+        (e.location || "").toLowerCase().includes(term)
+      );
+    });
+  }, [pastEvents, query]);
+
   // Show top 6 normally, but reveal all matches while searching.
   const popular = useMemo(
     () => (query.trim() ? filtered : filtered.slice(0, 6)),
     [filtered, query],
+  );
+  const pastDisplay = useMemo(
+    () => (query.trim() ? filteredPast : filteredPast.slice(0, 6)),
+    [filteredPast, query],
   );
 
   return (
@@ -137,12 +170,50 @@ export default function DiscoverFeed() {
           ) : popular.length === 0 ? (
             <div className="border border-dashed border-border rounded-2xl py-16 text-center text-[13px] text-muted-foreground">
               {query.trim()
-                ? `No events match "${query.trim()}". Try a different keyword.`
+                ? `No upcoming events match "${query.trim()}". Try a different keyword or scroll to Past Events.`
                 : "No upcoming events yet."}
             </div>
           ) : (
             <div className="flex flex-col gap-3">
               {popular.map((ev) => <PopularRow key={ev.id} event={ev} />)}
+            </div>
+          )}
+        </section>
+
+        {/* Past Events — events whose end_date (or start date if no end_date) is in the past. */}
+        <section className="mb-14">
+          <div className="flex items-end justify-between mb-5">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight">Past Events</h2>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                {query.trim()
+                  ? `${filteredPast.length} past match${filteredPast.length === 1 ? "" : "es"}`
+                  : "Recently wrapped — replay highlights and follow hosts you like"}
+              </p>
+            </div>
+            <Link
+              to="/events?filter=past"
+              className="inline-flex items-center gap-1 px-3 h-8 rounded-full bg-secondary text-[12px] font-medium text-foreground hover:bg-secondary/70 transition-colors"
+            >
+              View All <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+
+          {loading ? (
+            <div className="flex flex-col gap-3">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={`past-${i}`} className="h-32 w-full rounded-xl" />
+              ))}
+            </div>
+          ) : pastDisplay.length === 0 ? (
+            <div className="border border-dashed border-border rounded-2xl py-12 text-center text-[13px] text-muted-foreground">
+              {query.trim()
+                ? `No past events match "${query.trim()}".`
+                : "No past events to show yet."}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {pastDisplay.map((ev) => <PastRow key={ev.id} event={ev} />)}
             </div>
           )}
         </section>
@@ -198,6 +269,55 @@ function PopularRow({ event }: { event: LumaEvent }) {
       <div className="shrink-0 w-full sm:w-40 md:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
         {(event.banner_landscape_url || event.image_url) ? (
           <img src={event.banner_landscape_url || event.image_url!} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <CalendarDays className="h-7 w-7 text-muted-foreground/30" />
+          </div>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+/**
+ * Past-event row variant. Same layout as PopularRow but de-emphasised:
+ * grayscale thumbnail, "Ended" pill, muted text. Clicking still goes to the
+ * full event page where past attendees can see recaps / replays.
+ */
+function PastRow({ event }: { event: LumaEvent }) {
+  const orgSlug = event.organizations?.subdomain || event.organizations?.slug || null;
+  const href = eventPublicPath(event, orgSlug);
+  const endDate = new Date(event.end_date || event.date);
+  const dayLabel = format(endDate, "EEE, MMM d, yyyy");
+  const venue = event.venue || event.location;
+
+  return (
+    <Link
+      to={href}
+      className="group flex flex-col-reverse sm:flex-row gap-4 p-4 rounded-xl border border-border bg-card/50 hover:border-foreground/15 hover:bg-card transition-all"
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider bg-muted text-muted-foreground">
+            Ended
+          </span>
+          <span className="text-[12px] font-medium text-muted-foreground">{dayLabel}</span>
+        </div>
+        <h3 className="text-[15px] font-semibold leading-snug line-clamp-2 text-muted-foreground group-hover:text-foreground transition-colors">
+          {event.title}
+        </h3>
+        <div className="text-[12px] text-muted-foreground/80 mt-1.5 flex items-center gap-1 truncate">
+          {venue && <MapPin className="h-3 w-3 shrink-0" />}
+          <span className="truncate">{venue || event.organizations?.name || "Online"}</span>
+        </div>
+      </div>
+      <div className="shrink-0 w-full sm:w-40 md:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
+        {(event.banner_landscape_url || event.image_url) ? (
+          <img
+            src={event.banner_landscape_url || event.image_url!}
+            alt={event.title}
+            className="w-full h-full object-cover grayscale group-hover:grayscale-0 group-hover:scale-105 transition-all duration-500"
+          />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <CalendarDays className="h-7 w-7 text-muted-foreground/30" />
