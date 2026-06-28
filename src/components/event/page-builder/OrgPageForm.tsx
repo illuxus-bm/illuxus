@@ -322,19 +322,17 @@ export default function OrgPageForm() {
               // sends it as Authorization so the function works on third-party
               // sites regardless of the function's verify_jwt setting.
               const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
-              const embedSnippet = `<div id="my-events"></div>
-<script
-  src="${embedScriptUrl}"
+              const embedSnippet = `<div
+  id="my-events"
   data-org="${effective}"
   data-fn="${fnUrl}"
   data-anon-key="${anonKey}"
-  data-target="my-events"
   data-filter="${embedFilter}"
   data-limit="10"
   data-theme="light"
   data-api="${protocol}//${preferred.host}"
-  defer
-></script>`;
+></div>
+<script src="${embedScriptUrl}"></script>`;
 
               const onHandleChange = (raw: string) => {
                 const next = sanitizeHandleInput(raw);
