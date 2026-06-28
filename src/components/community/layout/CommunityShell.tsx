@@ -37,7 +37,7 @@ function EventCommunitySidebar({ eventId, eventTitle }: { eventId: string; event
 
   return (
     <Sidebar collapsible="icon" className="border-r border-border bg-card">
-      <SidebarContent className="pt-1">
+      <SidebarContent className="pt-1" style={{ paddingTop: '78px' }}>
         {!collapsed && (
           <div className="px-3 py-2 mb-1">
             <p className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Event</p>
