@@ -361,9 +361,9 @@ function EventQuickView({
             onClick={onClose}
             className="block relative aspect-video w-full overflow-hidden bg-secondary group"
           >
-            {event.image_url ? (
+            {(event.banner_landscape_url || event.image_url) ? (
               <img
-                src={event.banner_landscape_url || event.image_url}
+                src={event.banner_landscape_url || event.image_url!}
                 alt={event.title}
                 className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500"
               />
