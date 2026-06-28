@@ -444,6 +444,8 @@
           (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
         if (t === 'dark') document.documentElement.classList.add('dark');
         document.documentElement.style.colorScheme = t;
+        // Stash the resolved theme so the inline script below can read it.
+        window.__splashTheme = t;
       })();
     </script>
 
@@ -453,10 +455,15 @@
     <div id="illuxus-splash" role="status" aria-label="Loading illuxus">
       <div class="splash-card">
         <div class="splash-logo">
-          <picture>
-            <source srcset="/illuxus-wordmark-light.svg" media="(prefers-color-scheme: dark)" />
-            <img src="/illuxus-wordmark-dark.svg" alt="illuxus" />
-          </picture>
+          <!-- Default: light.svg (navy mark) for light backgrounds.
+               Swapped to dark.svg (white mark) immediately if dark theme is active. -->
+          <img id="splash-wordmark" src="/illuxus-wordmark-light.svg" alt="illuxus" />
+          <script>
+            (function(){
+              var wm = document.getElementById('splash-wordmark');
+              if (wm && window.__splashTheme === 'dark') wm.src = '/illuxus-wordmark-dark.svg';
+            })();
+          </script>
         </div>
         <p class="splash-tagline">
           Events you'll <strong>remember</strong>

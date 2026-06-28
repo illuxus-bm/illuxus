@@ -18,8 +18,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { Tables } from "@/integrations/supabase/types";
 import EventCoverPicker from "@/components/event/EventCoverPicker";
 import EventBannerPicker from "@/components/event/EventBannerPicker";
+import { stripRichText } from "@/lib/markdown";
 import { eventPublicPath, eventDashboardPath } from "@/lib/event-routes";
-import { formatMoney } from "@/lib/currency";
 
 type Event = Tables<"events">;
 
@@ -470,7 +470,7 @@ const EventsPage = () => {
                     </div>
 
                     {event.description && (
-                      <p className="text-sm text-muted-foreground line-clamp-2">{event.description}</p>
+                      <p className="text-sm text-muted-foreground line-clamp-2">{stripRichText(event.description)}</p>
                     )}
 
                     <div className="space-y-1 text-xs text-muted-foreground">
