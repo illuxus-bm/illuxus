@@ -25,19 +25,19 @@ Deno.serve(async (req) => {
       });
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-
-    // Accept either the workspace handle (subdomain) or the legacy slug
-    // under the `org` param so embed snippets keep working regardless of
-    // which identifier the user pasted.
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const supabase = createClient(supabaseUrl, serviceKey);
+    // or the raw org UUID under the `org` param so embed snippets keep
+    // working regardless of which identifier the user pasted.
     const handle = (orgSlug || subdomain || "").toLowerCase();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(handle);
     const { data: org } = await supabase
       .from("organizations")
       .select("id, name, slug, subdomain, custom_domain, logo_url, landing_published")
-      .or(`subdomain.eq.${handle},slug.eq.${handle}`)
+      .or(isUuid
+        ? `id.eq.${handle}`
+        : `subdomain.eq.${handle},slug.eq.${handle}`)
       .limit(1)
       .maybeSingle();
 
