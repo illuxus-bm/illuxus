@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Save, ExternalLink, ChevronUp, ChevronDown, Plus, Trash2, Eye, GripVertical,
 } from "lucide-react";
+import MarkdownEditor from "@/components/MarkdownEditor";
 import {
   DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors,
   closestCenter, type DragEndEvent,
@@ -119,6 +120,31 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
   // Auto-persist structural changes (enable/disable + order) without toast spam.
   // Track the latest pending config so we can flush before navigation.
   const pendingConfigRef = useRef<EventPageConfig | null>(null);
+
+  /**
+   * Persist a new event-level field (currently used by the About section's
+   * Markdown editor to write directly to `events.description`). This bypasses
+   * the page-config save path because description is a real column on
+   * `events` and is also surfaced on listings + og:description.
+   */
+  const updateEventField = useCallback(
+    async (field: "description", value: string | null) => {
+      // Optimistic local update so the editor + preview re-render instantly.
+      setEvent((prev) => (prev ? ({ ...prev, [field]: value } as RendererEvent) : prev));
+      const { error } = await supabase
+        .from("events")
+        .update({ [field]: value } as never)
+        .eq("id", eventId);
+      if (error) {
+        toast({ title: "Save failed", description: error.message, variant: "destructive" });
+        logger.warn("event description save failed", {
+          event_id: eventId,
+          error_message: error.message,
+        });
+      }
+    },
+    [eventId, toast],
+  );
 
   const persistConfig = useCallback(async (next: EventPageConfig) => {
     setSaving(true);
@@ -347,6 +373,8 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
                   onUpdate={(patch) => updateSectionData(selected.id, patch)}
                   eventId={eventId}
                   eventStartIso={event?.date ?? null}
+                  eventDescription={event?.description ?? ""}
+                  onDescriptionChange={(v) => updateEventField("description", v || null)}
                 />
               )}
             </div>
@@ -663,11 +691,13 @@ function formatHumanDateTime(value: string | null | undefined): string {
   });
 }
 
-function SectionForm({ section, onUpdate, eventId, eventStartIso }: {
+function SectionForm({ section, onUpdate, eventId, eventStartIso, eventDescription, onDescriptionChange }: {
   section: EventSection;
   onUpdate: (patch: Record<string, unknown>) => void;
   eventId: string;
   eventStartIso?: string | null;
+  eventDescription: string;
+  onDescriptionChange: (v: string) => void;
 }) {
   const meta = SECTION_CATALOG.find(m => m.id === section.id);
   const d = section.data as Record<string, unknown>;
@@ -701,7 +731,18 @@ function SectionForm({ section, onUpdate, eventId, eventStartIso }: {
       </>;
       case "about": return <>
         <FieldText label="Title" value={(d.title as string) || ""} onChange={v => onUpdate({ title: v })} />
-        <FieldTextarea label="Body" value={(d.body as string) || ""} onChange={v => onUpdate({ body: v })} rows={6} />
+        <div className="space-y-1.5">
+          <Label className="text-[11px]">About this event</Label>
+          <MarkdownEditor
+            value={eventDescription}
+            onChange={onDescriptionChange}
+            placeholder="Describe what attendees can expect. Use the toolbar for headings, bold, lists, and links."
+            rows={10}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Saved to the event's description — also used on listings and link previews.
+          </p>
+        </div>
         <ListEditor label="Highlights" items={(d.highlights as { label: string; value: string }[]) || []}
           onChange={items => onUpdate({ highlights: items })}
           newItem={() => ({ label: "", value: "" })}

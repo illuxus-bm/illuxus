@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { isFuture, isPast, isToday } from "date-fns";
 import { formatEventDateTime } from "@/lib/datetime";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -56,10 +55,14 @@ export default function MyEventsPage() {
   const filtered = useMemo(() => {
     return rows.filter((r) => {
       if (!r.events) return false;
-      const d = new Date(r.events.date);
+      // Use the event's END date so a multi-day event stays in Upcoming
+      // until it's actually finished, then flips into Past.
+      const ev = r.events;
+      const endOrStart = new Date(ev.end_date || ev.date);
+      const now = new Date();
       if (tab === "pending") return r.approval_status === "pending" || r.approval_status === "waitlisted";
-      if (tab === "past") return isPast(d) && !isToday(d);
-      return (isFuture(d) || isToday(d)) && r.approval_status === "approved";
+      if (tab === "past") return endOrStart < now;
+      return endOrStart >= now && r.approval_status === "approved";
     });
   }, [rows, tab]);
 

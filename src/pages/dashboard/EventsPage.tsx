@@ -179,15 +179,18 @@ const EventsPage = () => {
   const filteredEvents = events.filter((e) => {
     const matchesSearch = e.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (e.venue || "").toLowerCase().includes(searchQuery.toLowerCase());
-    
+
     const now = new Date();
-    const eventDate = new Date(e.date);
+    // Treat an event as ongoing/upcoming until its END date passes (or its
+    // START date if no end was set). That way a 3-day conference still shows
+    // in Upcoming on day 2, and flips into Past on day 3 + 1.
+    const endOrStart = new Date(e.end_date || e.date);
     let matchesTime = true;
-    
+
     if (timeFilter === "upcoming") {
-      matchesTime = eventDate >= now || e.status === "draft";
+      matchesTime = endOrStart >= now || e.status === "draft";
     } else if (timeFilter === "past") {
-      matchesTime = eventDate < now && e.status !== "draft" && e.status !== "cancelled";
+      matchesTime = endOrStart < now && e.status !== "draft" && e.status !== "cancelled";
     } else if (timeFilter === "pending") {
       matchesTime = e.status === "draft" || e.status === "pending";
     }

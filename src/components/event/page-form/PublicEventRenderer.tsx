@@ -9,6 +9,7 @@ import SpeakerQuickViewDialog from "./sections/SpeakerQuickViewDialog";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatPriceOrFree } from "@/lib/currency";
 import { sanitizeHtml } from "@/lib/sanitize-html";
+import { renderMarkdown } from "@/lib/markdown";
 import type {
   EventPageConfig, EventSection, ThemeConfig,
   HeroData, AboutData, DateVenueData, TicketsData, AgendaData, SpeakersData,
@@ -380,11 +381,22 @@ function HeroSec({ data, theme, event }: { data: HeroData; theme: ThemeConfig; e
 }
 
 function AboutSec({ data, theme, event, flush = false }: { data: AboutData; theme: ThemeConfig; event: RendererEvent; flush?: boolean }) {
-  const body = data.body || event.description || "";
+  // Single source of truth: events.description (Markdown). The legacy
+  // `data.body` field stays in the schema as a read-only fallback for
+  // events saved before the Markdown editor shipped.
+  const source = event.description?.trim() || data.body?.trim() || "";
+  const html = source ? renderMarkdown(source) : "";
   return (
     <Section theme={theme} id="about" flush={flush}>
       <SectionHeader title={data.title} theme={theme} />
-      {body && <p className="text-lg leading-relaxed opacity-80 whitespace-pre-line max-w-3xl">{body}</p>}
+      {html && (
+        <div
+          className="prose prose-sm sm:prose-base dark:prose-invert max-w-3xl leading-relaxed"
+          style={{ color: theme.textColor }}
+          // renderMarkdown sanitises via DOMPurify before returning.
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
       {data.highlights && data.highlights.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-8">
           {data.highlights.map((h, i) => (
@@ -649,34 +661,69 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
         <p className="text-sm opacity-50">Speakers will be announced soon.</p>
       ) : (
         <div className={data.layout === "list" ? "space-y-4" : "grid gap-5 sm:grid-cols-2"}>
-          {speakers.map((sp) => (
-            <button
-              key={sp.id}
-              type="button"
-              onClick={() => setSelected(sp)}
-              className="rounded-2xl p-5 border text-left w-full transition-transform hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-              style={{ borderColor: cardBorder, backgroundColor: "transparent", color: theme.textColor }}
-            >
-              <div className="flex items-center gap-4">
-                <div className="h-16 w-16 rounded-full overflow-hidden flex items-center justify-center text-white font-bold shrink-0 aspect-square"
-                     style={{ backgroundColor: theme.primaryColor }}>
-                  {sp.photo_url ? <img src={sp.photo_url} alt={sp.name} className="h-full w-full object-cover" /> : sp.name.charAt(0)}
-                </div>
-                <div className="min-w-0">
-                  <p
-                    className="font-semibold truncate"
-                    style={{ fontFamily: "var(--ev-title-font, Poppins)" }}
+          {speakers.map((sp) => {
+            // Initials fallback — first letter of first + last name, uppercase.
+            // Keeps the avatar legible when the organiser hasn't uploaded a photo.
+            const initials = (() => {
+              const parts = sp.name.trim().split(/\s+/);
+              if (parts.length === 0 || !parts[0]) return "?";
+              if (parts.length === 1) return parts[0]!.charAt(0).toUpperCase();
+              return `${parts[0]!.charAt(0)}${parts[parts.length - 1]!.charAt(0)}`.toUpperCase();
+            })();
+            const subtitle = [sp.designation, sp.company].filter(Boolean).join(" · ");
+            return (
+              <button
+                key={sp.id}
+                type="button"
+                onClick={() => setSelected(sp)}
+                className="rounded-2xl p-5 border text-left w-full transition-transform hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                style={{ borderColor: cardBorder, backgroundColor: "transparent", color: theme.textColor }}
+              >
+                <div className="flex items-center gap-4">
+                  <div
+                    className="h-16 w-16 rounded-full overflow-hidden flex items-center justify-center text-white font-bold shrink-0 aspect-square text-lg"
+                    style={{ backgroundColor: theme.primaryColor }}
                   >
-                    {sp.name}
-                  </p>
-                  <p className="text-xs opacity-60 truncate">{[sp.designation, sp.company].filter(Boolean).join(" · ")}</p>
+                    {sp.photo_url ? (
+                      <img
+                        src={sp.photo_url}
+                        alt={sp.name}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                        // If the URL fails to load (storage moved, CDN 404), fall
+                        // back to the initials avatar by swapping the parent's
+                        // contents — simpler than juggling React state per row.
+                        onError={(e) => {
+                          const img = e.currentTarget;
+                          const parent = img.parentElement;
+                          if (parent) {
+                            img.style.display = "none";
+                            parent.textContent = initials;
+                          }
+                        }}
+                      />
+                    ) : (
+                      initials
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p
+                      className="font-semibold truncate"
+                      style={{ fontFamily: "var(--ev-title-font, Poppins)" }}
+                    >
+                      {sp.name}
+                    </p>
+                    {subtitle && (
+                      <p className="text-xs opacity-60 truncate">{subtitle}</p>
+                    )}
+                  </div>
                 </div>
-              </div>
-              {data.showBio !== false && sp.bio && (
-                <p className="text-sm opacity-70 mt-3 line-clamp-3">{sp.bio}</p>
-              )}
-            </button>
-          ))}
+                {data.showBio !== false && sp.bio && (
+                  <p className="text-sm opacity-70 mt-3 line-clamp-3">{sp.bio}</p>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
       <SpeakerQuickViewDialog

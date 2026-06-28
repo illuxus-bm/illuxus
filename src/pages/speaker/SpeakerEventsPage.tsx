@@ -20,13 +20,16 @@ export default function SpeakerEventsPage() {
 
   const filteredEvents = useMemo(() => {
     return events.filter((e) => {
-      const eventDate = e.event_date ? new Date(e.event_date) : null;
+      // Use the event's END date so an in-progress multi-day event still
+      // shows in Upcoming until its end_date passes.
+      const endIso = e.end_date || e.event_date;
+      const endDate = endIso ? new Date(endIso) : null;
       // Match filter
       let matchesFilter = true;
       if (filter === "upcoming") {
-        matchesFilter = !eventDate || eventDate >= now;
+        matchesFilter = !endDate || endDate >= now;
       } else if (filter === "past") {
-        matchesFilter = !!eventDate && eventDate < now;
+        matchesFilter = !!endDate && endDate < now;
       }
       // Match search query
       const q = query.trim().toLowerCase();
@@ -40,7 +43,8 @@ export default function SpeakerEventsPage() {
 
   const stats = useMemo(() => {
     const upcoming = events.filter((e) => {
-      const d = e.event_date ? new Date(e.event_date) : null;
+      const endIso = e.end_date || e.event_date;
+      const d = endIso ? new Date(endIso) : null;
       return !d || d >= now;
     }).length;
     const past = events.length - upcoming;
@@ -201,7 +205,11 @@ function SpeakingEventCard({
   now: Date;
 }) {
   const eventDate = event.event_date ? new Date(event.event_date) : null;
-  const isUpcoming = !eventDate || eventDate >= now;
+  // Treat in-progress events as Upcoming — only flip to Past once the
+  // end date passes.
+  const endIso = event.end_date || event.event_date;
+  const endDate = endIso ? new Date(endIso) : null;
+  const isUpcoming = !endDate || endDate >= now;
 
   return (
     <Link
