@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
     const orgSlug = url.searchParams.get("org");
     const subdomain = url.searchParams.get("subdomain");
     const filter = (url.searchParams.get("filter") || "upcoming").toLowerCase();
-    const limit = Math.min(parseInt(url.searchParams.get("limit") || "20", 10) || 20, 50);
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 500);
 
     if (!orgSlug && !subdomain) {
       return new Response(JSON.stringify({ error: "Missing 'org' or 'subdomain' parameter" }), {

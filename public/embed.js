@@ -87,7 +87,7 @@
 
   var orgSlug = getConf("org",    "");
   var filter  = getConf("filter", "upcoming");
-  var limit   = getConf("limit",  "9");
+  var limit   = getConf("limit",  "100");
   /* data-theme="auto" (default) → follows OS/browser prefers-color-scheme.
      Set data-theme="light" or data-theme="dark" to force a specific theme. */
   var themePref = getConf("theme", "auto");

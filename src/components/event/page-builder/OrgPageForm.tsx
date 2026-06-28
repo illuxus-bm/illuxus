@@ -326,7 +326,6 @@ export default function OrgPageForm() {
   id="my-events"
   data-org="${effective}"
   data-filter="${embedFilter}"
-  data-limit="10"
   data-theme="auto"
 ></div>
 <script src="${embedScriptUrl}"></script>`;
