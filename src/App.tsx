@@ -17,6 +17,7 @@ import RouteErrorBoundary from "@/lib/observability/boundaries/RouteErrorBoundar
 import { logger } from "@/lib/observability";
 import { PWAUpdatePrompt } from "@/components/pwa/PWAUpdatePrompt";
 import { PWAInstallPrompt } from "@/components/pwa/PWAInstallPrompt";
+import { CookieConsent } from "@/components/CookieConsent";
 // Eagerly-loaded landing & auth pages (small + needed for first paint / SEO)
 import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
@@ -98,6 +99,7 @@ const SponsorAcceptInvitePage = lazyWithLog("SponsorAcceptInvitePage", () => imp
 const SpeakerEventsPage = lazyWithLog("SpeakerEventsPage", () => import("./pages/speaker/SpeakerEventsPage.tsx"));
 const SpeakerEventDetailPage = lazyWithLog("SpeakerEventDetailPage", () => import("./pages/speaker/SpeakerEventDetailPage.tsx"));
 const QuickViewsPreviewPage = lazyWithLog("QuickViewsPreviewPage", () => import("./pages/dev/QuickViewsPreviewPage.tsx"));
+const PlatformAnalyticsPage = lazyWithLog("PlatformAnalyticsPage", () => import("./pages/dashboard/admin/PlatformAnalyticsPage.tsx"));
 /**
  * Global TanStack Query client.
  *
@@ -301,6 +303,7 @@ const App = () => (
                 <Route path="/dashboard/admin" element={<RouteErrorBoundary><SuperAdminRoute><AdminPanelPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/site" element={<RouteErrorBoundary><SuperAdminRoute><SiteEditorPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/audit" element={<RouteErrorBoundary><SuperAdminRoute><AuditLogPage /></SuperAdminRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/admin/analytics" element={<RouteErrorBoundary><SuperAdminRoute><PlatformAnalyticsPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 {/* Standalone /community area — open to any authenticated user (AttendeeRoute);
                     community-level RBAC is handled inside CommunityLayout via useCommunityBySlug */}
                 <Route path="/community" element={<RouteErrorBoundary><AttendeeRoute><CommunityHubPage /></AttendeeRoute></RouteErrorBoundary>} />
@@ -322,6 +325,7 @@ const App = () => (
                 </Suspense>
                 </LazyRouteBoundary>
                 <GlobalFooter />
+                <GlobalCookieConsent />
                 </SiteContentProvider>
               </OrgProvider>
             </AuthProvider>
@@ -362,6 +366,34 @@ function GlobalFooter() {
   }
 
   return <Footer />;
+}
+
+/**
+ * Cookie consent banner — suppressed on the same routes as GlobalFooter
+ * (dashboard / onboarding / auth flows don't need the banner).
+ */
+function GlobalCookieConsent() {
+  const { pathname } = useLocation();
+
+  const suppressed = [
+    "/dashboard",
+    "/onboarding",
+    "/login",
+    "/reset-password",
+    "/complete-profile",
+    "/sponsor",
+    "/speaker",
+    "/checkin",
+    "/community",
+    "/e/",
+    "/__preview",
+  ];
+
+  if (suppressed.some((p) => pathname === p || pathname.startsWith(p))) {
+    return null;
+  }
+
+  return <CookieConsent />;
 }
 
 /**
