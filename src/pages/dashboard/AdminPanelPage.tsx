@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Building2, Users, Calendar, Crown, Shield, UserCheck, Trash2, Layers, ArrowRight, ShieldCheck, ShieldOff, ScrollText, BarChart3 } from "lucide-react";
+import { Building2, Users, Calendar, Crown, Shield, UserCheck, Trash2, Layers, ArrowRight, ShieldCheck, ShieldOff, ScrollText, BarChart3, MessageSquare } from "lucide-react";
 import { Pencil, X as XIcon, Check as CheckIcon, Globe } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -250,6 +250,11 @@ export default function AdminPanelPage() {
             <p className="text-xs text-muted-foreground">Manage all organizations and users across the platform</p>
           </div>
           <div className="ml-auto">
+            <Button variant="outline" size="sm" asChild className="h-8 text-[12px] mr-2">
+              <Link to="/dashboard/admin/tickets">
+                <MessageSquare className="h-3.5 w-3.5 mr-1.5" /> Support Tickets
+              </Link>
+            </Button>
             <Button variant="outline" size="sm" asChild className="h-8 text-[12px] mr-2">
               <Link to="/dashboard/admin/audit">
                 <ScrollText className="h-3.5 w-3.5 mr-1.5" /> Audit log

@@ -1,14 +1,25 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import SiteHeader from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Mail,
   MessageSquare,
   Clock,
   CheckCircle2,
+  Copy as CopyIcon,
+  Download,
+  ExternalLink,
   Shield,
   Scale,
   Newspaper,
@@ -20,14 +31,45 @@ import {
   Twitter,
   Instagram,
 } from "lucide-react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { logger } from "@/lib/observability";
 
-const contactOptions = [
+// Categories mirror the support_ticket_category enum in
+// supabase/migrations/005_support_tickets.sql. Keep this list in sync when
+// the enum changes — the edge function also clamps unknown values to "general".
+const CATEGORIES: Array<{ value: string; label: string }> = [
+  { value: "general",         label: "General enquiry" },
+  { value: "sales",           label: "Sales & Enterprise" },
+  { value: "support",         label: "Technical support" },
+  { value: "billing",         label: "Billing" },
+  { value: "privacy",         label: "Privacy & DPO" },
+  { value: "grievance",       label: "Grievance officer" },
+  { value: "press",           label: "Press & media" },
+  { value: "legal",           label: "Legal" },
+  { value: "feature_request", label: "Feature request" },
+  { value: "bug_report",      label: "Bug report" },
+  { value: "other",           label: "Other" },
+];
+
+type ContactOption = {
+  icon: typeof Mail;
+  title: string;
+  description: string;
+  contact: string;
+  href: string;
+  /** When the user clicks this card, pre-fill the form's category. */
+  category: string;
+};
+
+const contactOptions: ContactOption[] = [
   {
     icon: Mail,
     title: "General enquiries",
     description: "Questions about the platform, pricing, or anything else.",
     contact: "hello@illuxus.com",
     href: "mailto:hello@illuxus.com",
+    category: "general",
   },
   {
     icon: MessageSquare,
@@ -35,6 +77,7 @@ const contactOptions = [
     description: "Large events, custom contracts, white-label solutions.",
     contact: "sales@illuxus.com",
     href: "mailto:sales@illuxus.com",
+    category: "sales",
   },
   {
     icon: HeadphonesIcon,
@@ -42,6 +85,7 @@ const contactOptions = [
     description: "Technical help, billing issues, or account problems.",
     contact: "support@illuxus.com",
     href: "mailto:support@illuxus.com",
+    category: "support",
   },
   {
     icon: Shield,
@@ -49,6 +93,7 @@ const contactOptions = [
     description: "Data subject requests, privacy questions, DPDPA / GDPR matters.",
     contact: "privacy@illuxus.com",
     href: "mailto:privacy@illuxus.com",
+    category: "privacy",
   },
   {
     icon: ShieldAlert,
@@ -56,6 +101,7 @@ const contactOptions = [
     description: "Content takedowns, privacy grievances, IT Rules 2021 complaints.",
     contact: "grievance@illuxus.com",
     href: "mailto:grievance@illuxus.com",
+    category: "grievance",
   },
   {
     icon: Newspaper,
@@ -63,6 +109,7 @@ const contactOptions = [
     description: "Interviews, quotes, brand assets, partnership announcements.",
     contact: "press@illuxus.com",
     href: "mailto:press@illuxus.com",
+    category: "press",
   },
   {
     icon: Scale,
@@ -70,37 +117,131 @@ const contactOptions = [
     description: "Contracts, notices, dispute resolution, subpoenas.",
     contact: "legal@illuxus.com",
     href: "mailto:legal@illuxus.com",
+    category: "legal",
   },
 ];
 
 const socials = [
   { icon: Linkedin, label: "LinkedIn", href: "https://www.linkedin.com/company/illuxus", handle: "/illuxus" },
-  { icon: Twitter, label: "X (Twitter)", href: "https://x.com/illuxus_in", handle: "@illuxus_in" },
+  { icon: Twitter,  label: "X (Twitter)", href: "https://x.com/illuxus_in", handle: "@illuxus_in" },
   { icon: Instagram, label: "Instagram", href: "https://www.instagram.com/illuxus.in", handle: "@illuxus.in" },
 ];
 
+interface FormState {
+  name: string;
+  email: string;
+  subject: string;
+  category: string;
+  message: string;
+}
+
+const EMPTY_FORM: FormState = {
+  name: "",
+  email: "",
+  subject: "",
+  category: "general",
+  message: "",
+};
+
+interface SubmissionResult {
+  ticketNumber: string;
+  trackingUrl: string;
+  emailDelivered: boolean;
+  emailUsed: string;
+  nameUsed: string;
+  subjectUsed: string;
+  categoryUsed: string;
+}
+
 export default function ContactPage() {
-  const [form, setForm] = useState({ name: "", email: "", subject: "", message: "" });
-  const [sent, setSent] = useState(false);
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<SubmissionResult | null>(null);
+
+  const handleOptionClick = (e: React.MouseEvent, opt: ContactOption) => {
+    // Card is a mailto by default; we hijack the click to also nudge the
+    // form's category. Holding cmd / shift opens the mailto as the user
+    // expects so power users still get the email-client shortcut.
+    if (!e.metaKey && !e.shiftKey && !e.ctrlKey) {
+      e.preventDefault();
+      setForm((f) => ({ ...f, category: opt.category }));
+      const target = document.getElementById("contact-form-card");
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name || !form.email || !form.message) return;
+    if (sending) return;
+    if (!form.name.trim() || !form.email.trim() || !form.message.trim()) {
+      toast.error("Name, email and message are required.");
+      return;
+    }
     setSending(true);
-    // In production this would POST to an edge function / email provider.
-    // For now we simulate a short delay and show a success message.
-    await new Promise((r) => setTimeout(r, 1000));
-    setSending(false);
-    setSent(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("submit-support-ticket", {
+        body: {
+          name:     form.name.trim(),
+          email:    form.email.trim(),
+          subject:  form.subject.trim() || `${labelForCategory(form.category)} — from contact form`,
+          category: form.category,
+          message:  form.message.trim(),
+          source:   "contact_form",
+          page_url: typeof window !== "undefined" ? window.location.href : null,
+        },
+      });
+
+      if (error || !data?.success) {
+        throw new Error(
+          (data && typeof data.error === "string" && data.error) ||
+            error?.message ||
+            "Could not send your message. Please email support@illuxus.com directly.",
+        );
+      }
+
+      const ticketNumber = String(data.ticket_number);
+      const trackingUrl =
+        typeof data.tracking_url === "string"
+          ? data.tracking_url
+          : `${window.location.origin}/support/ticket/${ticketNumber}`;
+
+      logger.info("support_ticket_submitted", {
+        category: form.category,
+        ticket_number: ticketNumber,
+      });
+
+      setResult({
+        ticketNumber,
+        trackingUrl,
+        emailDelivered: !!data.email_delivered,
+        emailUsed: form.email.trim(),
+        nameUsed: form.name.trim(),
+        subjectUsed: form.subject.trim() || `${labelForCategory(form.category)} — from contact form`,
+        categoryUsed: form.category,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn("support_ticket_submission_failed", { error_message: msg });
+      toast.error(msg);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const resetForm = () => {
+    setResult(null);
+    setForm(EMPTY_FORM);
   };
 
   return (
     <div className="min-h-screen bg-background">
-      <SiteHeader />
+      {/* Header is hidden in print mode so the PDF only shows the confirmation. */}
+      <div className="print:hidden">
+        <SiteHeader />
+      </div>
 
       {/* Hero */}
-      <section className="pt-24 pb-12 text-center px-4">
+      <section className="pt-24 pb-12 text-center px-4 print:hidden">
         <p className="text-sm font-medium text-primary mb-3 uppercase tracking-widest">Contact</p>
         <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">Get in touch</h1>
         <p className="text-lg text-muted-foreground max-w-xl mx-auto">
@@ -109,9 +250,9 @@ export default function ContactPage() {
         </p>
       </section>
 
-      <section className="max-w-5xl mx-auto px-4 sm:px-6 pb-16 grid grid-cols-1 lg:grid-cols-2 gap-12">
+      <section className="max-w-5xl mx-auto px-4 sm:px-6 pb-16 grid grid-cols-1 lg:grid-cols-2 gap-12 print:max-w-none print:grid-cols-1 print:gap-0 print:pb-0">
         {/* Contact options */}
-        <div className="space-y-6">
+        <div className="space-y-6 print:hidden">
           <h2 className="text-xl font-semibold">How can we help?</h2>
           <div className="space-y-3">
             {contactOptions.map((opt) => {
@@ -120,6 +261,7 @@ export default function ContactPage() {
                 <a
                   key={opt.title}
                   href={opt.href}
+                  onClick={(e) => handleOptionClick(e, opt)}
                   className="flex items-start gap-4 p-4 rounded-2xl border border-border bg-card hover:border-primary/30 transition-colors group"
                 >
                   <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -150,25 +292,13 @@ export default function ContactPage() {
           </div>
         </div>
 
-        {/* Contact form */}
-        <div className="bg-card border border-border rounded-2xl p-7 self-start">
-          {sent ? (
-            <div className="h-full flex flex-col items-center justify-center text-center gap-4 py-12">
-              <CheckCircle2 className="h-12 w-12 text-primary" />
-              <h3 className="text-xl font-semibold">Message sent!</h3>
-              <p className="text-muted-foreground text-[14px]">
-                Thanks for reaching out. We'll get back to you within one business day.
-              </p>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSent(false);
-                  setForm({ name: "", email: "", subject: "", message: "" });
-                }}
-              >
-                Send another message
-              </Button>
-            </div>
+        {/* Contact form OR success screen */}
+        <div
+          id="contact-form-card"
+          className="bg-card border border-border rounded-2xl p-7 self-start print:border-0 print:rounded-none print:p-0 print:bg-transparent"
+        >
+          {result ? (
+            <TicketSuccess result={result} onReset={resetForm} />
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <h2 className="text-lg font-semibold mb-2">Send us a message</h2>
@@ -180,6 +310,7 @@ export default function ContactPage() {
                     onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                     placeholder="Raj Sharma"
                     required
+                    autoComplete="name"
                   />
                 </div>
                 <div className="space-y-1">
@@ -190,8 +321,27 @@ export default function ContactPage() {
                     onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                     placeholder="raj@example.com"
                     required
+                    autoComplete="email"
                   />
                 </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[12px]">Category</Label>
+                <Select
+                  value={form.category}
+                  onValueChange={(value) => setForm((f) => ({ ...f, category: value }))}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIES.map((c) => (
+                      <SelectItem key={c.value} value={c.value}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1">
                 <Label className="text-[12px]">Subject</Label>
@@ -217,15 +367,16 @@ export default function ContactPage() {
               <p className="text-[11px] text-muted-foreground leading-relaxed">
                 By submitting this form you agree to the processing of your personal data as
                 described in our{" "}
-                <a href="/privacy" className="text-primary hover:underline">Privacy Policy</a>.
+                <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link>. A
+                copy of your message will be emailed to you with a ticket number for tracking.
               </p>
             </form>
           )}
         </div>
       </section>
 
-      {/* Registered office + Grievance Officer */}
-      <section className="max-w-5xl mx-auto px-4 sm:px-6 pb-20 grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* The rest of the page is hidden when the user prints the confirmation. */}
+      <section className="max-w-5xl mx-auto px-4 sm:px-6 pb-20 grid grid-cols-1 md:grid-cols-2 gap-6 print:hidden">
         {/* Registered office */}
         <div className="bg-card border border-border rounded-2xl p-6">
           <div className="flex items-center gap-3 mb-4">
@@ -298,7 +449,7 @@ export default function ContactPage() {
       </section>
 
       {/* Map placeholder + socials */}
-      <section className="max-w-5xl mx-auto px-4 sm:px-6 pb-24 grid grid-cols-1 md:grid-cols-3 gap-6">
+      <section className="max-w-5xl mx-auto px-4 sm:px-6 pb-24 grid grid-cols-1 md:grid-cols-3 gap-6 print:hidden">
         <div className="md:col-span-2 bg-card border border-border rounded-2xl overflow-hidden">
           <div className="aspect-[16/9] bg-gradient-to-br from-primary/10 via-muted/40 to-primary/5 flex flex-col items-center justify-center text-center p-8">
             <MapPin className="h-10 w-10 text-primary mb-3" />
@@ -338,6 +489,132 @@ export default function ContactPage() {
         </div>
       </section>
 
+      {/* Print stylesheet: when the user clicks "Download confirmation" we call
+          window.print(); the print:* utilities above + this rule ensure only the
+          ticket card ends up on the PDF, scaled cleanly to fit the page. */}
+      <style>{`
+        @media print {
+          body { background: white !important; }
+          @page { margin: 16mm; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function labelForCategory(value: string): string {
+  const found = CATEGORIES.find((c) => c.value === value);
+  return found?.label ?? "General enquiry";
+}
+
+/**
+ * Success screen shown after a ticket is created. Renders the ticket number
+ * prominently, links to the public tracking page, and offers a one-click
+ * "Download confirmation" that prints the page (the print stylesheet on
+ * ContactPage hides everything except this card).
+ */
+function TicketSuccess({
+  result,
+  onReset,
+}: {
+  result: SubmissionResult;
+  onReset: () => void;
+}) {
+  const copyTicket = async () => {
+    try {
+      await navigator.clipboard.writeText(result.ticketNumber);
+      toast.success("Ticket number copied");
+    } catch {
+      toast.error("Could not copy — long-press to copy manually");
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col items-center text-center gap-2 pt-2">
+        <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+          <CheckCircle2 className="h-7 w-7 text-primary" />
+        </div>
+        <h3 className="text-xl font-semibold">Ticket created</h3>
+        <p className="text-[13px] text-muted-foreground max-w-sm">
+          Save the ticket number below. We've also emailed a copy with a tracking link to{" "}
+          <span className="font-medium text-foreground">{result.emailUsed}</span>.
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-border bg-muted/30 p-5 text-center">
+        <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-2">
+          Your ticket number
+        </p>
+        <div className="flex items-center justify-center gap-2">
+          <p className="text-2xl sm:text-3xl font-bold font-mono tracking-tight">
+            {result.ticketNumber}
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={copyTicket}
+            aria-label="Copy ticket number"
+            className="h-8 w-8 print:hidden"
+          >
+            <CopyIcon className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border p-4 space-y-1.5 text-[13px]">
+        <p className="text-muted-foreground">
+          <span className="uppercase tracking-wider text-[11px] text-muted-foreground/70">Category</span>
+          <br />
+          <span className="text-foreground">{labelForCategory(result.categoryUsed)}</span>
+        </p>
+        <p className="text-muted-foreground pt-1">
+          <span className="uppercase tracking-wider text-[11px] text-muted-foreground/70">Subject</span>
+          <br />
+          <span className="text-foreground">{result.subjectUsed}</span>
+        </p>
+        <p className="text-muted-foreground pt-1">
+          <span className="uppercase tracking-wider text-[11px] text-muted-foreground/70">Submitted by</span>
+          <br />
+          <span className="text-foreground">
+            {result.nameUsed} · {result.emailUsed}
+          </span>
+        </p>
+      </div>
+
+      {!result.emailDelivered && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-[12px] text-amber-700 dark:text-amber-300 print:hidden">
+          Your ticket was saved, but the confirmation email is queued and may be delayed. You can
+          still track it using the link below.
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 print:hidden">
+        <Button asChild className="w-full">
+          <Link to={`/support/ticket/${encodeURIComponent(result.ticketNumber)}?email=${encodeURIComponent(result.emailUsed)}`}>
+            <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Track your ticket
+          </Link>
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={() => window.print()}
+        >
+          <Download className="h-3.5 w-3.5 mr-1.5" /> Download confirmation
+        </Button>
+      </div>
+
+      <p className="text-[11px] text-muted-foreground text-center print:hidden">
+        Reference this ticket in any follow-up emails so we can find your conversation quickly.
+      </p>
+
+      <div className="text-center print:hidden">
+        <Button variant="ghost" size="sm" onClick={onReset}>
+          Send another message
+        </Button>
+      </div>
     </div>
   );
 }

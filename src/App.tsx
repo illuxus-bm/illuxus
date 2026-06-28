@@ -102,6 +102,8 @@ const SpeakerEventsPage = lazyWithLog("SpeakerEventsPage", () => import("./pages
 const SpeakerEventDetailPage = lazyWithLog("SpeakerEventDetailPage", () => import("./pages/speaker/SpeakerEventDetailPage.tsx"));
 const QuickViewsPreviewPage = lazyWithLog("QuickViewsPreviewPage", () => import("./pages/dev/QuickViewsPreviewPage.tsx"));
 const PlatformAnalyticsPage = lazyWithLog("PlatformAnalyticsPage", () => import("./pages/dashboard/admin/PlatformAnalyticsPage.tsx"));
+const SupportTicketsPage = lazyWithLog("SupportTicketsPage", () => import("./pages/dashboard/admin/SupportTicketsPage.tsx"));
+const TicketTrackPage = lazyWithLog("TicketTrackPage", () => import("./pages/TicketTrackPage.tsx"));
 /**
  * Global TanStack Query client.
  *
@@ -255,6 +257,8 @@ const App = () => (
                 <Route path="/pricing" element={<RouteErrorBoundary><PublicPricingPage /></RouteErrorBoundary>} />
                 <Route path="/about" element={<RouteErrorBoundary><AboutPage /></RouteErrorBoundary>} />
                 <Route path="/contact" element={<RouteErrorBoundary><ContactPage /></RouteErrorBoundary>} />
+                {/* Public ticket tracking — anyone with the ticket number + email can land here. */}
+                <Route path="/support/ticket/:ticketNumber" element={<RouteErrorBoundary><TicketTrackPage /></RouteErrorBoundary>} />
                 <Route path="/privacy" element={<RouteErrorBoundary><PrivacyPage /></RouteErrorBoundary>} />
                 <Route path="/terms" element={<RouteErrorBoundary><TermsPage /></RouteErrorBoundary>} />
                 <Route path="/cookies" element={<RouteErrorBoundary><CookiePolicyPage /></RouteErrorBoundary>} />
@@ -308,6 +312,7 @@ const App = () => (
                 <Route path="/dashboard/admin/site" element={<RouteErrorBoundary><SuperAdminRoute><SiteEditorPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/audit" element={<RouteErrorBoundary><SuperAdminRoute><AuditLogPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/analytics" element={<RouteErrorBoundary><SuperAdminRoute><PlatformAnalyticsPage /></SuperAdminRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/admin/tickets" element={<RouteErrorBoundary><SuperAdminRoute><SupportTicketsPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 {/* Standalone /community area — open to any authenticated user (AttendeeRoute);
                     community-level RBAC is handled inside CommunityLayout via useCommunityBySlug */}
                 <Route path="/community" element={<RouteErrorBoundary><AttendeeRoute><CommunityHubPage /></AttendeeRoute></RouteErrorBoundary>} />
@@ -362,6 +367,7 @@ function GlobalFooter() {
     "/checkin",
     "/community",
     "/e/",
+    "/support/",
     "/__preview",
   ];
 
@@ -390,6 +396,7 @@ function GlobalCookieConsent() {
     "/checkin",
     "/community",
     "/e/",
+    "/support/",
     "/__preview",
   ];
 
