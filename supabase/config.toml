@@ -6,6 +6,15 @@ verify_jwt = false
 [functions.fx-rates]
 verify_jwt = false
 
+# Public widget endpoint — embed.js fetches this from third-party sites that
+# cannot send a Supabase anon JWT. Must remain anonymous-readable.
+[functions.org-events]
+verify_jwt = false
+
+# Public contact-form endpoint — submitted by anonymous visitors.
+[functions.submit-support-ticket]
+verify_jwt = false
+
 [functions.send-event-email]
 verify_jwt = true
 

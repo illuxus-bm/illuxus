@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import { ImagePlus, Loader2, Trash2, Upload, Crop, Info } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import CoverCropDialog from "./CoverCropDialog";
 
 interface Props {
@@ -208,30 +207,6 @@ export default function EventBannerPicker({
         </p>
       )}
       {error && <p className="text-[12px] text-destructive">{error}</p>}
-      <Input
-        value={imageUrl}
-        onChange={async (e) => {
-          const v = e.target.value;
-          onChange(v);
-          setError(null);
-          setWarning(null);
-          if (v && /^https?:\/\//.test(v)) {
-            try {
-              const { w, h } = await probeImage(v);
-              const ratio = w / h;
-              if (Math.abs(ratio - aspect) / aspect > TOLERANCE) {
-                setWarning(`Pasted image is ${w}×${h} (not ${aspectLabel}). Opening cropper…`);
-                setCropSrc(v);
-                setCropOpen(true);
-              }
-            } catch {
-              // CORS-protected URLs can't be probed — skip.
-            }
-          }
-        }}
-        placeholder="…or paste an image URL"
-        className="h-8 text-[12px]"
-      />
 
       <CoverCropDialog
         open={cropOpen}

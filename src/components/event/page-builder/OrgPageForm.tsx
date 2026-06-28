@@ -318,11 +318,16 @@ export default function OrgPageForm() {
               const primaryUrl = publicUrlFor(preferred.host, effective, protocol);
               const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/org-events`;
               const embedScriptUrl = `${protocol}//${preferred.host}/embed.js`;
+              // Supabase anon key is safe to expose in client code — embed.js
+              // sends it as Authorization so the function works on third-party
+              // sites regardless of the function's verify_jwt setting.
+              const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
               const embedSnippet = `<div id="my-events"></div>
 <script
   src="${embedScriptUrl}"
   data-org="${effective}"
   data-fn="${fnUrl}"
+  data-anon-key="${anonKey}"
   data-target="my-events"
   data-filter="${embedFilter}"
   data-limit="10"

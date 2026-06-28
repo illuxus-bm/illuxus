@@ -18,6 +18,11 @@
   var theme = currentScript.getAttribute("data-theme") || "light";
   var targetId = currentScript.getAttribute("data-target");
   var supabaseFn = currentScript.getAttribute("data-fn");
+  // Optional anon key — Supabase functions reject requests without an
+  // Authorization header unless verify_jwt is explicitly disabled. We send
+  // the public anon key when it's available so embeds keep working even
+  // before the function's verify_jwt flag has been toggled in the dashboard.
+  var anonKey = currentScript.getAttribute("data-anon-key");
 
   if (!orgSlug || !supabaseFn) {
     console.error("[event-embed] Missing data-org or data-fn attribute");
@@ -66,7 +71,18 @@
     "&filter=" + encodeURIComponent(filter) +
     "&limit=" + encodeURIComponent(limit);
 
-  fetch(endpoint)
+  // Build request init. Supabase functions require Authorization unless
+  // verify_jwt is disabled on the function — when data-anon-key is present
+  // we send it so the widget works in either case.
+  var fetchInit = { method: "GET" };
+  if (anonKey) {
+    fetchInit.headers = {
+      "Authorization": "Bearer " + anonKey,
+      "apikey": anonKey,
+    };
+  }
+
+  fetch(endpoint, fetchInit)
     .then(function (r) { return r.json(); })
     .then(function (data) {
       if (!data || !data.events || data.events.length === 0) {
