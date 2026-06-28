@@ -293,7 +293,7 @@ function EventRow({
     <button
       type="button"
       onClick={() => onSelect(event)}
-      className="group flex gap-4 p-4 w-full text-left rounded-xl border border-border bg-card hover:border-foreground/15 hover:shadow-sm transition-all"
+      className="group flex flex-col-reverse sm:flex-row gap-4 p-4 w-full text-left rounded-xl border border-border bg-card hover:border-foreground/15 hover:shadow-sm transition-all"
     >
       <div className="flex-1 min-w-0">
         <div className="text-[12px] font-medium text-muted-foreground mb-1.5">{time}</div>
@@ -305,7 +305,7 @@ function EventRow({
           <span className="truncate">{venue || event.organizations?.name || "Online"}</span>
         </div>
       </div>
-      <div className="shrink-0 w-24 sm:w-40 md:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
+      <div className="shrink-0 w-full sm:w-40 md:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
         {(event.banner_landscape_url || event.image_url) ? (
           <img
             src={event.banner_landscape_url || event.image_url!}

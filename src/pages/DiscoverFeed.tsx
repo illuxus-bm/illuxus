@@ -181,7 +181,7 @@ function PopularRow({ event }: { event: LumaEvent }) {
   return (
     <Link
       to={href}
-      className="group flex gap-4 p-4 rounded-xl border border-border bg-card hover:border-foreground/15 hover:shadow-sm transition-all"
+      className="group flex flex-col-reverse sm:flex-row gap-4 p-4 rounded-xl border border-border bg-card hover:border-foreground/15 hover:shadow-sm transition-all"
     >
       <div className="flex-1 min-w-0">
         <div className="text-[12px] font-medium text-muted-foreground mb-1.5">
@@ -195,7 +195,7 @@ function PopularRow({ event }: { event: LumaEvent }) {
           <span className="truncate">{venue || event.organizations?.name || "Online"}</span>
         </div>
       </div>
-      <div className="shrink-0 w-24 sm:w-40 md:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
+      <div className="shrink-0 w-full sm:w-40 md:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
         {(event.banner_landscape_url || event.image_url) ? (
           <img src={event.banner_landscape_url || event.image_url!} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
         ) : (
