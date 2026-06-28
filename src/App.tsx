@@ -53,6 +53,8 @@ const AboutPage = lazyWithLog("AboutPage", () => import("./pages/AboutPage.tsx")
 const ContactPage = lazyWithLog("ContactPage", () => import("./pages/ContactPage.tsx"));
 const PrivacyPage = lazyWithLog("PrivacyPage", () => import("./pages/PrivacyPage.tsx"));
 const TermsPage = lazyWithLog("TermsPage", () => import("./pages/TermsPage.tsx"));
+const CookiePolicyPage = lazyWithLog("CookiePolicyPage", () => import("./pages/CookiePolicyPage.tsx"));
+const GdprPage = lazyWithLog("GdprPage", () => import("./pages/GdprPage.tsx"));
 const Dashboard = lazyWithLog("Dashboard", () => import("./pages/Dashboard.tsx"));
 const EventsPage = lazyWithLog("EventsPage", () => import("./pages/dashboard/EventsPage.tsx"));
 const TicketsPage = lazyWithLog("TicketsPage", () => import("./pages/dashboard/TicketsPage.tsx"));
@@ -255,6 +257,8 @@ const App = () => (
                 <Route path="/contact" element={<RouteErrorBoundary><ContactPage /></RouteErrorBoundary>} />
                 <Route path="/privacy" element={<RouteErrorBoundary><PrivacyPage /></RouteErrorBoundary>} />
                 <Route path="/terms" element={<RouteErrorBoundary><TermsPage /></RouteErrorBoundary>} />
+                <Route path="/cookies" element={<RouteErrorBoundary><CookiePolicyPage /></RouteErrorBoundary>} />
+                <Route path="/gdpr" element={<RouteErrorBoundary><GdprPage /></RouteErrorBoundary>} />
                 <Route
                   path="/complete-profile"
                   element={
