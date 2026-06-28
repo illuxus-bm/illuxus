@@ -41,8 +41,8 @@ Deno.serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    if (!org || !org.landing_published) {
-      return new Response(JSON.stringify({ error: "Organization not found or not published" }), {
+    if (!org) {
+      return new Response(JSON.stringify({ error: "Organization not found" }), {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
     const now = new Date().toISOString();
     let query = supabase
       .from("events")
-      .select("id, slug, title, description, date, end_date, location, venue, image_url, price, status")
+      .select("id, slug, title, description, date, end_date, location, venue, image_url, banner_landscape_url, price, status")
       .eq("org_id", org.id)
       .eq("status", "published")
       .limit(limit);
