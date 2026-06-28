@@ -44,6 +44,7 @@ const FILTERS = [
   { key: "today" as const, label: "Today" },
   { key: "week" as const, label: "This Week" },
   { key: "free" as const, label: "Free" },
+  { key: "past" as const, label: "Past" },
 ];
 
 export default function EventsListingPage() {
@@ -58,23 +59,34 @@ export default function EventsListingPage() {
   // Quick-view modal: opened when a user taps an event row in the list.
   const [quickView, setQuickView] = useState<EventRow | null>(null);
 
+  // Refetch whenever the filter changes — Past needs the inverse date predicate
+  // (events that have already ended), so we can't do it client-side over the
+  // existing upcoming-only result set.
   useEffect(() => {
     let cancel = false;
+    setLoading(true);
     (async () => {
       const now = new Date().toISOString();
+      const isPast = filter === "past";
+      const dateClause = isPast
+        // Ended: end_date < now, OR no end_date AND start date < now.
+        ? `end_date.lt.${now},and(end_date.is.null,date.lt.${now})`
+        // Upcoming + ongoing: end_date >= now, OR no end_date AND start date >= now.
+        : `end_date.gte.${now},and(end_date.is.null,date.gte.${now})`;
       const { data } = await supabase
         .from("events")
         .select("id, slug, title, description, date, end_date, location, venue, capacity, tickets_sold, price, currency, timezone, status, image_url, banner_landscape_url, organizations(name, slug, subdomain, logo_url)")
         .eq("status", "published")
-        .or(`end_date.gte.${now},and(end_date.is.null,date.gte.${now})`)
-        .order("date", { ascending: true })
+        .or(dateClause)
+        // Past events sort newest-first; upcoming sort soonest-first.
+        .order("date", { ascending: !isPast })
         .limit(200);
       if (cancel) return;
       setEvents((data || []) as unknown as EventRow[]);
       setLoading(false);
     })();
     return () => { cancel = true; };
-  }, []);
+  }, [filter]);
 
   // Sync `q` to URL so links are shareable.
   useEffect(() => {
@@ -99,6 +111,7 @@ export default function EventsListingPage() {
       const d = new Date(e.date);
       const matchesFilter =
         filter === "all" ||
+        filter === "past" ||
         (filter === "today" && isToday(d)) ||
         (filter === "week" && d >= now && d <= weekFromNow) ||
         (filter === "free" && (!e.price || e.price === 0));
