@@ -99,7 +99,7 @@ export default function SpeakerEventDetailPage() {
             {event && (
               <section className="border border-border rounded-lg overflow-hidden bg-card">
                 {(event.banner_landscape_url || event.image_url) && (
-                  <div className="aspect-[3/1] bg-muted">
+                  <div className="aspect-video bg-muted">
                     <img
                       src={event.banner_landscape_url || event.image_url || ""}
                       alt={event.title}
