@@ -222,7 +222,7 @@ export const DEFAULT_SITE_CONTENT: SiteContentMap = {
     tagline: "The all-in-one event management platform.",
     columns: [
       { title: "Product", links: [{ label: "Features", href: "/features" }, { label: "Pricing", href: "/pricing" }, { label: "Integrations", href: "/features" }, { label: "Changelog", href: "/" }] },
-      { title: "Resources", links: [{ label: "Documentation", href: "/" }, { label: "Blog", href: "/" }, { label: "Community", href: "/community" }, { label: "Events", href: "/events" }] },
+      { title: "Resources", links: [{ label: "Documentation", href: "/docs" }, { label: "FAQs", href: "/faqs" }, { label: "Community", href: "/community" }, { label: "Events", href: "/events" }] },
       { title: "Company", links: [{ label: "About", href: "/about" }, { label: "Contact", href: "/contact" }, { label: "Discover", href: "/discover" }, { label: "Partners", href: "/" }] },
       { title: "Legal", links: [{ label: "Privacy", href: "/privacy" }, { label: "Terms", href: "/terms" }, { label: "Security", href: "/privacy" }, { label: "GDPR", href: "/privacy" }] },
     ],
