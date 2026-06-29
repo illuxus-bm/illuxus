@@ -192,12 +192,12 @@ export const DEFAULT_SITE_CONTENT: SiteContentMap = {
   },
   pricing: {
     eyebrow: "Pricing",
-    title: "Plans that scale with you",
-    subtitle: "Start free and upgrade as you grow. No hidden fees.",
+    title: "Plans that grow with you",
+    subtitle: "Start free. Scale when you're ready. No hidden fees, no lock-in.",
     plans: [
-      { name: "Starter", price: "Free", period: "", description: "For small meetups and workshops", highlight: false, ctaLabel: "Start Free", ctaHref: "/login", features: ["Up to 100 attendees", "1 event at a time", "Basic event page", "Email support", "Standard analytics"] },
-      { name: "Professional", price: "$49", period: "/mo", description: "For growing organizations", highlight: true, ctaLabel: "Start Trial", ctaHref: "/login", features: ["Up to 5,000 attendees", "Unlimited events", "Custom branding", "Priority support", "Advanced analytics", "Speaker management", "Promo codes"] },
-      { name: "Enterprise", price: "Custom", period: "", description: "For large-scale operations", highlight: false, ctaLabel: "Contact Sales", ctaHref: "/login", features: ["Unlimited attendees", "Unlimited events", "White-label solution", "Dedicated manager", "Custom integrations", "SSO & security", "SLA guarantee"] },
+      { name: "Starter", price: "Free", period: "", description: "Perfect for meetups and small community events.", highlight: false, ctaLabel: "Start free", ctaHref: "/login", features: ["Up to 100 attendees per event", "1 active event at a time", "QR check-in", "Standard analytics", "Email support"] },
+      { name: "Professional", price: "₹3,499", period: "/mo", description: "For growing teams that run regular events.", highlight: true, ctaLabel: "Start 14-day trial", ctaHref: "/login", features: ["Up to 5,000 attendees per event", "Unlimited active events", "Custom branding + page builder", "Webinar studio + speaker management", "WhatsApp messaging & advanced analytics"] },
+      { name: "Enterprise", price: "Custom", period: "", description: "Large-scale conferences and multi-org deployments.", highlight: false, ctaLabel: "Talk to sales", ctaHref: "mailto:sales@illuxus.com", features: ["Unlimited attendees & events", "White-label & custom domain", "SSO & advanced roles", "Dedicated account manager", "GDPR data processing agreement"] },
     ],
   },
   testimonials: {

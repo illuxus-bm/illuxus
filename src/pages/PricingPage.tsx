@@ -182,7 +182,7 @@ export default function PricingPage() {
       <SiteHeader />
       <RouteSeo
         title="Pricing — Transparent event management pricing | Free trial | illuxus"
-        description="Start free. Scale on Starter (₹2,499/mo), Professional (₹6,999/mo), or Enterprise. Only 2% platform fee on paid tickets. No setup cost. No hidden fees. Cancel anytime."
+        description="Start free. Scale on Professional at ₹3,499/mo or talk to sales for Enterprise. Only 2% platform fee on paid tickets. No setup cost. No hidden fees. Cancel anytime."
         canonical="https://illuxus.com/pricing"
         keywords={PRICING_KEYWORDS}
         ogImage="https://illuxus.com/og-image.png"
