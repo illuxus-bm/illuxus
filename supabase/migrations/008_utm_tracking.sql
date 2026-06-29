@@ -65,7 +65,8 @@ CREATE INDEX IF NOT EXISTS idx_utm_clicks_campaign
 -- RLS: organisers and admins can read; no direct inserts from the client.
 ALTER TABLE public.utm_clicks ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "Org owners read utm_clicks"
+DROP POLICY IF EXISTS "Org owners read utm_clicks" ON public.utm_clicks;
+CREATE POLICY "Org owners read utm_clicks"
   ON public.utm_clicks FOR SELECT TO authenticated
   USING (
     EXISTS(
