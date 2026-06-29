@@ -21,6 +21,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { validateTheme } from "@/lib/theme-contrast";
 import { stripRichText } from "@/lib/markdown";
 import { formatEventDateTime } from "@/lib/datetime";
+import { captureUtm, loadStoredUtm, getTabSessionKey, hasUtm } from "@/lib/utm";
 
 // Sponsors are ordered purely by their display_order in event_sponsors,
 // which the organizer controls via drag-and-drop (both within tiers and across tier groups).
@@ -205,6 +206,28 @@ const PublicEventPage = () => {
     }
 
     setLoading(false);
+
+    // ── UTM capture + click recording ───────────────────────────────────
+    // Runs after the event loads so we know the event_id. captureUtm
+    // stores params in sessionStorage (first-touch); record_utm_click
+    // writes a row to utm_clicks for funnel analytics.
+    const utm = captureUtm(window.location.search);
+    if (hasUtm(utm)) {
+      // Fire-and-forget — don't block the render on analytics writes.
+      supabaseRpc("record_utm_click" as never, {
+        _event_id:    eid,
+        _utm_source:   utm.utm_source   ?? null,
+        _utm_medium:   utm.utm_medium   ?? null,
+        _utm_campaign: utm.utm_campaign ?? null,
+        _utm_content:  utm.utm_content  ?? null,
+        _utm_term:     utm.utm_term     ?? null,
+        _referrer:     document.referrer || null,
+        _path:         window.location.pathname + window.location.search,
+        _session_key:  getTabSessionKey(),
+      } as never).catch(() => {
+        // Silently ignore — analytics failures must never break the event page.
+      });
+    }
   }, []);
 
   // ─── Per-event SEO + Event JSON-LD ──────────────────────────────────────
@@ -459,7 +482,7 @@ const PublicEventPage = () => {
         org={org}
         going={going}
         darkMode={appTheme === "dark"}
-        registrationSlot={<EventRsvpCard event={event as never} accentColor={config.theme.primaryColor} isEventOver={isEventOver} />}
+        registrationSlot={<EventRsvpCard event={event as never} accentColor={config.theme.primaryColor} isEventOver={isEventOver} utmParams={loadStoredUtm()} />}
       />
 
       {/* Speaker & Sponsor application CTAs — shown to logged-in attendees.

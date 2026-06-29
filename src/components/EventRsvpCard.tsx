@@ -41,10 +41,13 @@ export default function EventRsvpCard({
   event,
   accentColor,
   isEventOver = false,
+  utmParams = {},
 }: {
   event: RsvpEvent;
   accentColor?: string;
   isEventOver?: boolean;
+  /** UTM params captured from the page URL — saved with the registration. */
+  utmParams?: import("@/lib/utm").UtmParams;
 }) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -225,6 +228,12 @@ export default function EventRsvpCard({
         company_website: p.company_website,
         company_employee_count: p.company_employee_count,
         industry: p.industry,
+        // First-touch UTM attribution
+        utm_source:   utmParams.utm_source   ?? null,
+        utm_medium:   utmParams.utm_medium   ?? null,
+        utm_campaign: utmParams.utm_campaign ?? null,
+        utm_content:  utmParams.utm_content  ?? null,
+        utm_term:     utmParams.utm_term     ?? null,
       } as never)
       .select("id, approval_status, join_token")
       .single();
@@ -235,6 +244,9 @@ export default function EventRsvpCard({
       setJoinToken((data as { join_token?: string }).join_token ?? null);
       const finalState = (data.approval_status as RsvpState) || initial;
       setState(finalState);
+      // Clear stored UTM so a second registration in this tab isn't credited
+      // to the same campaign.
+      import("@/lib/utm").then(({ clearStoredUtm }) => clearStoredUtm()).catch(() => {});
       toast({
         title:
           finalState === "approved"

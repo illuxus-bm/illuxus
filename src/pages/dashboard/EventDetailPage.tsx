@@ -43,21 +43,23 @@ import { DashboardTopBar } from "@/components/DashboardTopBar";
 
 const BroadcastPageLazy = lazy(() => import("./event/BroadcastPage"));
 const ApplicationsSectionLazy = lazy(() => import("@/components/event/ApplicationsSection").then((m) => ({ default: m.ApplicationsSection })));
+const UtmAnalyticsPageLazy = lazy(() => import("./event/UtmAnalyticsPage"));
 
 type Event = Tables<"events">;
 
 const sidebarNav = [
-  { label: "Overview", icon: LayoutDashboard, key: "dashboard" },
-  { label: "Settings", icon: Settings, key: "settings" },
-  { label: "Webinar", icon: Radio, key: "broadcast" },
-  { label: "Speakers", icon: ClipboardList, key: "manage" },
-  { label: "Registrations", icon: Users, key: "registrations" },
-  { label: "Sponsors", icon: Award, key: "exhibitors" },
-  { label: "Agenda", icon: CalendarCheck, key: "agenda" },
-  { label: "Design", icon: Palette, key: "design" },
-  { label: "Communicate", icon: Mail, key: "communicate" },
-  { label: "Community", icon: Users2, key: "community" },
-  { label: "Reports", icon: BarChart3, key: "reports" },
+  { label: "Overview",      icon: LayoutDashboard, key: "dashboard"     },
+  { label: "Settings",      icon: Settings,        key: "settings"      },
+  { label: "Webinar",       icon: Radio,           key: "broadcast"     },
+  { label: "Speakers",      icon: ClipboardList,   key: "manage"        },
+  { label: "Registrations", icon: Users,           key: "registrations" },
+  { label: "Sponsors",      icon: Award,           key: "exhibitors"    },
+  { label: "Agenda",        icon: CalendarCheck,   key: "agenda"        },
+  { label: "Design",        icon: Palette,         key: "design"        },
+  { label: "Communicate",   icon: Mail,            key: "communicate"   },
+  { label: "Community",     icon: Users2,          key: "community"     },
+  { label: "UTM / Links",   icon: BarChart3,       key: "utm"           },
+  { label: "Reports",       icon: BarChart3,       key: "reports"       },
 ];
 
 
@@ -782,10 +784,22 @@ const EventDetailPage = () => {
               </Suspense>
             )}
 
-            {!["dashboard", "settings", "manage", "agenda", "exhibitors", "design", "registrations", "communicate", "reports", "broadcast", "search", "applications", "community"].includes(activeSection) && (
+            {!["dashboard", "settings", "manage", "agenda", "exhibitors", "design", "registrations", "communicate", "reports", "broadcast", "search", "applications", "community", "utm"].includes(activeSection) && (
               <div className="flex items-center justify-center h-64 text-muted-foreground">
                 <p className="text-sm">{sidebarNav.find(n => n.key === activeSection)?.label} — Coming soon</p>
               </div>
+            )}
+
+            {activeSection === "utm" && (
+              <Suspense fallback={<FullPageLoader label="Loading UTM analytics…" />}>
+                <UtmAnalyticsPageLazy
+                  eventId={event.id}
+                  eventSlug={event.slug ?? null}
+                  orgSlug={(event as { org?: { slug?: string | null; subdomain?: string | null } }).org?.subdomain
+                    ?? (event as { org?: { slug?: string | null } }).org?.slug
+                    ?? null}
+                />
+              </Suspense>
             )}
           </main>
         </div>
