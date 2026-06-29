@@ -241,7 +241,7 @@ export default function SiteHeader({
                     <Link to="/dashboard"><CalendarDays className="h-3.5 w-3.5 mr-2" /> Organizer dashboard</Link>
                   </DropdownMenuItem>
                 )}
-                {portalAccess?.has_speaker && (
+                {(portalAccess?.has_speaker || accountType === "attendee" || accountType === "organizer" || isAdmin) && (
                   <DropdownMenuItem asChild>
                     <Link to="/speaker"><Mic className="h-3.5 w-3.5 mr-2" /> Speaker dashboard</Link>
                   </DropdownMenuItem>

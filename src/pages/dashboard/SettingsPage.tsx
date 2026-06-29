@@ -309,11 +309,11 @@ const SettingsPage = () => {
         } else if (result?.error) {
           emailNote = result.error;
         } else if (result?.provider === "console") {
-          emailNote = result.note ?? "RESEND_API_KEY not configured — email not delivered";
+          emailNote = result.note ?? "SMTP not configured — email not delivered. Set SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD in Supabase Edge Function secrets.";
         } else if (result?.success && (result.sent ?? 0) > 0) {
           emailDelivered = true;
         } else if ((result?.failed ?? 0) > 0) {
-          emailNote = "Resend rejected the recipient. Verify your sending domain in Resend.";
+          emailNote = "SMTP rejected the send. Check SMTP credentials in Supabase Edge Function secrets and verify the App Password is correct.";
         } else {
           emailNote = "Email function returned an unexpected response";
         }

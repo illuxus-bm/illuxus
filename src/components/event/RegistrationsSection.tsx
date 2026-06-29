@@ -617,6 +617,39 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       prev.map((r) => (r.id === row.id ? { ...r, approval_status: newApproval } : r))
     );
     toast.success(newApproval === "approved" ? "Registration approved" : "Registration declined");
+
+    // Fire the ticket confirmation email when (and only when) the organiser
+    // approves a previously-pending row. The email build path reads the
+    // current approval_status from the DB, so by this point the row is
+    // already stamped "approved" and the email body renders without the
+    // pending banner. Decline path stays silent — we don't send a rejection
+    // notice automatically; the organiser can compose one via Communicate
+    // if they want to.
+    if (newApproval === "approved") {
+      void supabase.functions
+        .invoke("send-ticket-email", { body: { registration_id: row.id } })
+        .then(({ data, error: emailErr }) => {
+          type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string };
+          const result = data as R | null;
+          if (emailErr) {
+            toast.warning("Approval email not sent", {
+              description: emailErr.message ?? "send-ticket-email unreachable",
+            });
+            return;
+          }
+          if (result?.error) {
+            toast.warning("Approval email not sent", { description: result.error });
+            return;
+          }
+          if (result?.delivered === false) {
+            toast.message("Approval email skipped", {
+              description: result.note ?? "SMTP not configured in Supabase secrets.",
+            });
+            return;
+          }
+          toast.success(`Ticket email sent to ${row.email || "attendee"}`);
+        });
+    }
   };
 
   /**

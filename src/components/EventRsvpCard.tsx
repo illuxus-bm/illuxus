@@ -263,6 +263,44 @@ export default function EventRsvpCard({
               ? "We'll let you know if a spot opens."
               : "The host will let you know when you're approved.",
       });
+
+      // Fire ticket confirmation email in the background. The registration row
+      // already exists so a delivery failure is non-fatal — the attendee can
+      // always view their ticket at /t/<id> even without the email. We DO
+      // surface failures via a discreet warning toast so the user (and we)
+      // can tell the function isn't responding instead of silently swallowing
+      // every error.
+      if (finalState !== "waitlisted") {
+        void supabase.functions
+          .invoke("send-ticket-email", { body: { registration_id: data.id } })
+          .then(({ data: emailData, error: emailErr }) => {
+            type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string };
+            const result = emailData as R | null;
+            if (emailErr) {
+              toast({
+                title: "Ticket email not sent",
+                description: emailErr.message ?? "Edge function unreachable. Deploy send-ticket-email.",
+                variant: "destructive",
+              });
+              return;
+            }
+            if (result?.error) {
+              toast({
+                title: "Ticket email not sent",
+                description: result.error,
+                variant: "destructive",
+              });
+              return;
+            }
+            if (result?.delivered === false) {
+              toast({
+                title: "Ticket email skipped",
+                description: result.note ?? "SMTP not configured in Supabase secrets.",
+              });
+            }
+            // Success path stays quiet — the user already saw the "You're going!" toast.
+          });
+      }
     }
     setSubmitting(false);
   };
