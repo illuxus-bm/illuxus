@@ -39,8 +39,15 @@ import {
   ChevronsUpDown,
   Filter,
   X,
+  Link2,
+  Pencil,
+  Trash2,
+  Lock,
+  Save,
 } from "lucide-react";
 import { supabaseRpc } from "@/lib/observability";
+import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 import { eventPublicUrl } from "@/lib/event-routes";
 import { buildUtmUrl } from "@/lib/utm";
 import { Button } from "@/components/ui/button";
@@ -64,6 +71,24 @@ interface UtmRow {
   clicks:          number;
   registrations:   number;
   conversion_rate: number;
+}
+
+interface UtmLink {
+  id:           string;
+  event_id:     string;
+  utm_source:   string;
+  utm_medium:   string;
+  utm_campaign: string;
+  utm_content:  string | null;
+  utm_term:     string | null;
+  label:        string | null;
+  url:          string;
+  created_at:   string;
+  updated_at:   string;
+  /* joined client-side: */
+  has_data?:    boolean;
+  clicks?:      number;
+  registrations?: number;
 }
 
 type SortKey = "utm_source" | "utm_medium" | "utm_campaign" | "clicks" | "registrations" | "conversion_rate";
@@ -340,20 +365,212 @@ function MultiSelect({
   );
 }
 
+/* ─── Saved Links section ────────────────────────────────────────────────── */
+
+function SavedLinksSection({
+  eventId,
+  savedRows,
+  analyticsRows,
+  onSaved,
+}: {
+  eventId: string;
+  savedRows: UtmLink[];
+  analyticsRows: UtmRow[];
+  onSaved: () => void;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Enrich saved links with click+reg data from analytics rows
+  const enriched = savedRows.map((link) => {
+    const row = analyticsRows.find(
+      (r) =>
+        r.utm_source   === link.utm_source &&
+        r.utm_medium   === link.utm_medium &&
+        r.utm_campaign === link.utm_campaign
+    );
+    const hasData = !!(row && (Number(row.clicks) > 0 || Number(row.registrations) > 0));
+    return {
+      ...link,
+      has_data:      hasData,
+      clicks:        Number(row?.clicks ?? 0),
+      registrations: Number(row?.registrations ?? 0),
+    };
+  });
+
+  const startEdit = (link: UtmLink) => {
+    setEditingId(link.id);
+    setEditLabel(link.label ?? "");
+  };
+
+  const saveEdit = async (link: UtmLink) => {
+    setSaving(true);
+    const { error } = await supabase
+      .from("utm_links" as never)
+      .update({ label: editLabel || null } as never)
+      .eq("id", link.id);
+    setSaving(false);
+    if (error) { toast.error("Failed to save", { description: error.message }); return; }
+    toast.success("Link label updated");
+    setEditingId(null);
+    onSaved();
+  };
+
+  const deleteLink = async (link: UtmLink) => {
+    if (link.has_data) { toast.error("Cannot delete — this link has data attached."); return; }
+    setDeletingId(link.id);
+    const { error } = await supabase
+      .from("utm_links" as never)
+      .delete()
+      .eq("id", link.id);
+    setDeletingId(null);
+    if (error) { toast.error("Failed to delete", { description: error.message }); return; }
+    toast.success("Link deleted");
+    onSaved();
+  };
+
+  const copyUrl = (url: string) => {
+    navigator.clipboard.writeText(url)
+      .then(() => toast.success("Copied"))
+      .catch(() => toast.error("Could not copy"));
+  };
+
+  if (enriched.length === 0) return null;
+
+  return (
+    <div className="border border-border rounded-xl bg-card overflow-hidden">
+      <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center gap-2">
+        <Link2 className="h-3.5 w-3.5 text-accent" />
+        <h3 className="text-sm font-semibold">Saved UTM links</h3>
+        <span className="ml-auto text-[11px] text-muted-foreground">{enriched.length} link{enriched.length !== 1 ? "s" : ""}</span>
+      </div>
+
+      <div className="divide-y divide-border">
+        {enriched.map((link) => (
+          <div key={link.id} className="p-4 space-y-2">
+            {/* Label row */}
+            <div className="flex items-start gap-2 justify-between">
+              <div className="min-w-0 flex-1">
+                {editingId === link.id ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={editLabel}
+                      onChange={(e) => setEditLabel(e.target.value)}
+                      className="h-7 text-[12px] flex-1"
+                      placeholder="Link label (optional)"
+                      autoFocus
+                    />
+                    <Button size="sm" className="h-7 px-2.5 text-[11px]" onClick={() => saveEdit(link)} disabled={saving}>
+                      <Save className="h-3 w-3 mr-1" />{saving ? "…" : "Save"}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEditingId(null)}>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-[13px] font-semibold truncate">
+                    {link.label || (
+                      <span className="text-muted-foreground font-normal italic">No label</span>
+                    )}
+                  </p>
+                )}
+                {/* UTM params pill row */}
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {[
+                    { k: "source",   v: link.utm_source },
+                    { k: "medium",   v: link.utm_medium },
+                    { k: "campaign", v: link.utm_campaign },
+                    ...(link.utm_content ? [{ k: "content", v: link.utm_content }] : []),
+                    ...(link.utm_term    ? [{ k: "term",    v: link.utm_term }]    : []),
+                  ].map(({ k, v }) => (
+                    <span key={k} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-muted border border-border font-mono">
+                      <span className="text-muted-foreground">{k}:</span>{v}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Stats */}
+              <div className="shrink-0 flex items-center gap-3 text-[11px] text-muted-foreground">
+                {link.has_data ? (
+                  <>
+                    <span className="flex items-center gap-1">
+                      <MousePointerClick className="h-3 w-3" />{link.clicks}
+                    </span>
+                    <span className="flex items-center gap-1 text-emerald-600 font-medium">
+                      <Users className="h-3 w-3" />{link.registrations}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-[10px] bg-muted px-2 py-0.5 rounded-full">No data yet</span>
+                )}
+              </div>
+            </div>
+
+            {/* URL row */}
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-[10px] font-mono bg-muted rounded px-2 py-1.5 truncate border border-border text-muted-foreground">
+                {link.url}
+              </code>
+              <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => copyUrl(link.url)} title="Copy">
+                <Copy className="h-3 w-3" />
+              </Button>
+              <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" asChild title="Open">
+                <a href={link.url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </Button>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 pt-0.5">
+              {editingId !== link.id && (
+                <Button size="sm" variant="outline" className="h-7 px-2.5 text-[11px] gap-1" onClick={() => startEdit(link)}>
+                  <Pencil className="h-3 w-3" /> Edit label
+                </Button>
+              )}
+              {link.has_data ? (
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground ml-auto">
+                  <Lock className="h-2.5 w-2.5" /> Delete locked — has data
+                </span>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2.5 text-[11px] text-destructive hover:bg-destructive/10 gap-1 ml-auto"
+                  onClick={() => deleteLink(link)}
+                  disabled={deletingId === link.id}
+                >
+                  <Trash2 className="h-3 w-3" />
+                  {deletingId === link.id ? "Deleting…" : "Delete"}
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Share-link generator ───────────────────────────────────────────────── */
 
 function ShareLinkGenerator({
-  eventId, eventSlug, orgSlug,
+  eventId, eventSlug, orgSlug, onLinkSaved,
 }: {
   eventId: string;
   eventSlug?: string | null;
   orgSlug?: string | null;
+  onLinkSaved?: () => void;
 }) {
   const [source,   setSource]   = useState("email");
   const [medium,   setMedium]   = useState("transactional");
   const [campaign, setCampaign] = useState(eventSlug || eventId.slice(0, 8));
   const [content,  setContent]  = useState("");
   const [term,     setTerm]     = useState("");
+  const [label,    setLabel]    = useState("");
   const [copied,   setCopied]   = useState(false);
 
   const baseUrl = eventPublicUrl(
@@ -372,11 +589,31 @@ function ShareLinkGenerator({
     });
   }, [baseUrl, source, medium, campaign, content, term]);
 
-  const copy = () => {
+  /** Save the link to utm_links then copy to clipboard. */
+  const copy = async () => {
+    // Upsert into utm_links so the link is stored permanently.
+    if (source && medium && campaign) {
+      await supabase
+        .from("utm_links" as never)
+        .upsert({
+          event_id:     eventId,
+          utm_source:   source,
+          utm_medium:   medium,
+          utm_campaign: campaign,
+          utm_content:  content || null,
+          utm_term:     term    || null,
+          label:        label   || null,
+          url:          trackedUrl,
+        } as never, {
+          onConflict: "event_id,utm_source,utm_medium,utm_campaign",
+        });
+      onLinkSaved?.();
+    }
+
     navigator.clipboard.writeText(trackedUrl)
       .then(() => {
         setCopied(true);
-        toast.success("Link copied");
+        toast.success("Link copied & saved");
         setTimeout(() => setCopied(false), 2000);
       })
       .catch(() => toast.error("Could not copy"));
@@ -443,6 +680,16 @@ function ShareLinkGenerator({
             placeholder="e.g. react-conference"
           />
         </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-[11px]">Link label (optional)</Label>
+          <Input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            className="h-8 text-[12px]"
+            placeholder="e.g. June newsletter CTA"
+          />
+        </div>
       </div>
 
       <div className="flex items-center gap-2">
@@ -453,7 +700,7 @@ function ShareLinkGenerator({
           {copied
             ? <Check className="h-3.5 w-3.5 text-green-500" />
             : <Copy className="h-3.5 w-3.5" />}
-          {copied ? "Copied" : "Copy"}
+          {copied ? "Copied & saved" : "Copy & save"}
         </Button>
         <Button size="sm" variant="ghost" className="h-8 shrink-0" asChild>
           <a href={trackedUrl} target="_blank" rel="noopener noreferrer">
@@ -476,7 +723,9 @@ export default function UtmAnalyticsPage({
   eventSlug?: string | null;
   orgSlug?: string | null;
 }) {
-  /* ── Data ── */
+  const qc = useQueryClient();
+
+  /* ── Analytics data ── */
   const { data: rawRows = [], isLoading } = useQuery<UtmRow[]>({
     queryKey: ["utm-summary", eventId],
     queryFn: async () => {
@@ -489,6 +738,26 @@ export default function UtmAnalyticsPage({
     staleTime: 60_000,
     refetchInterval: 120_000,
   });
+
+  /* ── Saved links ── */
+  const { data: savedLinks = [], refetch: refetchLinks } = useQuery<UtmLink[]>({
+    queryKey: ["utm-links", eventId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("utm_links" as never)
+        .select("*")
+        .eq("event_id", eventId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data as UtmLink[]) ?? [];
+    },
+    staleTime: 30_000,
+  });
+
+  const handleLinkSaved = () => {
+    void refetchLinks();
+    void qc.invalidateQueries({ queryKey: ["utm-summary", eventId] });
+  };
 
   /* ── Filter state ── */
   const [dateRange,      setDateRange]      = useState<DateRange>("all");
@@ -908,8 +1177,16 @@ export default function UtmAnalyticsPage({
         </div>
       )}
 
+      {/* ── Saved links ── */}
+      <SavedLinksSection
+        eventId={eventId}
+        savedRows={savedLinks}
+        analyticsRows={rawRows}
+        onSaved={handleLinkSaved}
+      />
+
       {/* ── Share link generator ── */}
-      <ShareLinkGenerator eventId={eventId} eventSlug={eventSlug} orgSlug={orgSlug} />
+      <ShareLinkGenerator eventId={eventId} eventSlug={eventSlug} orgSlug={orgSlug} onLinkSaved={handleLinkSaved} />
 
     </div>
   );
