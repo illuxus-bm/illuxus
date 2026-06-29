@@ -57,7 +57,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const refreshProfile = async () => {
-    if (user) await loadAccountType(user.id);
+    if (user) {
+      await Promise.all([checkAdminRole(user.id), loadAccountType(user.id)]);
+    }
   };
 
   useEffect(() => {

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { BrowserRouter, Route, Routes, Navigate, useParams, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -473,7 +473,10 @@ function EventShortRedirect() {
  * surface any of the platform-level surfaces (users, orgs, revenue, etc.).
  */
 function DashboardLanding() {
-  const { loading, isAdmin } = useAuth();
+  const { loading, isAdmin, refreshProfile } = useAuth();
+  // Always re-check admin role on landing so a freshly-granted super admin
+  // doesn't need to sign out and back in to see the Control Tower.
+  useEffect(() => { refreshProfile(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (loading) return <FullPageLoader />;
   return <Navigate to={isAdmin ? "/dashboard/admin" : "/dashboard/events"} replace />;
 }
