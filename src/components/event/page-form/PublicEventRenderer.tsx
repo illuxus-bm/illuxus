@@ -553,9 +553,7 @@ function AgendaSec({ data, theme, sessions, speakers }: {
   return (
     <Section theme={theme} id="agenda">
       <SectionHeader title={data.title} intro={data.intro} theme={theme} />
-      {sessions.length === 0 ? (
-        <p className="text-sm opacity-50">Agenda coming soon.</p>
-      ) : (
+      {sessions.length === 0 ? null : (
         <>
           {byDay.length > 1 && (
             <div role="tablist" className="flex flex-wrap gap-2 mb-6">

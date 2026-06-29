@@ -950,18 +950,26 @@ export default function UtmAnalyticsPage({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <MultiSelect
-            label="Source"
-            options={ALL_SOURCES}
-            selected={filterSources}
-            onChange={setFilterSources}
-          />
-          <MultiSelect
-            label="Medium"
-            options={ALL_MEDIUMS}
-            selected={filterMediums}
-            onChange={setFilterMediums}
-          />
+          <div className="space-y-1.5">
+            <Label className="text-[11px]">Source</Label>
+            <Select value={filterSources[0] || "all"} onValueChange={(v) => setFilterSources(v === "all" ? [] : [v])}>
+              <SelectTrigger className="h-8 text-[12px]"><SelectValue placeholder="All sources" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All sources</SelectItem>
+                {ALL_SOURCES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[11px]">Medium</Label>
+            <Select value={filterMediums[0] || "all"} onValueChange={(v) => setFilterMediums(v === "all" ? [] : [v])}>
+              <SelectTrigger className="h-8 text-[12px]"><SelectValue placeholder="All mediums" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All mediums</SelectItem>
+                {ALL_MEDIUMS.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-1.5">
             <Label className="text-[11px]">Campaign search</Label>
             <div className="relative">
