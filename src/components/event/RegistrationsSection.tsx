@@ -148,7 +148,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   } | null>(null);
   const [quickView, setQuickView] = useState<QuickViewRow | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
-  const [attTab, setAttTab] = useState<"all" | "inside" | "outside" | "never">("all");
+  const [attTab, setAttTab] = useState<"all" | "inside" | "outside" | "never" | "pending">("all");
   const [historyFor, setHistoryFor] = useState<{ id: string; name: string } | null>(null);
   const [eventHistoryOpen, setEventHistoryOpen] = useState(false);
   const [sortKey, setSortKey] = useState<"name" | "state" | "last_in" | "last_out" | "minutes" | "ticket">("name");
@@ -443,7 +443,11 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       r.email.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "all" || r.status === statusFilter;
     const matchKind = kindFilter === "all" || r.kind === kindFilter;
-    const matchTab = attTab === "all" || r.attendance_state === attTab;
+    const matchTab =
+      attTab === "all" ||
+      (attTab === "pending"
+        ? r.registration?.approval_status === "pending"
+        : r.attendance_state === attTab);
     return matchSearch && matchStatus && matchKind && matchTab;
   });
 
@@ -474,6 +478,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     total: allRows.length,
     confirmed: registrations.filter((r) => r.status === "confirmed").length,
     pending: registrations.filter((r) => r.status === "pending").length,
+    pendingApprovals: registrations.filter((r) => (r as { approval_status?: string }).approval_status === "pending").length,
     cancelled: registrations.filter((r) => r.status === "cancelled").length,
     checkedIn: registrations.filter((r) => r.checked_in === true).length,
     // REQ-11.5 — single source of truth via `useEventCheckinCounters`.
@@ -596,6 +601,22 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       prev.map((r) => (r.id === row.id ? { ...r, status: newStatus } : r))
     );
     toast.success(`Status set to ${newStatus}`);
+  };
+
+  /** Approve or decline a pending registration (approval_status column). */
+  const updateApprovalStatus = async (row: Row, newApproval: "approved" | "declined") => {
+    const { error } = await supabase
+      .from("registrations")
+      .update({ approval_status: newApproval })
+      .eq("id", row.id);
+    if (error) {
+      toast.error(`Failed to ${newApproval === "approved" ? "approve" : "decline"}`, { description: error.message });
+      return;
+    }
+    setRegistrations((prev) =>
+      prev.map((r) => (r.id === row.id ? { ...r, approval_status: newApproval } : r))
+    );
+    toast.success(newApproval === "approved" ? "Registration approved" : "Registration declined");
   };
 
   /**
@@ -1090,23 +1111,32 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       <div className="flex items-center justify-between gap-2 border-b border-border -mx-1 px-1">
         <div className="flex flex-wrap items-center gap-x-1 gap-y-1 min-w-0">
           {([
-            { key: "all",     label: "All",         count: stats.total },
-            { key: "inside",  label: "Inside now",  count: stats.insideNow },
-            { key: "outside", label: "Checked out", count: stats.outside },
-            { key: "never",   label: "Not arrived", count: stats.notArrived },
+            { key: "all",     label: "All",              count: stats.total },
+            { key: "inside",  label: "Inside now",       count: stats.insideNow },
+            { key: "outside", label: "Checked out",      count: stats.outside },
+            { key: "never",   label: "Not arrived",      count: stats.notArrived },
+            { key: "pending", label: "Pending Approvals", count: stats.pendingApprovals },
           ] as const).map((t) => (
             <button
               key={t.key}
               onClick={() => setAttTab(t.key)}
               className={`relative shrink-0 px-2.5 sm:px-3 py-1.5 text-[12px] font-medium transition-colors -mb-px border-b-2 ${
                 attTab === t.key
-                  ? "text-foreground border-foreground"
+                  ? t.key === "pending"
+                    ? "text-amber-600 border-amber-500"
+                    : "text-foreground border-foreground"
                   : "text-muted-foreground border-transparent hover:text-foreground"
               }`}
             >
               {t.label}
               <span className={`ml-1.5 inline-flex items-center justify-center min-w-[18px] px-1.5 rounded-full text-[10px] tabular-nums ${
-                attTab === t.key ? "bg-foreground text-background" : "bg-muted text-muted-foreground"
+                attTab === t.key
+                  ? t.key === "pending"
+                    ? "bg-amber-500 text-white"
+                    : "bg-foreground text-background"
+                  : t.key === "pending" && t.count > 0
+                    ? "bg-amber-500/20 text-amber-600 font-semibold"
+                    : "bg-muted text-muted-foreground"
               }`}>
                 {t.count}
               </span>
@@ -1268,6 +1298,29 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                     </td>
                     <td className="p-2 sm:p-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-0.5">
+                        {/* Approve / Decline — shown for pending-approval rows */}
+                        {r.registration && r.registration.approval_status === "pending" && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2.5 text-[11px] font-semibold text-emerald-600 border-emerald-500/40 hover:bg-emerald-500/10 gap-1"
+                              title="Approve registration"
+                              onClick={() => updateApprovalStatus(r, "approved")}
+                            >
+                              <CheckCircle className="h-3 w-3" /> Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2.5 text-[11px] font-semibold text-destructive border-destructive/40 hover:bg-destructive/10 gap-1 ml-0.5"
+                              title="Decline registration"
+                              onClick={() => updateApprovalStatus(r, "declined")}
+                            >
+                              <XCircle className="h-3 w-3" /> Decline
+                            </Button>
+                          </>
+                        )}
                         {r.registration && (
                           <Button
                             size="icon"
