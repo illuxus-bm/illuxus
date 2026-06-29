@@ -1,6 +1,6 @@
 import {
   Calendar, Settings, Ticket,
-  Megaphone, FileText, HelpCircle, CreditCard, Shield, Layout, Users,
+  Megaphone, FileText, HelpCircle, CreditCard, Layout, Users,
   Building2, Mic, ChevronsUpDown, Check,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
@@ -54,7 +54,6 @@ export function AppSidebar() {
   const location = useLocation();
   const { org, memberships, setActiveOrg, myRole } = useOrg();
   const planName = PLAN_DETAILS[org?.plan || "free"]?.name || "Free";
-  const { isAdmin } = useAuth();
 
   const adminItems = [
     { title: "Admin Panel", url: "/dashboard/admin", icon: Shield },
@@ -199,20 +198,6 @@ export function AppSidebar() {
         </SidebarGroup>
 
 
-
-        {isAdmin && (
-          <>
-            <SidebarSeparator className="my-2 mx-3" />
-            <SidebarGroup className="py-0">
-              <SidebarGroupLabel className="h-6 text-[10px] uppercase tracking-widest text-destructive/60 font-bold px-3 mb-1">
-                {!collapsed && "Admin"}
-              </SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu className="gap-1 px-1">{renderItems(adminItems)}</SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </>
-        )}
 
         <div className="mt-auto" />
 
