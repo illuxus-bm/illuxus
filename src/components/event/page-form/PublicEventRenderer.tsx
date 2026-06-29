@@ -10,6 +10,7 @@ import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger }
 import { formatPriceOrFree } from "@/lib/currency";
 import { sanitizeHtml } from "@/lib/sanitize-html";
 import { renderRichText } from "@/lib/markdown";
+import { perceivedLuminance } from "@/lib/theme-contrast";
 import type {
   EventPageConfig, EventSection, ThemeConfig,
   HeroData, AboutData, DateVenueData, TicketsData, AgendaData, SpeakersData,
@@ -1120,12 +1121,20 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
     { value: seconds, label: "Seconds" },
   ];
 
+  // STARTS IN label needs contrast-aware colour too — dark primary on dark bg
+  // is invisible. Pick primary when it has enough contrast, else textColor.
+  const labelBgLum = perceivedLuminance(theme.backgroundColor || "#fff");
+  const labelFgLum = perceivedLuminance(theme.primaryColor   || "#000");
+  const labelColor = Math.abs(labelBgLum - labelFgLum) > 0.25
+    ? theme.primaryColor
+    : theme.textColor;
+
   return (
     <Section theme={theme} tone="tinted" id="countdown">
       <div className="max-w-3xl mx-auto text-left">
         <p
           className="text-xs sm:text-sm font-semibold tracking-[0.2em] uppercase mb-4"
-          style={{ color: theme.primaryColor }}
+          style={{ color: labelColor, opacity: 0.85 }}
         >
           {data.title || "Starts in"}
         </p>
@@ -1135,7 +1144,17 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
           aria-label={srLabel}
           className="grid grid-cols-4 gap-3 max-w-3xl mb-4"
         >
-          {cells.map((cell) => (
+          {cells.map((cell) => {
+            // Fall back to textColor when the primary has poor contrast against
+            // the page background — otherwise dark-mode pages with a dark
+            // primaryColor (e.g. navy brand) render unreadable digits.
+            const bgHex = (theme.backgroundColor || "#fff").trim();
+            const fgHex = (theme.primaryColor || "#000").trim();
+            const lumDiff = Math.abs(
+              perceivedLuminance(bgHex) - perceivedLuminance(fgHex),
+            );
+            const digitColor = lumDiff > 0.25 ? theme.primaryColor : theme.textColor;
+            return (
             <div
               key={cell.label}
               className="rounded-2xl border flex flex-col items-center justify-center py-5 px-2 min-w-0"
@@ -1147,7 +1166,7 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
               <p
                 className="font-extrabold tabular-nums leading-none text-3xl sm:text-4xl md:text-5xl"
                 style={{
-                  color: theme.primaryColor,
+                  color: digitColor,
                   fontFamily: theme.fontFamily ? `${theme.fontFamily}, sans-serif` : undefined,
                 }}
               >
@@ -1155,12 +1174,13 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
               </p>
               <p
                 className="text-[10px] uppercase tracking-widest mt-2"
-                style={{ color: theme.textColor, opacity: 0.55 }}
+                style={{ color: theme.textColor, opacity: 0.7 }}
               >
                 {cell.label}
               </p>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </Section>
