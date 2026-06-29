@@ -19,6 +19,7 @@ import type { Tables } from "@/integrations/supabase/types";
 import EventCoverPicker from "@/components/event/EventCoverPicker";
 import EventBannerPicker from "@/components/event/EventBannerPicker";
 import { stripRichText } from "@/lib/markdown";
+import { formatMoney } from "@/lib/currency";
 import { eventPublicPath, eventDashboardPath } from "@/lib/event-routes";
 
 type Event = Tables<"events">;
