@@ -111,7 +111,7 @@
 
       /* ── Design tokens ────────────────────────────────────────── */
       "[data-illuxus-embed]{",
-        "--bg:#ffffff;",
+        "--bg:transparent;",
         "--bg-card:#ffffff;",
         "--border:#e5e7eb;",
         "--text:#111827;",
@@ -124,7 +124,7 @@
       "}",
 
       "[data-illuxus-embed][data-theme=dark]{",
-        "--bg:#0f1117;",
+        "--bg:transparent;",
         "--bg-card:#1e2433;",
         "--border:#2d3748;",
         "--text:#f1f5f9;",
