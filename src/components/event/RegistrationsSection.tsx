@@ -665,6 +665,46 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     }
   };
 
+  /** Bulk approve or decline all currently-selected pending rows. */
+  const bulkUpdateApproval = async (newApproval: "approved" | "declined") => {
+    const targetIds = filtered
+      .filter((r) => selected.has(r.id))
+      .filter((r) => r.registration?.approval_status === "pending")
+      .map((r) => r.id);
+
+    if (targetIds.length === 0) {
+      toast.info("No pending registrations in your selection");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("registrations")
+      .update({ approval_status: newApproval })
+      .in("id", targetIds);
+
+    if (error) {
+      toast.error(`Bulk ${newApproval} failed`, { description: error.message });
+      return;
+    }
+
+    setRegistrations((prev) =>
+      prev.map((r) => (targetIds.includes(r.id) ? { ...r, approval_status: newApproval } : r))
+    );
+    setSelected(new Set());
+    toast.success(
+      newApproval === "approved"
+        ? `${targetIds.length} registration${targetIds.length === 1 ? "" : "s"} approved`
+        : `${targetIds.length} registration${targetIds.length === 1 ? "" : "s"} declined`
+    );
+
+    // Fire confirmation emails for approved rows.
+    if (newApproval === "approved") {
+      for (const id of targetIds) {
+        void supabase.functions.invoke("send-ticket-email", { body: { registration_id: id } });
+      }
+    }
+  };
+
   /**
    * Handler invoked by `<QRScannerDialog>` after every applied scan.
    * Reload the registrations list (the realtime subscription will
@@ -1193,9 +1233,32 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div className="flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-lg px-4 py-2.5">
+        <div className="flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-lg px-4 py-2.5 flex-wrap">
           <span className="text-[13px] font-medium text-primary">{selected.size} selected</span>
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="flex items-center gap-2 ml-auto flex-wrap">
+            {/* Bulk approve / decline — only show when at least one selected
+                row is pending-approval. Keeps the bar uncluttered for the
+                common attendance-check flow. */}
+            {filtered.some((r) => selected.has(r.id) && r.registration?.approval_status === "pending") && (
+              <>
+                <Button
+                  size="sm"
+                  className="h-7 text-[11px] gap-1 bg-emerald-600 hover:bg-emerald-700"
+                  onClick={() => bulkUpdateApproval("approved")}
+                >
+                  <CheckCircle className="h-3 w-3" /> Approve All
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px] gap-1 text-destructive border-destructive/40 hover:bg-destructive/10"
+                  onClick={() => bulkUpdateApproval("declined")}
+                >
+                  <XCircle className="h-3 w-3" /> Decline All
+                </Button>
+                <span className="w-px h-5 bg-border" />
+              </>
+            )}
             <Button size="sm" className="h-7 text-[11px] gap-1 bg-green-600 hover:bg-green-700" onClick={bulkCheckIn}>
               <CheckCircle className="h-3 w-3" /> Check In All
             </Button>
