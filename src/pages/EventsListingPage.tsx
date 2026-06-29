@@ -348,6 +348,11 @@ function EventQuickView({
     event.capacity && event.capacity > 0
       ? Math.max(0, event.capacity - (event.tickets_sold || 0))
       : null;
+  // Event is over once end_date (or start date if no end) has passed.
+  const isEventOver = (() => {
+    const ts = new Date(event.end_date || event.date).getTime();
+    return Number.isFinite(ts) && ts < Date.now();
+  })();
 
   return (
     <Dialog open={!!event} onOpenChange={(o) => !o && onClose()}>
@@ -460,11 +465,17 @@ function EventQuickView({
 
         {/* Sticky footer CTA — always visible, content scrolls behind it */}
         <div className="shrink-0 border-t border-border bg-background p-4">
-          <Button asChild size="lg" className="w-full rounded-xl font-semibold">
-            <Link to={href} onClick={onClose}>
-              {isPaid ? "Get Ticket" : "Register"}
-            </Link>
-          </Button>
+          {isEventOver ? (
+            <Button disabled size="lg" className="w-full rounded-xl font-semibold opacity-50 cursor-not-allowed" variant="outline">
+              Event has ended
+            </Button>
+          ) : (
+            <Button asChild size="lg" className="w-full rounded-xl font-semibold">
+              <Link to={href} onClick={onClose}>
+                {isPaid ? "Get Ticket" : "Register"}
+              </Link>
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
