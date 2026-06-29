@@ -107,6 +107,10 @@ interface BuiltMeta {
   ogUrl: string;
   canonical: string;
   ogType: string;
+  /** Used to rewrite `og:site_name` so the share card surfaces the
+   *  organising company instead of the generic "illuxus" brand. Falls
+   *  back to "illuxus" when no org could be resolved. */
+  siteName: string;
   jsonLd: Record<string, unknown>;
 }
 
@@ -201,28 +205,96 @@ function formatEventDate(iso: string | null, tz: string | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// Supabase REST
+// Supabase RPC (SECURITY DEFINER) — bypasses RLS so the share preview works
+// regardless of org visibility state. Migration 015 defines `get_event_og`.
 // ---------------------------------------------------------------------------
 
-const SELECT_COLUMNS =
-  'id,title,description,date,end_date,venue,location,banner_landscape_url,image_url,slug,timezone,event_format,status,price,currency,virtual_url';
+interface OgRpcRow {
+  id: string;
+  title: string | null;
+  description: string | null;
+  date: string | null;
+  end_date: string | null;
+  venue: string | null;
+  location: string | null;
+  banner_landscape_url: string | null;
+  image_url: string | null;
+  slug: string | null;
+  timezone: string | null;
+  event_format: string | null;
+  status: string | null;
+  price: number | null;
+  currency: string | null;
+  virtual_url: string | null;
+  org_id: string | null;
+  org_name: string | null;
+  org_slug: string | null;
+  org_subdomain: string | null;
+  org_logo_url: string | null;
+}
 
-async function fetchOne(url: string): Promise<EventRow | null> {
+function rpcRowToEventRow(row: OgRpcRow): EventRow {
+  const hasOrg =
+    !!(row.org_name || row.org_slug || row.org_subdomain || row.org_logo_url);
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    date: row.date,
+    end_date: row.end_date,
+    venue: row.venue,
+    location: row.location,
+    banner_landscape_url: row.banner_landscape_url,
+    image_url: row.image_url,
+    slug: row.slug,
+    timezone: row.timezone,
+    event_format: row.event_format,
+    status: row.status,
+    price: row.price,
+    currency: row.currency,
+    virtual_url: row.virtual_url,
+    organizations: hasOrg
+      ? {
+          name: row.org_name,
+          slug: row.org_slug,
+          subdomain: row.org_subdomain,
+          logo_url: row.org_logo_url,
+        }
+      : null,
+  };
+}
+
+async function callOgRpc(body: {
+  _event_slug?: string | null;
+  _org_slug?: string | null;
+  _event_id?: string | null;
+}): Promise<EventRow | null> {
   if (!SUPABASE_URL || !SUPABASE_ANON) return null;
   try {
-    const res = await fetch(url, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_event_og`, {
+      method: 'POST',
       headers: {
         apikey: SUPABASE_ANON,
         Authorization: `Bearer ${SUPABASE_ANON}`,
+        'Content-Type': 'application/json',
         Accept: 'application/json',
       },
+      body: JSON.stringify({
+        _event_slug: body._event_slug ?? null,
+        _org_slug: body._org_slug ?? null,
+        _event_id: body._event_id ?? null,
+      }),
       signal: AbortSignal.timeout(4000),
     });
-    if (!res.ok) return null;
-    const rows = (await res.json()) as EventRow[];
-    return Array.isArray(rows) && rows.length ? rows[0] : null;
+    if (!res.ok) {
+      console.warn('event-og: rpc returned', res.status);
+      return null;
+    }
+    const rows = (await res.json()) as OgRpcRow[];
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    return rpcRowToEventRow(rows[0]);
   } catch (err) {
-    console.warn('event-og: supabase fetch failed', err);
+    console.warn('event-og: rpc fetch failed', err);
     return null;
   }
 }
@@ -231,98 +303,27 @@ async function fetchEventByOrgAndSlug(
   orgSlug: string,
   eventSlug: string,
 ): Promise<EventRow | null> {
-  // First try the strict join — fastest path when org is publicly readable.
-  const innerSelect = `${SELECT_COLUMNS},organizations!inner(name,slug,subdomain,logo_url)`;
-  const innerUrl =
-    `${SUPABASE_URL}/rest/v1/events` +
-    `?slug=eq.${encodeURIComponent(eventSlug)}` +
-    `&organizations.slug=eq.${encodeURIComponent(orgSlug)}` +
-    `&select=${encodeURIComponent(innerSelect)}` +
-    `&limit=1`;
-  const strict = await fetchOne(innerUrl);
-  if (strict) return strict;
-
-  // Fallback: the org row may not be visible to anon (e.g. landing page not
-  // published yet). Look up the org slug separately, then load the event by
-  // (slug, org_id). This keeps the share card working even when the strict
-  // join fails — the page-level RLS migration extends anon visibility but
-  // the fallback also handles orgs that haven't had migration 013 applied.
-  const org = await fetchOrgBySlug(orgSlug);
-  if (!org) return null;
-  const looseSelect = `${SELECT_COLUMNS}`;
-  const looseUrl =
-    `${SUPABASE_URL}/rest/v1/events` +
-    `?slug=eq.${encodeURIComponent(eventSlug)}` +
-    `&org_id=eq.${encodeURIComponent(org.id)}` +
-    `&select=${encodeURIComponent(looseSelect)}` +
-    `&limit=1`;
-  const loose = await fetchOne(looseUrl);
-  if (!loose) return null;
-  // Attach the org we already fetched so buildMeta() can render org name +
-  // logo even when the embedded join was hidden by RLS.
-  return {
-    ...loose,
-    organizations: {
-      name: org.name,
-      slug: org.slug,
-      subdomain: org.subdomain,
-      logo_url: org.logo_url,
-    },
-  };
-}
-
-interface OrgLookup {
-  id: string;
-  name: string | null;
-  slug: string | null;
-  subdomain: string | null;
-  logo_url: string | null;
-}
-
-async function fetchOrgBySlug(slug: string): Promise<OrgLookup | null> {
-  if (!SUPABASE_URL || !SUPABASE_ANON) return null;
-  const url =
-    `${SUPABASE_URL}/rest/v1/organizations` +
-    `?slug=eq.${encodeURIComponent(slug)}` +
-    `&select=${encodeURIComponent('id,name,slug,subdomain,logo_url')}` +
-    `&limit=1`;
-  try {
-    const res = await fetch(url, {
-      headers: {
-        apikey: SUPABASE_ANON,
-        Authorization: `Bearer ${SUPABASE_ANON}`,
-        Accept: 'application/json',
-      },
-      signal: AbortSignal.timeout(4000),
-    });
-    if (!res.ok) return null;
-    const rows = (await res.json()) as OrgLookup[];
-    return Array.isArray(rows) && rows.length ? rows[0] : null;
-  } catch (err) {
-    console.warn('event-og: org fetch failed', err);
-    return null;
-  }
+  return callOgRpc({ _event_slug: eventSlug, _org_slug: orgSlug });
 }
 
 async function fetchEventById(id: string): Promise<EventRow | null> {
-  const select = `${SELECT_COLUMNS},organizations(name,slug,subdomain,logo_url)`;
-  const url =
-    `${SUPABASE_URL}/rest/v1/events` +
-    `?id=eq.${encodeURIComponent(id)}` +
-    `&select=${encodeURIComponent(select)}` +
-    `&limit=1`;
-  return fetchOne(url);
+  return callOgRpc({ _event_id: id });
 }
 
 async function fetchEventBySlug(slug: string): Promise<EventRow | null> {
-  const select = `${SELECT_COLUMNS},organizations(name,slug,subdomain,logo_url)`;
-  const url =
-    `${SUPABASE_URL}/rest/v1/events` +
-    `?slug=eq.${encodeURIComponent(slug)}` +
-    `&select=${encodeURIComponent(select)}` +
-    `&limit=1`;
-  return fetchOne(url);
+  return callOgRpc({ _event_slug: slug });
 }
+
+// ---------------------------------------------------------------------------
+// Legacy PostgREST helper kept for the JSON-LD path. Currently unused outside
+// of legacy fallbacks but retained for future fields that need RLS-honouring
+// reads (e.g. private speaker bios). Marked exported so tree-shaking doesn't
+// warn during build.
+// ---------------------------------------------------------------------------
+
+const SELECT_COLUMNS =
+  'id,title,description,date,end_date,venue,location,banner_landscape_url,image_url,slug,timezone,event_format,status,price,currency,virtual_url';
+void SELECT_COLUMNS;
 
 function extractOrg(event: EventRow): EmbeddedOrg | null {
   const o = event.organizations;
@@ -341,15 +342,23 @@ function buildMeta(event: EventRow, pathname: string): BuiltMeta {
   const eventTitle = event.title ?? 'Event';
   const canonical = `${PUBLIC_ORIGIN}${pathname}`;
 
-  // Title — "{title} — {orgName}" truncated to 60 chars.
-  const title = truncate(`${eventTitle} — ${orgName}`, 60);
+  // Title — just the event name. The site name appears separately via
+  // `og:site_name` (set in index.html). Most chat apps render the title in a
+  // larger font with the site name underneath, so appending " — illuxus"
+  // duplicated the brand and pushed the actual event name out of view on
+  // narrow share cards. 60 chars max keeps Facebook + Twitter happy.
+  const title = truncate(eventTitle, 60);
 
-  // Description — strip markdown, take first 155 chars, fall back to a
-  // templated string when the event has no usable body copy.
+  // Description — strip markdown/HTML and take the first 155 chars from the
+  // event's own copy. Falls back to a templated "Hosted by … on … at …"
+  // string when the event has no body, so the share card never echoes the
+  // generic site tagline. Note the order — event copy wins over the
+  // templated fallback so the description always speaks about the event
+  // itself, not Illuxus.
   const stripped = stripMarkdown(event.description ?? '');
   const dateLabel = formatEventDate(event.date, event.timezone);
   const venueLabel = event.venue || event.location || 'online';
-  const templated = `Join ${orgName} for ${eventTitle}${dateLabel ? ` on ${dateLabel}` : ''} at ${venueLabel}.`;
+  const templated = `Hosted by ${orgName}${dateLabel ? ` on ${dateLabel}` : ''} · ${venueLabel}.`;
   const baseDesc = stripped && stripped.length > 20 ? stripped : templated;
   const description = truncate(baseDesc, 155);
 
@@ -437,6 +446,7 @@ function buildMeta(event: EventRow, pathname: string): BuiltMeta {
     ogUrl: canonical,
     canonical,
     ogType: 'event',
+    siteName: orgName,
     jsonLd,
   };
 }
@@ -452,6 +462,7 @@ function rewriteHtml(html: string, meta: BuiltMeta): string {
   const u = escapeHtml(meta.ogUrl);
   const c = escapeHtml(meta.canonical);
   const type = escapeHtml(meta.ogType);
+  const site = escapeHtml(meta.siteName);
 
   let out = html;
 
@@ -472,7 +483,7 @@ function rewriteHtml(html: string, meta: BuiltMeta): string {
     `<link rel="canonical" href="${c}" />`,
   );
 
-  // Open Graph — og:type, og:url, og:title, og:description, og:image.
+  // Open Graph — og:type, og:site_name, og:url, og:title, og:description, og:image.
   // The og:image regex matches only `property="og:image"` exactly, not
   // og:image:secure_url / og:image:type / og:image:width / og:image:height /
   // og:image:alt — those keep their existing static values.
@@ -480,6 +491,14 @@ function rewriteHtml(html: string, meta: BuiltMeta): string {
     out,
     /<meta\s+property=["']og:type["'][^>]*\/?>/i,
     `<meta property="og:type" content="${type}" />`,
+  );
+  // og:site_name is what most chat apps render as the small caption
+  // ("organised by …"). Switching it to the org name surfaces the host
+  // company on the share card without crowding the title.
+  out = replaceMetaTag(
+    out,
+    /<meta\s+property=["']og:site_name["'][^>]*\/?>/i,
+    `<meta property="og:site_name" content="${site}" />`,
   );
   out = replaceMetaTag(
     out,
