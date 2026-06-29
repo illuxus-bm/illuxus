@@ -8,7 +8,6 @@ import {
   Megaphone,
   QrCode,
   Smartphone,
-  Sparkles,
   Ticket,
   UserCheck,
   Zap,
@@ -143,50 +142,46 @@ function CheckinSyncVisual() {
 }
 
 /**
- * AI-generated profile bio visual for the "Instant Bios" card. A skeletal
- * profile fills in line by line.
+ * UTM attribution preview: top sources with conversion bars animating in.
+ * Mirrors the data shape rendered by the UTM analytics dashboard.
  */
-function InstantBiosVisual() {
+function UtmAttributionVisual() {
+  const sources = [
+    { name: "LinkedIn ads", count: 432, percent: 92, tint: "from-indigo-400/40 to-indigo-600/10" },
+    { name: "Newsletter", count: 318, percent: 68, tint: "from-emerald-400/40 to-emerald-600/10" },
+    { name: "Speaker share", count: 214, percent: 46, tint: "from-pink-400/40 to-pink-600/10" },
+    { name: "Direct", count: 142, percent: 30, tint: "from-amber-400/40 to-amber-600/10" },
+  ];
   return (
     <div className="relative h-[220px] w-full">
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="w-full max-w-[280px] rounded-2xl border border-gray-200 dark:border-white/[0.08] bg-gray-50 dark:bg-white/[0.02] p-4 backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-pink-400/40 to-purple-500/30 ring-1 ring-gray-200 dark:ring-white/10">
-              <Bot className="absolute inset-0 m-auto h-4 w-4 text-pink-600 dark:text-white/80" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-semibold text-gray-900 dark:text-white">Maya Patel</span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-indigo-400/15 px-1.5 py-0.5 text-[8px] font-medium text-indigo-300 ring-1 ring-inset ring-indigo-400/30">
-                  <Sparkles className="h-2 w-2" />
-                  AI bio
-                </span>
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-gray-500 dark:text-white/55">
+              Top sources
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/15 px-1.5 py-0.5 text-[9px] font-medium text-emerald-600 dark:text-emerald-300 ring-1 ring-inset ring-emerald-400/30">
+              <span className="h-1 w-1 rounded-full bg-emerald-500" />
+              Live
+            </span>
+          </div>
+          <div className="space-y-2.5">
+            {sources.map((s, i) => (
+              <div key={s.name}>
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-[10px] font-medium text-gray-700 dark:text-white/75">{s.name}</span>
+                  <span className="text-[10px] font-semibold text-gray-900 dark:text-white">{s.count}</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-white/[0.06]">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    whileInView={{ width: `${s.percent}%` }}
+                    viewport={{ once: true, amount: 0.5 }}
+                    transition={{ duration: 0.8, delay: 0.1 + i * 0.1, ease: "easeOut" }}
+                    className={`h-full rounded-full bg-gradient-to-r ${s.tint}`}
+                  />
+                </div>
               </div>
-              <div className="text-[10px] text-gray-400 dark:text-white/50">Founder · Helios Labs</div>
-            </div>
-          </div>
-          <div className="mt-3 space-y-1.5">
-            {[100, 92, 84, 64].map((width, i) => (
-              <motion.div
-                key={i}
-                initial={{ scaleX: 0, opacity: 0 }}
-                whileInView={{ scaleX: 1, opacity: 1 }}
-                viewport={{ once: true, amount: 0.5 }}
-                transition={{ duration: 0.6, delay: 0.2 + i * 0.15, ease: "easeOut" }}
-                className="h-1.5 origin-left rounded-full bg-gradient-to-r from-gray-200 dark:from-white/15 to-gray-100/50 dark:to-white/[0.04]"
-                style={{ width: `${width}%` }}
-              />
-            ))}
-          </div>
-          <div className="mt-3 flex gap-1.5">
-            {["Robotics", "GTM", "Hardware"].map((tag) => (
-              <span
-                key={tag}
-                className="rounded-md bg-gray-100 dark:bg-white/[0.04] px-1.5 py-0.5 text-[9px] text-gray-500 dark:text-white/65 ring-1 ring-inset ring-gray-200 dark:ring-white/[0.06]"
-              >
-                {tag}
-              </span>
             ))}
           </div>
         </div>
@@ -518,24 +513,25 @@ const FeaturesSection = () => {
               <div className="flex-1">
                 <div className="mb-5 flex items-center gap-2">
                   <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-pink-400/10 px-2.5 text-[10px] font-medium text-pink-600 dark:text-pink-300 ring-1 ring-inset ring-pink-400/20">
-                    <Sparkles className="h-3 w-3" />
-                    AI assist
+                    <Zap className="h-3 w-3" />
+                    Attribution
                   </span>
                 </div>
                 <h3
                   className="text-balance text-[22px] font-semibold leading-tight tracking-[-0.025em] text-gray-900 dark:text-white sm:text-[26px]"
                   style={{ fontFamily: "Poppins, system-ui, sans-serif" }}
                 >
-                  Instant bios for every attendee
+                  Know which campaign brought the seat
                 </h3>
                 <p className="mt-3 max-w-md text-[14px] leading-relaxed text-gray-500 dark:text-white/55">
-                  Pull a clean, conference-ready profile in seconds. Pulls
-                  signals from LinkedIn, talks, prior events, and the attendee's
-                  own bio when available.
+                  Generate UTM links per channel and they lock the moment data
+                  lands. See top sources convert in real time, edit live
+                  campaigns without losing history, and trace every signup back
+                  to where it came from.
                 </p>
               </div>
               <div className="flex-1 sm:max-w-[420px]">
-                <InstantBiosVisual />
+                <UtmAttributionVisual />
               </div>
             </div>
           </BentoCard>
