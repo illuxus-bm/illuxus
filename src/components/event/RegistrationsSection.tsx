@@ -628,15 +628,28 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     if (newApproval === "approved") {
       void supabase.functions
         .invoke("send-ticket-email", { body: { registration_id: row.id } })
-        .then(({ data, error: emailErr }) => {
-          type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string };
-          const result = data as R | null;
+        .then(async ({ data, error: emailErr }) => {
+          type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string; step?: string };
           if (emailErr) {
-            toast.warning("Approval email not sent", {
-              description: emailErr.message ?? "send-ticket-email unreachable",
-            });
+            // Supabase SDK wraps non-2xx responses as `FunctionsHttpError`
+            // with the actual body in `error.context` (a Response). Read it
+            // so we can show the real error instead of the generic
+            // "Edge Function returned a non-2xx status code".
+            let detail = emailErr.message ?? "send-ticket-email unreachable";
+            const ctx = (emailErr as { context?: Response }).context;
+            if (ctx && typeof ctx.text === "function") {
+              try {
+                const txt = await ctx.text();
+                if (txt) {
+                  const parsed = JSON.parse(txt) as Partial<R>;
+                  detail = parsed.error ?? (parsed.step ? `step=${parsed.step}` : detail);
+                }
+              } catch { /* keep generic detail */ }
+            }
+            toast.warning("Approval email not sent", { description: detail });
             return;
           }
+          const result = data as R | null;
           if (result?.error) {
             toast.warning("Approval email not sent", { description: result.error });
             return;

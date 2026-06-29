@@ -231,14 +231,77 @@ async function fetchEventByOrgAndSlug(
   orgSlug: string,
   eventSlug: string,
 ): Promise<EventRow | null> {
-  const select = `${SELECT_COLUMNS},organizations!inner(name,slug,subdomain,logo_url)`;
-  const url =
+  // First try the strict join — fastest path when org is publicly readable.
+  const innerSelect = `${SELECT_COLUMNS},organizations!inner(name,slug,subdomain,logo_url)`;
+  const innerUrl =
     `${SUPABASE_URL}/rest/v1/events` +
     `?slug=eq.${encodeURIComponent(eventSlug)}` +
     `&organizations.slug=eq.${encodeURIComponent(orgSlug)}` +
-    `&select=${encodeURIComponent(select)}` +
+    `&select=${encodeURIComponent(innerSelect)}` +
     `&limit=1`;
-  return fetchOne(url);
+  const strict = await fetchOne(innerUrl);
+  if (strict) return strict;
+
+  // Fallback: the org row may not be visible to anon (e.g. landing page not
+  // published yet). Look up the org slug separately, then load the event by
+  // (slug, org_id). This keeps the share card working even when the strict
+  // join fails — the page-level RLS migration extends anon visibility but
+  // the fallback also handles orgs that haven't had migration 013 applied.
+  const org = await fetchOrgBySlug(orgSlug);
+  if (!org) return null;
+  const looseSelect = `${SELECT_COLUMNS}`;
+  const looseUrl =
+    `${SUPABASE_URL}/rest/v1/events` +
+    `?slug=eq.${encodeURIComponent(eventSlug)}` +
+    `&org_id=eq.${encodeURIComponent(org.id)}` +
+    `&select=${encodeURIComponent(looseSelect)}` +
+    `&limit=1`;
+  const loose = await fetchOne(looseUrl);
+  if (!loose) return null;
+  // Attach the org we already fetched so buildMeta() can render org name +
+  // logo even when the embedded join was hidden by RLS.
+  return {
+    ...loose,
+    organizations: {
+      name: org.name,
+      slug: org.slug,
+      subdomain: org.subdomain,
+      logo_url: org.logo_url,
+    },
+  };
+}
+
+interface OrgLookup {
+  id: string;
+  name: string | null;
+  slug: string | null;
+  subdomain: string | null;
+  logo_url: string | null;
+}
+
+async function fetchOrgBySlug(slug: string): Promise<OrgLookup | null> {
+  if (!SUPABASE_URL || !SUPABASE_ANON) return null;
+  const url =
+    `${SUPABASE_URL}/rest/v1/organizations` +
+    `?slug=eq.${encodeURIComponent(slug)}` +
+    `&select=${encodeURIComponent('id,name,slug,subdomain,logo_url')}` +
+    `&limit=1`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        apikey: SUPABASE_ANON,
+        Authorization: `Bearer ${SUPABASE_ANON}`,
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) return null;
+    const rows = (await res.json()) as OrgLookup[];
+    return Array.isArray(rows) && rows.length ? rows[0] : null;
+  } catch (err) {
+    console.warn('event-og: org fetch failed', err);
+    return null;
+  }
 }
 
 async function fetchEventById(id: string): Promise<EventRow | null> {
@@ -290,12 +353,16 @@ function buildMeta(event: EventRow, pathname: string): BuiltMeta {
   const baseDesc = stripped && stripped.length > 20 ? stripped : templated;
   const description = truncate(baseDesc, 155);
 
-  // OG image — point at the existing supabase `og-event` watermarked PNG
-  // function (commit 60aa037). Fall back to a stored banner or the global
-  // illuxus card if Supabase isn't configured for some reason.
-  const ogImage = SUPABASE_URL
-    ? `${SUPABASE_URL}/functions/v1/og-event?id=${encodeURIComponent(event.id)}`
-    : event.banner_landscape_url || event.image_url || `${PUBLIC_ORIGIN}/og-image.png`;
+  // OG image — prefer the event's actual banner (1200x630-friendly upload
+  // from the event editor). Falls back to the square `image_url`, then to
+  // the global illuxus card. We previously pointed this at a `og-event`
+  // Supabase function that was never deployed, so the share card showed
+  // no image at all. Using the stored banner means crawlers get a real
+  // event-specific picture immediately, with no extra services required.
+  const ogImage =
+    event.banner_landscape_url ||
+    event.image_url ||
+    `${PUBLIC_ORIGIN}/og-image.png`;
 
   // schema.org Event JSON-LD.
   const format = event.event_format;
@@ -439,6 +506,14 @@ function rewriteHtml(html: string, meta: BuiltMeta): string {
     out,
     /<meta\s+property=["']og:image:secure_url["'][^>]*\/?>/i,
     `<meta property="og:image:secure_url" content="${img}" />`,
+  );
+  // og:image:alt is content-specific now; use the event title as alt text
+  // so screen-reader-aware crawlers (and accessibility-friendly clients)
+  // get a meaningful label instead of the generic site card.
+  out = replaceMetaTag(
+    out,
+    /<meta\s+property=["']og:image:alt["'][^>]*\/?>/i,
+    `<meta property="og:image:alt" content="${t}" />`,
   );
 
   // Twitter — twitter:card, twitter:title, twitter:description, twitter:image.

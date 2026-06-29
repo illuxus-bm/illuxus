@@ -201,10 +201,15 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
       timezone: form.timezone || null,
     };
 
-    let { error } = await supabase
+    // We chain `.select()` so the response includes the rows that were
+    // actually updated. Supabase does NOT raise an error when RLS hides a
+    // row — it just returns an empty `data`. Without this check the UI
+    // would happily show "saved" while nothing changed in the DB.
+    let { data: updated, error } = await supabase
       .from("events")
       .update(fullPayload as never)
-      .eq("id", eventId);
+      .eq("id", eventId)
+      .select("id");
 
     // If the full save fails due to a missing column (migrations not yet applied),
     // fall back to the core-only save so the user isn't completely blocked.
@@ -212,9 +217,11 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
       const fallback = await supabase
         .from("events")
         .update(corePayload as never)
-        .eq("id", eventId);
+        .eq("id", eventId)
+        .select("id");
       error = fallback.error;
-      if (!fallback.error) {
+      updated = fallback.data ?? null;
+      if (!fallback.error && (fallback.data?.length ?? 0) > 0) {
         toast({
           title: "Event updated (partial)",
           description: "Core details saved. Community / series options need a DB migration — apply migrations 008 and 009 in your Supabase dashboard to enable them.",
@@ -228,21 +235,47 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
     setSaving(false);
     if (error) {
       toast({ title: "Save failed", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Event updated", description: "Your changes are live." });
-      onSaved?.();
+      return;
     }
+
+    if (!updated || updated.length === 0) {
+      // Hit only when RLS silently rejects the UPDATE — typically a member
+      // with insufficient role, or an event still owned by a deleted user.
+      // Surface a real error so the user isn't tricked by a green toast.
+      toast({
+        title: "Save blocked by permissions",
+        description:
+          "Your role can view this event but can't change it. Ask the workspace owner or an admin to update your access, then reload.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({ title: "Event updated", description: "Your changes are live." });
+    onSaved?.();
   };
 
   const deleteEvent = async () => {
     if (!confirm("Delete this event permanently? This cannot be undone.")) return;
-    const { error } = await supabase.from("events").delete().eq("id", eventId);
+    const { data: deleted, error } = await supabase
+      .from("events")
+      .delete()
+      .eq("id", eventId)
+      .select("id");
     if (error) {
       toast({ title: "Delete failed", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Event deleted" });
-      navigate("/dashboard/events");
+      return;
     }
+    if (!deleted || deleted.length === 0) {
+      toast({
+        title: "Delete blocked by permissions",
+        description: "Your role isn't allowed to delete this event. Ask the workspace owner.",
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({ title: "Event deleted" });
+    navigate("/dashboard/events");
   };
 
   if (loading || !form) {

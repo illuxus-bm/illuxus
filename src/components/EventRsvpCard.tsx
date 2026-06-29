@@ -269,27 +269,31 @@ export default function EventRsvpCard({
       // always view their ticket at /t/<id> even without the email. We DO
       // surface failures via a discreet warning toast so the user (and we)
       // can tell the function isn't responding instead of silently swallowing
-      // every error.
+      // every error. Reads `error.context` (the response body) on non-2xx
+      // so the real backend error is shown, not the SDK's generic message.
       if (finalState !== "waitlisted") {
         void supabase.functions
           .invoke("send-ticket-email", { body: { registration_id: data.id } })
-          .then(({ data: emailData, error: emailErr }) => {
-            type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string };
-            const result = emailData as R | null;
+          .then(async ({ data: emailData, error: emailErr }) => {
+            type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string; step?: string };
             if (emailErr) {
-              toast({
-                title: "Ticket email not sent",
-                description: emailErr.message ?? "Edge function unreachable. Deploy send-ticket-email.",
-                variant: "destructive",
-              });
+              let detail = emailErr.message ?? "Edge function unreachable. Deploy send-ticket-email.";
+              const ctx = (emailErr as { context?: Response }).context;
+              if (ctx && typeof ctx.text === "function") {
+                try {
+                  const txt = await ctx.text();
+                  if (txt) {
+                    const parsed = JSON.parse(txt) as Partial<R>;
+                    detail = parsed.error ?? (parsed.step ? `step=${parsed.step}` : detail);
+                  }
+                } catch { /* keep generic detail */ }
+              }
+              toast({ title: "Ticket email not sent", description: detail, variant: "destructive" });
               return;
             }
+            const result = emailData as R | null;
             if (result?.error) {
-              toast({
-                title: "Ticket email not sent",
-                description: result.error,
-                variant: "destructive",
-              });
+              toast({ title: "Ticket email not sent", description: result.error, variant: "destructive" });
               return;
             }
             if (result?.delivered === false) {

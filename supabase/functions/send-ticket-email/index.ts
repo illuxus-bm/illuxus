@@ -94,11 +94,13 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-// ── QR code via Google Charts API ─────────────────────────────────────────
+// ── QR code via qrserver.com API ──────────────────────────────────────────
 // Encodes the QR value as a 240×240 PNG URL. No npm package needed.
+// Note: Google Charts API (chart.googleapis.com) was deprecated and shut down.
+// goqr.me's api.qrserver.com is a free, hotlink-friendly replacement.
 function qrCodeUrl(value: string): string {
   const encoded = encodeURIComponent(value);
-  return `https://chart.googleapis.com/chart?cht=qr&chs=240x240&chl=${encoded}&choe=UTF-8`;
+  return `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encoded}`;
 }
 
 // ── HTML email template ─────────────────────────────────────────────────────

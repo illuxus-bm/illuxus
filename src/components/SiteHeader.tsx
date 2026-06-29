@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrg } from "@/contexts/OrgContext";
 import { usePortalAccess } from "@/hooks/usePortalAccess";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useEffect, useState } from "react";
@@ -57,6 +58,7 @@ export default function SiteHeader({
   landingMode?: boolean;
 }) {
   const { user, signOut, accountType, isAdmin } = useAuth();
+  const { memberships, myRole } = useOrg();
   const { data: portalAccess } = usePortalAccess();
   const { content } = useSiteContent();
   const navigate = useNavigate();
@@ -236,9 +238,16 @@ export default function SiteHeader({
                 <DropdownMenuItem asChild>
                   <Link to="/community"><Users2 className="h-3.5 w-3.5 mr-2" /> Community</Link>
                 </DropdownMenuItem>
-                {(accountType === "organizer" || isAdmin) && (
+                {(accountType === "organizer" || isAdmin || memberships.length > 0) && (
                   <DropdownMenuItem asChild>
-                    <Link to="/dashboard"><CalendarDays className="h-3.5 w-3.5 mr-2" /> Organizer dashboard</Link>
+                    <Link to="/dashboard">
+                      <CalendarDays className="h-3.5 w-3.5 mr-2" />
+                      {accountType === "organizer" || isAdmin
+                        ? "Organizer dashboard"
+                        : myRole && myRole !== "owner"
+                          ? `Workspace · ${myRole}`
+                          : "Workspace dashboard"}
+                    </Link>
                   </DropdownMenuItem>
                 )}
                 {(portalAccess?.has_speaker || accountType === "attendee" || accountType === "organizer" || isAdmin) && (

@@ -187,12 +187,19 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <AuthOrgGate><ProfileGate>{children}</ProfileGate></AuthOrgGate>;
 };
 
-// Attendees can't access organizer dashboard pages — redirect them to their tickets.
+// Attendees can't access organizer dashboard pages — UNLESS they've been
+// invited to a workspace (org_members row). Invited members keep their
+// `accountType = 'attendee'` until they choose to upgrade, but they still
+// need dashboard access for the workspace they belong to.
 const OrganizerRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading, accountType, isAdmin } = useAuth();
-  if (loading) return <FullPageLoader />;
+  const { memberships, loading: orgLoading } = useOrg();
+  if (loading || orgLoading) return <FullPageLoader />;
   if (!user) return <Navigate to="/login" replace />;
-  if (accountType === "attendee" && !isAdmin) return <Navigate to="/my/tickets" replace />;
+  const isWorkspaceMember = memberships.length > 0;
+  if (accountType === "attendee" && !isAdmin && !isWorkspaceMember) {
+    return <Navigate to="/my/tickets" replace />;
+  }
   return <AuthOrgGate><ProfileGate>{children}</ProfileGate></AuthOrgGate>;
 };
 
@@ -223,11 +230,16 @@ const AuthOrgGate = ({ children }: { children: React.ReactNode }) => {
 };
 
 const OnboardingGuard = ({ children }: { children: React.ReactNode }) => {
-  const { loading, onboardingCompleted, org } = useOrg();
+  const { loading, onboardingCompleted, org, memberships } = useOrg();
   const { accountType, isAdmin } = useAuth();
   if (loading) return <FullPageLoader />;
+  const isWorkspaceMember = memberships.length > 0;
   // Attendees never go through organizer onboarding — push them to their tickets page.
-  if (accountType === "attendee" && !isAdmin) return <Navigate to="/my/tickets" replace />;
+  // EXCEPT when they've been invited to a workspace; they already have an org and
+  // shouldn't be punted out of the dashboard they just got access to.
+  if (accountType === "attendee" && !isAdmin && !isWorkspaceMember) {
+    return <Navigate to="/my/tickets" replace />;
+  }
   // Super admins (platform owners) don't need an org — they manage the whole SaaS.
   // Without this bypass they'd get bounced into the organizer onboarding flow.
   if (isAdmin) return <>{children}</>;

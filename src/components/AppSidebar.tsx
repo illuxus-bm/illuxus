@@ -54,6 +54,22 @@ export function AppSidebar() {
   const { org, memberships, setActiveOrg, myRole } = useOrg();
   const planName = PLAN_DETAILS[org?.plan || "free"]?.name || "Free";
 
+  // Role-based nav scoping. Viewers can only read — hide the write-heavy
+  // surfaces (marketing campaigns, landing page editor, billing) so the
+  // sidebar matches what they're actually allowed to do. RLS migration 012
+  // enforces the same on the server. Owner / admin / member see everything;
+  // unknown / null roles default to the safe "everything visible" path so
+  // legacy attendee+organizer flows continue to work.
+  const role = myRole ?? "owner";
+  const isViewer = role === "viewer";
+  const isOwnerOrAdmin = role === "owner" || role === "admin";
+
+  const visibleManageItems = isViewer ? [] : manageItems;
+  const visibleBottomItems = bottomItems.filter((item) => {
+    if (item.title === "Billing") return isOwnerOrAdmin;
+    return true;
+  });
+
   const isActive = (path: string) => {
     // Events lives at /dashboard/events but / dashboard is the home redirect
     if (path === "/dashboard/events") {
@@ -183,14 +199,16 @@ export function AppSidebar() {
 
         <SidebarSeparator className="my-2 mx-3" />
 
-        <SidebarGroup className="py-0">
-          <SidebarGroupLabel className="h-6 text-[10px] uppercase tracking-widest text-muted-foreground/60 font-bold px-3 mb-1">
-            {!collapsed && "Manage"}
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-1 px-1">{renderItems(manageItems)}</SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {visibleManageItems.length > 0 && (
+          <SidebarGroup className="py-0">
+            <SidebarGroupLabel className="h-6 text-[10px] uppercase tracking-widest text-muted-foreground/60 font-bold px-3 mb-1">
+              {!collapsed && "Manage"}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-1 px-1">{renderItems(visibleManageItems)}</SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
 
 
@@ -200,7 +218,7 @@ export function AppSidebar() {
 
         <SidebarGroup className="py-0 pb-1">
           <SidebarGroupContent>
-            <SidebarMenu className="gap-1 px-1">{renderItems(bottomItems)}</SidebarMenu>
+            <SidebarMenu className="gap-1 px-1">{renderItems(visibleBottomItems)}</SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>

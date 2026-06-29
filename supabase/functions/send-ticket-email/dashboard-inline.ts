@@ -1,17 +1,22 @@
 // send-ticket-email — Dashboard-deployable version (no _shared imports).
 // Paste this whole file into the Supabase Dashboard editor for the
 // `send-ticket-email` function and click Deploy.
-//
-// Required edge function secrets:
-//   SMTP_HOST       e.g. smtp.gmail.com
-//   SMTP_PORT       465 (SSL)  or  587 (STARTTLS)
-//   SMTP_USERNAME   full mailbox you authenticate with
-//   SMTP_PASSWORD   Gmail App Password (16 chars, NOT regular password)
-//   SMTP_FROM       optional: "Illuxus <noreply@yourdomain.com>"
-//   PUBLIC_DOMAIN   optional: canonical public origin for the ticket URL
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+
+// ── Logging ─────────────────────────────────────────────────────────────────
+// Every meaningful branch logs to console.error / .info so Supabase's
+// function logs show exactly which step failed when delivery fails.
+
+function logInfo(msg: string, fields: Record<string, unknown> = {}) {
+  // deno-lint-ignore no-console
+  console.info(JSON.stringify({ level: "info", fn: "send-ticket-email", msg, ...fields }));
+}
+function logError(msg: string, fields: Record<string, unknown> = {}) {
+  // deno-lint-ignore no-console
+  console.error(JSON.stringify({ level: "error", fn: "send-ticket-email", msg, ...fields }));
+}
 
 // ── CORS ────────────────────────────────────────────────────────────────────
 
@@ -59,19 +64,12 @@ function handlePreflight(req: Request, cors: Record<string, string>): Response |
 
 // ── SMTP helpers ────────────────────────────────────────────────────────────
 
-interface SmtpInput {
-  from: string;
-  to: string;
-  subject: string;
-  html: string;
-  text: string;
-}
-
 function smtpConfigured(): boolean {
-  const host = Deno.env.get("SMTP_HOST");
-  const user = Deno.env.get("SMTP_USERNAME");
-  const pass = Deno.env.get("SMTP_PASSWORD");
-  return Boolean(host && user && pass);
+  return Boolean(
+    Deno.env.get("SMTP_HOST") &&
+    Deno.env.get("SMTP_USERNAME") &&
+    Deno.env.get("SMTP_PASSWORD")
+  );
 }
 
 function defaultFromAddress(): string {
@@ -81,19 +79,18 @@ function defaultFromAddress(): string {
     Deno.env.get("RESEND_FROM");
   const username = Deno.env.get("SMTP_USERNAME") ?? "";
   const value = explicit || username || "Illuxus <noreply@example.com>";
-  if (value.indexOf("<") >= 0) return value;
-  return "Illuxus <" + value + ">";
+  return value.indexOf("<") >= 0 ? value : "Illuxus <" + value + ">";
 }
 
-async function sendViaSmtp(input: SmtpInput): Promise<{ ok: true } | { ok: false; error: string }> {
+async function sendViaSmtp(input: {
+  from: string; to: string; subject: string; html: string; text: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
   let client: SMTPClient | null = null;
   try {
     const host = Deno.env.get("SMTP_HOST") ?? "";
-    const portRaw = Deno.env.get("SMTP_PORT") ?? "465";
-    const port = Number(portRaw) || 465;
+    const port = Number(Deno.env.get("SMTP_PORT") ?? "465") || 465;
     const username = Deno.env.get("SMTP_USERNAME") ?? "";
     const password = Deno.env.get("SMTP_PASSWORD") ?? "";
-
     client = new SMTPClient({
       connection: {
         hostname: host,
@@ -102,7 +99,6 @@ async function sendViaSmtp(input: SmtpInput): Promise<{ ok: true } | { ok: false
         auth: { username, password },
       },
     });
-
     await client.send({
       from: input.from,
       to: [input.to],
@@ -110,18 +106,13 @@ async function sendViaSmtp(input: SmtpInput): Promise<{ ok: true } | { ok: false
       content: input.text,
       html: input.html,
     });
-
     return { ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, error: msg.slice(0, 500) };
   } finally {
     if (client) {
-      try {
-        await client.close();
-      } catch {
-        // noop — server may have already closed the socket
-      }
+      try { await client.close(); } catch { /* noop */ }
     }
   }
 }
@@ -138,28 +129,22 @@ function escapeHtml(s: string): string {
 
 function formatDateInTz(iso: string, tz: string | null): string {
   try {
-    const fmt = new Intl.DateTimeFormat("en-IN", {
+    return new Intl.DateTimeFormat("en-IN", {
       timeZone: tz || "UTC",
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
-    return fmt.format(new Date(iso));
-  } catch {
-    return iso;
-  }
+      weekday: "short", day: "numeric", month: "short", year: "numeric",
+      hour: "numeric", minute: "2-digit", hour12: true,
+    }).format(new Date(iso));
+  } catch { return iso; }
 }
 
 function qrCodeUrl(value: string): string {
-  const encoded = encodeURIComponent(value);
+  // QR codes generated via api.qrserver.com — Google's deprecated chart API
+  // (chart.googleapis.com) was shut down in 2024 and silently returns broken
+  // images. qrserver.com has been running stably since 2012 and matches
+  // Google's old API surface (size + data params), so swapping in is safe.
   return (
-    "https://chart.googleapis.com/chart?cht=qr&chs=240x240&chl=" +
-    encoded +
-    "&choe=UTF-8"
+    "https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=" +
+    encodeURIComponent(value)
   );
 }
 
@@ -202,87 +187,58 @@ function buildHtml(ctx: EmailContext): string {
     "</strong></td></tr></table>";
 
   const bannerBlock = ctx.bannerUrl
-    ? '<img src="' +
-      escapeHtml(ctx.bannerUrl) +
-      '" alt="' +
-      escapeHtml(ctx.eventTitle) +
+    ? '<img src="' + escapeHtml(ctx.bannerUrl) +
+      '" alt="' + escapeHtml(ctx.eventTitle) +
       '" width="560" style="width:100%;max-width:560px;display:block;border-radius:8px 8px 0 0;" />'
     : '<div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);height:120px;border-radius:8px 8px 0 0;"></div>';
 
-  const qrBlock = isPending
-    ? ""
-    : '<div style="margin:24px 0;text-align:center;">' +
-      '<p style="font-size:12px;color:#6b7280;margin:0 0 8px;">Scan at the venue for check-in</p>' +
-      '<img src="' +
-      qrCodeUrl(ctx.qrValue) +
-      '" alt="QR code" width="160" height="160" style="display:inline-block;border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#fff;" />' +
-      '<p style="font-size:11px;color:#9ca3af;margin:8px 0 0;font-family:monospace;">' +
-      escapeHtml(ctx.registrationId.slice(0, 8).toUpperCase()) +
-      "</p>" +
-      "</div>";
+  const qrBlock = isPending ? "" :
+    '<div style="margin:24px 0;text-align:center;">' +
+    '<p style="font-size:12px;color:#6b7280;margin:0 0 8px;">Scan at the venue for check-in</p>' +
+    '<img src="' + qrCodeUrl(ctx.qrValue) +
+    '" alt="QR code" width="160" height="160" style="display:inline-block;border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#fff;" />' +
+    '<p style="font-size:11px;color:#9ca3af;margin:8px 0 0;font-family:monospace;">' +
+    escapeHtml(ctx.registrationId.slice(0, 8).toUpperCase()) +
+    "</p></div>";
 
   const dateRow = ctx.dateText
-    ? '<tr><td style="padding:4px 0;font-size:13px;color:#6b7280;width:20px;vertical-align:top;">📅</td>' +
-      '<td style="padding:4px 0 4px 8px;font-size:13px;color:#374151;">' +
-      escapeHtml(ctx.dateText) +
-      "</td></tr>"
+    ? '<tr><td style="padding:4px 0;font-size:13px;color:#6b7280;width:20px;vertical-align:top;">📅</td><td style="padding:4px 0 4px 8px;font-size:13px;color:#374151;">' +
+      escapeHtml(ctx.dateText) + "</td></tr>"
     : "";
-
   const venueRow = ctx.venueText
-    ? '<tr><td style="padding:4px 0;font-size:13px;color:#6b7280;vertical-align:top;">📍</td>' +
-      '<td style="padding:4px 0 4px 8px;font-size:13px;color:#374151;">' +
-      escapeHtml(ctx.venueText) +
-      "</td></tr>"
+    ? '<tr><td style="padding:4px 0;font-size:13px;color:#6b7280;vertical-align:top;">📍</td><td style="padding:4px 0 4px 8px;font-size:13px;color:#374151;">' +
+      escapeHtml(ctx.venueText) + "</td></tr>"
     : "";
 
   return (
     '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" />' +
     '<meta name="viewport" content="width=device-width,initial-scale=1" />' +
-    "<title>Your ticket for " +
-    escapeHtml(ctx.eventTitle) +
-    "</title></head>" +
+    "<title>Your ticket for " + escapeHtml(ctx.eventTitle) + "</title></head>" +
     '<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">' +
     '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;"><tr><td align="center">' +
     '<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);">' +
-    "<tr><td>" +
-    bannerBlock +
-    "</td></tr>" +
+    "<tr><td>" + bannerBlock + "</td></tr>" +
     '<tr><td style="padding:28px 32px 24px;">' +
-    '<div style="display:inline-block;background:' +
-    statusColor +
-    "1a;color:" +
-    statusColor +
+    '<div style="display:inline-block;background:' + statusColor + "1a;color:" + statusColor +
     ';font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;margin-bottom:16px;text-transform:uppercase;letter-spacing:.06em;">' +
-    escapeHtml(statusLabel) +
-    "</div>" +
+    escapeHtml(statusLabel) + "</div>" +
     '<p style="font-size:22px;font-weight:700;color:#111827;margin:0 0 4px;">' +
-    (isPending ? "Application Received!" : "You're going!") +
-    "</p>" +
+    (isPending ? "Application Received!" : "You're going!") + "</p>" +
     '<p style="font-size:15px;color:#4b5563;margin:0 0 20px;">Hi <strong>' +
-    escapeHtml(firstName) +
-    "</strong>, " +
-    statusMsg +
-    "</p>" +
+    escapeHtml(firstName) + "</strong>, " + statusMsg + "</p>" +
     '<p style="font-size:20px;font-weight:700;color:#111827;margin:0 0 4px;">' +
-    escapeHtml(ctx.eventTitle) +
-    "</p>" +
-    orgBlock +
+    escapeHtml(ctx.eventTitle) + "</p>" + orgBlock +
     '<table cellpadding="0" cellspacing="0" width="100%" style="background:#f9fafb;border-radius:6px;padding:16px;margin-bottom:20px;">' +
-    dateRow +
-    venueRow +
-    "</table>" +
-    qrBlock +
+    dateRow + venueRow + "</table>" + qrBlock +
     '<div style="text-align:center;margin:8px 0 24px;">' +
-    '<a href="' +
-    escapeHtml(ctx.ticketUrl) +
+    '<a href="' + escapeHtml(ctx.ticketUrl) +
     '" style="display:inline-block;background:#4f46e5;color:#fff;font-size:14px;font-weight:600;padding:12px 32px;border-radius:6px;text-decoration:none;">View your ticket →</a>' +
     "</div>" +
     '<p style="font-size:12px;color:#9ca3af;margin:0;text-align:center;">If you have questions, contact the organiser or reply to this email.</p>' +
     "</td></tr>" +
     '<tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 32px;text-align:center;">' +
     '<p style="font-size:11px;color:#9ca3af;margin:0;">Powered by <strong style="color:#6b7280;">illuxus</strong></p>' +
-    "</td></tr>" +
-    "</table></td></tr></table></body></html>"
+    "</td></tr></table></td></tr></table></body></html>"
   );
 }
 
@@ -299,16 +255,32 @@ Deno.serve(async (req) => {
       headers: { ...cors, "Content-Type": "application/json" },
     });
 
+  let step = "init";
   try {
-    const payload = (await req.json()) as { registration_id?: string };
-    const registrationId = payload.registration_id;
-    if (!registrationId) return json({ error: "registration_id is required" }, 400);
+    step = "parse-body";
+    let registrationId: string | undefined;
+    try {
+      const payload = (await req.json()) as { registration_id?: string };
+      registrationId = payload.registration_id;
+    } catch (e) {
+      logError("invalid json body", { error_message: e instanceof Error ? e.message : String(e) });
+      return json({ error: "Invalid JSON body", step }, 400);
+    }
+    if (!registrationId) {
+      logError("missing registration_id");
+      return json({ error: "registration_id is required", step }, 400);
+    }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-    );
+    step = "create-client";
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceKey) {
+      logError("missing supabase env", { hasUrl: !!supabaseUrl, hasKey: !!serviceKey });
+      return json({ error: "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing", step }, 500);
+    }
+    const supabase = createClient(supabaseUrl, serviceKey);
 
+    step = "load-registration";
     const { data: reg, error: regErr } = await supabase
       .from("registrations")
       .select(
@@ -317,30 +289,33 @@ Deno.serve(async (req) => {
       .eq("id", registrationId)
       .maybeSingle();
 
-    if (regErr || !reg) {
-      return json({ error: "Registration not found" }, 404);
+    if (regErr) {
+      logError("registration query failed", { registration_id: registrationId, error_message: regErr.message });
+      return json({ error: "Query failed: " + regErr.message, step }, 500);
+    }
+    if (!reg) {
+      logError("registration not found", { registration_id: registrationId });
+      return json({ error: "Registration not found", step }, 404);
     }
 
     const recipient = String(reg.email ?? "").trim().toLowerCase();
-    if (!recipient) return json({ error: "Registration has no email" }, 400);
+    if (!recipient) {
+      logError("registration has no email", { registration_id: registrationId });
+      return json({ error: "Registration has no email", step }, 400);
+    }
 
+    step = "build-email";
     type OrgRow = { name?: string | null; logo_url?: string | null } | null;
     type EventRow = {
-      id: string;
-      title: string;
-      slug?: string | null;
-      date?: string | null;
-      timezone?: string | null;
-      venue?: string | null;
-      location?: string | null;
-      image_url?: string | null;
-      banner_landscape_url?: string | null;
+      id: string; title: string; slug?: string | null;
+      date?: string | null; timezone?: string | null;
+      venue?: string | null; location?: string | null;
+      image_url?: string | null; banner_landscape_url?: string | null;
       organizations?: OrgRow;
     } | null;
 
     const ev = reg.events as EventRow;
     const org = (ev && ev.organizations) as OrgRow;
-
     const eventTitle = (ev && ev.title) ? ev.title : "the event";
     const orgName = (org && org.name) ? org.name : "The organising team";
     const orgLogo = (org && org.logo_url) ? org.logo_url : null;
@@ -365,57 +340,62 @@ Deno.serve(async (req) => {
     const ticketUrl = base + "/t/" + regId;
 
     const html = buildHtml({
-      attendeeName,
-      eventTitle,
-      orgName,
-      orgLogoUrl: orgLogo,
-      dateText,
-      venueText,
-      bannerUrl,
-      qrValue,
-      registrationId: regId,
-      ticketUrl,
-      approvalStatus,
+      attendeeName, eventTitle, orgName, orgLogoUrl: orgLogo,
+      dateText, venueText, bannerUrl, qrValue,
+      registrationId: regId, ticketUrl, approvalStatus,
     });
 
     const isPending = approvalStatus === "pending";
     const subject = isPending
       ? "Application received: " + eventTitle
       : "Your ticket for " + eventTitle;
-
-    const textBodyLines = [
+    const textLines = [
       "Hi " + (attendeeName.split(" ")[0] || attendeeName) + ",",
       isPending
         ? 'Your application for "' + eventTitle + '" is pending approval.'
         : 'Your registration for "' + eventTitle + '" is confirmed!',
     ];
-    if (dateText)  textBodyLines.push("When: " + dateText);
-    if (venueText) textBodyLines.push("Where: " + venueText);
-    textBodyLines.push("View your ticket: " + ticketUrl);
-    if (!isPending) textBodyLines.push("QR code: " + qrValue);
-    textBodyLines.push("— " + orgName);
-    const textBody = textBodyLines.join("\n\n");
+    if (dateText) textLines.push("When: " + dateText);
+    if (venueText) textLines.push("Where: " + venueText);
+    textLines.push("View your ticket: " + ticketUrl);
+    if (!isPending) textLines.push("QR code: " + qrValue);
+    textLines.push("— " + orgName);
+    const textBody = textLines.join("\n\n");
 
+    step = "check-smtp-config";
     if (!smtpConfigured()) {
-      return json({ ok: true, delivered: false, note: "SMTP not configured" });
+      logError("SMTP not configured", {
+        hasHost: !!Deno.env.get("SMTP_HOST"),
+        hasUser: !!Deno.env.get("SMTP_USERNAME"),
+        hasPass: !!Deno.env.get("SMTP_PASSWORD"),
+      });
+      return json({
+        ok: true, delivered: false,
+        note: "SMTP not configured — set SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD in Supabase Edge Function secrets.",
+        step,
+      });
     }
 
+    step = "smtp-send";
+    logInfo("sending ticket email", { registration_id: regId, recipient, subject });
     const from = defaultFromAddress();
     const result = await sendViaSmtp({
-      from,
-      to: recipient,
-      subject,
-      html,
-      text: textBody,
+      from, to: recipient, subject, html, text: textBody,
     });
 
-    if (result.ok === false) return json({ ok: false, error: result.error }, 500);
+    if (result.ok === false) {
+      logError("smtp send failed", {
+        registration_id: regId, recipient, error_message: result.error,
+      });
+      return json({ ok: false, error: "SMTP: " + result.error, step }, 500);
+    }
+
+    logInfo("ticket email sent", { registration_id: regId, recipient });
     return json({ ok: true, delivered: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
-      headers: { ...cors, "Content-Type": "application/json" },
-    });
+    const stack = err instanceof Error ? err.stack : undefined;
+    logError("unhandled error", { step, error_message: msg, error_stack: stack });
+    return json({ error: msg, step }, 500);
   }
 });
