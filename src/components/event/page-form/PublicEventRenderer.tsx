@@ -552,7 +552,7 @@ function AgendaSec({ data, theme, sessions, speakers }: {
 
   return (
     <Section theme={theme} id="agenda">
-      <SectionHeader title={data.title} intro={data.intro} theme={theme} />
+      <SectionHeader title={data.title || "Agenda"} intro={data.intro} theme={theme} />
       {sessions.length === 0 ? null : (
         <>
           {byDay.length > 1 && (
@@ -655,7 +655,7 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
   const [selected, setSelected] = useState<RendererSpeaker | null>(null);
   return (
     <Section theme={theme} id="speakers">
-      <SectionHeader title={data.title} intro={data.intro} theme={theme} />
+      <SectionHeader title={data.title || "Speakers"} intro={data.intro} theme={theme} />
       {speakers.length === 0 ? (
         <p className="text-sm opacity-50">Speakers will be announced soon.</p>
       ) : (
@@ -753,7 +753,7 @@ function SponsorsSec({ data, theme, sponsors }: { data: SponsorsData; theme: The
 
   return (
     <Section theme={theme} id="sponsors">
-      <SectionHeader title={data.title} intro={data.intro} theme={theme} />
+      <SectionHeader title={data.title || "Sponsors"} intro={data.intro} theme={theme} />
       {sponsors.length === 0 ? (
         <p className="text-sm opacity-50">Sponsors will be announced soon.</p>
       ) : (
