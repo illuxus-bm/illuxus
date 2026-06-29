@@ -145,9 +145,13 @@ are live in `main`.
   surfaces; `overscroll-behavior: none` to kill the iOS rubber-band bounce on
   the app shell.
 
-- **Schema consolidation** — All migrations folded into `supabase/migrations/000_full_schema.sql`.
-  The file is idempotent; apply via `supabase db push` or the SQL editor on a
-  fresh project.
+- **Schema consolidation** — All 15 historical migrations (`000_full_schema` plus
+  `003_fix_footer_links` through `016_skip_pending_override_for_organisers`)
+  folded into a single `supabase/migrations/000_full_schema.sql`. The file is
+  idempotent (`DROP ... IF EXISTS` + `CREATE OR REPLACE`); apply via
+  `supabase db push` or the SQL editor on a fresh project. Existing
+  production databases are unaffected — schema is unchanged, only the local
+  representation collapsed.
 - **Mobile responsiveness pass** — Public surfaces (event page, listing, discover,
   org, marketing pages), the organizer dashboard (events, settings, reports,
   marketing), and overflow-prone tables (admin, audit, guest list, sponsor) all

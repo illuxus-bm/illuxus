@@ -241,11 +241,12 @@ The Supabase schema lives as a single consolidated file:
 supabase/migrations/000_full_schema.sql
 ```
 
-This file holds the cumulative DDL: tables, RLS policies, RPCs, triggers, and any
-later additions (event-owner edits to speakers/sponsors, person-title normalisation,
-org invitation acceptance, etc.). Apply it via `supabase db push` or paste into
-the SQL editor on a fresh project. The file is idempotent (`DROP POLICY IF EXISTS`
-and `CREATE OR REPLACE FUNCTION` throughout) so re-runs are safe.
+This file is the cumulative DDL of the entire platform — every table, RLS
+policy, trigger, RPC, and configuration in one place. It replaced 15
+historical migration files in June 2026 to keep the schema legible. Apply it
+via `supabase db push` or paste into the SQL editor on a fresh project. The
+file is idempotent (`DROP POLICY IF EXISTS` and `CREATE OR REPLACE FUNCTION`
+throughout) so re-runs are safe.
 
 Edge functions in `supabase/functions/`:
 
