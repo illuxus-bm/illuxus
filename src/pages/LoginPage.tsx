@@ -50,6 +50,24 @@ const LoginPage = () => {
    *  `accept_org_invitation` after the user successfully signs in (or after
    *  the must-change-password reset for organiser-created accounts). */
   const inviteToken = searchParams.get("invite");
+  /**
+   * `?next=<path>` — when an auth-gated route bounces the visitor here,
+   * we store the destination so they land on it after signing in / signing
+   * up. Always validated to be an in-app path before navigating to prevent
+   * open redirects.
+   */
+  const nextParam = searchParams.get("next");
+  const safeNext = (() => {
+    if (!nextParam) return null;
+    try {
+      const decoded = decodeURIComponent(nextParam);
+      if (decoded.startsWith("/") && !decoded.startsWith("//")) return decoded;
+    } catch { /* fall through */ }
+    return null;
+  })();
+  /** True when the visitor arrived because they need to claim a ticket — we
+   *  show a friendlier "sign up to claim" callout on the form. */
+  const claimingTicket = !!safeNext && safeNext.startsWith("/t/");
 
   /**
    * Redeem the invite (when present). Returns the next route to navigate
@@ -109,7 +127,7 @@ const LoginPage = () => {
         setLoading(false);
         return;
       }
-      const { error } = await supabase.auth.signUp({
+      const { data: signUpResult, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -133,10 +151,17 @@ const LoginPage = () => {
       });
       if (error) {
         toast({ title: "Error", description: error.message, variant: "destructive" });
+      } else if (signUpResult?.session && safeNext) {
+        // Email confirmation is disabled OR auto-confirm fired (e.g. for an
+        // organiser-added participant whose registration the trigger just
+        // claimed). The session is live — jump straight to the destination
+        // the user came here to reach (typically /t/<reg_id>).
+        toast({ title: "Account created", description: "Welcome to Illuxus." });
+        navigate(safeNext);
       } else {
         toast({
           title: "Check your email",
-          description: `We sent a verification link to ${email}. Open it to activate your account.`,
+          description: `We sent a verification link to ${email}. Open it to activate your account${safeNext ? " and view your ticket." : "."}`,
         });
         // Email confirmation is required — Supabase will not return a session.
         // Take them to the sign-in screen so they can log in after verifying.
@@ -148,7 +173,28 @@ const LoginPage = () => {
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
-        toast({ title: "Error", description: error.message, variant: "destructive" });
+        // "Invalid login credentials" is the generic Supabase error for both
+        // wrong-password AND no-such-user. Surface a more actionable message
+        // when the visitor was sent here from a ticket link — they probably
+        // haven't created an account yet.
+        const isInvalid = /invalid login credentials/i.test(error.message);
+        if (isInvalid && claimingTicket) {
+          toast({
+            title: "No account yet for this email",
+            description: "Create an account below using the same email and your ticket will appear automatically.",
+            variant: "destructive",
+          });
+          setIsSignUp(true);
+          setSignUpStep(1);
+        } else if (isInvalid) {
+          toast({
+            title: "Invalid email or password",
+            description: "If you don't have an account yet, click \"Sign up\" below to create one.",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: "Error", description: error.message, variant: "destructive" });
+        }
       } else {
         // Look up the user's account type to route correctly
         const { data: { user } } = await supabase.auth.getUser();
@@ -187,11 +233,12 @@ const LoginPage = () => {
             : p?.account_type === "attendee"
               ? "/discover"
               : "/dashboard";
-          // If the URL carries `?invite=<token>`, consume it now. Successful
-          // redemption forces a `/dashboard` next-route because the user has
-          // just joined an org and should land on the org's dashboard.
+          // Priority order:
+          //   1. ?next= (preserved by every auth gate when bouncing here)
+          //   2. invite acceptance → /dashboard
+          //   3. account-type default
           const inviteNext = await consumeInviteIfAny();
-          const next = inviteNext ?? defaultNext;
+          const next = safeNext ?? inviteNext ?? defaultNext;
           if (p?.two_factor_enabled) {
             // Pause and require an OTP before letting them through.
             setTwoFactor({ open: true, email: user.email ?? email, nextRoute: next });
@@ -251,6 +298,15 @@ const LoginPage = () => {
           <p className="text-muted-foreground text-sm">{title}</p>
         </div>
 
+        {claimingTicket && !mustChangePassword && (
+          <div className="mb-4 rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2.5 text-[12.5px] leading-relaxed text-blue-700 dark:text-blue-300">
+            <span className="font-semibold">Claiming a ticket?</span>{" "}
+            {isSignUp
+              ? "Use the same email the organiser added so your ticket loads automatically once you finish signing up."
+              : "Sign in if you already have an account. Otherwise switch to \"Sign up\" below using the same email the organiser added — your ticket will appear right after."}
+          </div>
+        )}
+
         <div className="bg-card border border-border rounded-xl p-6">
           {/* ── Must change password screen ─── */}
           {mustChangePassword ? (
@@ -290,8 +346,10 @@ const LoginPage = () => {
                 // (`/login?invite=<token>`), redeem it now — they were a
                 // pending member until this point and we want them to land
                 // inside the org's dashboard, not the discover feed.
+                // `?next=` always wins (the visitor explicitly asked for
+                // that destination, typically /t/<reg_id>).
                 const inviteNext = await consumeInviteIfAny();
-                navigate(inviteNext ?? "/discover");
+                navigate(safeNext ?? inviteNext ?? "/discover");
                 setLoading(false);
               }}
               className="space-y-4"

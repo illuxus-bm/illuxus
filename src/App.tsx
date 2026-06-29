@@ -182,10 +182,32 @@ const ProfileGate = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+/**
+ * Build a `/login?next=<encoded>` URL that preserves the route the user
+ * was trying to reach. After they sign in (or create an account), the
+ * LoginPage redirects them straight to `next` instead of the generic
+ * dashboard / discover landing. Critical for the ticket-link flow:
+ * organiser adds a participant → they get the ticket email → click the
+ * "View your ticket" link → land at `/t/<id>` (which requires auth) →
+ * bounce to `/login?next=/t/<id>` → after signup, the trigger links the
+ * registration to their new auth user and LoginPage navigates them back
+ * to `/t/<id>` so the ticket loads in one step.
+ *
+ * We only forward in-app paths (must start with `/`) to prevent open
+ * redirects to external hosts via crafted query strings.
+ */
+function loginRedirectFor(location: { pathname: string; search: string }): string {
+  const target = `${location.pathname}${location.search || ""}`;
+  if (!target || !target.startsWith("/") || target.startsWith("//")) return "/login";
+  if (target === "/login") return "/login";
+  return `/login?next=${encodeURIComponent(target)}`;
+}
+
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return <FullPageLoader />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to={loginRedirectFor(location)} replace />;
   return <AuthOrgGate><ProfileGate>{children}</ProfileGate></AuthOrgGate>;
 };
 
@@ -196,8 +218,9 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 const OrganizerRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading, accountType, isAdmin } = useAuth();
   const { memberships, loading: orgLoading } = useOrg();
+  const location = useLocation();
   if (loading || orgLoading) return <FullPageLoader />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to={loginRedirectFor(location)} replace />;
   const isWorkspaceMember = memberships.length > 0;
   if (accountType === "attendee" && !isAdmin && !isWorkspaceMember) {
     return <Navigate to="/my/tickets" replace />;
@@ -208,16 +231,18 @@ const OrganizerRoute = ({ children }: { children: React.ReactNode }) => {
 // Route for attendee-only pages (just requires auth).
 const AttendeeRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return <FullPageLoader />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to={loginRedirectFor(location)} replace />;
   return <ProfileGate>{children}</ProfileGate>;
 };
 
 // Gate routes that require platform-level (super) admin role.
 const SuperAdminRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading, isAdmin } = useAuth();
+  const location = useLocation();
   if (loading) return <FullPageLoader />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to={loginRedirectFor(location)} replace />;
   if (!isAdmin) return <Navigate to="/dashboard" replace />;
   return <ProfileGate>{children}</ProfileGate>;
 };
@@ -457,8 +482,9 @@ function GlobalCookieConsent() {
  */
 function RequireAuthOnly({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return <FullPageLoader />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to={loginRedirectFor(location)} replace />;
   return <>{children}</>;
 }
 

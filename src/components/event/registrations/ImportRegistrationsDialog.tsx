@@ -1,5 +1,4 @@
 import { useMemo, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -10,19 +9,7 @@ import { Upload, Download, FileText, AlertCircle, CheckCircle2, X } from "lucide
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
-import { roleFromTicketType, sendParticipantWelcomeEmail } from "@/lib/participant-email";
-import { publicOrigin } from "@/lib/publicUrl";
 import { isValidEmailFormat } from "@/lib/email-format";
-
-// Secondary Supabase client used to sign up imported participants without
-// disturbing the organiser's own session. Mirrors the pattern in
-// `AddParticipantDialog.tsx`. Separate `storageKey` so it never clobbers
-// the dashboard's auth tokens.
-const anonClient = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-  { auth: { storageKey: "sb-participant-import-signup", persistSession: false, autoRefreshToken: false } },
-);
 
 /** Columns accepted by the importer. Header matching is case-insensitive and
  *  ignores spaces, dashes and underscores, so `Full Name`, `full_name`,
@@ -350,156 +337,18 @@ export default function ImportRegistrationsDialog({
     onOpenChange(false);
     reset();
 
-    // Fire welcome emails in the background. We don't block the dialog close
-    // on this — Resend round-trips can take a few seconds per recipient.
-    // Failures are non-fatal (the registration already exists, the join link
-    // still works). Mobile-number → temporary password mapping is provided
-    // when present so the email can include sign-in credentials.
+    // Fire ticket emails in the background. Only ONE email per imported
+    // participant — the ticket card with banner + QR + organiser block
+    // delivered by the dedicated `send-ticket-email` edge function. No
+    // separate welcome email, no temporary-password mechanic; the
+    // `handle_new_user` trigger (migration 019) auto-links existing
+    // registrations to the freshly-created auth.users row when the
+    // participant signs up using the same email, so they see their ticket
+    // immediately after their first sign-in.
+    //
+    // Failures are non-fatal — the registration row already exists and the
+    // organiser can resend from the dashboard.
     if (data && data.length > 0) {
-      const phoneByEmail = new Map(
-        validRows.map((r) => [r.email.toLowerCase(), r.mobile_number || ""]),
-      );
-      const fullRowByEmail = new Map(
-        validRows.map((r) => [r.email.toLowerCase(), r]),
-      );
-
-      // ── Background auth signup ────────────────────────────────────────────
-      // Each imported registration gets a Supabase auth user so the
-      // participant can actually sign in with the credentials in the
-      // welcome email. Password = the local mobile number (no country code,
-      // matching what the welcome email tells them). `must_change_password`
-      // metadata is set so the LoginPage forces a password reset on first
-      // sign-in. Runs sequentially — Supabase Auth doesn't tolerate large
-      // bursts of signUp calls and we don't want to clobber the organiser's
-      // session by making N calls in parallel against the shared client.
-      void (async () => {
-        for (const row of data) {
-          const email = (row.email || "").toLowerCase();
-          if (!email) continue;
-          const fullRow = fullRowByEmail.get(email);
-          const phone = phoneByEmail.get(email) || "";
-          if (!phone) continue; // No phone → can't set a temporary password.
-          try {
-            const { data: signUpResult, error: signUpErr } = await anonClient.auth.signUp({
-              email,
-              password: phone,
-              options: {
-                emailRedirectTo: `${publicOrigin()}/login`,
-                data: {
-                  must_change_password: true,
-                  account_type: "attendee",
-                  title: fullRow?.title || "",
-                  first_name: fullRow?.first_name || "",
-                  last_name: fullRow?.last_name || "",
-                  designation: fullRow?.designation || "",
-                  company: fullRow?.company || "",
-                  mobile_country_code: fullRow?.mobile_country_code || "",
-                  mobile_number: phone,
-                  linkedin_url: fullRow?.linkedin_url || "",
-                  company_website: fullRow?.company_website || "",
-                  industry: fullRow?.industry || "",
-                  display_name: row.name,
-                },
-              },
-            });
-            if (signUpErr) {
-              if (!signUpErr.message?.includes("already")) {
-                logger.warn("import signup error", {
-                  email,
-                  error_message: signUpErr.message,
-                });
-              }
-              // If the account already exists, link the registration to the
-              // existing user_id so future logins resolve correctly.
-              const { data: existing } = await supabase
-                .from("registrations")
-                .select("user_id")
-                .eq("email", email)
-                .not("user_id", "is", null)
-                .limit(1)
-                .maybeSingle();
-              if (existing?.user_id) {
-                await supabase.from("registrations")
-                  .update({ user_id: existing.user_id })
-                  .eq("id", row.id);
-              }
-            } else if (signUpResult?.user) {
-              await supabase.from("registrations")
-                .update({ user_id: signUpResult.user.id })
-                .eq("id", row.id);
-            }
-          } catch (err) {
-            logger.warn("import signup threw", {
-              email,
-              error_message: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
-      })();
-      void (async () => {
-        let sent = 0;
-        let failed = 0;
-        const failureReasons = new Set<string>();
-        // Send sequentially in small chunks so we don't blow past Resend's
-        // burst rate-limit. 5 at a time keeps the dashboard responsive
-        // while finishing 100 rows in ~20s.
-        const CONCURRENCY = 5;
-        for (let i = 0; i < data.length; i += CONCURRENCY) {
-          const slice = data.slice(i, i + CONCURRENCY);
-          const results = await Promise.all(
-            slice.map((row) => {
-              const phone = phoneByEmail.get((row.email || "").toLowerCase()) || null;
-              return sendParticipantWelcomeEmail({
-                eventId,
-                recipientName: row.name,
-                recipientEmail: row.email,
-                role: roleFromTicketType(row.ticket_type),
-                initialPassword: phone || null,
-                // CSV imports don't know virtual vs physical, so pass both —
-                // the body picks joinUrl when present.
-                joinUrl: row.join_token
-                  ? `${publicOrigin()}/e/${eventId}/live?join=${row.join_token}`
-                  : null,
-                eventUrl: `${publicOrigin()}/e/${eventId}`,
-              });
-            }),
-          );
-          for (const r of results) {
-            if (r.ok) {
-              sent += 1;
-            } else {
-              failed += 1;
-              // r is narrowed to `{ ok: false; error: string }` here.
-              failureReasons.add((r as { ok: false; error: string }).error);
-            }
-          }
-        }
-        if (sent > 0) {
-          toast.success(`Welcome emails sent (${sent})`, {
-            description: failed > 0
-              ? `${failed} failed: ${[...failureReasons].slice(0, 2).join("; ")}`
-              : undefined,
-          });
-        } else if (failed > 0) {
-          toast.warning(`Welcome emails failed (${failed})`, {
-            description: [...failureReasons].slice(0, 2).join("; ")
-              || "Check Resend secrets / domain verification.",
-          });
-        }
-      })();
-
-      // ── Ticket emails ─────────────────────────────────────────────────
-      // The welcome email above only covers credentials + role; the actual
-      // ticket card (event banner, QR, date/venue) is delivered by the
-      // dedicated `send-ticket-email` edge function. For organiser-driven
-      // creations (single add and bulk import) we have to fire this here
-      // because there's no public RSVP / approval flow to trigger it.
-      // Without this, imported participants only saw their ticket after
-      // they signed in and changed their password — which delays the
-      // "your registration is confirmed!" reassurance for hours or days.
-      //
-      // Fire-and-forget at 5-wide concurrency, matching the welcome email
-      // pass so SMTP doesn't see a sudden burst.
       void (async () => {
         let sent = 0;
         let failed = 0;

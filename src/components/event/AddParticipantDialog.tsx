@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,25 +9,34 @@ import { toast } from "sonner";
 import { UserPlus, Copy, Ticket, Link2 } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
 import { logger } from "@/lib/observability";
-import { sendParticipantWelcomeEmail } from "@/lib/participant-email";
 import { publicOrigin } from "@/lib/publicUrl";
 
-// Secondary Supabase client for creating participant accounts.
-// Uses a separate storage key so it won't sign out the organizer.
-const anonClient = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-  { auth: { storageKey: "sb-participant-signup", persistSession: false, autoRefreshToken: false } }
-);
-
+/**
+ * AddParticipantDialog — organiser-side single-participant add flow.
+ *
+ * Email contract (simplified — see migration 019 + the "one mail only" issue):
+ *  • Exactly ONE email goes out to the participant: the ticket email
+ *    (banner + QR + organiser block) via `send-ticket-email`.
+ *  • No welcome-with-credentials email, no auto-signup, no phone-number-as-
+ *    initial-password mechanic. If the participant already has an account
+ *    they sign in normally; if not, they create one themselves via the
+ *    standard signup flow. Either way, the `handle_new_user` trigger
+ *    (migration 019) auto-links the existing registration to the new
+ *    auth.users.id when the email matches, so the ticket is visible
+ *    immediately.
+ *
+ * Duplicate guard:
+ *  • App-level: pre-flight `SELECT … FROM registrations` blocks an add
+ *    when the same email is already a registrant.
+ *  • DB-level: partial unique index `registrations_event_email_unique`
+ *    (migration 019) makes the constraint race-safe across multiple
+ *    organisers and any retry storm.
+ */
 export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, onAdded }: {
   eventId: string; eventFormat?: string | null; eventSlug?: string; onAdded?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [fields, setFields] = useState<PersonFields>(() => emptyPersonFields());
-  // Role is now required for every event — the welcome email needs it to
-  // tell the participant what they've been registered as. Empty string
-  // forces the organiser to make an explicit choice.
   const [role, setRole] = useState<"" | "attendee" | "speaker" | "sponsor">("");
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ join_token: string; qr_code: string; speakerLink?: string } | null>(null);
@@ -43,14 +51,10 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
     setBusy(true);
     const fullName = displayName(fields);
     const email = fields.email.trim().toLowerCase();
-    const mobileNum = fields.mobile_number.trim();
 
-    // Duplicate guard — block adding the same email twice for one event.
-    // Without this, an organiser who didn't realise the participant was
-    // already in the list (e.g. registered via the public RSVP page) would
-    // create a duplicate row that then sends two ticket emails and shows
-    // the attendee twice in reports / check-in. The check is server-side
-    // so it's race-safe against another organiser adding the same person.
+    // ── App-level duplicate guard ──────────────────────────────────────────
+    // The DB has a unique index too (migration 019), but checking here gives
+    // a clean message instead of a Postgres unique-violation toast.
     const { data: existing, error: existingErr } = await supabase
       .from("registrations")
       .select("id, name, status, approval_status, checked_in_at")
@@ -73,19 +77,17 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
       return toast.error(`${who} ${verb} for this event.`);
     }
 
-    // Map the organiser's role choice to the ticket_type column. The
-    // welcome-email helper derives the same `role` back from ticket_type so
-    // a single source-of-truth column carries it through the system.
     const resolvedTicketType =
       role === "speaker" ? "speaker" :
       role === "sponsor" ? "sponsor" :
       isVirtual ? "webinar" : "general";
 
-    // ── Step 1 (fast, await): Create the registration row ──────────────────
-    // We hit `registrations` first so the organizer sees the success screen
-    // (with join link, QR, credentials) in well under a second. Auth signup
-    // takes several seconds because it sends the confirmation email server-
-    // side; we run that AFTER showing the success state.
+    // ── Create the registration row ────────────────────────────────────────
+    // `user_id` stays NULL on purpose. The `handle_new_user` trigger
+    // (migration 019) stamps it when the participant signs up using the
+    // same email. Until then, the ticket email's "View your ticket" link
+    // routes them through /login (where they can either sign in or create
+    // a new account).
     const { data: reg, error } = await supabase.from("registrations").insert({
       event_id: eventId,
       name: fullName,
@@ -105,87 +107,28 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
       status: "confirmed",
       approval_status: "approved",
     }).select("id, join_token, qr_code").single();
-    if (error || !reg) { setBusy(false); return toast.error(error?.message || "Failed to add"); }
 
-    // ── Step 2: Reveal success state immediately ───────────────────────────
-    // Speaker link starts undefined; it fills in below once the webinar
-    // speaker row is created in the background.
+    if (error || !reg) {
+      setBusy(false);
+      // Surface the DB unique-violation in a friendly way when the app-level
+      // check raced against a concurrent add.
+      if (error?.code === "23505" || error?.message?.includes("registrations_event_email_unique")) {
+        return toast.error(`${email} has already been added or checked in for this event.`);
+      }
+      return toast.error(error?.message || "Failed to add");
+    }
+
     setCreated({ join_token: reg.join_token, qr_code: reg.qr_code || "", speakerLink: undefined });
     setBusy(false);
     onAdded?.();
     toast.success("Participant added");
 
-    // ── Step 3 (background, fire-and-forget): auth signup, user_id linking,
-    // and speaker token. None of this blocks the success screen. Errors
-    // here are non-fatal — the registration already exists, the join link
-    // already works, and the participant can always be linked to their auth
-    // account when they sign in via the magic link or password reset flow.
+    // ── Background: speaker token (virtual only) + ticket email ───────────
+    // Single email, fire-and-forget. Any failure is non-fatal because the
+    // registration row already exists and is visible on the organiser's
+    // dashboard.
     void (async () => {
       try {
-        let userId: string | null = null;
-        let accountAlreadyExists = false;
-
-        if (mobileNum) {
-          const { data: existingReg } = await supabase
-            .from("registrations")
-            .select("user_id")
-            .eq("email", email)
-            .not("user_id", "is", null)
-            .limit(1)
-            .maybeSingle();
-
-          if (existingReg?.user_id) {
-            userId = existingReg.user_id;
-            accountAlreadyExists = true;
-          } else {
-            const { data: signUpResult, error: signUpErr } = await anonClient.auth.signUp({
-              email,
-              password: mobileNum,
-              options: {
-                emailRedirectTo: `${publicOrigin()}/login`,
-                data: {
-                  must_change_password: true,
-                  account_type: "attendee",
-                  title: fields.title || "",
-                  first_name: fields.first_name.trim(),
-                  last_name: fields.last_name.trim(),
-                  designation: fields.designation.trim(),
-                  company: fields.company.trim() || "",
-                  mobile_country_code: fields.mobile_country_code,
-                  mobile_number: mobileNum,
-                  linkedin_url: fields.linkedin_url.trim() || "",
-                  company_website: fields.company_website.trim() || "",
-                  company_employee_count: fields.company_employee_count || "",
-                  industry: fields.industry || "",
-                  display_name: fullName,
-                },
-              },
-            });
-            if (signUpErr) {
-              if (signUpErr.message?.includes("already")) accountAlreadyExists = true;
-              else logger.warn("signup error", {
-                error_message: signUpErr instanceof Error ? signUpErr.message : String(signUpErr),
-              });
-            } else if (signUpResult?.user) {
-              userId = signUpResult.user.id;
-            }
-          }
-        }
-
-        // Link this registration (and any other unlinked rows for the same
-        // email) to the resolved user. Done after-the-fact so the join link
-        // works regardless.
-        if (userId) {
-          await Promise.all([
-            supabase.from("registrations").update({ user_id: userId }).eq("id", reg.id),
-            supabase.from("registrations")
-              .update({ user_id: userId })
-              .eq("email", email)
-              .is("user_id", null),
-          ]);
-        }
-
-        // Webinar speaker token (only for virtual events when role === speaker).
         if (isVirtual && role === "speaker") {
           const { data: sess } = await supabase.from("webinar_sessions")
             .select("id").eq("event_id", eventId)
@@ -203,60 +146,29 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
           }
         }
 
-        if (accountAlreadyExists) {
-          toast.message("Existing account linked", { description: email });
-        } else if (mobileNum) {
-          toast.message("Confirmation email sent", { description: email });
-        }
-
-        // Welcome email — confirms the role and shares the join link. Fired
-        // after the speaker token block so virtual speakers can receive a
-        // single email that carries their attendee join URL too (the
-        // dedicated speaker link is shown to the organiser only).
-        const welcomeJoinUrl = `${publicOrigin()}/e/${eventSlug || eventId}/live?join=${reg.join_token}`;
-        const welcomeEventUrl = `${publicOrigin()}/e/${eventSlug || eventId}`;
-        void sendParticipantWelcomeEmail({
-          eventId,
-          recipientName: fullName,
-          recipientEmail: email,
-          role: role === "speaker" ? "speaker" : role === "sponsor" ? "sponsor" : "attendee",
-          initialPassword: mobileNum || null,
-          joinUrl: isVirtual ? welcomeJoinUrl : null,
-          eventUrl: welcomeEventUrl,
-        }).then((res) => {
-          if (res.ok) toast.message("Welcome email sent", { description: email });
-        });
-
-        // Ticket email — carries the event banner, organiser block, date,
-        // venue, and QR code. The welcome email above only covers sign-in
-        // credentials; the actual "your ticket is confirmed" email comes
-        // from the dedicated `send-ticket-email` function and is
-        // independent of whether the participant has changed their initial
-        // password yet. Without this call, organiser-created participants
-        // never received the ticket card.
-        void supabase.functions
-          .invoke("send-ticket-email", { body: { registration_id: reg.id } })
-          .then(({ data: emailData, error: emailErr }) => {
-            if (emailErr) {
-              toast.warning("Ticket email failed", {
-                description: emailErr.message || "send-ticket-email is unreachable",
-              });
-              return;
-            }
-            type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string };
-            const r = (emailData ?? null) as R | null;
-            if (r?.error) {
-              toast.warning("Ticket email failed", { description: r.error });
-              return;
-            }
-            if (r?.delivered === false) {
-              toast.message("Ticket email skipped", {
-                description: r.note || "SMTP not configured in Supabase secrets.",
-              });
-              return;
-            }
-            toast.message("Ticket email sent", { description: email });
+        const { data: emailData, error: emailErr } = await supabase.functions.invoke(
+          "send-ticket-email",
+          { body: { registration_id: reg.id } },
+        );
+        if (emailErr) {
+          toast.warning("Ticket email failed", {
+            description: emailErr.message || "send-ticket-email is unreachable",
           });
+          return;
+        }
+        type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string };
+        const r = (emailData ?? null) as R | null;
+        if (r?.error) {
+          toast.warning("Ticket email failed", { description: r.error });
+          return;
+        }
+        if (r?.delivered === false) {
+          toast.message("Ticket email skipped", {
+            description: r.note || "SMTP not configured in Supabase secrets.",
+          });
+          return;
+        }
+        toast.message("Ticket email sent", { description: email });
       } catch (bgErr) {
         logger.warn("add-participant background work failed", {
           error_message: bgErr instanceof Error ? bgErr.message : String(bgErr),
@@ -291,7 +203,7 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground mt-1">
-                Used in the welcome email to tell the participant what they've been registered as.
+                Used on the ticket and in the attendee list.
               </p>
             </div>
             <DialogFooter>
@@ -302,15 +214,10 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
         ) : (
           <div className="space-y-4">
             <p className="text-[13px] text-muted-foreground">
-              A confirmation email has been sent to <span className="font-medium text-foreground">{fields.email}</span>.
-              Once confirmed, they can sign in with their email and phone number as password.
+              The ticket email has been sent to <span className="font-medium text-foreground">{fields.email}</span>.
+              They can view their ticket from the link in the email after signing in (or creating a new account if they
+              don't have one — same email).
             </p>
-            <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1">
-              <p className="text-[12px] font-medium">Login credentials for participant:</p>
-              <p className="text-[12px] text-muted-foreground">Email: <span className="font-mono text-foreground">{fields.email}</span></p>
-              <p className="text-[12px] text-muted-foreground">Password: <span className="font-mono text-foreground">{fields.mobile_number}</span> (phone number)</p>
-              <p className="text-[11px] text-muted-foreground italic mt-1">They'll be asked to change their password on first sign-in.</p>
-            </div>
             <p className="text-[12px] text-muted-foreground">Share the details below with <span className="font-medium text-foreground">{displayName(fields)}</span>:</p>
             {isVirtual ? (
               <>
