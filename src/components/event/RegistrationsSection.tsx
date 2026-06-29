@@ -1261,6 +1261,27 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                               onUndo={(kind) => undoAttendance(r, kind)}
                             />
                           </div>
+                          {/* Approve / Decline — shown inline below the name for pending rows */}
+                          {r.registration?.approval_status === "pending" && (
+                            <div className="flex items-center gap-1.5 mt-2" onClick={(e) => e.stopPropagation()}>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 px-2 text-[11px] font-semibold text-emerald-600 border-emerald-500/40 hover:bg-emerald-500/10 gap-1 rounded-full"
+                                onClick={() => updateApprovalStatus(r, "approved")}
+                              >
+                                <CheckCircle className="h-3 w-3" /> Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 px-2 text-[11px] font-semibold text-destructive border-destructive/40 hover:bg-destructive/10 gap-1 rounded-full"
+                                onClick={() => updateApprovalStatus(r, "declined")}
+                              >
+                                <XCircle className="h-3 w-3" /> Decline
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -1298,29 +1319,6 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                     </td>
                     <td className="p-2 sm:p-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-0.5">
-                        {/* Approve / Decline — shown for pending-approval rows */}
-                        {r.registration && r.registration.approval_status === "pending" && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2.5 text-[11px] font-semibold text-emerald-600 border-emerald-500/40 hover:bg-emerald-500/10 gap-1"
-                              title="Approve registration"
-                              onClick={() => updateApprovalStatus(r, "approved")}
-                            >
-                              <CheckCircle className="h-3 w-3" /> Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2.5 text-[11px] font-semibold text-destructive border-destructive/40 hover:bg-destructive/10 gap-1 ml-0.5"
-                              title="Decline registration"
-                              onClick={() => updateApprovalStatus(r, "declined")}
-                            >
-                              <XCircle className="h-3 w-3" /> Decline
-                            </Button>
-                          </>
-                        )}
                         {r.registration && (
                           <Button
                             size="icon"
