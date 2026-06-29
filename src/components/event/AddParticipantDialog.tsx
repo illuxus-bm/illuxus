@@ -45,6 +45,34 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
     const email = fields.email.trim().toLowerCase();
     const mobileNum = fields.mobile_number.trim();
 
+    // Duplicate guard — block adding the same email twice for one event.
+    // Without this, an organiser who didn't realise the participant was
+    // already in the list (e.g. registered via the public RSVP page) would
+    // create a duplicate row that then sends two ticket emails and shows
+    // the attendee twice in reports / check-in. The check is server-side
+    // so it's race-safe against another organiser adding the same person.
+    const { data: existing, error: existingErr } = await supabase
+      .from("registrations")
+      .select("id, name, status, approval_status, checked_in_at")
+      .eq("event_id", eventId)
+      .eq("email", email)
+      .limit(1)
+      .maybeSingle();
+    if (existingErr) {
+      setBusy(false);
+      return toast.error("Could not verify duplicates", { description: existingErr.message });
+    }
+    if (existing) {
+      setBusy(false);
+      const who = existing.name ? `${existing.name} (${email})` : email;
+      const verb = existing.checked_in_at
+        ? "has already checked in"
+        : existing.approval_status === "approved" || existing.status === "confirmed"
+          ? "has already been added"
+          : "is already registered (pending approval)";
+      return toast.error(`${who} ${verb} for this event.`);
+    }
+
     // Map the organiser's role choice to the ticket_type column. The
     // welcome-email helper derives the same `role` back from ticket_type so
     // a single source-of-truth column carries it through the system.
@@ -198,6 +226,37 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
         }).then((res) => {
           if (res.ok) toast.message("Welcome email sent", { description: email });
         });
+
+        // Ticket email — carries the event banner, organiser block, date,
+        // venue, and QR code. The welcome email above only covers sign-in
+        // credentials; the actual "your ticket is confirmed" email comes
+        // from the dedicated `send-ticket-email` function and is
+        // independent of whether the participant has changed their initial
+        // password yet. Without this call, organiser-created participants
+        // never received the ticket card.
+        void supabase.functions
+          .invoke("send-ticket-email", { body: { registration_id: reg.id } })
+          .then(({ data: emailData, error: emailErr }) => {
+            if (emailErr) {
+              toast.warning("Ticket email failed", {
+                description: emailErr.message || "send-ticket-email is unreachable",
+              });
+              return;
+            }
+            type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string };
+            const r = (emailData ?? null) as R | null;
+            if (r?.error) {
+              toast.warning("Ticket email failed", { description: r.error });
+              return;
+            }
+            if (r?.delivered === false) {
+              toast.message("Ticket email skipped", {
+                description: r.note || "SMTP not configured in Supabase secrets.",
+              });
+              return;
+            }
+            toast.message("Ticket email sent", { description: email });
+          });
       } catch (bgErr) {
         logger.warn("add-participant background work failed", {
           error_message: bgErr instanceof Error ? bgErr.message : String(bgErr),

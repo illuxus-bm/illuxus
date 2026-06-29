@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
 import { roleFromTicketType, sendParticipantWelcomeEmail } from "@/lib/participant-email";
 import { publicOrigin } from "@/lib/publicUrl";
+import { isValidEmailFormat } from "@/lib/email-format";
 
 // Secondary Supabase client used to sign up imported participants without
 // disturbing the organiser's own session. Mirrors the pattern in
@@ -77,6 +78,7 @@ const REQUIRED = [
 const VALID_ROLES = new Set(["attendee", "speaker", "sponsor"]);
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+void EMAIL_RE; // retained for the CSV preview regex baseline; format check now delegates to isValidEmailFormat()
 // Accept country codes with or without a leading `+`. Plain `91` is valid;
 // `+91` is too. We normalise to the canonical `+91` form before insert.
 const COUNTRY_CODE_RE = /^\+?\d{1,4}$/;
@@ -221,7 +223,8 @@ export default function ImportRegistrationsDialog({
       if (!(obj.designation || "").trim()) obj.errors.push("Designation required");
       if (!(obj.company || "").trim())    obj.errors.push("Company required");
       if (!obj.email)                      obj.errors.push("Email required");
-      else if (!EMAIL_RE.test(obj.email))  obj.errors.push("Invalid email");
+      else if (!isValidEmailFormat(obj.email))
+        obj.errors.push("Invalid email — use name@domain.tld (e.g. user@gmail.com)");
 
       const ccRaw = (obj.mobile_country_code || "").trim();
       if (!ccRaw) obj.errors.push("Country code required");
@@ -261,6 +264,24 @@ export default function ImportRegistrationsDialog({
     }
     setBusy(true);
 
+    // Re-fetch the live duplicate set right before insert. The
+    // `existingEmails` prop snapshots at dialog-open time; if another
+    // organiser added someone between then and now, that row would slip
+    // through and create a second registration. A quick re-query keeps the
+    // check accurate without needing a server-side unique constraint.
+    const { data: liveRows } = await supabase
+      .from("registrations")
+      .select("email")
+      .eq("event_id", eventId);
+    const liveExisting = new Set<string>(
+      (liveRows ?? [])
+        .map((r) => (r.email || "").toLowerCase())
+        .filter(Boolean),
+    );
+    // Union with the prop-supplied set so we never accept an email the
+    // parent already showed as duplicate.
+    for (const e of existingEmails) liveExisting.add(e);
+
     // Deduplicate within the file by email (case-insensitive); keep first.
     const dedupedByEmail = new Map<string, ImportRow>();
     for (const r of validRows) {
@@ -269,12 +290,15 @@ export default function ImportRegistrationsDialog({
     }
     // Drop rows whose email already exists for this event.
     const toInsert = Array.from(dedupedByEmail.values())
-      .filter((r) => !existingEmails.has(r.email.toLowerCase()));
+      .filter((r) => !liveExisting.has(r.email.toLowerCase()));
 
+    const skippedDuplicates = dedupedByEmail.size - toInsert.length;
     if (toInsert.length === 0) {
       setBusy(false);
-      toast.info("All rows already registered", {
-        description: "Nothing new to add.",
+      toast.info("Everyone is already added or checked in", {
+        description: skippedDuplicates > 0
+          ? `${skippedDuplicates} email${skippedDuplicates === 1 ? "" : "s"} already exist for this event.`
+          : "Nothing new to add.",
       });
       return;
     }
@@ -319,7 +343,7 @@ export default function ImportRegistrationsDialog({
     const skipped = validRows.length - inserted;
     toast.success(`Imported ${inserted} registration${inserted === 1 ? "" : "s"}`, {
       description: skipped > 0
-        ? `${skipped} skipped (duplicate or already registered).`
+        ? `${skipped} skipped — email already added or checked in for this event.`
         : undefined,
     });
     onImported?.();
@@ -441,8 +465,13 @@ export default function ImportRegistrationsDialog({
             }),
           );
           for (const r of results) {
-            if (r.ok) sent += 1;
-            else { failed += 1; failureReasons.add(r.error); }
+            if (r.ok) {
+              sent += 1;
+            } else {
+              failed += 1;
+              // r is narrowed to `{ ok: false; error: string }` here.
+              failureReasons.add((r as { ok: false; error: string }).error);
+            }
           }
         }
         if (sent > 0) {
@@ -455,6 +484,69 @@ export default function ImportRegistrationsDialog({
           toast.warning(`Welcome emails failed (${failed})`, {
             description: [...failureReasons].slice(0, 2).join("; ")
               || "Check Resend secrets / domain verification.",
+          });
+        }
+      })();
+
+      // ── Ticket emails ─────────────────────────────────────────────────
+      // The welcome email above only covers credentials + role; the actual
+      // ticket card (event banner, QR, date/venue) is delivered by the
+      // dedicated `send-ticket-email` edge function. For organiser-driven
+      // creations (single add and bulk import) we have to fire this here
+      // because there's no public RSVP / approval flow to trigger it.
+      // Without this, imported participants only saw their ticket after
+      // they signed in and changed their password — which delays the
+      // "your registration is confirmed!" reassurance for hours or days.
+      //
+      // Fire-and-forget at 5-wide concurrency, matching the welcome email
+      // pass so SMTP doesn't see a sudden burst.
+      void (async () => {
+        let sent = 0;
+        let failed = 0;
+        const failureReasons = new Set<string>();
+        const CONCURRENCY = 5;
+        for (let i = 0; i < data.length; i += CONCURRENCY) {
+          const slice = data.slice(i, i + CONCURRENCY);
+          const results = await Promise.all(
+            slice.map(async (row) => {
+              try {
+                const { data: tData, error: tErr } = await supabase.functions.invoke(
+                  "send-ticket-email",
+                  { body: { registration_id: row.id } },
+                );
+                if (tErr) {
+                  return { ok: false as const, error: tErr.message || "Edge function error" };
+                }
+                type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string };
+                const result = (tData ?? null) as R | null;
+                if (result?.error) return { ok: false as const, error: result.error };
+                if (result?.delivered === false) {
+                  return { ok: false as const, error: result.note || "Ticket email not delivered" };
+                }
+                return { ok: true as const };
+              } catch (err) {
+                return {
+                  ok: false as const,
+                  error: err instanceof Error ? err.message : String(err),
+                };
+              }
+            }),
+          );
+          for (const r of results) {
+            if (r.ok) sent += 1;
+            else { failed += 1; failureReasons.add(r.error); }
+          }
+        }
+        if (sent > 0) {
+          toast.success(`Ticket emails sent (${sent})`, {
+            description: failed > 0
+              ? `${failed} failed: ${[...failureReasons].slice(0, 2).join("; ")}`
+              : undefined,
+          });
+        } else if (failed > 0) {
+          toast.warning(`Ticket emails failed (${failed})`, {
+            description: [...failureReasons].slice(0, 2).join("; ")
+              || "Deploy send-ticket-email and check SMTP credentials.",
           });
         }
       })();
@@ -652,7 +744,7 @@ function PreviewTable({ rows, existingEmails }: { rows: ImportRow[]; existingEma
                       </span>
                     ) : isDup ? (
                       <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                        Already registered
+                        Already added or checked in
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">

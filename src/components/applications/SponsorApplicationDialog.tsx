@@ -13,6 +13,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Building2, Loader2 } from "lucide-react";
+import { isValidEmailFormat } from "@/lib/email-format";
+import { notifyOrganiserOfApplication } from "@/lib/application-notify";
 
 interface Props {
   eventId: string;
@@ -96,6 +98,7 @@ export function SponsorApplicationDialog({ eventId, open, onOpenChange, onSubmit
   const validateStep2 = () => {
     if (!form.contact_name.trim()) return "Contact name is required";
     if (!form.contact_email.trim()) return "Contact email is required";
+    if (!isValidEmailFormat(form.contact_email)) return "Enter a valid contact email (name@domain.tld)";
     return null;
   };
 
@@ -143,6 +146,21 @@ export function SponsorApplicationDialog({ eventId, open, onOpenChange, onSubmit
     toast.success("Sponsor application submitted! The organizer will review it shortly.");
     qc.invalidateQueries({ queryKey: ["my-sponsor-application", user.id, eventId] });
     qc.invalidateQueries({ queryKey: ["my-applications"] });
+
+    // Fire-and-forget heads-up to the organiser. The applicant's contact
+    // email is used in the "Applicant" line so the organiser can reply
+    // straight from their inbox; the company name and objectives are the
+    // headline + summary, giving them enough to decide whether to deep
+    // link into the Applications tab via the link in the body.
+    void notifyOrganiserOfApplication({
+      eventId,
+      kind: "sponsor",
+      applicantName: form.contact_name.trim(),
+      applicantEmail: form.contact_email.trim().toLowerCase(),
+      headline: form.company_name.trim() || null,
+      summary: form.objectives.trim() || null,
+    });
+
     onSubmitted?.();
     onOpenChange(false);
     setStep(1);

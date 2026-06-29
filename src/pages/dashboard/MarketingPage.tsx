@@ -25,6 +25,7 @@ import {
   ArrowRight, Layout,
 } from "lucide-react";
 import { publicUrl } from "@/lib/publicUrl";
+import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 import { Link } from "react-router-dom";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -165,6 +166,27 @@ function EmailCampaignsTab() {
   const resetCompose = () => { setSubject(""); setBody(""); setRecipientFilter("all"); };
 
   const getRecipientEmails = async (filterParam: string = recipientFilter): Promise<string[]> => {
+    // Pull addresses for the requested audience, then strip anything that
+    // isn't a valid email format. Bad rows can sneak into the DB through
+    // legacy data, manual SQL fixes, or older imports that ran before this
+    // check existed. Filtering here keeps the SMTP send from getting a
+    // partial batch with a rejected address that would otherwise bounce.
+    const raw = await fetchRawRecipients(filterParam);
+    const cleaned = Array.from(
+      new Set(
+        raw
+          .map((e) => normalizeEmail(e))
+          .filter((e) => isValidEmailFormat(e)),
+      ),
+    );
+    const dropped = raw.length - cleaned.length;
+    if (dropped > 0) {
+      toast.warning(`${dropped} recipient${dropped === 1 ? "" : "s"} skipped — invalid email format`);
+    }
+    return cleaned;
+  };
+
+  const fetchRawRecipients = async (filterParam: string): Promise<string[]> => {
     if (filterParam === "speakers") {
       const { data: rels } = await supabase
         .from("event_speakers").select("speaker_id").eq("event_id", selectedEventId);
@@ -178,7 +200,7 @@ function EmailCampaignsTab() {
     if (filterParam === "confirmed") q = q.eq("approval_status", "approved");
     if (filterParam === "waitlist") q = q.eq("status", "waitlist");
     const { data } = await q;
-    return (data || []).map((r) => r.email).filter(Boolean);
+    return (data || []).map((r) => r.email).filter(Boolean) as string[];
   };
 
   // Send a previously-saved draft

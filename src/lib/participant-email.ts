@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
 import { formatEventDateTime } from "@/lib/datetime";
+import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 
 /**
  * Build + send the "you've been added to this event" welcome email used by
@@ -71,6 +72,20 @@ export interface ParticipantEmailInput {
 export async function sendParticipantWelcomeEmail(
   input: ParticipantEmailInput,
 ): Promise<{ ok: true; sent: number } | { ok: false; error: string }> {
+  // Last-line defence: refuse to call the SMTP function with a malformed
+  // address. Without this guard, the function still attempts the send,
+  // SMTP rejects it ("5.1.3 Bad recipient address syntax"), and the dashboard
+  // user only finds out via a log line. Surfacing it here means the caller's
+  // toast tells the organiser exactly which address needs fixing.
+  const normalizedRecipient = normalizeEmail(input.recipientEmail);
+  if (!isValidEmailFormat(normalizedRecipient)) {
+    logger.warn("participant welcome email skipped — invalid recipient", {
+      event_id: input.eventId,
+      recipient: normalizedRecipient,
+    });
+    return { ok: false, error: `Invalid recipient email "${input.recipientEmail}"` };
+  }
+
   try {
     // Pull just enough event context to compose a friendly body. One row,
     // one round-trip; the function itself doesn't need this — the dashboard
@@ -106,7 +121,7 @@ export async function sendParticipantWelcomeEmail(
         email_id: crypto.randomUUID(),
         subject,
         body,
-        recipient_emails: [input.recipientEmail.toLowerCase()],
+        recipient_emails: [normalizedRecipient],
       },
     });
 

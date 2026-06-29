@@ -20,6 +20,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 
 interface EmailMessage {
   id: string;
@@ -105,6 +106,27 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
 
   /** Build the list of recipient emails based on the filter choice. */
   const fetchRecipientEmails = async (filter: string = newRecipients): Promise<string[]> => {
+    const raw = await fetchRawRecipients(filter);
+    const cleaned = Array.from(
+      new Set(
+        raw
+          .map((e) => normalizeEmail(e))
+          .filter((e) => isValidEmailFormat(e)),
+      ),
+    );
+    const dropped = raw.length - cleaned.length;
+    if (dropped > 0) {
+      toast.warning(
+        `${dropped} recipient${dropped === 1 ? "" : "s"} skipped — invalid email format`,
+      );
+    }
+    return cleaned;
+  };
+
+  // Lower-level fetcher used by `fetchRecipientEmails`. Returns the raw
+  // address list straight from Supabase so format validation happens in a
+  // single place above.
+  const fetchRawRecipients = async (filter: string): Promise<string[]> => {
     let query = supabase.from("registrations").select("email").eq("event_id", eventId);
 
     if (filter === "confirmed") {
@@ -127,7 +149,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
     }
 
     const { data } = await query;
-    return (data || []).map((r) => r.email).filter(Boolean);
+    return (data || []).map((r) => r.email).filter(Boolean) as string[];
   };
 
   // Send a previously-saved draft. Reuses the same flow as handleSend

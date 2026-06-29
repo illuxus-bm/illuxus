@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Mic, Loader2 } from "lucide-react";
+import { isValidEmailFormat } from "@/lib/email-format";
+import { notifyOrganiserOfApplication } from "@/lib/application-notify";
 
 interface Props {
   eventId: string;
@@ -97,6 +99,7 @@ export function SpeakerApplicationDialog({ eventId, open, onOpenChange, onSubmit
   const validateStep1 = () => {
     if (!form.full_name.trim()) return "Full name is required";
     if (!form.email.trim()) return "Email is required";
+    if (!isValidEmailFormat(form.email)) return "Enter a valid email (name@domain.tld)";
     return null;
   };
 
@@ -155,6 +158,20 @@ export function SpeakerApplicationDialog({ eventId, open, onOpenChange, onSubmit
     toast.success("Speaker application submitted! The organizer will review it shortly.");
     qc.invalidateQueries({ queryKey: ["my-speaker-application", user.id, eventId] });
     qc.invalidateQueries({ queryKey: ["my-applications"] });
+
+    // Fire-and-forget notification to the organiser side. They get the
+    // applicant name, email, session title, and a deep link to the event's
+    // Applications tab so they can review in one click. Failures here are
+    // non-fatal — the application row is already saved.
+    void notifyOrganiserOfApplication({
+      eventId,
+      kind: "speaker",
+      applicantName: form.full_name.trim(),
+      applicantEmail: form.email.trim().toLowerCase(),
+      headline: form.session_title.trim() || null,
+      summary: form.session_description.trim() || null,
+    });
+
     onSubmitted?.();
     onOpenChange(false);
     setStep(1);

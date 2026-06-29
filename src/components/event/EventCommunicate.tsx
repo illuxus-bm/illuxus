@@ -39,7 +39,7 @@ interface Communication {
   org_id: string;
   event_id: string | null;
   channels: Channel[];
-  recipient_filter: { types: RecipientType[]; user_ids?: string[] };
+  recipient_filter: { types: RecipientType[]; user_ids?: string[]; emails?: string[] };
   subject: string;
   body_text: string;
   status: Status;
@@ -731,14 +731,23 @@ function ComposeDialog({
     if (!open || step < 2) return;
     let cancelled = false;
     setResolving(true);
-    // Translate the selected per-row keys back into real `user_id`s the
-    // resolver understands. Rows with no auth account (CSV imports) carry
-    // a synthetic `reg:<uuid>` key — they're skipped here so the resolver
-    // never sees a non-uuid identifier.
-    const selectedUserIds = attendeeOptions
-      .filter((a) => a.user_id && customSelectedKeys.includes(a.key))
-      .map((a) => a.user_id!);
-    const filter = { types: recipients, user_ids: selectedUserIds };
+    // Translate the selected per-row keys into BOTH user_ids and emails.
+    // - user_id matches users who have signed in (auth account exists).
+    // - email catches imported participants who don't have a user_id yet
+    //   (and never will until they confirm / change password). Migration
+    //   018 makes the resolver match by either.
+    const selectedRows = attendeeOptions.filter((a) => customSelectedKeys.includes(a.key));
+    const selectedUserIds = selectedRows
+      .map((a) => a.user_id)
+      .filter((id): id is string => !!id);
+    const selectedEmails = Array.from(
+      new Set(
+        selectedRows
+          .map((a) => (a.email || "").toLowerCase())
+          .filter((e) => e.length > 0),
+      ),
+    );
+    const filter = { types: recipients, user_ids: selectedUserIds, emails: selectedEmails };
     supabaseRpc(
       "communications_resolve_recipients" as never,
       { _event_id: eventId, _filter: filter } as never,
@@ -869,10 +878,18 @@ function ComposeDialog({
 
   // ── Persistence helpers ───────────────────────────────────────────────────
   const persistDraft = async (): Promise<string | null> => {
-    const selectedUserIds = attendeeOptions
-      .filter((a) => a.user_id && customSelectedKeys.includes(a.key))
-      .map((a) => a.user_id!);
-    const filter = { types: recipients, user_ids: selectedUserIds };
+    const selectedRows = attendeeOptions.filter((a) => customSelectedKeys.includes(a.key));
+    const selectedUserIds = selectedRows
+      .map((a) => a.user_id)
+      .filter((id): id is string => !!id);
+    const selectedEmails = Array.from(
+      new Set(
+        selectedRows
+          .map((a) => (a.email || "").toLowerCase())
+          .filter((e) => e.length > 0),
+      ),
+    );
+    const filter = { types: recipients, user_ids: selectedUserIds, emails: selectedEmails };
     const waBinding = wantsWhatsapp && waTemplate ? { body: waVars } : null;
     const payload = {
       org_id: orgId,

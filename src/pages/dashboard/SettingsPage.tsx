@@ -23,6 +23,7 @@ import type { Tables } from "@/integrations/supabase/types";
 import PersonFieldsForm, { type PersonFields, emptyPersonFields, displayName as buildDisplayName } from "@/components/people/PersonFieldsForm";
 import { uuid } from "@/lib/uuid";
 import { publicOrigin } from "@/lib/publicUrl";
+import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 
 type Profile = Tables<"profiles">;
 
@@ -222,9 +223,22 @@ const SettingsPage = () => {
 
   const handleInvite = async () => {
     if (!org || !user || !inviteEmail.trim()) return;
-    setInviting(true);
 
-    const emailNormalized = inviteEmail.trim().toLowerCase();
+    // Format gate. Without this the invite row gets persisted with whatever
+    // typo the organiser entered (e.g. "foo@gmail.con" / "name.gmail.com"),
+    // the welcome email bounces off the SMTP server, and the new member never
+    // hears about the invitation.
+    const emailNormalized = normalizeEmail(inviteEmail);
+    if (!isValidEmailFormat(emailNormalized)) {
+      toast({
+        title: "Invalid email",
+        description: "Enter an address in the format name@domain.tld (for example colleague@company.com).",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setInviting(true);
 
     // Pre-flight: check if this email is already an active member of the org.
     // org_members stores user_ids, so look up by email via profiles.
@@ -245,97 +259,151 @@ const SettingsPage = () => {
       return;
     }
 
-    // Pre-flight: check for a pending invitation to the same email.
+    // Pre-flight: check for ANY existing invitation row for this email
+    // (regardless of status). The org_invitations table has a UNIQUE
+    // constraint on (org_id, email), so even a revoked or accepted row
+    // blocks a fresh insert with the misleading "duplicate key" error
+    // shown to the organiser as "This email has already been invited".
+    // We surface the right action for each status:
+    //   • pending — same role → "already invited"
+    //              different role → update role on the existing row
+    //   • accepted — the previous member is gone (we already filtered out
+    //               active members above), so reset to pending with a
+    //               fresh token. Reinvite flow.
+    //   • revoked — same as accepted: the organiser explicitly removed
+    //               them and is now reinviting. Reset to pending + new
+    //               token so the new email link can succeed against the
+    //               accept_org_invitation RPC (migration 016).
     const { data: existingInvite } = await supabase
       .from("org_invitations")
       .select("id, role, status")
       .eq("org_id", org.id)
       .eq("email", emailNormalized)
-      .eq("status", "pending")
       .maybeSingle();
 
+    let invitation: { token: string } | null = null;
+    let inviteWriteError: { message: string } | null = null;
+
     if (existingInvite) {
-      // If the same email already has a pending invite with a different role, update it.
-      // If it's the same role, just warn.
-      if (existingInvite.role === inviteRole) {
+      if (existingInvite.status === "pending" && existingInvite.role === inviteRole) {
         setInviting(false);
-        toast({ title: "Already invited", description: `${emailNormalized} already has a pending invitation as ${inviteRole}.`, variant: "destructive" });
+        toast({
+          title: "Already invited",
+          description: `${emailNormalized} already has a pending invitation as ${inviteRole}.`,
+          variant: "destructive",
+        });
         return;
       }
-      // Update the role on the existing invite instead of creating a duplicate.
-      await supabase.from("org_invitations").update({ role: inviteRole }).eq("id", existingInvite.id);
+
+      // Reset / update path. For pending rows we keep the existing token
+      // (so any link still in their mailbox keeps working). For accepted
+      // or revoked rows we rotate the token, otherwise an old link from
+      // the previous lifecycle would still be valid against the RPC.
+      const rotateToken = existingInvite.status !== "pending";
+      const updatePayload: Record<string, unknown> = {
+        role: inviteRole,
+        status: "pending",
+        invited_by: user.id,
+        updated_at: new Date().toISOString(),
+      };
+      if (rotateToken) updatePayload.token = uuid();
+
+      const { data: updated, error: updateErr } = await supabase
+        .from("org_invitations")
+        .update(updatePayload)
+        .eq("id", existingInvite.id)
+        .select("token")
+        .single();
+      if (updateErr) {
+        inviteWriteError = updateErr;
+      } else {
+        invitation = updated;
+      }
+    } else {
+      const { data: inserted, error: insertErr } = await supabase
+        .from("org_invitations")
+        .insert({
+          org_id: org.id,
+          email: emailNormalized,
+          role: inviteRole,
+          invited_by: user.id,
+        })
+        .select("token")
+        .single();
+      if (insertErr) {
+        inviteWriteError = insertErr;
+      } else {
+        invitation = inserted;
+      }
+    }
+
+    if (inviteWriteError || !invitation) {
       setInviting(false);
-      toast({ title: "Invitation updated", description: `${emailNormalized}'s pending invitation role changed to ${inviteRole}.` });
-      setInviteEmail(""); setInviteRole("member"); setShowInviteDialog(false); fetchTeam();
+      const msg = inviteWriteError?.message || "Could not create the invitation";
+      toast({
+        title: "Error",
+        description: msg.includes("duplicate") ? "This email has already been invited" : msg,
+        variant: "destructive",
+      });
       return;
     }
 
-    const { data: invitation, error } = await supabase.from("org_invitations").insert({
-      org_id: org.id,
-      email: emailNormalized,
-      role: inviteRole,
-      invited_by: user.id,
-    }).select("token").single();
     setInviting(false);
-    if (error) {
-      toast({ title: "Error", description: error.message.includes("duplicate") ? "This email has already been invited" : error.message, variant: "destructive" });
-    } else {
-      // Send invite email via edge function. We *await* the call and surface the result so
-      // delivery failures (missing RESEND_API_KEY, unverified domain, sandbox rejection, etc.)
-      // are visible instead of silently swallowed.
-      // Build the invite link against the canonical public origin so the
-      // recipient never lands on a Vercel preview / Lovable sandbox URL.
-      // `publicOrigin()` resolves `VITE_PUBLIC_ORIGIN` first, then falls back
-      // to detecting and rewriting preview hosts.
-      const inviteUrl = `${publicOrigin()}/login?invite=${invitation?.token || ""}`;
-      const recipient = inviteEmail.trim().toLowerCase();
+    // Send invite email via edge function. We *await* the call and surface the result so
+    // delivery failures (missing RESEND_API_KEY, unverified domain, sandbox rejection, etc.)
+    // are visible instead of silently swallowed.
+    // Build the invite link against the canonical public origin so the
+    // recipient never lands on a Vercel preview / Lovable sandbox URL.
+    // `publicOrigin()` resolves `VITE_PUBLIC_ORIGIN` first, then falls back
+    // to detecting and rewriting preview hosts.
+    const inviteUrl = `${publicOrigin()}/login?invite=${invitation?.token || ""}`;
+    const recipient = inviteEmail.trim().toLowerCase();
 
-      let emailDelivered = false;
-      let emailNote: string | null = null;
-      try {
-        const { data: fnData, error: fnError } = await supabase.functions.invoke("send-event-email", {
-          body: {
-            event_id: "invite",
-            email_id: invitation?.token || uuid(),
-            subject: `You're invited to join ${org.name} on Illuxus`,
-            body: `Hi!\n\n${user.email} has invited you to join "${org.name}" as a ${inviteRole}.\n\nClick the link below to accept:\n${inviteUrl}\n\nIf you don't have an account yet, you'll be able to create one when you click the link.\n\nBest,\nThe Illuxus Team`,
-            recipient_emails: [recipient],
-          },
-        });
-        type SendResult = { success?: boolean; sent?: number; failed?: number; provider?: string; note?: string; error?: string };
-        const result = (fnData ?? null) as SendResult | null;
-        if (fnError) {
-          emailNote = fnError.message || "Edge function returned an error";
-        } else if (result?.error) {
-          emailNote = result.error;
-        } else if (result?.provider === "console") {
-          emailNote = result.note ?? "SMTP not configured — email not delivered. Set SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD in Supabase Edge Function secrets.";
-        } else if (result?.success && (result.sent ?? 0) > 0) {
-          emailDelivered = true;
-        } else if ((result?.failed ?? 0) > 0) {
-          emailNote = "SMTP rejected the send. Check SMTP credentials in Supabase Edge Function secrets and verify the App Password is correct.";
-        } else {
-          emailNote = "Email function returned an unexpected response";
-        }
-      } catch (e) {
-        emailNote = e instanceof Error ? e.message : "Email function unreachable";
-      }
-
-      if (emailDelivered) {
-        toast({ title: "Invitation sent", description: `Emailed ${recipient} as ${inviteRole}` });
+    let emailDelivered = false;
+    let emailNote: string | null = null;
+    try {
+      const { data: fnData, error: fnError } = await supabase.functions.invoke("send-event-email", {
+        body: {
+          event_id: "invite",
+          email_id: invitation?.token || uuid(),
+          subject: `You're invited to join ${org.name} on Illuxus`,
+          body: `Hi!\n\n${user.email} has invited you to join "${org.name}" as a ${inviteRole}.\n\nClick the link below to accept:\n${inviteUrl}\n\nIf you don't have an account yet, you'll be able to create one when you click the link.\n\nBest,\nThe Illuxus Team`,
+          recipient_emails: [recipient],
+        },
+      });
+      type SendResult = { success?: boolean; sent?: number; failed?: number; provider?: string; note?: string; error?: string };
+      const result = (fnData ?? null) as SendResult | null;
+      if (fnError) {
+        emailNote = fnError.message || "Edge function returned an error";
+      } else if (result?.error) {
+        emailNote = result.error;
+      } else if (result?.provider === "console") {
+        emailNote = result.note ?? "SMTP not configured — email not delivered. Set SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD in Supabase Edge Function secrets.";
+      } else if (result?.success && (result.sent ?? 0) > 0) {
+        emailDelivered = true;
+      } else if ((result?.failed ?? 0) > 0) {
+        emailNote = "SMTP rejected the send. Check SMTP credentials in Supabase Edge Function secrets and verify the App Password is correct.";
       } else {
-        toast({
-          title: "Invitation saved",
-          description: `${recipient} added as ${inviteRole}, but the email could not be sent: ${emailNote}. They can still accept via the dashboard once they sign in.`,
-          variant: "destructive",
-        });
+        emailNote = "Email function returned an unexpected response";
       }
-
-      setInviteEmail("");
-      setInviteRole("member");
-      setShowInviteDialog(false);
-      fetchTeam();
+    } catch (e) {
+      emailNote = e instanceof Error ? e.message : "Email function unreachable";
     }
+
+    if (emailDelivered) {
+      toast({ title: "Invitation sent", description: `Emailed ${recipient} as ${inviteRole}` });
+    } else {
+      toast({
+        title: "Invitation saved",
+        description: `${recipient} added as ${inviteRole}, but the email could not be sent: ${emailNote}. They can still accept via the dashboard once they sign in.`,
+        variant: "destructive",
+      });
+    }
+
+    setInviteEmail("");
+    setInviteRole("member");
+    setShowInviteDialog(false);
+    fetchTeam();
   };
 
   const handleCancelInvite = async (id: string) => {
@@ -361,8 +429,93 @@ const SettingsPage = () => {
       toast({ title: "Error", description: "You cannot remove yourself", variant: "destructive" });
       return;
     }
-    await supabase.from("org_members").delete().eq("id", memberId);
-    toast({ title: "Member removed" });
+    if (!org) return;
+
+    // Resolve the member's email + display name BEFORE deleting the row.
+    // We need the email to (a) revoke their pending invitations so the
+    // original link can't reinstate them and (b) send the removal-notice
+    // email. Email lives on auth.users which the client can't read, but
+    // the `profiles` table mirrors it; if the mirror is missing the
+    // member's email we still proceed with the removal — the removal email
+    // is best-effort.
+    const { data: profileRow } = await supabase
+      .from("profiles")
+      .select("email, display_name, first_name, last_name")
+      .eq("user_id", memberUserId)
+      .maybeSingle();
+    const removedEmail = (profileRow as { email?: string | null } | null)?.email?.toLowerCase() || null;
+    const removedName = (profileRow as { display_name?: string | null; first_name?: string | null; last_name?: string | null } | null);
+    const displayName = removedName?.display_name
+      || [removedName?.first_name, removedName?.last_name].filter(Boolean).join(" ").trim()
+      || removedEmail
+      || "the team member";
+
+    // Step 1: remove the membership row.
+    const { error: delErr } = await supabase.from("org_members").delete().eq("id", memberId);
+    if (delErr) {
+      toast({ title: "Error", description: delErr.message, variant: "destructive" });
+      return;
+    }
+
+    // Step 2: revoke any invitation tokens belonging to this email so the
+    // original "join workspace" link in their mailbox stops working. The
+    // accept_org_invitation RPC (migration 016) refuses any status other
+    // than 'pending', so flipping to 'revoked' is sufficient. We also
+    // catch already-accepted rows so a re-invite later starts fresh.
+    if (removedEmail) {
+      await supabase
+        .from("org_invitations")
+        .update({ status: "revoked" })
+        .eq("org_id", org.id)
+        .eq("email", removedEmail);
+    }
+
+    // Step 3: notify the removed teammate via email — informational only,
+    // fire-and-forget. We use the same `send-event-email` function the
+    // invitation flow uses; `event_id: "invite"` is the system-mail mode
+    // that doesn't require an event_emails row.
+    if (removedEmail && isValidEmailFormat(removedEmail)) {
+      const senderName = user?.email || "the organisation owner";
+      const subject = `You've been removed from ${org.name} on Illuxus`;
+      const body = [
+        `Hi ${displayName},`,
+        "",
+        `${senderName} has removed your access to the "${org.name}" workspace on Illuxus.`,
+        "",
+        "Any invitation links you previously received for this workspace will no longer work. Your personal account and any tickets you hold are unaffected — you can keep using Illuxus to attend events and join communities.",
+        "",
+        "If you believe this was a mistake, please reach out to your workspace administrator.",
+        "",
+        "— The Illuxus team",
+      ].join("\n");
+
+      void supabase.functions
+        .invoke("send-event-email", {
+          body: {
+            event_id: "invite",
+            email_id: uuid(),
+            subject,
+            body,
+            recipient_emails: [removedEmail],
+          },
+        })
+        .then(({ error: fnErr }) => {
+          if (fnErr) {
+            toast({
+              title: "Member removed",
+              description: `Could not send removal notice to ${removedEmail}: ${fnErr.message}`,
+              variant: "destructive",
+            });
+          }
+        });
+    }
+
+    toast({
+      title: "Member removed",
+      description: removedEmail
+        ? `${displayName} (${removedEmail}) has been removed. Their invite links are no longer valid.`
+        : `${displayName} has been removed.`,
+    });
     fetchTeam();
   };
 
