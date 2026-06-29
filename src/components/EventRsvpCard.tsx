@@ -368,7 +368,7 @@ export default function EventRsvpCard({
         {/* State pill — mirrors Lu.ma's "Approval Required" header.
             When the event is sold out we show a single sold-out card
             regardless of the approval flow. */}
-        {state === "idle" && isFull && (
+        {state === "idle" && isFull && !isEventOver && (
           <div className="flex items-start gap-3">
             <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
               <XCircle className="h-4 w-4 text-foreground/70" />
@@ -381,7 +381,7 @@ export default function EventRsvpCard({
             </div>
           </div>
         )}
-        {isApprovalFlow && state === "idle" && !isFull && (
+        {isApprovalFlow && state === "idle" && !isFull && !isEventOver && (
           <div className="flex items-start gap-3">
             <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
               <ShieldCheck className="h-4 w-4 text-foreground/70" />
@@ -402,7 +402,7 @@ export default function EventRsvpCard({
             </div>
           </div>
         )}
-        {!isApprovalFlow && state === "idle" && !isFull && (
+        {!isApprovalFlow && state === "idle" && !isFull && !isEventOver && (
           <div className="flex items-start gap-3">
             <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
               <UserPlus className="h-4 w-4 text-foreground/70" />
