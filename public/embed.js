@@ -69,7 +69,9 @@
   var orgSlug   = getConf("org",    "");
   var filter    = getConf("filter", "upcoming");
   var limit     = getConf("limit",  "100");
-  var themePref = getConf("theme",  "auto");
+  /* Widget always renders in light mode — it's embedded on third-party
+     sites where dark mode on the host page should not affect the widget. */
+  var themePref = "light";
 
   if (!orgSlug) {
     console.warn(
@@ -94,22 +96,9 @@
   container.setAttribute("data-illuxus-embed", "true");
 
   /* ─────────────────────────────────────────────────────────────────────────
-     4. Theme — OS auto-detection, respects data-theme override, live updates.
+     4. Theme — always light for third-party embeds.
   ───────────────────────────────────────────────────────────────────────── */
-  var mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
-
-  function applyTheme() {
-    var resolved = themePref === "auto"
-      ? (mq && mq.matches ? "dark" : "light")
-      : themePref;
-    container.setAttribute("data-theme", resolved);
-  }
-
-  applyTheme();
-
-  if (themePref === "auto" && mq && mq.addEventListener) {
-    mq.addEventListener("change", applyTheme);
-  }
+  container.setAttribute("data-theme", "light");
 
   /* ─────────────────────────────────────────────────────────────────────────
      5. Styles — injected once per page under a versioned id so multiple
