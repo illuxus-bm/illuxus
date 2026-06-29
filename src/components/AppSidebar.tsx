@@ -1,12 +1,11 @@
 import {
   Calendar, Settings, Ticket,
   Megaphone, FileText, HelpCircle, CreditCard, Layout, Users,
-  Building2, Mic, ChevronsUpDown, Check,
+  ChevronsUpDown, Check,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useOrg, PLAN_DETAILS } from "@/contexts/OrgContext";
-import { useAuth } from "@/contexts/AuthContext";
 
 import {
   Sidebar,
@@ -54,10 +53,6 @@ export function AppSidebar() {
   const location = useLocation();
   const { org, memberships, setActiveOrg, myRole } = useOrg();
   const planName = PLAN_DETAILS[org?.plan || "free"]?.name || "Free";
-
-  const adminItems = [
-    { title: "Admin Panel", url: "/dashboard/admin", icon: Shield },
-  ];
 
   const isActive = (path: string) => {
     // Events lives at /dashboard/events but / dashboard is the home redirect
