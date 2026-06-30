@@ -17,7 +17,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useTheme } from "@/contexts/ThemeContext";
 import { SiteContainer } from "@/components/layout/SiteContainer";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
-import { ArrowRight, CalendarDays, ChevronDown, ClipboardList, Command, Compass, LogOut, Mic, Building2, Search, Settings as SettingsIcon, Ticket, Users2 } from "lucide-react";
+import { ArrowRight, CalendarDays, ChevronDown, ClipboardList, Command, Compass, LogOut, Mic, Building2, Search, Settings as SettingsIcon, Shield, Ticket, Users2 } from "lucide-react";
 
 /**
  * Centralized site header used across every public segment
@@ -223,7 +223,9 @@ export default function SiteHeader({
                 <div className="px-2 py-1.5">
                   <p className="text-[13px] font-medium truncate">{displayName}</p>
                   <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
-                  <p className="text-[11px] text-muted-foreground capitalize">{accountType || "attendee"}</p>
+                  <p className="text-[11px] text-muted-foreground capitalize">
+                    {isAdmin ? "Super admin" : (accountType || "attendee")}
+                  </p>
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
@@ -238,15 +240,35 @@ export default function SiteHeader({
                 <DropdownMenuItem asChild>
                   <Link to="/community"><Users2 className="h-3.5 w-3.5 mr-2" /> Community</Link>
                 </DropdownMenuItem>
+                {/* ── Super admin: dedicated Control Tower entry. Shown only
+                    to users with the platform `admin` role. The link goes
+                    directly to /dashboard/admin so it never gets shadowed
+                    by the organiser dashboard's account-type redirect. */}
+                {isAdmin && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/dashboard/admin">
+                      <Shield className="h-3.5 w-3.5 mr-2" /> Super admin
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                {/* ── Organiser / workspace surface. Distinct item even for
+                    admins who also run events, so they can switch between
+                    the Control Tower and the organiser dashboard without
+                    URL fiddling. The link goes to /dashboard/events
+                    explicitly (not /dashboard) so admins bypass the
+                    DashboardLanding admin-redirect that sends them to
+                    /dashboard/admin by default. */}
                 {(accountType === "organizer" || isAdmin || memberships.length > 0) && (
                   <DropdownMenuItem asChild>
-                    <Link to="/dashboard">
+                    <Link to="/dashboard/events">
                       <CalendarDays className="h-3.5 w-3.5 mr-2" />
-                      {accountType === "organizer" || isAdmin
+                      {isAdmin
                         ? "Organizer dashboard"
-                        : myRole && myRole !== "owner"
-                          ? `Workspace · ${myRole}`
-                          : "Workspace dashboard"}
+                        : accountType === "organizer"
+                          ? "Organizer dashboard"
+                          : myRole && myRole !== "owner"
+                            ? `Workspace · ${myRole}`
+                            : "Workspace dashboard"}
                     </Link>
                   </DropdownMenuItem>
                 )}
