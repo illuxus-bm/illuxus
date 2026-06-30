@@ -254,6 +254,16 @@ export function useApproveSpeakerApplication() {
         } as never);
       } catch { /* notification is best-effort */ }
 
+      // 7. Rich-HTML email — banner + organiser block + portal CTA. Same
+      //    template used for organiser-added speakers (kind="added") and
+      //    ticket / sponsor emails, so an approved applicant gets the same
+      //    look as anyone else who joins the event.
+      try {
+        await supabase.functions.invoke("send-speaker-invite-email", {
+          body: { speaker_id: speakerId, event_id: a.event_id, kind: "approved" },
+        });
+      } catch { /* email is best-effort — the approval is already saved */ }
+
       return speakerId;
     },
     onSuccess: () => {
@@ -399,6 +409,14 @@ export function useApproveSponsorApplication() {
         } as never);
       } catch { /* best-effort */ }
 
+      // 7. Rich-HTML sponsor invite email (same banner template as the
+      //    organiser-added sponsor flow). Best-effort.
+      try {
+        await supabase.functions.invoke("send-sponsor-invite-email", {
+          body: { sponsor_id: sponsorId, event_id: a.event_id },
+        });
+      } catch { /* email is best-effort */ }
+
       return sponsorId;
     },
     onSuccess: () => {
@@ -534,6 +552,9 @@ export function useChangeSpeakerApplicationStatus() {
       }
 
       // Granting approval — create / locate the speaker record and link them.
+      // `approvedSpeakerId` carries the speaker row id out of the branch so we
+      // can fire the rich-HTML invite email once the status change persists.
+      let approvedSpeakerId: string | null = null;
       if (willBeApproved && !wasApproved) {
         let speakerId: string;
         const { data: existing } = await supabase
@@ -569,6 +590,7 @@ export function useChangeSpeakerApplicationStatus() {
             onConflict: "event_id,speaker_id",
           });
         if (linkErr) throw linkErr;
+        approvedSpeakerId = speakerId;
       }
 
       const { error: updateErr } = await supabase
@@ -582,6 +604,17 @@ export function useChangeSpeakerApplicationStatus() {
         } as never)
         .eq("id", appId);
       if (updateErr) throw updateErr;
+
+      // Rich-HTML "your application is approved" email — same template as
+      // organiser-added speakers, so applicants get the consistent
+      // banner + organiser + portal CTA experience. Best-effort.
+      if (willBeApproved && !wasApproved && approvedSpeakerId) {
+        try {
+          await supabase.functions.invoke("send-speaker-invite-email", {
+            body: { speaker_id: approvedSpeakerId, event_id: a.event_id, kind: "approved" },
+          });
+        } catch { /* email is best-effort */ }
+      }
 
       try {
         const { data: ev } = await supabase
@@ -636,6 +669,9 @@ export function useChangeSponsorApplicationStatus() {
 
       const wasApproved = a.status === "approved";
       const willBeApproved = newStatus === "approved";
+      // Hoisted so the rich-email fire after the status update can pick
+      // up the sponsor row id created inside the approval branch.
+      let approvedSponsorId: string | null = null;
 
       // Revoking approval — drop the event link.
       if (wasApproved && !willBeApproved) {
@@ -672,6 +708,7 @@ export function useChangeSponsorApplicationStatus() {
           .single();
         if (spErr || !created) throw spErr || new Error("Could not create sponsor");
         const sponsorId = (created as unknown as { id: string }).id;
+        approvedSponsorId = sponsorId;
 
         const { error: linkErr } = await supabase
           .from("event_sponsors" as never)
@@ -731,6 +768,16 @@ export function useChangeSponsorApplicationStatus() {
         }
       } catch {
         /* notification is best-effort */
+      }
+
+      // Rich-HTML sponsor invite email — same banner template the
+      // organiser-added sponsor flow uses. Best-effort.
+      if (willBeApproved && !wasApproved && approvedSponsorId) {
+        try {
+          await supabase.functions.invoke("send-sponsor-invite-email", {
+            body: { sponsor_id: approvedSponsorId, event_id: a.event_id },
+          });
+        } catch { /* email is best-effort */ }
       }
     },
     onSuccess: () => {

@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { Plus, Pencil, Trash2, UserCheck, Building, Link2, Copy, GripVertical, Search, Users, Megaphone } from "lucide-react";
 import { publicUrl } from "@/lib/publicUrl";
 import { logger } from "@/lib/observability";
+import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
 import SpeakerPhotoUploader from "./SpeakerPhotoUploader";
 import {
@@ -217,11 +218,51 @@ export default function SpeakerManagement({ eventId }: Props) {
       await supabase.from("event_speakers").insert({ event_id: eventId, speaker_id: data.id });
       await syncWebinarSpeaker({ name: data.name, email: data.email });
       toast.success("Speaker added & assigned");
+      // Rich-HTML heads-up email (banner + organiser + CTA). Same
+      // template as the ticket and sponsor emails so every recipient
+      // gets a consistently-branded welcome.
+      void notifySpeakerAdded({ id: data.id, email: data.email, name: data.name });
     }
     setOpen(false);
     setEditing(null);
     setForm(emptyForm());
     fetchData();
+  };
+
+  /**
+   * Fire-and-forget invite email for the speaker. Delegates to the
+   * `send-speaker-invite-email` edge function which renders the rich
+   * banner template server-side. Silent no-op when the speaker has no
+   * deliverable email.
+   */
+  const notifySpeakerAdded = async (speaker: { id: string; email: string | null; name: string }) => {
+    const recipient = normalizeEmail(speaker.email);
+    if (!isValidEmailFormat(recipient)) return;
+    try {
+      const { data, error } = await supabase.functions.invoke("send-speaker-invite-email", {
+        body: { speaker_id: speaker.id, event_id: eventId, kind: "added" },
+      });
+      if (error) {
+        logger.warn("speaker invite send failed", {
+          event_id: eventId, speaker_id: speaker.id, error_message: error.message,
+        });
+        return;
+      }
+      type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string };
+      const r = (data ?? null) as R | null;
+      if (r?.delivered) {
+        toast.message("Speaker invitation email sent", { description: recipient });
+      } else if (r?.error) {
+        logger.warn("speaker invite error response", {
+          event_id: eventId, speaker_id: speaker.id, error_message: r.error,
+        });
+      }
+    } catch (err) {
+      logger.warn("speaker notify threw", {
+        event_id: eventId, speaker_id: speaker.id,
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+    }
   };
 
   const handleAssign = async (speaker: Speaker) => {
@@ -238,6 +279,7 @@ export default function SpeakerManagement({ eventId }: Props) {
       if (error) { toast.error(error.message); return; }
       await syncWebinarSpeaker({ name: speaker.name, email: speaker.email });
       toast.success("Speaker assigned to event");
+      void notifySpeakerAdded({ id: speaker.id, email: speaker.email, name: speaker.name });
     }
     fetchData();
   };

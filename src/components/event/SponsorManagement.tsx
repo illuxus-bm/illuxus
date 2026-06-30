@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical, Search, Megaphone } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
 import { logger } from "@/lib/observability";
+import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 import SponsorLogoUploader from "./SponsorLogoUploader";
 import {
   DndContext, DragOverlay, closestCenter, KeyboardSensor, PointerSensor,
@@ -244,6 +245,54 @@ export default function SponsorManagement({ eventId }: Props) {
     toast.success("Invite link copied", { description: url });
   };
 
+  /**
+   * Fire-and-forget rich-HTML "you've been added" email to a sponsor
+   * company. Delegated entirely to the `send-sponsor-invite-email` edge
+   * function, which loads the event + org details server-side and builds
+   * the HTML (banner, organiser block, date / venue, portal CTA) so
+   * branding stays in lock-step with the participant ticket email.
+   *
+   * Silent no-op when:
+   *   • the sponsor row has no email, or the email is malformed, or
+   *   • SMTP isn't configured (the edge function returns delivered:false
+   *     with a note — surfaced only as a debug log, not a destructive
+   *     toast, because nothing the organiser typed is wrong in that case).
+   */
+  const notifySponsorAdded = async (sponsor: { id: string; email: string | null; name: string }) => {
+    const recipient = normalizeEmail(sponsor.email);
+    if (!isValidEmailFormat(recipient)) return;
+    try {
+      const { data, error } = await supabase.functions.invoke("send-sponsor-invite-email", {
+        body: { sponsor_id: sponsor.id, event_id: eventId },
+      });
+      if (error) {
+        logger.warn("sponsor invite send failed", {
+          event_id: eventId,
+          sponsor_id: sponsor.id,
+          error_message: error.message,
+        });
+        return;
+      }
+      type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string };
+      const r = (data ?? null) as R | null;
+      if (r?.error) {
+        logger.warn("sponsor invite error response", {
+          event_id: eventId,
+          sponsor_id: sponsor.id,
+          error_message: r.error,
+        });
+      } else if (r?.delivered) {
+        toast.message("Sponsor invitation email sent", { description: recipient });
+      }
+    } catch (err) {
+      logger.warn("sponsor notify threw", {
+        event_id: eventId,
+        sponsor_id: sponsor.id,
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
   const handleSave = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -267,6 +316,9 @@ export default function SponsorManagement({ eventId }: Props) {
       if (error) { toast.error(error.message); return; }
       await supabase.from("event_sponsors").insert({ event_id: eventId, sponsor_id: data.id });
       toast.success("Sponsor added & assigned");
+      // Heads-up email — silent no-op when the sponsor has no email or
+      // it's malformed. Doesn't block the dialog close.
+      void notifySponsorAdded({ id: data.id, email: form.email || null, name: form.name });
     }
     setOpen(false);
     setEditing(null);
@@ -296,6 +348,13 @@ export default function SponsorManagement({ eventId }: Props) {
       });
       if (error) { toast.error(error.message); return; }
       toast.success("Sponsor assigned to event");
+      // Heads-up email for the newly-assigned sponsor company. Look up
+      // the row from the cached `sponsors` list (the picker uses the
+      // same dataset) so we don't need an extra round-trip.
+      const sponsor = sponsors.find((s) => s.id === sponsorId);
+      if (sponsor) {
+        void notifySponsorAdded({ id: sponsor.id, email: sponsor.email, name: sponsor.name });
+      }
     }
     fetchData();
   };
