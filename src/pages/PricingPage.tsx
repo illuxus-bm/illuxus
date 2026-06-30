@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import SiteHeader from "@/components/SiteHeader";
+import PublicPageShell from "@/components/layout/PublicPageShell";
 import { Button } from "@/components/ui/button";
 import RouteSeo from "@/components/RouteSeo";
 import { CheckCircle2, X, ArrowRight } from "lucide-react";
@@ -178,8 +178,7 @@ export default function PricingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <SiteHeader />
+    <PublicPageShell>
       <RouteSeo
         title="Pricing — Transparent event management pricing | Free trial | illuxus"
         description="Start free. Scale on Professional at ₹3,499/mo or talk to sales for Enterprise. Only 2% platform fee on paid tickets. No setup cost. No hidden fees. Cancel anytime."
@@ -278,6 +277,6 @@ export default function PricingPage() {
         </Button>
       </section>
 
-    </div>
+    </PublicPageShell>
   );
 }

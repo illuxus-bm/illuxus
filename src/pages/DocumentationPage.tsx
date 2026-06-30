@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import SiteHeader from "@/components/SiteHeader";
+import PublicPageShell from "@/components/layout/PublicPageShell";
 import RouteSeo from "@/components/RouteSeo";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -1001,8 +1001,7 @@ export default function DocumentationPage() {
     s.subsections.some((sub) => sub.heading.toLowerCase().includes(q));
 
   return (
-    <div className="min-h-screen bg-background">
-      <SiteHeader />
+    <PublicPageShell>
       <RouteSeo
         title="Documentation — Complete guide to running events on illuxus"
         description="Step-by-step documentation for the illuxus event platform: account setup, event creation, page builder, registrations, check-in, webinars, communications, analytics, and communities."
@@ -1127,6 +1126,6 @@ export default function DocumentationPage() {
           </Button>
         </div>
       </section>
-    </div>
+    </PublicPageShell>
   );
 }

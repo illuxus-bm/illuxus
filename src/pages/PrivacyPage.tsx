@@ -1,4 +1,4 @@
-import SiteHeader from "@/components/SiteHeader";
+import PublicPageShell from "@/components/layout/PublicPageShell";
 import RouteSeo from "@/components/RouteSeo";
 
 /**
@@ -372,8 +372,7 @@ Version history:
 
 export default function PrivacyPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <SiteHeader />
+    <PublicPageShell>
       <RouteSeo
         title="Privacy Policy — DPDPA 2023 & IT Act compliant | illuxus"
         description="Read how illuxus collects, uses, and protects your data under DPDPA 2023, IT Act 2000, SPDI Rules 2011, and CERT-In 2022 directive. 28 sections, transparent retention timelines, named DPO and Grievance Officer."
@@ -467,6 +466,6 @@ export default function PrivacyPage() {
         ))}
       </section>
 
-    </div>
+    </PublicPageShell>
   );
 }

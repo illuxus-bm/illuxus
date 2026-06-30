@@ -1,4 +1,4 @@
-import SiteHeader from "@/components/SiteHeader";
+import PublicPageShell from "@/components/layout/PublicPageShell";
 import RouteSeo from "@/components/RouteSeo";
 
 /**
@@ -386,8 +386,7 @@ Phone: +91 22 6000 0001`,
 
 export default function TermsPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <SiteHeader />
+    <PublicPageShell>
       <RouteSeo
         title="Terms of Service — illuxus event platform"
         description="Legally binding electronic contract under IT Act Section 10A. Covers GST, TDS Section 194-O, refunds under Consumer Protection Act 2019, IT Rules 2021 intermediary status, grievance redressal."
@@ -480,6 +479,6 @@ export default function TermsPage() {
         ))}
       </section>
 
-    </div>
+    </PublicPageShell>
   );
 }

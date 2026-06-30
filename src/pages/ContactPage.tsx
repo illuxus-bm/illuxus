@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import SiteHeader from "@/components/SiteHeader";
+import PublicPageShell from "@/components/layout/PublicPageShell";
 import RouteSeo from "@/components/RouteSeo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -235,7 +235,7 @@ export default function ContactPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <PublicPageShell>
       <RouteSeo
         title="Contact illuxus — Sales, support, privacy, grievance officer"
         description="Get in touch with illuxus. Sales, support, privacy/DPO, grievance officer, press, legal — 7 dedicated channels. Mumbai HQ. Response within 1 business day."
@@ -350,10 +350,7 @@ export default function ContactPage() {
           ],
         }}
       />
-      {/* Header is hidden in print mode so the PDF only shows the confirmation. */}
-      <div className="print:hidden">
-        <SiteHeader />
-      </div>
+      {/* Header lives in PublicPageShell and is already print:hidden. */}
 
       {/* Hero */}
       <section className="pt-24 pb-12 text-center px-4 print:hidden">
@@ -613,7 +610,7 @@ export default function ContactPage() {
           @page { margin: 16mm; }
         }
       `}</style>
-    </div>
+    </PublicPageShell>
   );
 }
 

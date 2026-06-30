@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import SiteHeader from "@/components/SiteHeader";
+import PublicPageShell from "@/components/layout/PublicPageShell";
 import { Button } from "@/components/ui/button";
 import RouteSeo from "@/components/RouteSeo";
 import {
@@ -235,8 +235,7 @@ const companyFacts = [
 
 export default function AboutPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <SiteHeader />
+    <PublicPageShell>
       <RouteSeo
         title="About illuxus — Mumbai-based event management platform"
         description="Founded 2023 in Mumbai. Bootstrapped. 32-person team. 1,200+ events, 50,000+ tickets processed. Building the event platform India and Southeast Asia deserve."
@@ -480,6 +479,6 @@ export default function AboutPage() {
         </p>
       </section>
 
-    </div>
+    </PublicPageShell>
   );
 }

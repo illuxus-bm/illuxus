@@ -1,4 +1,4 @@
-import SiteHeader from "@/components/SiteHeader";
+import PublicPageShell from "@/components/layout/PublicPageShell";
 import RouteSeo from "@/components/RouteSeo";
 
 /**
@@ -165,8 +165,7 @@ In practice, this means only "Essential" cookies are set when you first visit Il
 
 export default function CookiePolicyPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <SiteHeader />
+    <PublicPageShell>
       <RouteSeo
         title="Cookie Policy — illuxus event platform"
         description="Specific cookies we use, why, for how long, and how to manage them. DPDPA, GDPR, and ePrivacy compliant. Honours DNT and Global Privacy Control."
@@ -468,6 +467,6 @@ Post: Illuxus Technologies Private Limited, 4th Floor, Lighthouse Tower, Bandra 
 
       </section>
 
-    </div>
+    </PublicPageShell>
   );
 }

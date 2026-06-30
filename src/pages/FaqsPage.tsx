@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import SiteHeader from "@/components/SiteHeader";
+import PublicPageShell from "@/components/layout/PublicPageShell";
 import RouteSeo from "@/components/RouteSeo";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -516,8 +516,7 @@ export default function FaqsPage() {
   const hasAnyMatches = filtered.some((c) => c.matched.length > 0);
 
   return (
-    <div className="min-h-screen bg-background">
-      <SiteHeader />
+    <PublicPageShell>
       <RouteSeo
         title="FAQs — Answers to common questions about illuxus | illuxus"
         description="Find answers to common questions about illuxus: account setup, billing, events, check-in, webinars, sponsors, email, WhatsApp, UTM analytics, communities, custom domains, security, mobile, API, and troubleshooting."
@@ -650,6 +649,6 @@ export default function FaqsPage() {
           </Button>
         </div>
       </section>
-    </div>
+    </PublicPageShell>
   );
 }

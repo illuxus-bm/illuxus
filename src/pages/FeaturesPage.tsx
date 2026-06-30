@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import SiteHeader from "@/components/SiteHeader";
+import PublicPageShell from "@/components/layout/PublicPageShell";
 import { Button } from "@/components/ui/button";
 import RouteSeo from "@/components/RouteSeo";
 import {
@@ -231,8 +231,7 @@ const features = [
 
 export default function FeaturesPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <SiteHeader />
+    <PublicPageShell>
       <RouteSeo
         title="Features — Event ticketing, check-in, webinars & community tools | illuxus"
         description="Complete feature suite for event organizers: branded event pages, smart ticketing, speaker management, QR check-in, live webinars, sponsor portals, communities, analytics, AI matchmaking, white-label, and enterprise-grade security."
@@ -304,6 +303,6 @@ export default function FeaturesPage() {
         </Button>
       </section>
 
-    </div>
+    </PublicPageShell>
   );
 }
