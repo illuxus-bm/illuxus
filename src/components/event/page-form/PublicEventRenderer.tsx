@@ -659,7 +659,7 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
       {speakers.length === 0 ? (
         <p className="text-sm opacity-50">Speakers will be announced soon.</p>
       ) : (
-        <div className={data.layout === "list" ? "space-y-4" : "grid gap-5 sm:grid-cols-2"}>
+        <div className={data.layout === "list" ? "space-y-4" : "grid gap-5 grid-cols-1 sm:grid-cols-2"}>
           {speakers.map((sp) => {
             // Initials fallback — first letter of first + last name, uppercase.
             // Keeps the avatar legible when the organiser hasn't uploaded a photo.
@@ -705,7 +705,7 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
                       initials
                     )}
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p
                       className="font-semibold truncate"
                       style={{ fontFamily: "var(--ev-title-font, Poppins)" }}
