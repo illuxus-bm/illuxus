@@ -44,7 +44,9 @@ AS $$
 DECLARE
   invitation RECORD;
   caller_email text;
-  current_role text;
+  -- Prefixed with `_` to avoid colliding with the built-in `current_role`
+  -- function (which returns the active SQL role name).
+  _current_role text;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'Must be signed in to accept an invitation';
@@ -79,19 +81,19 @@ BEGIN
 
   -- Look up the current role (if any) so we can decide whether to write
   -- it or just return the existing assignment idempotently.
-  SELECT role INTO current_role
+  SELECT role INTO _current_role
     FROM public.org_members
    WHERE org_id = invitation.org_id
      AND user_id = auth.uid();
 
-  IF current_role IS NULL THEN
+  IF _current_role IS NULL THEN
     -- First-time acceptance. Insert with the invitation's role.
     INSERT INTO public.org_members (org_id, user_id, role)
          VALUES (invitation.org_id, auth.uid(), invitation.role)
     ON CONFLICT (org_id, user_id) DO NOTHING;
     -- Fetch back the assigned role (covers the rare race where another
     -- transaction inserted the same row between SELECT and INSERT).
-    SELECT role INTO current_role
+    SELECT role INTO _current_role
       FROM public.org_members
      WHERE org_id = invitation.org_id
        AND user_id = auth.uid();
@@ -105,9 +107,9 @@ BEGIN
        SET role = invitation.role
      WHERE org_id = invitation.org_id
        AND user_id = auth.uid();
-    current_role := invitation.role;
+    _current_role := invitation.role;
   END IF;
-  -- When invitation.status = 'accepted' AND current_role IS NOT NULL we
+  -- When invitation.status = 'accepted' AND _current_role IS NOT NULL we
   -- leave the existing role alone and just return idempotently.
 
   -- Stamp the invitation accepted (no-op when already accepted).
@@ -118,7 +120,7 @@ BEGIN
      AND status <> 'accepted';
 
   accepted_org_id := invitation.org_id;
-  assigned_role   := COALESCE(current_role, invitation.role);
+  assigned_role   := COALESCE(_current_role, invitation.role);
   RETURN NEXT;
 END;
 $$;
