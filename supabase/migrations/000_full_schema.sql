@@ -9719,3 +9719,854 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+
+-- ==========================================================================
+-- Section: 016_accept_org_invitation.sql
+-- ==========================================================================
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 016_accept_org_invitation.sql
+--
+-- (Re)installs the `accept_org_invitation` RPC. An earlier migration that
+-- defined this function (003_accept_org_invitation.sql) was overwritten by
+-- upstream conflicts, leaving the production schema in an undefined state —
+-- on some environments the function still exists, on others it doesn't, and
+-- where it does exist there's no guarantee its body matches the LoginPage's
+-- expectations.
+--
+-- Beyond reinstalling the function, this migration closes a real loophole:
+--
+--   1. An organiser invites a teammate.
+--   2. The teammate accepts the link, joins the workspace.
+--   3. The organiser later removes them via Settings → Team.
+--   4. The teammate clicks the original invite link in their mailbox.
+--   5. Pre-fix: the link still works — they're back in the workspace.
+--
+-- The fix makes acceptance strictly conditional on:
+--   • The invitation row exists and `status = 'pending'`.
+--   • The caller is signed in (auth.uid() IS NOT NULL).
+--   • The caller's email matches the invitation row's email (auth.users.email).
+--
+-- The function then inserts into `org_members` (ON CONFLICT DO UPDATE so
+-- re-acceptance after a role change is idempotent) and stamps the
+-- invitation row `status = 'accepted'`. Subsequent removal flow marks the
+-- invitation `status = 'revoked'`, which makes this RPC refuse the token.
+--
+-- SECURITY DEFINER so the call works even when the user can't see the
+-- invitation row under RLS, but the body enforces all access rules itself.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+DROP FUNCTION IF EXISTS public.accept_org_invitation(uuid);
+
+CREATE FUNCTION public.accept_org_invitation(_token uuid)
+RETURNS TABLE (accepted_org_id uuid, assigned_role text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  invitation RECORD;
+  caller_email text;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Must be signed in to accept an invitation';
+  END IF;
+
+  -- Caller's verified email — used to make sure someone with a stolen link
+  -- can't accept on behalf of the real invitee.
+  SELECT lower(email) INTO caller_email
+    FROM auth.users
+   WHERE id = auth.uid();
+
+  SELECT id, org_id, email, role, status
+    INTO invitation
+    FROM public.org_invitations
+   WHERE token = _token
+   LIMIT 1;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Invitation not found';
+  END IF;
+
+  IF invitation.status <> 'pending' THEN
+    -- 'accepted' or 'revoked' (the latter is set by the removal flow in
+    -- SettingsPage). Either way the link is no longer valid.
+    RAISE EXCEPTION 'Invitation is no longer valid';
+  END IF;
+
+  IF caller_email IS NULL OR caller_email <> lower(invitation.email) THEN
+    RAISE EXCEPTION 'Signed-in email does not match the invitation';
+  END IF;
+
+  -- Idempotent join: upsert into org_members so a re-issued role change
+  -- (e.g. organiser invited the same person again with a new role) lands
+  -- cleanly without duplicate-key errors.
+  INSERT INTO public.org_members (org_id, user_id, role)
+       VALUES (invitation.org_id, auth.uid(), invitation.role)
+  ON CONFLICT (org_id, user_id) DO UPDATE
+        SET role = EXCLUDED.role;
+
+  UPDATE public.org_invitations
+     SET status = 'accepted',
+         updated_at = now()
+   WHERE id = invitation.id;
+
+  RETURN QUERY SELECT invitation.org_id, invitation.role;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.accept_org_invitation(uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.accept_org_invitation(uuid) IS
+  'Accept a workspace invitation by token. Refuses if status is not pending, caller is not signed in, or caller email does not match invitation email. Marks the invitation accepted on success.';
+
+
+-- ==========================================================================
+-- Section: 017_communications_recipients_user_id_guard.sql
+-- ==========================================================================
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 017_communications_recipients_user_id_guard.sql
+--
+-- Repairs the "insert or update on table 'communication_recipients' violates
+-- foreign key constraint 'communication_recipients_user_id_fkey'" error that
+-- surfaced when an organiser pressed Send on an event communication.
+--
+-- Cause
+-- ─────
+-- `communications_resolve_recipients` (the event-side resolver feeding the
+-- dispatch RPC) returns `registrations.user_id` straight through to the
+-- fan-out INSERT. `registrations.user_id` is NOT a foreign key in this
+-- schema — it's a plain `uuid` column that gets stamped by the organiser
+-- "Add participant" flow, the public RSVP flow, and the bulk import flow.
+-- Any of those paths can leave behind a `user_id` that no longer points
+-- at a live row in `auth.users`:
+--   • The user was deleted in Supabase Auth but the registration was kept.
+--   • A teammate manually patched the column via SQL.
+--   • A legacy migration set placeholder UUIDs.
+--
+-- `communication_recipients.user_id`, on the other hand, IS a foreign key
+-- (`REFERENCES auth.users(id) ON DELETE SET NULL`). So the dispatch INSERT
+-- rejects the orphan rows and the whole send aborts.
+--
+-- Fix
+-- ───
+-- Patch the resolver so it only emits a `user_id` when the user actually
+-- exists. When the auth user is gone, return NULL — the column on
+-- `communication_recipients` is nullable, the recipient remains addressable
+-- via the (denormalised) `email` / `phone` columns, and the existing
+-- ON DELETE SET NULL behaviour is consistent with what's already happening
+-- for users deleted after the recipient row was created.
+--
+-- The function is `SECURITY DEFINER` so its body can read `auth.users`
+-- regardless of the caller. We use a correlated EXISTS so the planner can
+-- still use the registrations indexes; CASE turns the result into NULL when
+-- the user is missing.
+--
+-- The community resolver was already safe (it joins from `community_members`
+-- which has its own FK to `auth.users`) but we mirror the guard there for
+-- defence in depth.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.communications_resolve_recipients(
+  _event_id uuid,
+  _filter   jsonb
+) RETURNS TABLE (
+  user_id uuid,
+  name    text,
+  email   text,
+  phone   text
+) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+#variable_conflict use_column
+DECLARE
+  _types     text[];
+  _user_ids  uuid[];
+BEGIN
+  _types := COALESCE(
+    ARRAY(SELECT jsonb_array_elements_text(COALESCE(_filter -> 'types', '[]'::jsonb))),
+    ARRAY[]::text[]
+  );
+  _user_ids := COALESCE(
+    ARRAY(SELECT (jsonb_array_elements_text(COALESCE(_filter -> 'user_ids', '[]'::jsonb)))::uuid),
+    ARRAY[]::uuid[]
+  );
+
+  -- Authorisation: only enforced when a user is calling. Headless callers
+  -- (pg_cron, service_role JWT) get past the GRANT and skip this check.
+  IF auth.uid() IS NOT NULL AND _event_id IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1
+        FROM events e
+        JOIN org_members om ON om.org_id = e.org_id
+       WHERE e.id = _event_id AND om.user_id = auth.uid()
+    ) AND NOT has_role(auth.uid(), 'admin'::app_role) THEN
+      RAISE EXCEPTION 'Not authorised to read recipients for this event';
+    END IF;
+  END IF;
+
+  RETURN QUERY
+  WITH base AS (
+    -- Critical change: wrap registration.user_id in a CASE that nulls it
+    -- out when the auth row is gone. Prevents the downstream
+    -- communication_recipients_user_id_fkey violation during dispatch.
+    SELECT CASE
+             WHEN r.user_id IS NULL THEN NULL
+             WHEN EXISTS (SELECT 1 FROM auth.users u WHERE u.id = r.user_id)
+               THEN r.user_id
+             ELSE NULL
+           END AS user_id,
+           COALESCE(NULLIF(trim(coalesce(r.first_name,'') || ' ' || coalesce(r.last_name,'')), ''),
+                    r.name, split_part(r.email,'@',1)) AS name,
+           lower(r.email) AS email,
+           NULLIF(trim(coalesce(r.mobile_country_code,'') || ' ' || coalesce(r.mobile_number,'')), '') AS phone,
+           COALESCE(r.attendance_state, 'never') AS attendance_state,
+           COALESCE(r.amount_paid, 0)::numeric AS amount_paid
+      FROM registrations r
+     WHERE r.event_id = _event_id
+       AND r.status <> 'cancelled'
+       AND COALESCE(r.approval_status, 'approved') NOT IN ('declined','waitlisted')
+  ),
+  speakers_set AS (
+    -- Same guard for speakers.user_id — same root cause.
+    SELECT CASE
+             WHEN s.user_id IS NULL THEN NULL
+             WHEN EXISTS (SELECT 1 FROM auth.users u WHERE u.id = s.user_id)
+               THEN s.user_id
+             ELSE NULL
+           END AS user_id,
+           COALESCE(NULLIF(trim(coalesce(s.name,'')), ''), split_part(s.email,'@',1)) AS name,
+           lower(s.email) AS email,
+           NULL::text AS phone
+      FROM event_speakers es
+      JOIN speakers s ON s.id = es.speaker_id
+     WHERE es.event_id = _event_id AND s.email IS NOT NULL
+  ),
+  sponsors_set AS (
+    SELECT NULL::uuid AS user_id,
+           COALESCE(NULLIF(trim(coalesce(s.name,'')), ''),
+                    split_part(s.email,'@',1)) AS name,
+           lower(s.email) AS email,
+           NULL::text AS phone
+      FROM event_sponsors es
+      JOIN sponsors s ON s.id = es.sponsor_id
+     WHERE es.event_id = _event_id AND s.email IS NOT NULL
+  ),
+  filtered_attendees AS (
+    SELECT b.user_id, b.name, b.email, b.phone
+      FROM base b
+     WHERE
+       (
+         'all_attendees' = ANY(_types)
+       )
+       OR (
+         'checked_in' = ANY(_types) AND b.attendance_state IN ('inside','outside')
+       )
+       OR (
+         'paid' = ANY(_types) AND b.amount_paid > 0
+       )
+  ),
+  custom_set AS (
+    SELECT b.user_id, b.name, b.email, b.phone
+      FROM base b
+     WHERE 'custom' = ANY(_types) AND b.user_id = ANY(_user_ids)
+  ),
+  all_recipients AS (
+    SELECT user_id, name, email, phone FROM filtered_attendees
+    UNION
+    SELECT user_id, name, email, phone FROM custom_set
+    UNION ALL
+    SELECT user_id, name, email, phone FROM speakers_set
+     WHERE 'speakers' = ANY(_types)
+    UNION ALL
+    SELECT user_id, name, email, phone FROM sponsors_set
+     WHERE 'sponsors' = ANY(_types)
+  )
+  SELECT DISTINCT ON (lower(coalesce(ar.email,'')))
+         ar.user_id, ar.name, ar.email, ar.phone
+    FROM all_recipients ar
+   WHERE ar.email IS NOT NULL AND ar.email <> ''
+   ORDER BY lower(coalesce(ar.email,'')), ar.user_id NULLS LAST;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.communications_resolve_recipients(uuid, jsonb) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.communications_resolve_recipients(uuid, jsonb) IS
+  'Resolves event communication recipients. Strips registration.user_id when the referenced auth user no longer exists so the dispatch INSERT does not violate communication_recipients_user_id_fkey.';
+
+
+-- ==========================================================================
+-- Section: 018_communications_resolver_email_match.sql
+-- ==========================================================================
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 018_communications_resolver_email_match.sql
+--
+-- Allows the event communication resolver to address imported participants
+-- who haven't signed in yet. Previously the resolver's `custom_set` filtered
+-- by `user_id = ANY(_user_ids)` — but participants added via bulk import or
+-- the Add Participant dialog often have `registrations.user_id = NULL`
+-- until the auth signup completes (or forever, if signup fails). The
+-- frontend's custom-selection UI then dropped them from the user_ids array
+-- entirely, so they never made it into `communication_recipients` and the
+-- organiser's "Send to selected" did nothing for those rows.
+--
+-- The dashboard's "All attendees" path was unaffected (it iterates over
+-- every base row regardless of user_id), but custom selection and any
+-- email-keyed targeting were broken.
+--
+-- Fix
+-- ───
+-- The `_filter` jsonb argument now also reads an `emails` array. For the
+-- `custom` recipient type, a base row matches when EITHER:
+--
+--   • `b.user_id = ANY(_user_ids)` (existing behaviour, kept for users
+--     who have signed in), OR
+--
+--   • `lower(b.email) = ANY(_emails)` (new — works for imported
+--     participants regardless of auth state).
+--
+-- The function is otherwise identical to the version in 017 — same
+-- orphan-user-id guard, same authorisation check, same DISTINCT ON dedupe.
+-- Re-applying is safe.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.communications_resolve_recipients(
+  _event_id uuid,
+  _filter   jsonb
+) RETURNS TABLE (
+  user_id uuid,
+  name    text,
+  email   text,
+  phone   text
+) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+#variable_conflict use_column
+DECLARE
+  _types     text[];
+  _user_ids  uuid[];
+  _emails    text[];
+BEGIN
+  _types := COALESCE(
+    ARRAY(SELECT jsonb_array_elements_text(COALESCE(_filter -> 'types', '[]'::jsonb))),
+    ARRAY[]::text[]
+  );
+  _user_ids := COALESCE(
+    ARRAY(SELECT (jsonb_array_elements_text(COALESCE(_filter -> 'user_ids', '[]'::jsonb)))::uuid),
+    ARRAY[]::uuid[]
+  );
+  _emails := COALESCE(
+    ARRAY(SELECT lower(jsonb_array_elements_text(COALESCE(_filter -> 'emails', '[]'::jsonb)))),
+    ARRAY[]::text[]
+  );
+
+  IF auth.uid() IS NOT NULL AND _event_id IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1
+        FROM events e
+        JOIN org_members om ON om.org_id = e.org_id
+       WHERE e.id = _event_id AND om.user_id = auth.uid()
+    ) AND NOT has_role(auth.uid(), 'admin'::app_role) THEN
+      RAISE EXCEPTION 'Not authorised to read recipients for this event';
+    END IF;
+  END IF;
+
+  RETURN QUERY
+  WITH base AS (
+    -- Orphan-user-id guard from migration 017 retained.
+    SELECT CASE
+             WHEN r.user_id IS NULL THEN NULL
+             WHEN EXISTS (SELECT 1 FROM auth.users u WHERE u.id = r.user_id)
+               THEN r.user_id
+             ELSE NULL
+           END AS user_id,
+           COALESCE(NULLIF(trim(coalesce(r.first_name,'') || ' ' || coalesce(r.last_name,'')), ''),
+                    r.name, split_part(r.email,'@',1)) AS name,
+           lower(r.email) AS email,
+           NULLIF(trim(coalesce(r.mobile_country_code,'') || ' ' || coalesce(r.mobile_number,'')), '') AS phone,
+           COALESCE(r.attendance_state, 'never') AS attendance_state,
+           COALESCE(r.amount_paid, 0)::numeric AS amount_paid
+      FROM registrations r
+     WHERE r.event_id = _event_id
+       AND r.status <> 'cancelled'
+       AND COALESCE(r.approval_status, 'approved') NOT IN ('declined','waitlisted')
+  ),
+  speakers_set AS (
+    SELECT CASE
+             WHEN s.user_id IS NULL THEN NULL
+             WHEN EXISTS (SELECT 1 FROM auth.users u WHERE u.id = s.user_id)
+               THEN s.user_id
+             ELSE NULL
+           END AS user_id,
+           COALESCE(NULLIF(trim(coalesce(s.name,'')), ''), split_part(s.email,'@',1)) AS name,
+           lower(s.email) AS email,
+           NULL::text AS phone
+      FROM event_speakers es
+      JOIN speakers s ON s.id = es.speaker_id
+     WHERE es.event_id = _event_id AND s.email IS NOT NULL
+  ),
+  sponsors_set AS (
+    SELECT NULL::uuid AS user_id,
+           COALESCE(NULLIF(trim(coalesce(s.name,'')), ''),
+                    split_part(s.email,'@',1)) AS name,
+           lower(s.email) AS email,
+           NULL::text AS phone
+      FROM event_sponsors es
+      JOIN sponsors s ON s.id = es.sponsor_id
+     WHERE es.event_id = _event_id AND s.email IS NOT NULL
+  ),
+  filtered_attendees AS (
+    SELECT b.user_id, b.name, b.email, b.phone
+      FROM base b
+     WHERE
+       (
+         'all_attendees' = ANY(_types)
+       )
+       OR (
+         'checked_in' = ANY(_types) AND b.attendance_state IN ('inside','outside')
+       )
+       OR (
+         'paid' = ANY(_types) AND b.amount_paid > 0
+       )
+  ),
+  custom_set AS (
+    -- New: match by user_id OR email. Imported participants without an
+    -- auth account (user_id NULL) still match via their email — which is
+    -- always present because the form/import validation requires it.
+    SELECT b.user_id, b.name, b.email, b.phone
+      FROM base b
+     WHERE 'custom' = ANY(_types)
+       AND (
+            (b.user_id IS NOT NULL AND b.user_id = ANY(_user_ids))
+         OR (lower(b.email) = ANY(_emails))
+       )
+    UNION
+    -- Speakers and sponsors in custom selection follow the same rule, so
+    -- the organiser can pick a single speaker without bringing the whole
+    -- speaker group along.
+    SELECT s.user_id, s.name, s.email, s.phone
+      FROM speakers_set s
+     WHERE 'custom' = ANY(_types)
+       AND (
+            (s.user_id IS NOT NULL AND s.user_id = ANY(_user_ids))
+         OR (lower(s.email) = ANY(_emails))
+       )
+    UNION
+    SELECT sp.user_id, sp.name, sp.email, sp.phone
+      FROM sponsors_set sp
+     WHERE 'custom' = ANY(_types)
+       AND lower(sp.email) = ANY(_emails)
+  ),
+  all_recipients AS (
+    SELECT user_id, name, email, phone FROM filtered_attendees
+    UNION
+    SELECT user_id, name, email, phone FROM custom_set
+    UNION ALL
+    SELECT user_id, name, email, phone FROM speakers_set
+     WHERE 'speakers' = ANY(_types)
+    UNION ALL
+    SELECT user_id, name, email, phone FROM sponsors_set
+     WHERE 'sponsors' = ANY(_types)
+  )
+  SELECT DISTINCT ON (lower(coalesce(ar.email,'')))
+         ar.user_id, ar.name, ar.email, ar.phone
+    FROM all_recipients ar
+   WHERE ar.email IS NOT NULL AND ar.email <> ''
+   ORDER BY lower(coalesce(ar.email,'')), ar.user_id NULLS LAST;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.communications_resolve_recipients(uuid, jsonb) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.communications_resolve_recipients(uuid, jsonb) IS
+  'Resolves event communication recipients. Custom selection matches by user_id OR email so imported participants without an auth account still receive the message. Auth / password state is never used as a filter — everyone with an addressable email on the registration row is eligible.';
+
+
+-- ==========================================================================
+-- Section: 019_organiser_added_one_email_and_dedupe.sql
+-- ==========================================================================
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 019_organiser_added_one_email_and_dedupe.sql
+--
+-- Two changes to support a single "ticket email only" flow for organiser-
+-- added participants, plus a DB-level guarantee against duplicate
+-- registrations for the same event + email.
+--
+-- 1. Auto-claim orphan registrations when an auth user signs up
+-- ─────────────────────────────────────────────────────────────
+-- Organiser-added participants get a registrations row with `user_id = NULL`
+-- and the participant's email. When the participant later creates their own
+-- account (or signs in with an existing one for the first time), the
+-- registration must link to their freshly-minted `auth.users.id` so the
+-- attendee-side policy `Attendee view own` (USING user_id = auth.uid())
+-- returns their ticket. Until this migration, the link only happened when
+-- the participant happened to land on the event page (`EventRsvpCard` does
+-- an email-match → update). Anyone clicking the "View your ticket" link in
+-- the email saw an empty ticket page because RLS hid the orphan row.
+--
+-- We extend the existing `handle_new_user` signup trigger so the link
+-- happens automatically right after profile creation. The trigger is
+-- SECURITY DEFINER, so it can update registrations under any RLS state.
+--
+-- 2. Hard duplicate guard
+-- ──────────────────────
+-- Application-level dedupe in AddParticipantDialog and
+-- ImportRegistrationsDialog has been in place since session-day, but it's a
+-- TOCTOU window — two organisers adding the same email at the same time
+-- can each pass the check and then both insert. After this migration the DB
+-- rejects the second insert with a unique-violation, which the application
+-- handlers already surface as "Already added or checked in".
+--
+-- The index excludes cancelled rows so a participant who cancels can
+-- re-register without a unique-violation.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ── 1. Extend handle_new_user with orphan claiming ──────────────────────────
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  _m jsonb := COALESCE(NEW.raw_user_meta_data, '{}');
+  _at text; _t text; _fn text; _ln text; _d text; _co text; _mc text;
+  _mn text; _li text; _cw text; _ce text; _ind text; _dn text; _done boolean;
+BEGIN
+  _at := COALESCE(_m->>'account_type','attendee');
+  IF _at NOT IN ('attendee','organizer') THEN _at := 'attendee'; END IF;
+
+  _t  := NULLIF(trim(_m->>'title'),'');
+  _fn := NULLIF(trim(_m->>'first_name'),'');
+  _ln := NULLIF(trim(_m->>'last_name'),'');
+  _d  := NULLIF(trim(_m->>'designation'),'');
+  _co := NULLIF(trim(_m->>'company'),'');
+  _mc := NULLIF(trim(_m->>'mobile_country_code'),'');
+  _mn := NULLIF(trim(_m->>'mobile_number'),'');
+  _li := NULLIF(trim(_m->>'linkedin_url'),'');
+  _cw := NULLIF(trim(_m->>'company_website'),'');
+  _ce := NULLIF(trim(_m->>'company_employee_count'),'');
+  _ind:= NULLIF(trim(_m->>'industry'),'');
+
+  _dn := NULLIF(trim(COALESCE(_fn,'') || ' ' || COALESCE(_ln,'')), '');
+  IF _dn IS NULL THEN _dn := COALESCE(_m->>'display_name', NEW.email); END IF;
+
+  _done := _fn IS NOT NULL AND _ln IS NOT NULL AND _d IS NOT NULL
+       AND _co IS NOT NULL AND _mn IS NOT NULL;
+
+  INSERT INTO profiles(
+    user_id, display_name, account_type, title, first_name, last_name,
+    designation, company, mobile_country_code, mobile_number,
+    linkedin_url, company_website, company_employee_count, industry,
+    profile_completed
+  ) VALUES (
+    NEW.id, _dn, _at, _t, _fn, _ln, _d, _co, _mc, _mn,
+    _li, _cw, _ce, _ind, _done
+  );
+
+  -- Auto-confirm email for organiser-created accounts (kept for
+  -- backwards compatibility with any legacy `must_change_password` flow).
+  IF (_m->>'must_change_password')::boolean IS TRUE AND NEW.email_confirmed_at IS NULL THEN
+    UPDATE auth.users SET email_confirmed_at = now() WHERE id = NEW.id;
+  END IF;
+
+  -- NEW: claim every registration that was created for this email before
+  -- the participant had an account. RLS doesn't apply here because the
+  -- function is SECURITY DEFINER. We only stamp rows where `user_id IS
+  -- NULL` so an existing link (from a previous signup of the same email
+  -- — should never happen, but defensive) is not clobbered.
+  IF NEW.email IS NOT NULL THEN
+    UPDATE public.registrations
+       SET user_id = NEW.id
+     WHERE user_id IS NULL
+       AND lower(email) = lower(NEW.email);
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- The trigger object itself is unchanged — `CREATE OR REPLACE FUNCTION`
+-- updates the body in place. Re-creating the trigger is unnecessary.
+
+COMMENT ON FUNCTION public.handle_new_user() IS
+  'On auth.users INSERT: create profile row, auto-confirm legacy must_change_password accounts, and claim any orphan registrations whose email matches the new user.';
+
+
+-- ── 2. Unique index for duplicate-registration guard ────────────────────────
+-- Partial: cancelled rows are exempt so an attendee who cancels and
+-- re-registers later doesn't trip the constraint.
+CREATE UNIQUE INDEX IF NOT EXISTS registrations_event_email_unique
+  ON public.registrations (event_id, lower(email))
+  WHERE status <> 'cancelled';
+
+COMMENT ON INDEX public.registrations_event_email_unique IS
+  'Prevents the same email from registering twice for the same event (excluding cancelled rows).';
+
+
+-- ==========================================================================
+-- Section: 020_accept_org_invitation_idempotent.sql
+-- ==========================================================================
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 020_accept_org_invitation_idempotent.sql
+--
+-- Repairs the "could not accept the invitation" toast that appears after the
+-- role is already assigned. Migration 016 made `accept_org_invitation`
+-- strict: it raised an exception when the invitation row was anything but
+-- `status = 'pending'`. The client flow (LoginPage → consumeInviteIfAny)
+-- can call the RPC twice in quick succession in a few real scenarios:
+--
+--   • The user's auth state hydrates twice during the React mount of
+--     LoginPage in production (StrictMode is dev-only, but route
+--     transitions still cause a re-render).
+--   • The forced `window.location.assign` introduced for the OrgContext
+--     re-fetch can race the toast queue, leaving the previous toast
+--     mounted as the destination page renders.
+--   • The browser back-button / bookmarked URL with the same
+--     `?invite=<token>` is followed after the user signed in elsewhere.
+--
+-- In every case the FIRST call already inserted the `org_members` row and
+-- stamped the invitation `accepted`. The SECOND call is harmless; it just
+-- needs to report success so the user doesn't see "Invitation not
+-- accepted" as a destructive toast that contradicts the workspace dropdown
+-- on the next page.
+--
+-- Behavioural changes
+-- ───────────────────
+-- 1. Status check now accepts `pending` AND `accepted`. Revoked stays
+--    refused so the removal-flow loophole closed in 016 stays closed.
+-- 2. The org_members INSERT is wrapped in ON CONFLICT DO NOTHING when the
+--    invitation is already `accepted`, so we never clobber a role that an
+--    organiser may have changed manually after acceptance.
+-- 3. Returns the same `(accepted_org_id, assigned_role)` shape the
+--    LoginPage already consumes — no client change required.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+DROP FUNCTION IF EXISTS public.accept_org_invitation(uuid);
+
+CREATE FUNCTION public.accept_org_invitation(_token uuid)
+RETURNS TABLE (accepted_org_id uuid, assigned_role text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  invitation RECORD;
+  caller_email text;
+  -- Prefixed with `_` to avoid colliding with the built-in `current_role`
+  -- function (which returns the active SQL role name).
+  _current_role text;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Must be signed in to accept an invitation';
+  END IF;
+
+  -- Caller's verified email — used to make sure someone with a stolen link
+  -- can't accept on behalf of the real invitee.
+  SELECT lower(email) INTO caller_email
+    FROM auth.users
+   WHERE id = auth.uid();
+
+  SELECT id, org_id, email, role, status
+    INTO invitation
+    FROM public.org_invitations
+   WHERE token = _token
+   LIMIT 1;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Invitation not found';
+  END IF;
+
+  -- Revoked = the organiser explicitly removed this member's link
+  -- (Settings → Team → Remove). Anything else (pending or accepted) is
+  -- treated as a valid token to keep re-acceptance idempotent.
+  IF invitation.status = 'revoked' THEN
+    RAISE EXCEPTION 'Invitation is no longer valid';
+  END IF;
+
+  IF caller_email IS NULL OR caller_email <> lower(invitation.email) THEN
+    RAISE EXCEPTION 'Signed-in email does not match the invitation';
+  END IF;
+
+  -- Look up the current role (if any) so we can decide whether to write
+  -- it or just return the existing assignment idempotently.
+  SELECT role INTO _current_role
+    FROM public.org_members
+   WHERE org_id = invitation.org_id
+     AND user_id = auth.uid();
+
+  IF _current_role IS NULL THEN
+    -- First-time acceptance. Insert with the invitation's role.
+    INSERT INTO public.org_members (org_id, user_id, role)
+         VALUES (invitation.org_id, auth.uid(), invitation.role)
+    ON CONFLICT (org_id, user_id) DO NOTHING;
+    -- Fetch back the assigned role (covers the rare race where another
+    -- transaction inserted the same row between SELECT and INSERT).
+    SELECT role INTO _current_role
+      FROM public.org_members
+     WHERE org_id = invitation.org_id
+       AND user_id = auth.uid();
+  ELSIF invitation.status = 'pending' THEN
+    -- Pending → first acceptance path, but the user is somehow already a
+    -- member (e.g. they were re-invited with a new role after being
+    -- removed and then immediately accepted via two clicks). Refresh the
+    -- role to whatever the invitation specifies — the inviter's choice
+    -- wins.
+    UPDATE public.org_members
+       SET role = invitation.role
+     WHERE org_id = invitation.org_id
+       AND user_id = auth.uid();
+    _current_role := invitation.role;
+  END IF;
+  -- When invitation.status = 'accepted' AND _current_role IS NOT NULL we
+  -- leave the existing role alone and just return idempotently.
+
+  -- Stamp the invitation accepted (no-op when already accepted).
+  UPDATE public.org_invitations
+     SET status     = 'accepted',
+         updated_at = now()
+   WHERE id = invitation.id
+     AND status <> 'accepted';
+
+  accepted_org_id := invitation.org_id;
+  assigned_role   := COALESCE(_current_role, invitation.role);
+  RETURN NEXT;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.accept_org_invitation(uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.accept_org_invitation(uuid) IS
+  'Accept a workspace invitation by token. Idempotent — safe to call multiple times for the same token. Refuses revoked tokens (set by the removal flow). Refuses callers whose email does not match the invitation.';
+
+
+-- ==========================================================================
+-- Section: 020_anon_public_event_visibility.sql
+-- ==========================================================================
+
+-- Anon SELECT on join + detail tables for published events
+--
+-- Why: PublicEventPage.tsx queries event_speakers, event_sponsors,
+-- sessions, and session_speakers directly with the anon JWT to render
+-- speaker / sponsor / agenda sections. The current RLS only grants
+-- SELECT on these tables to {authenticated}, so logged-out visitors
+-- see empty lists and the Speakers / Sponsors / Agenda blocks vanish.
+--
+-- The speakers / sponsors tables already have "Anon view ... for
+-- published" policies, but those policies do an EXISTS through
+-- event_speakers / event_sponsors / events — which the anon role
+-- cannot read either, so the EXISTS resolves false and the policy
+-- effectively returns nothing. Adding read policies on the join
+-- tables (and on sessions / session_speakers) completes the chain.
+--
+-- Authenticated visibility is unchanged — the existing "Auth view ..."
+-- policies stay in place.
+
+-- Joins: event_speakers
+DROP POLICY IF EXISTS "Anon view event_speakers for published" ON public.event_speakers;
+CREATE POLICY "Anon view event_speakers for published"
+  ON public.event_speakers
+  FOR SELECT
+  TO anon
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.events e
+      WHERE e.id = event_speakers.event_id
+        AND e.status = 'published'
+    )
+  );
+
+-- Joins: event_sponsors
+DROP POLICY IF EXISTS "Anon view event_sponsors for published" ON public.event_sponsors;
+CREATE POLICY "Anon view event_sponsors for published"
+  ON public.event_sponsors
+  FOR SELECT
+  TO anon
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.events e
+      WHERE e.id = event_sponsors.event_id
+        AND e.status = 'published'
+    )
+  );
+
+-- Agenda: sessions
+DROP POLICY IF EXISTS "Anon view sessions for published" ON public.sessions;
+CREATE POLICY "Anon view sessions for published"
+  ON public.sessions
+  FOR SELECT
+  TO anon
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.events e
+      WHERE e.id = sessions.event_id
+        AND e.status = 'published'
+    )
+  );
+
+-- Agenda: session_speakers
+DROP POLICY IF EXISTS "Anon view session_speakers for published" ON public.session_speakers;
+CREATE POLICY "Anon view session_speakers for published"
+  ON public.session_speakers
+  FOR SELECT
+  TO anon
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.sessions s
+      JOIN public.events e ON e.id = s.event_id
+      WHERE s.id = session_speakers.session_id
+        AND e.status = 'published'
+    )
+  );
+
+
+-- ==========================================================================
+-- Section: 021_backfill_orphan_event_sponsors.sql
+-- ==========================================================================
+
+-- Backfill: link orphan sponsors to their owner's event
+--
+-- Why: sponsor_portal_events() gates analytics by event_sponsors. When an
+-- organiser created a sponsor + invited a team member via SponsorManagement
+-- but forgot to attach the sponsor to an event from the event Sponsors tab,
+-- the team member who claimed the invite via /sponsor/accept ended up with
+-- a sponsor_members row but no event_sponsors row. The sponsor portal then
+-- shows "No events yet" instead of the analytics for the event the sponsor
+-- was actually invited to support.
+--
+-- This migration links each orphan sponsor (sponsor with an accepted
+-- sponsor_members row but zero event_sponsors rows) to its owner's single
+-- published event, but only when the owner has exactly one such event so
+-- the inference is unambiguous. Owners with zero or multiple published
+-- events are left untouched and need a manual fix from the Sponsors tab.
+--
+-- Idempotent: ON CONFLICT DO NOTHING protects against re-running.
+
+WITH orphans AS (
+  SELECT
+    s.id      AS sponsor_id,
+    s.user_id AS owner_id
+  FROM public.sponsors s
+  WHERE EXISTS (
+    SELECT 1 FROM public.sponsor_members sm
+     WHERE sm.sponsor_id = s.id
+       AND sm.accepted_at IS NOT NULL
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM public.event_sponsors es WHERE es.sponsor_id = s.id
+  )
+),
+owner_events AS (
+  SELECT
+    o.sponsor_id,
+    e.id AS event_id,
+    count(*) OVER (PARTITION BY o.owner_id) AS event_count
+  FROM orphans o
+  JOIN public.events e
+    ON e.user_id = o.owner_id
+   AND e.status = 'published'
+)
+INSERT INTO public.event_sponsors (event_id, sponsor_id)
+SELECT event_id, sponsor_id
+  FROM owner_events
+ WHERE event_count = 1
+ON CONFLICT (event_id, sponsor_id) DO NOTHING;
