@@ -1,0 +1,26 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 021_user_roles_grant_authenticated.sql
+--
+-- Grants `authenticated` the `SELECT` privilege on `public.user_roles`.
+--
+-- Why this is needed
+-- ──────────────────
+-- The table has RLS enabled with two SELECT policies:
+--   • "Users view own roles"  — auth.uid() = user_id
+--   • "Admins view all roles" — has_role(auth.uid(), 'admin')
+--
+-- But the original CREATE TABLE in 000_full_schema.sql never issued a
+-- table-level `GRANT SELECT … TO authenticated`. RLS doesn't matter if the
+-- caller can't pass the privilege check that runs *before* it. As a result,
+-- the client-side `AuthContext.checkAdminRole` SELECT silently returns
+-- `{ data: null }` (permission denied is swallowed by maybeSingle's null
+-- path) and the user's `isAdmin` flag stays false. The header dropdown
+-- then routes the freshly-promoted admin into the organiser dashboard
+-- with no access to `/dashboard/admin`.
+--
+-- Granting SELECT to `authenticated` is safe: the RLS policies above
+-- still filter rows. Each user sees only their own role row, and only an
+-- actual admin sees everyone's. No row leaks.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+GRANT SELECT ON public.user_roles TO authenticated;
