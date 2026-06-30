@@ -463,12 +463,23 @@ function EventQuickView({
           </div>
         </div>
 
-        {/* Sticky footer CTA — always visible, content scrolls behind it */}
+        {/* Sticky footer CTA — always visible, content scrolls behind it.
+            Past events keep the page reachable so visitors can still browse
+            the agenda, speakers, and sponsors. Registration is gated on the
+            detail page by EventRsvpCard, so we just need to surface the
+            link here instead of a dead button. */}
         <div className="shrink-0 border-t border-border bg-background p-4">
           {isEventOver ? (
-            <Button disabled size="lg" className="w-full rounded-xl font-semibold opacity-50 cursor-not-allowed" variant="outline">
-              Event has ended
-            </Button>
+            <>
+              <p className="text-[12px] text-muted-foreground text-center mb-2">
+                Registration closed — event has ended
+              </p>
+              <Button asChild size="lg" variant="outline" className="w-full rounded-xl font-semibold">
+                <Link to={href} onClick={onClose}>
+                  View event
+                </Link>
+              </Button>
+            </>
           ) : (
             <Button asChild size="lg" className="w-full rounded-xl font-semibold">
               <Link to={href} onClick={onClose}>
