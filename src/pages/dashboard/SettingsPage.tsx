@@ -349,61 +349,77 @@ const SettingsPage = () => {
     }
 
     setInviting(false);
-    // Send invite email via edge function. We *await* the call and surface the result so
-    // delivery failures (missing RESEND_API_KEY, unverified domain, sandbox rejection, etc.)
-    // are visible instead of silently swallowed.
-    // Build the invite link against the canonical public origin so the
-    // recipient never lands on a Vercel preview / Lovable sandbox URL.
-    // `publicOrigin()` resolves `VITE_PUBLIC_ORIGIN` first, then falls back
-    // to detecting and rewriting preview hosts.
-    const inviteUrl = `${publicOrigin()}/login?invite=${invitation?.token || ""}`;
+
+    // ── Optimistic UX: close + success toast immediately ─────────────────
+    // The invitation row is already persisted (the org_invitations row was
+    // upserted above). Closing the dialog and showing success now keeps
+    // the click → confirmation feedback under ~1s. The actual SMTP call
+    // takes 5–7s round-trip through Gmail's relay; awaiting it before
+    // showing the toast made the dialog feel frozen.
+    //
+    // If the email actually fails (missing SMTP creds, Gmail throttle,
+    // bad recipient), a follow-up destructive toast surfaces the reason
+    // without blocking the organiser. The invitation row is still valid —
+    // the teammate can accept via the dashboard the next time they sign
+    // in even if the email never arrived.
     const recipient = inviteEmail.trim().toLowerCase();
+    const inviteUrl = `${publicOrigin()}/login?invite=${invitation?.token || ""}`;
 
-    let emailDelivered = false;
-    let emailNote: string | null = null;
-    try {
-      const { data: fnData, error: fnError } = await supabase.functions.invoke("send-event-email", {
-        body: {
-          event_id: "invite",
-          email_id: invitation?.token || uuid(),
-          subject: `You're invited to join ${org.name} on Illuxus`,
-          body: `Hi!\n\n${user.email} has invited you to join "${org.name}" as a ${inviteRole}.\n\nClick the link below to accept:\n${inviteUrl}\n\nIf you don't have an account yet, you'll be able to create one when you click the link.\n\nBest,\nThe Illuxus Team`,
-          recipient_emails: [recipient],
-        },
-      });
-      type SendResult = { success?: boolean; sent?: number; failed?: number; provider?: string; note?: string; error?: string };
-      const result = (fnData ?? null) as SendResult | null;
-      if (fnError) {
-        emailNote = fnError.message || "Edge function returned an error";
-      } else if (result?.error) {
-        emailNote = result.error;
-      } else if (result?.provider === "console") {
-        emailNote = result.note ?? "SMTP not configured — email not delivered. Set SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD in Supabase Edge Function secrets.";
-      } else if (result?.success && (result.sent ?? 0) > 0) {
-        emailDelivered = true;
-      } else if ((result?.failed ?? 0) > 0) {
-        emailNote = "SMTP rejected the send. Check SMTP credentials in Supabase Edge Function secrets and verify the App Password is correct.";
-      } else {
-        emailNote = "Email function returned an unexpected response";
-      }
-    } catch (e) {
-      emailNote = e instanceof Error ? e.message : "Email function unreachable";
-    }
-
-    if (emailDelivered) {
-      toast({ title: "Invitation sent", description: `Emailed ${recipient} as ${inviteRole}` });
-    } else {
-      toast({
-        title: "Invitation saved",
-        description: `${recipient} added as ${inviteRole}, but the email could not be sent: ${emailNote}. They can still accept via the dashboard once they sign in.`,
-        variant: "destructive",
-      });
-    }
+    toast({
+      title: "Invitation sent",
+      description: `${recipient} added as ${inviteRole}. Sending the email…`,
+    });
 
     setInviteEmail("");
     setInviteRole("member");
     setShowInviteDialog(false);
     fetchTeam();
+
+    // Fire the email in the background. Failures are non-fatal and surfaced
+    // via a follow-up toast so the organiser knows to resend if needed.
+    void (async () => {
+      try {
+        const { data: fnData, error: fnError } = await supabase.functions.invoke("send-event-email", {
+          body: {
+            event_id: "invite",
+            email_id: invitation?.token || uuid(),
+            subject: `You're invited to join ${org.name} on Illuxus`,
+            body: `Hi!\n\n${user.email} has invited you to join "${org.name}" as a ${inviteRole}.\n\nClick the link below to accept:\n${inviteUrl}\n\nIf you don't have an account yet, you'll be able to create one when you click the link.\n\nBest,\nThe Illuxus Team`,
+            recipient_emails: [recipient],
+          },
+        });
+        type SendResult = { success?: boolean; sent?: number; failed?: number; provider?: string; note?: string; error?: string };
+        const result = (fnData ?? null) as SendResult | null;
+        let note: string | null = null;
+        let delivered = false;
+        if (fnError) {
+          note = fnError.message || "Edge function returned an error";
+        } else if (result?.error) {
+          note = result.error;
+        } else if (result?.provider === "console") {
+          note = result.note ?? "SMTP not configured — email not delivered. Set SMTP_HOST / SMTP_USERNAME / SMTP_PASSWORD in Edge Function secrets.";
+        } else if (result?.success && (result.sent ?? 0) > 0) {
+          delivered = true;
+        } else if ((result?.failed ?? 0) > 0) {
+          note = "SMTP rejected the send — verify the Gmail App Password and SMTP_FROM in Edge Function secrets.";
+        } else {
+          note = "Email function returned an unexpected response";
+        }
+        if (!delivered) {
+          toast({
+            title: "Email could not be sent",
+            description: `${recipient}'s invitation was saved, but: ${note}. They can still accept from the dashboard.`,
+            variant: "destructive",
+          });
+        }
+      } catch (e) {
+        toast({
+          title: "Email could not be sent",
+          description: `${recipient}'s invitation was saved, but: ${e instanceof Error ? e.message : "Email function unreachable"}.`,
+          variant: "destructive",
+        });
+      }
+    })();
   };
 
   const handleCancelInvite = async (id: string) => {
