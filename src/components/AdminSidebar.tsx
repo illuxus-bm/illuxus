@@ -6,8 +6,8 @@
  * Mounted only when isAdmin === true.
  */
 import {
-  Shield, Users, Building2, Calendar, DollarSign, Activity,
-  ScrollText, Mail, Heart, Edit, BarChart3, Settings, LogOut,
+  Shield, Building2, Calendar, DollarSign, Activity,
+  ScrollText, Edit, BarChart3, LogOut,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -27,6 +27,25 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
+// Sidebar groups are intentionally minimal — the goal is the SaaS owner's
+// daily workflow (orgs, events, revenue) without surfacing tabs that
+// aren't part of the live product.
+//
+// What was removed and why:
+//  • Support group (Support Tickets, System Health) — the ticket inbox
+//    isn't actively triaged from this panel and the system-health page
+//    duplicates information already visible on the Control Tower
+//    landing.
+//  • Users tab from Platform — every meaningful action on a user is
+//    reachable from Organizations (members, roles, plan).
+//  • Audit Log moved out of Overview into the bottom Settings group.
+//    It's important for compliance but rarely a daily click; keeping it
+//    in the Settings cluster matches the pattern used elsewhere in the
+//    app (org Settings → Audit).
+//
+// Routes for the removed pages stay registered in App.tsx so direct
+// URLs (e.g. /dashboard/admin/tickets) still resolve for anyone with
+// a bookmark — we just don't surface them in the sidebar.
 const adminNavItems = [
   {
     group: "Overview",
@@ -34,29 +53,21 @@ const adminNavItems = [
       { title: "Control Tower",   url: "/dashboard/admin",              icon: Shield     },
       { title: "Analytics",       url: "/dashboard/admin/analytics",    icon: BarChart3  },
       { title: "Activity Feed",   url: "/dashboard/admin/activity",     icon: Activity   },
-      { title: "Audit Log",       url: "/dashboard/admin/audit",        icon: ScrollText },
     ],
   },
   {
     group: "Platform",
     items: [
-      { title: "Users",           url: "/dashboard/admin/users",        icon: Users      },
       { title: "Organizations",   url: "/dashboard/admin/organizations", icon: Building2 },
       { title: "Events",          url: "/dashboard/admin/events",       icon: Calendar   },
       { title: "Revenue",         url: "/dashboard/admin/revenue",      icon: DollarSign },
     ],
   },
   {
-    group: "Support",
-    items: [
-      { title: "Support Tickets", url: "/dashboard/admin/tickets",      icon: Mail       },
-      { title: "System Health",   url: "/dashboard/admin/system",       icon: Heart      },
-    ],
-  },
-  {
-    group: "Config",
+    group: "Settings",
     items: [
       { title: "Site Editor",     url: "/dashboard/admin/site",         icon: Edit       },
+      { title: "Audit Log",       url: "/dashboard/admin/audit",        icon: ScrollText },
     ],
   },
 ];
@@ -133,22 +144,15 @@ export function AdminSidebar() {
 
         <SidebarSeparator className="my-2 mx-3" />
 
-        {/* Bottom: settings + sign out */}
+        {/* Bottom: sign out only. The previous "Settings" link here pointed
+            to /dashboard/settings (organisation settings — a different
+            context for super admins) and visually clashed with the new
+            Settings group above. Removed to keep the sidebar clean; admins
+            who need their org settings can reach them via the Organizer
+            dashboard option in the header dropdown. */}
         <SidebarGroup className="py-0 pb-1">
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5 px-1">
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip="Settings">
-                  <NavLink
-                    to="/dashboard/settings"
-                    className="h-8 px-2.5 text-[13px] rounded-md transition-colors duration-100 text-muted-foreground hover:text-foreground hover:bg-secondary gap-2 font-medium"
-                    activeClassName="bg-secondary text-foreground font-semibold"
-                  >
-                    <Settings className="h-[15px] w-[15px] shrink-0" />
-                    {!collapsed && <span>Settings</span>}
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton tooltip="Sign out" onClick={handleSignOut}>
                   <LogOut className="h-[15px] w-[15px] shrink-0 text-destructive" />

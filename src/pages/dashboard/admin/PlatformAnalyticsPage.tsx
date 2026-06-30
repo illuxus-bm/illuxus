@@ -123,23 +123,11 @@ function useEvents() {
   });
 }
 
-function useRegistrations() {
-  return useQuery({
-    queryKey: ["admin-analytics-registrations"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("registrations")
-        .select("id, user_id, event_id, name, email, created_at, status, amount_paid")
-        .order("created_at", { ascending: false });
-      if (error) {
-        logger.error("admin-analytics: registrations fetch failed", { error_message: error.message });
-        throw error;
-      }
-      return data ?? [];
-    },
-    staleTime: 60_000,
-  });
-}
+// `useRegistrations` was previously here to feed the "Top Delegates /
+// Attendees" panel. The panel was removed (super admin should not see a
+// list of platform-wide registrants by name), so the fetch is gone too —
+// it pulled the entire `registrations` table on every page load just to
+// build a 20-row leaderboard.
 
 function useOrganizations() {
   return useQuery({
@@ -172,12 +160,10 @@ export default function PlatformAnalyticsPage() {
 
   const profilesQ = useProfiles();
   const eventsQ = useEvents();
-  const regsQ = useRegistrations();
   const orgsQ = useOrganizations();
 
   const profiles = profilesQ.data ?? [];
   const events = eventsQ.data ?? [];
-  const registrations = regsQ.data ?? [];
   const orgs = orgsQ.data ?? [];
 
   /* --- KPI deltas --------------------------------------------------- */
@@ -241,24 +227,6 @@ export default function PlatformAnalyticsPage() {
   const pagedOrganisers = filteredOrganisers.slice(orgPage * PAGE_SIZE, (orgPage + 1) * PAGE_SIZE);
   const totalOrgPages = Math.ceil(filteredOrganisers.length / PAGE_SIZE);
 
-  /* --- Top attendees ------------------------------------------------- */
-  const topAttendees = useMemo(() => {
-    const map: Record<string, { count: number; lastDate: string; name: string; email: string; events: Set<string> }> = {};
-    for (const r of registrations) {
-      const key = r.user_id ?? r.email;
-      if (!map[key]) {
-        map[key] = { count: 0, lastDate: r.created_at, name: r.name, email: r.email, events: new Set() };
-      }
-      map[key].count++;
-      map[key].events.add(r.event_id);
-      if (r.created_at > map[key].lastDate) map[key].lastDate = r.created_at;
-    }
-    return Object.values(map)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 20)
-      .map((v) => ({ ...v, eventCount: v.events.size }));
-  }, [registrations]);
-
   /* --- Event performance -------------------------------------------- */
   const sortedEvents = useMemo(() => {
     const copy = [...events];
@@ -270,7 +238,7 @@ export default function PlatformAnalyticsPage() {
   if (authLoading) return null;
   if (!isAdmin) return <Navigate to="/dashboard" replace />;
 
-  const isLoading = profilesQ.isLoading || eventsQ.isLoading || regsQ.isLoading || orgsQ.isLoading;
+  const isLoading = profilesQ.isLoading || eventsQ.isLoading || orgsQ.isLoading;
 
   return (
     <DashboardLayout>
@@ -406,47 +374,10 @@ export default function PlatformAnalyticsPage() {
           )}
         </div>
 
-        {/* Top attendees */}
-        <div className="border border-border rounded-xl bg-card overflow-hidden">
-          <div className="px-4 sm:px-5 py-4 border-b border-border">
-            <h2 className="text-sm font-semibold">Top Delegates / Attendees</h2>
-            <p className="text-[11px] text-muted-foreground mt-0.5">By total tickets purchased</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="text-left font-medium text-muted-foreground px-4 py-2.5">Name</th>
-                  <th className="text-left font-medium text-muted-foreground px-4 py-2.5 hidden md:table-cell">Email</th>
-                  <th className="text-left font-medium text-muted-foreground px-4 py-2.5">Events</th>
-                  <th className="text-left font-medium text-muted-foreground px-4 py-2.5">Tickets</th>
-                  <th className="text-left font-medium text-muted-foreground px-4 py-2.5 hidden lg:table-cell">Last active</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <tr key={i} className="border-b border-border/50">
-                      <td colSpan={5} className="px-4 py-3"><Skeleton className="h-5 w-full" /></td>
-                    </tr>
-                  ))
-                ) : topAttendees.length === 0 ? (
-                  <tr><td colSpan={5} className="text-center py-8 text-muted-foreground text-sm">No registrations yet</td></tr>
-                ) : topAttendees.map((a, idx) => (
-                  <tr key={idx} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3 font-medium">{a.name}</td>
-                    <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{a.email}</td>
-                    <td className="px-4 py-3">{a.eventCount}</td>
-                    <td className="px-4 py-3 font-semibold">{a.count}</td>
-                    <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">
-                      {format(parseISO(a.lastDate), "MMM d, yyyy")}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        {/* Top attendees panel removed — super admin doesn't need a
+            personally-identifying list of platform-wide registrants.
+            Aggregate registration counts still appear on org / event
+            rows above. */}
 
         {/* Event performance */}
         <div className="border border-border rounded-xl bg-card overflow-hidden">

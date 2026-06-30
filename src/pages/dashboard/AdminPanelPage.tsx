@@ -157,7 +157,7 @@ export default function AdminPanelPage() {
   const isLoading = healthQ.isLoading || revenueQ.isLoading;
 
   const navCards: NavCard[] = [
-    { to: "/dashboard/admin/analytics",     icon: BarChart3,    title: "Analytics",         description: "Growth, organisers, top attendees, event performance", tone: "bg-indigo-500/10 text-indigo-500" },
+    { to: "/dashboard/admin/analytics",     icon: BarChart3,    title: "Analytics",         description: "Growth, organisers, event performance",                tone: "bg-indigo-500/10 text-indigo-500" },
     { to: "/dashboard/admin/users",         icon: Users,        title: "User Management",   description: "Search, ban, promote, reset, delete users",            badge: h ? `${h.total_users.toLocaleString()} users` : undefined, tone: "bg-blue-500/10 text-blue-500" },
     { to: "/dashboard/admin/organizations", icon: Building2,    title: "Organizations",     description: "Plans, owners, members, revenue per org",              badge: h ? `${h.total_orgs.toLocaleString()} orgs` : undefined,  tone: "bg-amber-500/10 text-amber-500" },
     { to: "/dashboard/admin/events",        icon: Calendar,     title: "Events Moderation", description: "Force unpublish or soft-delete any event",             badge: h ? `${h.total_events.toLocaleString()} events` : undefined, tone: "bg-violet-500/10 text-violet-500" },
