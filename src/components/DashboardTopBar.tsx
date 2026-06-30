@@ -1,12 +1,12 @@
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   LogOut, Bell, ChevronDown, ClipboardList, Menu, Search, Ticket,
-  CalendarDays, Settings as SettingsIcon, X, Users2,
+  CalendarDays, Settings as SettingsIcon, Shield, X, Users2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -192,8 +192,14 @@ export interface DashboardTopBarProps {
  */
 export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarProps) {
   const { user, isAdmin, accountType, signOut } = useAuth();
-  const { org } = useOrg();
+  const { org, memberships } = useOrg();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  // Route-driven context — matches `DashboardLayout`'s sidebar selection.
+  // On admin routes the topbar shows the "Super Admin" badge and the
+  // notifications popover swaps over to platform-level data; on every
+  // other route it stays in the organiser-dashboard mode.
+  const isAdminRoute = pathname.startsWith("/dashboard/admin");
   const { content } = useSiteContent();
   const { brandName, logoUrl, logoUrlDark, logoHeight, logoPaddingTop, logoPaddingBottom } = content.navbar;
   const { theme: appTheme } = useTheme();
@@ -323,11 +329,21 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
           )}
           <a
             href="https://illuxus.com"
-            className="flex items-center gap-2 mr-4 shrink-0"
+            className="flex items-center gap-2 mr-2 shrink-0"
             aria-label={`${brandName} home`}
           >
             <IlluxusWordmark height={20} ariaLabel="" className="shrink-0" />
           </a>
+          {/* Context badge — only shows on admin routes so the visitor can
+              never confuse the Super Admin control tower with the regular
+              organiser dashboard. Red destructive tone deliberately
+              chosen to keep the surface visually distinct from the
+              organiser chrome. */}
+          {isAdminRoute && (
+            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-destructive/10 text-destructive border border-destructive/30">
+              <Shield className="h-2.5 w-2.5" /> Super Admin
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-1">
@@ -343,6 +359,12 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
             <Search className="h-3.5 w-3.5" />
           </Button>
 
+          {/* Notifications belong to the organiser dashboard — they list
+              org-scoped recent registrations. On admin routes there's no
+              active org context and the Activity Feed page already shows
+              platform-level notifications, so we suppress the bell here
+              to avoid an empty popover. */}
+          {!isAdminRoute && (
           <Popover open={notifOpen} onOpenChange={setNotifOpen}>
             <PopoverTrigger asChild>
               <Button
@@ -395,6 +417,7 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
               </div>
             </PopoverContent>
           </Popover>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -409,11 +432,13 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
                 <ChevronDown className="h-3 w-3 text-muted-foreground" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuContent align="end" className="w-56">
               <div className="px-2 py-1.5">
                 <p className="text-sm font-medium truncate">{displayName}</p>
                 <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
-                <p className="text-xs text-muted-foreground capitalize">{accountType || "attendee"}</p>
+                <p className="text-xs text-muted-foreground capitalize">
+                  {isAdmin ? "Super admin" : (accountType || "attendee")}
+                </p>
               </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
@@ -425,9 +450,25 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
               <DropdownMenuItem asChild>
                 <Link to="/u/me/communities"><Users2 className="h-3.5 w-3.5 mr-2" /> My communities</Link>
               </DropdownMenuItem>
-              {(accountType === "organizer" || isAdmin) && (
+              {/* Super admin entry — dedicated, distinct from the organiser
+                  dashboard so admins who also run events can switch panels
+                  in one click. */}
+              {isAdmin && (
                 <DropdownMenuItem asChild>
-                  <Link to="/dashboard"><CalendarDays className="h-3.5 w-3.5 mr-2" /> Organizer dashboard</Link>
+                  <Link to="/dashboard/admin">
+                    <Shield className="h-3.5 w-3.5 mr-2" /> Super admin
+                  </Link>
+                </DropdownMenuItem>
+              )}
+              {/* Organiser entry — for organisers, admins, and any
+                  workspace member. Links straight to /dashboard/events so
+                  admins don't get bounced by the admin-redirect in
+                  DashboardLanding. */}
+              {(accountType === "organizer" || isAdmin || memberships.length > 0) && (
+                <DropdownMenuItem asChild>
+                  <Link to="/dashboard/events">
+                    <CalendarDays className="h-3.5 w-3.5 mr-2" /> Organizer dashboard
+                  </Link>
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem asChild>
