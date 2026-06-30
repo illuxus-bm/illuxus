@@ -151,17 +151,29 @@ const LoginPage = () => {
       });
       if (error) {
         toast({ title: "Error", description: error.message, variant: "destructive" });
-      } else if (signUpResult?.session && safeNext) {
-        // Email confirmation is disabled OR auto-confirm fired (e.g. for an
-        // organiser-added participant whose registration the trigger just
-        // claimed). The session is live — jump straight to the destination
-        // the user came here to reach (typically /t/<reg_id>).
+      } else if (signUpResult?.session) {
+        // Auto-session path: email confirmation is disabled OR auto-confirm
+        // fired. Two sub-cases that both need handling here, otherwise the
+        // new user lands on the wrong page:
+        //  1. They came in via `/login?invite=<token>` → consume the invite
+        //     so the org_members row is created with the chosen role.
+        //  2. They came in via `/login?next=/t/<id>` (ticket claim flow).
+        const inviteNext = await consumeInviteIfAny();
+        const destination = inviteNext ?? safeNext ?? "/";
         toast({ title: "Account created", description: "Welcome to Illuxus." });
-        navigate(safeNext);
+        // Force a full reload when we accepted an invitation so the
+        // OrgContext re-fetches `memberships` (which was empty when the
+        // user record was first created). Without this, `OnboardingGuard`
+        // sees no org and bounces the new member to /onboarding.
+        if (inviteNext) {
+          window.location.assign(destination);
+        } else {
+          navigate(destination);
+        }
       } else {
         toast({
           title: "Check your email",
-          description: `We sent a verification link to ${email}. Open it to activate your account${safeNext ? " and view your ticket." : "."}`,
+          description: `We sent a verification link to ${email}. Open it to activate your account${inviteToken ? " and accept the workspace invitation" : safeNext ? " and view your ticket" : ""}.`,
         });
         // Email confirmation is required — Supabase will not return a session.
         // Take them to the sign-in screen so they can log in after verifying.
@@ -234,14 +246,22 @@ const LoginPage = () => {
               ? "/discover"
               : "/dashboard";
           // Priority order:
-          //   1. ?next= (preserved by every auth gate when bouncing here)
-          //   2. invite acceptance → /dashboard
+          //   1. invite acceptance → /dashboard with full reload so
+          //      OrgContext re-fetches memberships (the RPC just inserted
+          //      one and the existing context snapshot has no row).
+          //   2. ?next= (preserved by every auth gate when bouncing here)
           //   3. account-type default
           const inviteNext = await consumeInviteIfAny();
-          const next = safeNext ?? inviteNext ?? defaultNext;
+          const next = inviteNext ?? safeNext ?? defaultNext;
           if (p?.two_factor_enabled) {
             // Pause and require an OTP before letting them through.
             setTwoFactor({ open: true, email: user.email ?? email, nextRoute: next });
+          } else if (inviteNext) {
+            // Full reload guarantees the new org_members row is visible to
+            // OrgContext before the OnboardingGuard runs. SPA navigation
+            // would otherwise hit the guard with the stale empty
+            // memberships array and bounce the new member to /onboarding.
+            window.location.assign(next);
           } else {
             navigate(next);
           }
@@ -346,10 +366,15 @@ const LoginPage = () => {
                 // (`/login?invite=<token>`), redeem it now — they were a
                 // pending member until this point and we want them to land
                 // inside the org's dashboard, not the discover feed.
-                // `?next=` always wins (the visitor explicitly asked for
-                // that destination, typically /t/<reg_id>).
                 const inviteNext = await consumeInviteIfAny();
-                navigate(safeNext ?? inviteNext ?? "/discover");
+                if (inviteNext) {
+                  // Hard reload so OrgContext picks up the just-inserted
+                  // org_members row. SPA navigation would race with the
+                  // existing context snapshot and bounce them to onboarding.
+                  window.location.assign(inviteNext);
+                } else {
+                  navigate(safeNext ?? "/discover");
+                }
                 setLoading(false);
               }}
               className="space-y-4"
