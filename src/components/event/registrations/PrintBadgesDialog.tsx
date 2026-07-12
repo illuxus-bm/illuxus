@@ -91,14 +91,15 @@ const TYPE_OPTIONS: { v: PrintMode; label: string; sub: string }[] = [
 ];
 
 const SIZE_OPTIONS: { v: PrintSize; label: string; sub: string }[] = [
-  { v: "a6",          label: "A6 single",     sub: "148 × 105 mm · 1/page" },
-  { v: "a4-2up",      label: "A4 · 2-up",     sub: "186 × 134 mm · 2/page" },
-  { v: "avery-3x8",   label: "Avery 3×8",     sub: "63 × 34 mm · 24/sheet" },
-  { v: "thermal-50",  label: "Thermal 50 mm", sub: "50 × 80 mm" },
-  { v: "thermal-58",  label: "Thermal 58 mm", sub: "58 × 80 mm" },
-  { v: "thermal-80",  label: "Thermal 80 mm", sub: "80 × 100 mm" },
-  { v: "thermal-100", label: "Thermal 100 mm", sub: "100 × 150 mm" },
-  { v: "custom",      label: "Custom",        sub: "Enter W × H" },
+  { v: "a6",          label: "A6 single",        sub: "148 × 105 mm · 1/page" },
+  { v: "a4-2up",      label: "A4 · 2-up",        sub: "186 × 134 mm · 2/page" },
+  { v: "avery-3x8",   label: "Avery 3×8",         sub: "63 × 34 mm · 24/sheet" },
+  { v: "thermal-4x6", label: "Thermal 4×6 in",   sub: "101.6 × 152.4 mm · helett H30C, Dymo 4XL" },
+  { v: "thermal-50",  label: "Thermal 50 mm",    sub: "50 × 80 mm" },
+  { v: "thermal-58",  label: "Thermal 58 mm",    sub: "58 × 80 mm" },
+  { v: "thermal-80",  label: "Thermal 80 mm",    sub: "80 × 100 mm" },
+  { v: "thermal-100", label: "Thermal 100 mm",   sub: "100 × 150 mm" },
+  { v: "custom",      label: "Custom",            sub: "Enter W × H" },
 ];
 
 // ─── FontStylePanel ───────────────────────────────────────────────────────────
@@ -339,7 +340,7 @@ export default function PrintBadgesDialog({
     [size, cw, ch, cu],
   );
   const total = badges.length * copies;
-  const isThermalSize = size.startsWith("thermal-");
+  const isThermalSize = size.startsWith("thermal-") || size === "custom";
 
   // ── Print ──────────────────────────────────────────────────────────────────
 
@@ -573,7 +574,7 @@ export default function PrintBadgesDialog({
             {(thermalMode || isThermalSize) && (
               <p className="text-[10.5px] text-muted-foreground leading-relaxed border-t border-border/50 pt-2">
                 <strong className="text-foreground">In the browser print dialog:</strong>{" "}
-                choose your printer, set Margins to <em>None</em>, Scale to <em>100%</em>, and disable Headers and footers.
+                select your thermal printer, set Margins to <em>None</em>, Scale to <em>100%</em>, disable Headers and footers, and confirm the paper size matches your label (e.g. <em>4×6 in</em> for the helett H30C).
               </p>
             )}
           </section>

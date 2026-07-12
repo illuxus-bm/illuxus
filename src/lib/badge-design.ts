@@ -482,6 +482,7 @@ export function badgeSizeMm(
     | "thermal-58"
     | "thermal-80"
     | "thermal-100"
+    | "thermal-4x6"
     | "custom",
   custom?: { width: number; height: number; unit: "in" | "cm" | "mm" }
 ): { w: number; h: number } {
@@ -494,10 +495,12 @@ export function badgeSizeMm(
   // Thermal printer roll widths — common portable / handheld sizes.
   // Width = paper roll width minus a small margin; height set to a
   // reasonable badge proportion for the visible content.
-  if (size === "thermal-50")  return { w: 50,  h: 80 };
-  if (size === "thermal-58")  return { w: 58,  h: 80 };
-  if (size === "thermal-80")  return { w: 80,  h: 100 };
-  if (size === "thermal-100") return { w: 100, h: 150 };
+  if (size === "thermal-50")  return { w: 50,    h: 80 };
+  if (size === "thermal-58")  return { w: 58,    h: 80 };
+  if (size === "thermal-80")  return { w: 80,    h: 100 };
+  if (size === "thermal-100") return { w: 100,   h: 150 };
+  // 4×6 inch shipping/badge label — helett H30C Lite, Dymo 4XL, Zebra ZP450, etc.
+  if (size === "thermal-4x6") return { w: 101.6, h: 152.4 };
   return { w: 63, h: 34 }; // avery-3x8
 }
 

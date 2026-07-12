@@ -28,6 +28,7 @@ export type PrintSize =
   | "thermal-58"
   | "thermal-80"
   | "thermal-100"
+  | "thermal-4x6"
   | "custom";
 export type PrintMode = "badge" | "name";
 export type PrintUnit = "in" | "cm" | "mm";
@@ -68,10 +69,13 @@ const SHEET_CSS: Record<Exclude<PrintSize, "custom">, { page: string; cols: numb
   // Thermal printer roll sizes — one badge per page, edge-to-edge.
   // Margin is 0 because thermal printers don't have side margins; any
   // CSS margin shifts the print off the label.
-  "thermal-50":  { page: "@page { size: 50mm 80mm; margin: 0 }",      cols: 1, gap: "0",   pad: "0" },
-  "thermal-58":  { page: "@page { size: 58mm 80mm; margin: 0 }",      cols: 1, gap: "0",   pad: "0" },
-  "thermal-80":  { page: "@page { size: 80mm 100mm; margin: 0 }",     cols: 1, gap: "0",   pad: "0" },
-  "thermal-100": { page: "@page { size: 100mm 150mm; margin: 0 }",    cols: 1, gap: "0",   pad: "0" },
+  "thermal-50":  { page: "@page { size: 50mm 80mm; margin: 0 }",        cols: 1, gap: "0",   pad: "0" },
+  "thermal-58":  { page: "@page { size: 58mm 80mm; margin: 0 }",        cols: 1, gap: "0",   pad: "0" },
+  "thermal-80":  { page: "@page { size: 80mm 100mm; margin: 0 }",       cols: 1, gap: "0",   pad: "0" },
+  "thermal-100": { page: "@page { size: 100mm 150mm; margin: 0 }",      cols: 1, gap: "0",   pad: "0" },
+  // 4×6 inch label — matches helett H30C Lite, Dymo 4XL, Zebra ZP450 and
+  // other common USB direct-thermal shipping/badge label printers.
+  "thermal-4x6": { page: "@page { size: 101.6mm 152.4mm; margin: 0 }", cols: 1, gap: "0",   pad: "0" },
 };
 
 function fmtSize(w: number, h: number) { return `${w.toFixed(2)}mm ${h.toFixed(2)}mm`; }
@@ -86,9 +90,12 @@ export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {
   const copies = Math.max(1, Math.min(10, opts.copies ?? 1));
   const eventTitle = opts.eventTitle ?? "";
   const dims = badgeSizeMm(size, opts.custom);
-  const isThermal = size === "thermal-50" || size === "thermal-58" || size === "thermal-80" || size === "thermal-100";
-  const thermalMode = !!opts.thermalMode || isThermal;
-  const fullBleed = isThermal || !!(mode === "badge" && opts.design?.fullBleed);
+  const isThermal = size === "thermal-50" || size === "thermal-58" || size === "thermal-80" || size === "thermal-100" || size === "thermal-4x6";
+  const thermalMode = !!opts.thermalMode || isThermal || size === "custom";
+  // Custom sizes are always treated as full-bleed (edge-to-edge, zero margin)
+  // because they target thermal/label printers that have no printable margin.
+  // Named thermal sizes already set fullBleed; custom inherits the same rule.
+  const fullBleed = isThermal || size === "custom" || !!(mode === "badge" && opts.design?.fullBleed);
 
   const expanded: BadgeData[] = [];
   for (const b of badges) for (let i = 0; i < copies; i++) expanded.push(b);
