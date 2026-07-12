@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Suspense, lazy, useEffect } from "react";
+import { Suspense, lazy } from "react";
 import { BrowserRouter, Route, Routes, Navigate, useParams, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -222,6 +222,9 @@ const OrganizerRoute = ({ children }: { children: React.ReactNode }) => {
   if (loading || orgLoading) return <FullPageLoader />;
   if (!user) return <Navigate to={loginRedirectFor(location)} replace />;
   const isWorkspaceMember = memberships.length > 0;
+  // Super admins bypass this guard via !isAdmin — they can access any organizer route
+  // regardless of their accountType (which may be "attendee" or null for platform owners).
+  // The race-safe loading guard above ensures isAdmin is fully resolved before we get here.
   if (accountType === "attendee" && !isAdmin && !isWorkspaceMember) {
     return <Navigate to="/my/tickets" replace />;
   }
@@ -513,12 +516,13 @@ function EventShortRedirect() {
  * Without this, super admins who hit `/dashboard` directly (logo click,
  * bookmark, header link) get dropped into the organizer view, which doesn't
  * surface any of the platform-level surfaces (users, orgs, revenue, etc.).
+ *
+ * The refreshProfile() workaround that was here previously is no longer
+ * needed — AuthContext.loading now stays true until checkAdminRole() fully
+ * resolves, so isAdmin is correct by the time we reach the Navigate.
  */
 function DashboardLanding() {
-  const { loading, isAdmin, refreshProfile } = useAuth();
-  // Always re-check admin role on landing so a freshly-granted super admin
-  // doesn't need to sign out and back in to see the Control Tower.
-  useEffect(() => { refreshProfile(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const { loading, isAdmin } = useAuth();
   if (loading) return <FullPageLoader />;
   return <Navigate to={isAdmin ? "/dashboard/admin" : "/dashboard/events"} replace />;
 }

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { logger } from "@/lib/observability";
 
 interface AuthContextType {
   session: Session | null;
@@ -66,15 +67,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     let mounted = true;
 
     // 1) Restore the persisted session FIRST so reloads don't flash signed-out.
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        checkAdminRole(session.user.id);
-        loadAccountType(session.user.id);
+        try {
+          await Promise.all([
+            checkAdminRole(session.user.id),
+            loadAccountType(session.user.id),
+          ]);
+        } catch (err) {
+          logger.warn('auth profile fetch failed', { error_message: (err as Error)?.message });
+        } finally {
+          if (mounted) setLoading(false);
+        }
+      } else {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     // 2) Then subscribe to future auth changes (sign-in, sign-out, token refresh).
@@ -97,12 +107,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           if (prevUid !== nextUid) {
             setUser(newSession?.user ?? null);
             if (newSession?.user) {
-              setTimeout(() => checkAdminRole(newSession.user!.id), 0);
-              setTimeout(() => loadAccountType(newSession.user!.id), 0);
+              setLoading(true);
+              Promise.all([
+                checkAdminRole(newSession.user.id),
+                loadAccountType(newSession.user.id),
+              ]).catch((err) => {
+                logger.warn('auth state change profile fetch failed', { error_message: (err as Error)?.message });
+              }).finally(() => {
+                if (mounted) setLoading(false);
+              });
             } else {
               setIsAdmin(false);
               setAccountType(null);
               setProfileCompleted(null);
+              setLoading(false);
             }
           }
           return newSession;
