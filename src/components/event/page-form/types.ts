@@ -202,6 +202,20 @@ export interface EventPageConfig {
   theme: ThemeConfig;
   seo: SeoConfig;
   sections: EventSection[];
+  /**
+   * Per-event default Creative_Template selection for the Creative_Generator
+   * feature (social/promo graphics for speakers & sponsors), keyed by
+   * Creative type. Optional so existing saved configs (pre-dating this
+   * field) remain valid — `normalizeConfig` forward-merges it from `fresh`
+   * when a stored config doesn't have it yet.
+   *
+   * Deliberately typed with the literal union here (rather than importing
+   * `CreativeType` from `@/lib/creatives/creative-templates`) to avoid a
+   * dependency from this low-level page-form schema module onto the
+   * creatives feature module — keep the two literal unions in sync if
+   * `CreativeType` ever changes.
+   */
+  creativeTemplatePrefs?: Partial<Record<"speaker" | "sponsor" | "combo", string>>;
 }
 
 /* ─── Section catalog (what appears in the Design sidebar) ─── */
@@ -284,7 +298,7 @@ export function buildDefaultConfig(): EventPageConfig {
     enabled: meta.group === "core" || meta.id === "speakers" || meta.id === "agenda" || meta.id === "sponsors",
     order:   idx,
   })) as EventSection[];
-  return { v: 2, theme: { ...DEFAULT_THEME }, seo: {}, sections };
+  return { v: 2, theme: { ...DEFAULT_THEME }, seo: {}, sections, creativeTemplatePrefs: {} };
 }
 
 /**
@@ -300,11 +314,16 @@ export function normalizeConfig(raw: unknown): EventPageConfig {
     theme?: Partial<ThemeConfig>;
     seo?: SeoConfig;
     sections?: EventSection[];
+    creativeTemplatePrefs?: EventPageConfig["creativeTemplatePrefs"];
   };
 
   // Legacy or incompatible format → start fresh, preserve theme colours.
   if (r.v !== 2 || !Array.isArray(r.sections)) {
-    return { ...fresh, theme: { ...fresh.theme, ...(r.theme || {}) } };
+    return {
+      ...fresh,
+      theme: { ...fresh.theme, ...(r.theme || {}) },
+      creativeTemplatePrefs: { ...fresh.creativeTemplatePrefs, ...(r.creativeTemplatePrefs || {}) },
+    };
   }
 
   // Known valid IDs (used to filter out removed sections from old saves)
@@ -340,6 +359,7 @@ export function normalizeConfig(raw: unknown): EventPageConfig {
     },
     seo:   r.seo || {},
     sections: merged,
+    creativeTemplatePrefs: { ...fresh.creativeTemplatePrefs, ...(r.creativeTemplatePrefs || {}) },
   };
 }
 

@@ -197,6 +197,70 @@ export type Database = {
         }
         Relationships: []
       }
+      event_creatives: {
+        Row: {
+          asset_url: string
+          created_at: string
+          created_by: string
+          creative_type: string
+          event_id: string
+          id: string
+          platform_format: string
+          speaker_id: string | null
+          sponsor_id: string | null
+          storage_path: string
+          template_id: string
+        }
+        Insert: {
+          asset_url: string
+          created_at?: string
+          created_by: string
+          creative_type: string
+          event_id: string
+          id?: string
+          platform_format: string
+          speaker_id?: string | null
+          sponsor_id?: string | null
+          storage_path: string
+          template_id: string
+        }
+        Update: {
+          asset_url?: string
+          created_at?: string
+          created_by?: string
+          creative_type?: string
+          event_id?: string
+          id?: string
+          platform_format?: string
+          speaker_id?: string | null
+          sponsor_id?: string | null
+          storage_path?: string
+          template_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_creatives_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_creatives_speaker_id_fkey"
+            columns: ["speaker_id"]
+            isOneToOne: false
+            referencedRelation: "speakers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_creatives_sponsor_id_fkey"
+            columns: ["sponsor_id"]
+            isOneToOne: false
+            referencedRelation: "sponsors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_speakers: {
         Row: {
           created_at: string

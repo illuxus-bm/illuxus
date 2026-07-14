@@ -55,6 +55,7 @@
         "dompurify": "^3.4.11",
         "embla-carousel-react": "^8.6.0",
         "exceljs": "^4.4.0",
+        "fflate": "0.8.2",
         "framer-motion": "^12.38.0",
         "html5-qrcode": "^2.3.8",
         "input-otp": "^1.4.2",
