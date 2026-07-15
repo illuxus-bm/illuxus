@@ -8,7 +8,7 @@
  * Mounted at `/dashboard/admin/revenue` behind `SuperAdminRoute`.
  */
 import { useMemo } from "react";
-import { Navigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   DollarSign, TrendingUp, ArrowLeft, RefreshCw, ReceiptText, Wallet, Building2, Calendar,
@@ -19,7 +19,6 @@ import {
 } from "recharts";
 import { format, parseISO, startOfMonth, subMonths } from "date-fns";
 
-import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { DashboardLayout } from "@/components/DashboardLayout";
@@ -76,7 +75,7 @@ function last12MonthKeys() {
 /* ─── Page ──────────────────────────────────────────────────────────────── */
 
 export default function RevenuePage() {
-  const { isAdmin, loading: authLoading } = useAuth();
+
 
   const summaryQ = useQuery({
     queryKey: ["admin-revenue-summary"],
@@ -191,8 +190,8 @@ export default function RevenuePage() {
       .slice(0, 50);
   }, [regsQ.data]);
 
-  if (authLoading) return null;
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  // Admin gating is handled by SuperAdminRoute in App.tsx — see
+  // .kiro/specs/admin-nav-history-fix/ for why no page-level check is needed.
 
   const s = summaryQ.data;
   const isLoading = summaryQ.isLoading;

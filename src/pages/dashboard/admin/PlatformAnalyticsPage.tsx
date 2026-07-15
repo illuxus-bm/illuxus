@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Navigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import { format, subMonths, startOfMonth, parseISO } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -153,7 +152,7 @@ function useOrganizations() {
 const PAGE_SIZE = 20;
 
 export default function PlatformAnalyticsPage() {
-  const { isAdmin, loading: authLoading } = useAuth();
+
   const [orgSearch, setOrgSearch] = useState("");
   const [orgPage, setOrgPage] = useState(0);
   const [eventSort, setEventSort] = useState<"date" | "tickets">("date");
@@ -235,8 +234,8 @@ export default function PlatformAnalyticsPage() {
     return copy;
   }, [events, eventSort]);
 
-  if (authLoading) return null;
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  // Admin gating is handled by SuperAdminRoute in App.tsx — see
+  // .kiro/specs/admin-nav-history-fix/ for why no page-level check is needed.
 
   const isLoading = profilesQ.isLoading || eventsQ.isLoading || orgsQ.isLoading;
 

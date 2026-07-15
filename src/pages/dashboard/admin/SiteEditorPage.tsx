@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
@@ -797,7 +797,7 @@ const SECTION_LABELS: Record<SiteSection, string> = {
 };
 
 export default function SiteEditorPage() {
-  const { isAdmin, loading: authLoading } = useAuth();
+  const { isAdmin } = useAuth();
   const { content: liveContent, refresh } = useSiteContent();
 
   // Live = currently published. Draft = unpublished staging version (server-side per section).
@@ -1005,8 +1005,8 @@ export default function SiteEditorPage() {
     return null;
   }, []);
 
-  if (authLoading) return null;
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  // Admin gating is handled by SuperAdminRoute in App.tsx — see
+  // .kiro/specs/admin-nav-history-fix/ for why no page-level check is needed.
 
   const totalDirty = dirty.size;
   const totalDrafts = draftSections.size;

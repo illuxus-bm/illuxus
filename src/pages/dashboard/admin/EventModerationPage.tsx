@@ -7,7 +7,7 @@
  * Mounted at `/dashboard/admin/events` behind `SuperAdminRoute`.
  */
 import { useMemo, useState } from "react";
-import { Navigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Calendar, Search, ArrowLeft, MoreHorizontal, ExternalLink, AlertCircle,
@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { format, parseISO, subDays } from "date-fns";
 
-import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { DashboardLayout } from "@/components/DashboardLayout";
@@ -84,7 +83,7 @@ function KpiCard({
 /* ─── Page ──────────────────────────────────────────────────────────────── */
 
 export default function EventModerationPage() {
-  const { isAdmin, loading: authLoading } = useAuth();
+
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterChip>("all");
@@ -173,8 +172,8 @@ export default function EventModerationPage() {
     0,
   );
 
-  if (authLoading) return null;
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  // Admin gating is handled by SuperAdminRoute in App.tsx — see
+  // .kiro/specs/admin-nav-history-fix/ for why no page-level check is needed.
 
   const isLoading = eventsQ.isLoading;
 

@@ -9,7 +9,7 @@
  * Mounted at `/dashboard/admin/system` behind `SuperAdminRoute`.
  */
 import { useMemo } from "react";
-import { Navigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Heart, ArrowLeft, RefreshCw, Database, Users, Calendar, Building2,
@@ -20,7 +20,6 @@ import {
 } from "recharts";
 import { format, parseISO, subDays, startOfDay } from "date-fns";
 
-import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { DashboardLayout } from "@/components/DashboardLayout";
@@ -79,7 +78,7 @@ function StatCard({
 /* ─── Page ──────────────────────────────────────────────────────────────── */
 
 export default function SystemHealthPage() {
-  const { isAdmin, loading: authLoading } = useAuth();
+
 
   const healthQ = useQuery({
     queryKey: ["admin-health"],
@@ -147,8 +146,8 @@ export default function SystemHealthPage() {
     return ids.size;
   }, [recentActivityQ.data]);
 
-  if (authLoading) return null;
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  // Admin gating is handled by SuperAdminRoute in App.tsx — see
+  // .kiro/specs/admin-nav-history-fix/ for why no page-level check is needed.
 
   const h = healthQ.data;
   const isLoading = healthQ.isLoading;

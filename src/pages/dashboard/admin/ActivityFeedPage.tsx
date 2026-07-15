@@ -8,7 +8,7 @@
  * Mounted at `/dashboard/admin/activity` behind `SuperAdminRoute`.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Navigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity, ArrowLeft, Search, RefreshCw, Wifi, ChevronDown, ChevronRight,
@@ -107,7 +107,7 @@ function Skeleton({ className = "" }: { className?: string }) {
 /* ─── Page ──────────────────────────────────────────────────────────────── */
 
 export default function ActivityFeedPage() {
-  const { isAdmin, loading: authLoading } = useAuth();
+  const { isAdmin } = useAuth();
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<Category>("all");
@@ -173,8 +173,8 @@ export default function ActivityFeedPage() {
     });
   }, [merged, category, search]);
 
-  if (authLoading) return null;
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  // Admin gating is handled by SuperAdminRoute in App.tsx — see
+  // .kiro/specs/admin-nav-history-fix/ for why no page-level check is needed.
 
   const isLoading = feedQ.isLoading;
 

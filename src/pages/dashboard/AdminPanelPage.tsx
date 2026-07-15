@@ -9,7 +9,7 @@
  *
  * Mounted at `/dashboard/admin` behind `SuperAdminRoute`.
  */
-import { Navigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Shield, Users, Building2, Calendar, DollarSign, Activity, ScrollText,
@@ -114,7 +114,7 @@ function NavCard({ to, icon: Icon, title, description, badge, tone }: NavCard) {
 /* ─── Page ──────────────────────────────────────────────────────────────── */
 
 export default function AdminPanelPage() {
-  const { isAdmin, loading: authLoading } = useAuth();
+  const { isAdmin } = useAuth();
 
   const healthQ = useQuery({
     queryKey: ["admin-panel-health"],
@@ -149,8 +149,8 @@ export default function AdminPanelPage() {
     refetchInterval: 30_000,
   });
 
-  if (authLoading) return null;
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  // Admin gating is handled by SuperAdminRoute in App.tsx — see
+  // .kiro/specs/admin-nav-history-fix/ for why no page-level check is needed.
 
   const h = healthQ.data;
   const r = revenueQ.data;

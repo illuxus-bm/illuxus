@@ -13,13 +13,12 @@
  *   - `supabase.from('support_tickets').*` (RLS-gated to admins)
  *   - `supabase.functions.invoke('send-ticket-reply')` for staff replies
  *
- * The admin's super-admin role is already enforced by the SuperAdminRoute
- * wrapper in App.tsx; we additionally render a Navigate fallback if the
- * page somehow loads without isAdmin (defence in depth).
+ * The admin's super-admin role is enforced by the SuperAdminRoute wrapper in
+ * App.tsx — the single source of truth for admin gating.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { format, formatDistanceToNowStrict } from "date-fns";
 import { toast } from "sonner";
 
@@ -178,7 +177,7 @@ function fmtRelative(value: string | null | undefined): string {
 // ── Main component ───────────────────────────────────────────────────────────
 
 export default function SupportTicketsPage() {
-  const { isAdmin, loading: authLoading } = useAuth();
+  const { isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [tickets, setTickets] = useState<TicketRow[]>([]);
@@ -366,9 +365,8 @@ export default function SupportTicketsPage() {
     toast.success(`Exported ${sorted.length} ticket${sorted.length === 1 ? "" : "s"}`);
   };
 
-  // ── Auth fallback ──
-  if (authLoading) return null;
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  // Admin gating is handled by SuperAdminRoute in App.tsx — see
+  // .kiro/specs/admin-nav-history-fix/ for why no page-level check is needed.
 
   // ── Render ──
   const statCards = [

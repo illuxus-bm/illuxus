@@ -9,7 +9,7 @@
  * The page is mounted at `/dashboard/admin/users` behind `SuperAdminRoute`.
  */
 import { Fragment, useMemo, useState } from "react";
-import { Navigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users, Search, UserCheck, Shield, ShieldOff, ShieldCheck, Ban, KeyRound,
@@ -408,7 +408,7 @@ function UserDetailDrawer({
 /* ─── Page ──────────────────────────────────────────────────────────────── */
 
 export default function UserManagementPage() {
-  const { isAdmin, loading: authLoading, user } = useAuth();
+  const { user } = useAuth();
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterChip>("all");
@@ -535,10 +535,8 @@ export default function UserManagementPage() {
     return (usersQ.data ?? []).filter((u) => u.created_at >= cutoff).length;
   }, [usersQ.data]);
 
-  /* ── Auth guard ── */
-
-  if (authLoading) return null;
-  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  // Admin gating is handled by SuperAdminRoute in App.tsx — see
+  // .kiro/specs/admin-nav-history-fix/ for why no page-level check is needed.
 
   const isLoading = usersQ.isLoading || profilesQ.isLoading;
 
