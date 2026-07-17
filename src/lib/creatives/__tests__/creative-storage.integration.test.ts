@@ -142,6 +142,7 @@ describe("creative-storage integration — upload + insert (REQ 8.1)", () => {
       asset_url: "https://example.com/fake-public-url.png",
       storage_path: "event-creatives/event-1/jane-doe-linkedin-post.png",
       created_by: "user-1",
+      metadata: {},
     });
   });
 });

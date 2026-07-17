@@ -197,6 +197,83 @@ export type Database = {
         }
         Relationships: []
       }
+      event_creative_backgrounds: {
+        Row: {
+          aspect_ratio: string
+          asset_url: string
+          cache_key: string
+          created_at: string
+          created_by: string
+          event_id: string
+          expires_at: string | null
+          height: number | null
+          id: string
+          media_type: string
+          model: string | null
+          prompt: string
+          prompt_normalized: string
+          provider: string
+          size_bytes: number | null
+          storage_bucket: string
+          storage_path: string
+          style_preset: string
+          updated_at: string
+          width: number | null
+        }
+        Insert: {
+          aspect_ratio: string
+          asset_url: string
+          cache_key: string
+          created_at?: string
+          created_by: string
+          event_id: string
+          expires_at?: string | null
+          height?: number | null
+          id?: string
+          media_type?: string
+          model?: string | null
+          prompt: string
+          prompt_normalized: string
+          provider?: string
+          size_bytes?: number | null
+          storage_bucket?: string
+          storage_path: string
+          style_preset: string
+          updated_at?: string
+          width?: number | null
+        }
+        Update: {
+          aspect_ratio?: string
+          asset_url?: string
+          cache_key?: string
+          created_at?: string
+          created_by?: string
+          event_id?: string
+          expires_at?: string | null
+          height?: number | null
+          id?: string
+          media_type?: string
+          model?: string | null
+          prompt?: string
+          prompt_normalized?: string
+          provider?: string
+          size_bytes?: number | null
+          storage_bucket?: string
+          storage_path?: string
+          style_preset?: string
+          updated_at?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_creative_backgrounds_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_creatives: {
         Row: {
           asset_url: string
@@ -205,6 +282,7 @@ export type Database = {
           creative_type: string
           event_id: string
           id: string
+          metadata: Json
           platform_format: string
           speaker_id: string | null
           sponsor_id: string | null
@@ -218,6 +296,7 @@ export type Database = {
           creative_type: string
           event_id: string
           id?: string
+          metadata?: Json | null
           platform_format: string
           speaker_id?: string | null
           sponsor_id?: string | null
@@ -231,6 +310,7 @@ export type Database = {
           creative_type?: string
           event_id?: string
           id?: string
+          metadata?: Json | null
           platform_format?: string
           speaker_id?: string | null
           sponsor_id?: string | null

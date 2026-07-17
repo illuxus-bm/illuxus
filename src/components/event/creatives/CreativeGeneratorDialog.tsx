@@ -37,6 +37,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import TemplatePicker from "./TemplatePicker";
 import EntityPicker from "./EntityPicker";
 import CreativePreviewCanvas from "./CreativePreviewCanvas";
+import AiBackgroundPanel, { type AiBackgroundSelection } from "./AiBackgroundPanel";
 
 import {
   templatesFor,
@@ -80,6 +81,14 @@ const TYPE_OPTIONS: { v: CreativeType; label: string; sub: string }[] = [
   { v: "combo", label: "Combo", sub: "Speaker + sponsor" },
 ];
 
+/** Where a Creative's rendered background comes from (Requirement 1.1, 1.4). */
+type BackgroundSource = "template" | "ai";
+
+const BACKGROUND_SOURCE_OPTIONS: { v: BackgroundSource; label: string; sub: string }[] = [
+  { v: "template", label: "Template", sub: "Use the template's built-in background" },
+  { v: "ai", label: "AI-generated", sub: "Generate a bespoke background with AI" },
+];
+
 export default function CreativeGeneratorDialog({
   open,
   onOpenChange,
@@ -98,6 +107,8 @@ export default function CreativeGeneratorDialog({
   const [selectedFormats, setSelectedFormats] = useState<Set<PlatformFormatId>>(new Set());
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [backgroundSource, setBackgroundSource] = useState<BackgroundSource>("template");
+  const [aiBackground, setAiBackground] = useState<AiBackgroundSelection | null>(null);
 
   const [eventSpeakerIds, setEventSpeakerIds] = useState<Set<string>>(new Set());
   const [eventSponsorIds, setEventSponsorIds] = useState<Set<string>>(new Set());
@@ -118,7 +129,18 @@ export default function CreativeGeneratorDialog({
     if (!open) return;
     setSelectedFormats(new Set());
     setSaveAsDefault(false);
+    setBackgroundSource("template");
+    setAiBackground(null);
   }, [open]);
+
+  // Clear any selected AI background whenever the organizer switches back to
+  // the template background source, so a stale `aiBackground` never lingers
+  // into a template-sourced render (Requirement 1.4).
+  useEffect(() => {
+    if (backgroundSource === "template") {
+      setAiBackground(null);
+    }
+  }, [backgroundSource]);
 
   // Fetch the event's linked speaker/sponsor id sets once per dialog open —
   // used by `assertComboEligible` to validate a Combo_Creative request
@@ -177,6 +199,18 @@ export default function CreativeGeneratorDialog({
     [selectedFormats]
   );
   const previewFormat: PlatformFormat = formatsList[0] ?? PLATFORM_FORMATS[0];
+
+  // Live-preview counterpart of the `templateForRender` splice performed in
+  // `handleGenerate` below — keeps the preview pane showing the AI
+  // background once selected, not just the exported file. When
+  // `aiBackground` is `null` (AI selected but no successful generation yet),
+  // this falls back to `template` unchanged (Requirement 9.1, 9.3).
+  const previewTemplate = useMemo<CreativeTemplate>(() => {
+    if (backgroundSource === "ai" && aiBackground) {
+      return { ...template, background: { type: "image", url: aiBackground.assetUrl, fit: "cover" } };
+    }
+    return template;
+  }, [template, backgroundSource, aiBackground]);
 
   const toggleFormat = (id: PlatformFormatId) => {
     setSelectedFormats((prev) => {
@@ -239,20 +273,42 @@ export default function CreativeGeneratorDialog({
 
       for (const format of formatsList) {
         try {
+          // Splice the AI background URL into a template COPY — never
+          // mutates `template` or the static preset registry. When AI was
+          // selected but no generation was ever confirmed (`aiBackground`
+          // is `null`), this falls back to `template` unchanged, so the
+          // export still succeeds using the template's original background
+          // (Requirement 9.1, 9.3).
+          const templateForRender: CreativeTemplate =
+            backgroundSource === "ai" && aiBackground
+              ? { ...template, background: { type: "image", url: aiBackground.assetUrl, fit: "cover" } }
+              : template;
+
           let blob: Blob;
           if (type === "speaker") {
             if (!speaker) continue;
-            blob = await renderSpeakerCreative(speaker, template, format, theme);
+            blob = await renderSpeakerCreative(speaker, templateForRender, format, theme);
           } else if (type === "sponsor") {
             if (!sponsor) continue;
-            blob = await renderSponsorCreative(sponsor, template, format, theme);
+            blob = await renderSponsorCreative(sponsor, templateForRender, format, theme);
           } else {
             if (!speaker || !sponsor) continue;
-            blob = await renderComboCreative(speaker, sponsor, template, format, theme);
+            blob = await renderComboCreative(speaker, sponsor, templateForRender, format, theme);
           }
 
           const filename = creativeFilename(entityName, format);
           const { assetUrl, storagePath } = await uploadCreativeAsset(eventId, filename, blob);
+          // Same AI-off fallback as `templateForRender` above: no AI
+          // background selected/confirmed yields `metadata: {}`, matching
+          // every pre-AI caller's persisted shape (Requirement 11.3).
+          const metadata =
+            backgroundSource === "ai" && aiBackground
+              ? {
+                  aiBackgroundId: aiBackground.backgroundId,
+                  stylePreset: aiBackground.stylePreset,
+                  promptText: aiBackground.promptText,
+                }
+              : {};
           const record = buildCreativeAssetRecord({
             eventId,
             creativeType: type,
@@ -263,6 +319,7 @@ export default function CreativeGeneratorDialog({
             assetUrl,
             storagePath,
             createdBy,
+            metadata,
           });
           await insertCreativeAssetRecord(record);
 
@@ -333,6 +390,41 @@ export default function CreativeGeneratorDialog({
                 Template
               </Label>
               <TemplatePicker type={type} value={templateId} onChange={setTemplateId} />
+            </section>
+
+            {/* BACKGROUND SOURCE */}
+            <section>
+              <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">
+                Background source
+              </Label>
+              <RadioGroup
+                value={backgroundSource}
+                onValueChange={(v) => setBackgroundSource(v as BackgroundSource)}
+                className="grid grid-cols-2 gap-2"
+              >
+                {BACKGROUND_SOURCE_OPTIONS.map((opt) => (
+                  <label
+                    key={opt.v}
+                    className={`border rounded-lg px-3 py-2 cursor-pointer transition-colors ${
+                      backgroundSource === opt.v ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+                    }`}
+                  >
+                    <RadioGroupItem value={opt.v} className="sr-only" />
+                    <div className="text-[13px] font-medium leading-tight">{opt.label}</div>
+                    <div className="text-[11px] text-muted-foreground leading-tight">{opt.sub}</div>
+                  </label>
+                ))}
+              </RadioGroup>
+              {backgroundSource === "ai" && (
+                <div className="mt-3">
+                  <AiBackgroundPanel
+                    eventId={eventId}
+                    eventTitle={eventPageConfig.seo?.metaTitle ?? ""}
+                    theme={theme}
+                    onBackgroundSelected={setAiBackground}
+                  />
+                </div>
+              )}
             </section>
 
             {/* ENTITY */}
@@ -413,7 +505,7 @@ export default function CreativeGeneratorDialog({
             <div className="flex-1 min-h-0 p-4 flex items-center justify-center overflow-hidden">
               <CreativePreviewCanvas
                 mode={type}
-                template={template}
+                template={previewTemplate}
                 format={previewFormat}
                 theme={theme}
                 speaker={speaker}

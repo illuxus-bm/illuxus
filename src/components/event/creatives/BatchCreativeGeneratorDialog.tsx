@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Layers, Download, Loader2, CheckCircle2, XCircle } from "lucide-react";
@@ -40,6 +41,7 @@ import { logger } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 
 import TemplatePicker from "./TemplatePicker";
+import AiBackgroundPanel, { type AiBackgroundSelection } from "./AiBackgroundPanel";
 
 import {
   templatesFor,
@@ -68,6 +70,14 @@ import type { EventPageConfig } from "@/components/event/page-form/types";
 
 type BatchEntity = SpeakerLike | SponsorLike;
 
+/** Where a Creative's rendered background comes from (Requirement 1.1, 1.4). */
+type BackgroundSource = "template" | "ai";
+
+const BACKGROUND_SOURCE_OPTIONS: { v: BackgroundSource; label: string; sub: string }[] = [
+  { v: "template", label: "Template", sub: "Use the template's built-in background" },
+  { v: "ai", label: "AI-generated", sub: "Generate a bespoke background with AI" },
+];
+
 interface BatchCreativeGeneratorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -95,6 +105,8 @@ export default function BatchCreativeGeneratorDialog({
   );
   const [selectedFormats, setSelectedFormats] = useState<Set<PlatformFormatId>>(new Set());
   const [saveAsDefault, setSaveAsDefault] = useState(false);
+  const [backgroundSource, setBackgroundSource] = useState<BackgroundSource>("template");
+  const [aiBackground, setAiBackground] = useState<AiBackgroundSelection | null>(null);
 
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState<BatchProgress | null>(null);
@@ -107,6 +119,8 @@ export default function BatchCreativeGeneratorDialog({
     setTemplateId(readCreativeTemplatePref(eventPageConfig, batchType) ?? templatesFor(batchType)[0].id);
     setSelectedFormats(new Set());
     setSaveAsDefault(false);
+    setBackgroundSource("template");
+    setAiBackground(null);
     setProgress(null);
     setOutcomes(null);
     // Only re-init on open/batchType change — re-reading eventPageConfig here
@@ -114,6 +128,15 @@ export default function BatchCreativeGeneratorDialog({
     // props, matching CreativeGeneratorDialog's rationale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, batchType]);
+
+  // Clear any selected AI background whenever the organizer switches back to
+  // the template background source, so a stale `aiBackground` never lingers
+  // into a template-sourced render (Requirement 1.4).
+  useEffect(() => {
+    if (backgroundSource === "template") {
+      setAiBackground(null);
+    }
+  }, [backgroundSource]);
 
   // Fetch ALL linked entities for `batchType` — same event_speakers/speakers
   // (or event_sponsors/sponsors) join pattern as EntityPicker.tsx, but the
@@ -192,6 +215,14 @@ export default function BatchCreativeGeneratorDialog({
     return templates.find((t) => t.id === templateId) ?? templates[0];
   }, [batchType, templateId]);
 
+  const theme: EventTheme = useMemo(
+    () => ({
+      primaryColor: eventPageConfig.theme.primaryColor,
+      accentColor: eventPageConfig.theme.accentColor,
+    }),
+    [eventPageConfig.theme.primaryColor, eventPageConfig.theme.accentColor]
+  );
+
   const formatsList = useMemo<PlatformFormat[]>(
     () => PLATFORM_FORMATS.filter((f) => selectedFormats.has(f.id)),
     [selectedFormats]
@@ -239,15 +270,34 @@ export default function BatchCreativeGeneratorDialog({
         onConfigChange(saveCreativeTemplatePref(eventPageConfig, batchType, templateId));
       }
 
-      const theme: EventTheme = {
-        primaryColor: eventPageConfig.theme.primaryColor,
-        accentColor: eventPageConfig.theme.accentColor,
-      };
+      // Splice the AI background URL into a template COPY — never mutates
+      // `template` or the static preset registry. Computed ONCE per run
+      // (not per outcome) since the batch pipeline reuses one AI background
+      // across every entity + format in the run. When AI was selected but
+      // no generation was ever confirmed (`aiBackground` is `null`), this
+      // falls back to `template` unchanged, so the run still succeeds using
+      // the template's original background (Requirement 9.1, 9.3).
+      const templateForRender: CreativeTemplate =
+        backgroundSource === "ai" && aiBackground
+          ? { ...template, background: { type: "image", url: aiBackground.assetUrl, fit: "cover" } }
+          : template;
+
+      // Same AI-off fallback as `templateForRender` above: no AI background
+      // selected/confirmed yields `metadata: {}`, matching every pre-AI
+      // caller's persisted shape (Requirement 11.3).
+      const metadata =
+        backgroundSource === "ai" && aiBackground
+          ? {
+              aiBackgroundId: aiBackground.backgroundId,
+              stylePreset: aiBackground.stylePreset,
+              promptText: aiBackground.promptText,
+            }
+          : {};
 
       const render = async (entity: BatchEntity, format: PlatformFormat): Promise<Blob> => {
         return batchType === "speaker"
-          ? renderSpeakerCreative(entity as SpeakerLike, template, format, theme)
-          : renderSponsorCreative(entity as SponsorLike, template, format, theme);
+          ? renderSpeakerCreative(entity as SpeakerLike, templateForRender, format, theme)
+          : renderSponsorCreative(entity as SponsorLike, templateForRender, format, theme);
       };
 
       const results = await runBatch(entities, formatsList, render, (completed, total) =>
@@ -273,6 +323,7 @@ export default function BatchCreativeGeneratorDialog({
             assetUrl,
             storagePath,
             createdBy,
+            metadata,
           });
           await insertCreativeAssetRecord(record);
         } catch (err) {
@@ -349,6 +400,46 @@ export default function BatchCreativeGeneratorDialog({
                 {entities.length} {entityLabel} will be included in this run.
               </p>
             )}
+          </section>
+
+          {/* BACKGROUND SOURCE */}
+          <section>
+            <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">
+              Background source
+            </Label>
+            <RadioGroup
+              value={backgroundSource}
+              onValueChange={(v) => setBackgroundSource(v as BackgroundSource)}
+              className="grid grid-cols-2 gap-2"
+            >
+              {BACKGROUND_SOURCE_OPTIONS.map((opt) => (
+                <label
+                  key={opt.v}
+                  className={`border rounded-lg px-3 py-2 cursor-pointer transition-colors ${
+                    backgroundSource === opt.v ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+                  }`}
+                >
+                  <RadioGroupItem value={opt.v} className="sr-only" />
+                  <div className="text-[13px] font-medium leading-tight">{opt.label}</div>
+                  <div className="text-[11px] text-muted-foreground leading-tight">{opt.sub}</div>
+                </label>
+              ))}
+            </RadioGroup>
+            {backgroundSource === "ai" && (
+              <div className="mt-3">
+                <AiBackgroundPanel
+                  eventId={eventId}
+                  eventTitle={eventPageConfig.seo?.metaTitle ?? ""}
+                  theme={theme}
+                  onBackgroundSelected={setAiBackground}
+                />
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
+              The same AI-generated background is reused across every{" "}
+              {batchType === "speaker" ? "speaker" : "sponsor"} in this batch run. To use a different
+              background per entity, run the generator individually per entity.
+            </p>
           </section>
 
           {/* TEMPLATE */}

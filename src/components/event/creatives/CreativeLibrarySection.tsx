@@ -18,6 +18,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Sparkles, Layers, RefreshCw, Download, Trash2, Loader2, ImageOff } from "lucide-react";
 import { logger } from "@/lib/observability";
 import { PLATFORM_FORMATS } from "@/lib/creatives/creative-templates";
@@ -178,14 +179,39 @@ function CreativeCard({
   isDeleting: boolean;
   onDelete: () => void;
 }) {
+  const isAiBacked =
+    row.metadata &&
+    typeof row.metadata === "object" &&
+    "aiBackgroundId" in row.metadata &&
+    !!(row.metadata as { aiBackgroundId?: unknown }).aiBackgroundId;
+  const { stylePreset, promptText } = row.metadata as { stylePreset?: string; promptText?: string };
+
   return (
     <div className="border border-border rounded-lg overflow-hidden bg-background">
       <img src={row.asset_url} alt="" className="w-full aspect-square object-cover" />
       <div className="p-2.5 space-y-1.5">
         <div className="flex items-center justify-between gap-1.5">
-          <Badge variant="secondary" className="text-[10px]">
-            {CREATIVE_TYPE_LABELS[row.creative_type] ?? row.creative_type}
-          </Badge>
+          <div className="flex items-center gap-1">
+            <Badge variant="secondary" className="text-[10px]">
+              {CREATIVE_TYPE_LABELS[row.creative_type] ?? row.creative_type}
+            </Badge>
+            {isAiBacked && (
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className="text-[10px] gap-1 cursor-default">
+                      <Sparkles className="h-2.5 w-2.5" />
+                      AI
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[220px] text-xs">
+                    {stylePreset && <p className="font-medium capitalize">{stylePreset}</p>}
+                    {promptText && <p className="text-muted-foreground">{promptText}</p>}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
           <span className="text-[10px] text-muted-foreground truncate">
             {platformFormatLabel(row.platform_format)}
           </span>

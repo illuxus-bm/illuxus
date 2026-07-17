@@ -16,6 +16,7 @@ import { normalizeConfig, type EventPageConfig } from "@/components/event/page-f
 import CreativeLibrarySection from "@/components/event/creatives/CreativeLibrarySection";
 import CreativeGeneratorDialog from "@/components/event/creatives/CreativeGeneratorDialog";
 import BatchCreativeGeneratorDialog from "@/components/event/creatives/BatchCreativeGeneratorDialog";
+import AiBackgroundLibrary from "@/components/event/creatives/AiBackgroundLibrary";
 
 export default function CreativesSection({ eventId }: { eventId: string }) {
   const [config, setConfig] = useState<EventPageConfig | null>(null);
@@ -84,6 +85,7 @@ export default function CreativesSection({ eventId }: { eventId: string }) {
         onBatchSpeakerClick={() => setBatchSpeakerOpen(true)}
         onBatchSponsorClick={() => setBatchSponsorOpen(true)}
       />
+      <AiBackgroundLibrary eventId={eventId} variant="peer" />
       <CreativeGeneratorDialog
         open={generatorOpen}
         onOpenChange={closeAndRefresh(setGeneratorOpen)}

@@ -19,6 +19,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import type { Database, Json } from "@/integrations/supabase/types";
 import { logger } from "@/lib/observability";
 
 import type { CreativeType, PlatformFormat } from "./creative-templates";
@@ -70,6 +71,15 @@ export interface CreativeAssetInput {
   assetUrl: string;
   storagePath: string;
   createdBy: string;
+  /**
+   * Optional metadata JSON persisted alongside the creative row. Introduced
+   * by the Creative_AI_Backgrounds feature so AI-backed creatives can record
+   * the `aiBackgroundId`, `stylePreset`, and `promptText` used to source
+   * their background image (Requirement 11.1). Omitting this parameter
+   * yields `metadata: {}` on the resulting record, preserving the exact
+   * shape produced by pre-AI callers (Requirement 11.3).
+   */
+  metadata?: Record<string, unknown>;
 }
 
 export interface CreativeAssetRecord {
@@ -82,6 +92,7 @@ export interface CreativeAssetRecord {
   asset_url: string;
   storage_path: string;
   created_by: string;
+  metadata: Record<string, unknown>;
 }
 
 /**
@@ -115,6 +126,7 @@ export function buildCreativeAssetRecord(input: CreativeAssetInput): CreativeAss
     asset_url: input.assetUrl,
     storage_path: input.storagePath,
     created_by: input.createdBy,
+    metadata: input.metadata ?? {},
   };
 }
 
@@ -148,6 +160,15 @@ export interface EventCreativeRow {
   storage_path: string;
   created_by: string;
   created_at: string;
+  /**
+   * JSONB payload from `event_creatives.metadata`. The migration in
+   * `023_creative_ai_backgrounds.sql` added this column as
+   * `metadata jsonb NOT NULL DEFAULT '{}'::jsonb`, so every row (old or
+   * new) is guaranteed to have this field non-null — pre-AI rows read as
+   * `{}` and AI-backed rows carry `{ aiBackgroundId, stylePreset,
+   * promptText }` (Requirement 11.1, 11.3).
+   */
+  metadata: Json;
 }
 
 /**
@@ -268,4 +289,106 @@ export function isAuthorizedForEventCreatives(
   isAdmin: boolean
 ): boolean {
   return requesterId === ownerId || isAdmin;
+}
+
+/**
+ * Row shape of the `event_creative_backgrounds` table (introduced by the
+ * Creative_AI_Backgrounds feature). Sourced directly from the generated
+ * `Database` types so any future schema change automatically propagates
+ * through call sites without a manual duplicate to maintain.
+ */
+export type EventCreativeBackgroundRow =
+  Database["public"]["Tables"]["event_creative_backgrounds"]["Row"];
+
+/**
+ * Fetches an event's AI_Background_Assets, ordered most-to-least recently
+ * created (Requirement 7.1). Mirrors `fetchEventCreatives` exactly: relies
+ * on the database `ORDER BY created_at DESC` (backed by the
+ * `event_creative_backgrounds_event_idx` index from migration
+ * `023_creative_ai_backgrounds.sql`) as the primary ordering guarantee, and
+ * on failure logs via `logger.error` and returns `[]` so the
+ * `AiBackgroundLibrary` render path can degrade gracefully.
+ */
+export async function fetchEventCreativeBackgrounds(
+  eventId: string
+): Promise<EventCreativeBackgroundRow[]> {
+  const { data, error } = await supabase
+    .from("event_creative_backgrounds")
+    .select("*")
+    .eq("event_id", eventId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    logger.error("ai background library fetch failed", {
+      event_id: eventId,
+      error_message: error.message,
+    });
+    return [];
+  }
+  return data ?? [];
+}
+
+export interface DeleteEventCreativeBackgroundResult {
+  storageDeleted: boolean;
+  recordDeleted: boolean;
+}
+
+/**
+ * Deletes an AI_Background_Asset (Requirement 6.4): removes its PNG from
+ * `site-assets` Storage AND its `event_creative_backgrounds` row. Always
+ * attempts BOTH steps exactly once — even if the storage delete fails, the
+ * record delete is still attempted (and vice versa) — via
+ * `Promise.allSettled` (not `Promise.all`), so a transient failure in one
+ * step never silently skips the other. Never throws; reports which step(s)
+ * succeeded/failed via the returned result so the caller
+ * (`AiBackgroundLibrary`) can show a precise toast and decide whether to
+ * remove the row from local state. Mirrors the `deleteCreativeAsset` shape
+ * (Property 18).
+ */
+export async function deleteEventCreativeBackground(
+  id: string,
+  storagePath: string
+): Promise<DeleteEventCreativeBackgroundResult> {
+  const [storageResult, recordResult] = await Promise.allSettled([
+    supabase.storage.from("site-assets").remove([storagePath]),
+    supabase.from("event_creative_backgrounds").delete().eq("id", id),
+  ]);
+
+  const storageDeleted =
+    storageResult.status === "fulfilled" && !storageResult.value.error;
+  const recordDeleted =
+    recordResult.status === "fulfilled" && !recordResult.value.error;
+
+  if (!storageDeleted) {
+    const reason =
+      storageResult.status === "rejected"
+        ? (storageResult.reason as Error)?.message
+        : storageResult.value.error?.message;
+    logger.error("ai background storage delete failed", {
+      id,
+      storage_path: storagePath,
+      error_message: reason,
+    });
+  }
+  if (!recordDeleted) {
+    const reason =
+      recordResult.status === "rejected"
+        ? (recordResult.reason as Error)?.message
+        : recordResult.value.error?.message;
+    logger.error("ai background record delete failed", {
+      id,
+      error_message: reason,
+    });
+  }
+
+  // Partial failure (one step succeeded, the other failed) gets its own
+  // summary log so `AiBackgroundLibrary` can be diagnosed from logs alone.
+  if (storageDeleted !== recordDeleted) {
+    logger.error("ai background delete partial failure", {
+      id,
+      storage_deleted: storageDeleted,
+      record_deleted: recordDeleted,
+    });
+  }
+
+  return { storageDeleted, recordDeleted };
 }
