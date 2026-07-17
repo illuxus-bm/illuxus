@@ -193,17 +193,17 @@ export const SPEAKER_TEMPLATES: CreativeTemplate[] = [
     },
     textSlots: [
       {
-        key: "name", xPct: 50, yPct: 78, maxWidthPct: 84, maxHeightPct: 9,
+        key: "name", xPct: 50, yPct: 77, maxWidthPct: 84, maxHeightPct: 8,
         fontFamily: "Poppins", fontWeight: 700, baseSizePx: 56, color: "#ffffff",
         align: "center", transform: "none",
       },
       {
-        key: "title", xPct: 50, yPct: 87, maxWidthPct: 84, maxHeightPct: 6,
+        key: "title", xPct: 50, yPct: 85, maxWidthPct: 84, maxHeightPct: 5,
         fontFamily: "Poppins", fontWeight: 500, baseSizePx: 26, color: "#e0e7ff",
         align: "center", transform: "none",
       },
       {
-        key: "company", xPct: 50, yPct: 93, maxWidthPct: 84, maxHeightPct: 6,
+        key: "company", xPct: 50, yPct: 92, maxWidthPct: 84, maxHeightPct: 5,
         fontFamily: "Poppins", fontWeight: 600, baseSizePx: 24, color: "#c7d2fe",
         align: "center", transform: "none",
       },
@@ -467,14 +467,20 @@ export interface ResolvedBox {
  * anchored `ResolvedBox` against `targetWidth`/`targetHeight`, then clamps it
  * into the safe area so it never extends past the canvas edges.
  *
- * Percentages are resolution-independent, so this is a straight
- * percent→pixel multiply against the target dimensions (not the template's
- * authored dimensions) — see `reflowTemplate`'s doc comment. The clamp
- * handles two cases: (1) the box fits but is offset past an edge — slide it
- * back in; (2) the box is wider/taller than the entire target canvas — shrink
- * it down to the canvas size first, then anchor it at 0, so the invariant
- * `x, y >= 0 && x + width <= targetWidth && y + height <= targetHeight` holds
- * unconditionally.
+ * When `preserveAspect` is true (used for image slots authored as circles or
+ * rounded-rects, and for the templates' image slots in general), the box is
+ * sized against `min(targetWidth, targetHeight)` for both dimensions so the
+ * shape stays visually consistent across aspect ratios — otherwise a
+ * 40%×40% circle authored on a square canvas becomes a stretched oval on
+ * LinkedIn (1200×627) or Instagram Story (1080×1920). Text slots and
+ * non-shape-sensitive rectangles keep the straight percent→pixel multiply
+ * so their max-widths still fill the horizontal space.
+ *
+ * The clamp handles two cases: (1) the box fits but is offset past an edge
+ * — slide it back in; (2) the box is wider/taller than the entire target
+ * canvas — shrink it down to the canvas size first, then anchor it at 0,
+ * so the invariant `x, y >= 0 && x + width <= targetWidth && y + height <=
+ * targetHeight` holds unconditionally.
  */
 function reflowBox(
   xPct: number,
@@ -482,10 +488,16 @@ function reflowBox(
   widthPct: number,
   heightPct: number,
   targetWidth: number,
-  targetHeight: number
+  targetHeight: number,
+  preserveAspect: boolean = false
 ): ResolvedBox {
-  let width = (widthPct / 100) * targetWidth;
-  let height = (heightPct / 100) * targetHeight;
+  const shortSide = Math.min(targetWidth, targetHeight);
+  let width = preserveAspect
+    ? (widthPct / 100) * shortSide
+    : (widthPct / 100) * targetWidth;
+  let height = preserveAspect
+    ? (heightPct / 100) * shortSide
+    : (heightPct / 100) * targetHeight;
 
   // Shrink the box itself if it's larger than the entire target canvas —
   // otherwise no x/y clamp could keep `x + width <= targetWidth`.
@@ -526,13 +538,18 @@ export function reflowTemplate(
   const imageSlots: Record<string, ResolvedBox> = {};
   for (const [role, slot] of Object.entries(template.imageSlots)) {
     if (!slot) continue;
+    // Preserve aspect for circle/rounded-rect image slots so a 40% square
+    // photo stays visually round on non-square formats. Plain "rect" slots
+    // (logos) already fit any aspect ratio and don't need preservation.
+    const preserveAspect = slot.shape === "circle" || slot.shape === "rounded-rect";
     imageSlots[role] = reflowBox(
       slot.xPct,
       slot.yPct,
       slot.widthPct,
       slot.heightPct,
       format.width,
-      format.height
+      format.height,
+      preserveAspect
     );
   }
 

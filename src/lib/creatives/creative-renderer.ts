@@ -89,6 +89,15 @@ export type PlanElement =
       box: ResolvedBox;
       fontFamily: string;
       fontWeight: number;
+      /**
+       * Target-format-adjusted font size in px, computed at plan-build time
+       * by scaling the template's authored `baseSizePx` against the target
+       * format's short side. `fitText` shrinks it further only if needed to
+       * fit `box`. Fixed at plan-build time (rather than at draw time) so
+       * the value is consistent whether the plan is drawn to an off-screen
+       * export canvas or a scaled-down live preview.
+       */
+      baseSizePx: number;
       color: string;
       align: TextSlot["align"];
     }
@@ -117,6 +126,27 @@ import {
  */
 function applyTransform(value: string, transform: TextSlot["transform"]): string {
   return transform === "uppercase" ? value.toUpperCase() : value;
+}
+
+/**
+ * Scales a template's authored `baseSizePx` to a target Platform_Format,
+ * preserving the visual size ratio between text and canvas across aspect
+ * ratios. The scale factor is the ratio of the target format's short side
+ * to the authored canvas's short side, so a 64px name authored on a
+ * 1200x1200 canvas renders at 64px on a 1080x1080 Instagram Post, ~33px on
+ * a 600x200 Email Banner, and ~57px on a 1080x1920 Instagram Story — all
+ * proportional to how much vertical/horizontal breathing room the format
+ * actually provides. Pure.
+ */
+function scaleTextSize(
+  authoredBaseSizePx: number,
+  authoredWidth: number,
+  authoredHeight: number,
+  format: PlatformFormat,
+): number {
+  const authoredShort = Math.min(authoredWidth, authoredHeight);
+  const targetShort = Math.min(format.width, format.height);
+  return Math.max(10, authoredBaseSizePx * (targetShort / authoredShort));
 }
 
 /**
@@ -195,6 +225,7 @@ export function buildSpeakerPlan(
       box: reflowed.textSlots[key],
       fontFamily: slot.fontFamily,
       fontWeight: slot.fontWeight,
+      baseSizePx: scaleTextSize(slot.baseSizePx, template.authoredWidth, template.authoredHeight, format),
       color: resolveAccentColor(template, key, theme),
       align: slot.align,
     });
@@ -224,6 +255,7 @@ export function buildSpeakerPlan(
 function buildLogoElement(
   sponsor: SponsorLike,
   template: CreativeTemplate,
+  format: PlatformFormat,
   theme: EventTheme,
   shape: ImageSlot["shape"],
   box: ResolvedBox
@@ -246,6 +278,12 @@ function buildLogoElement(
     box,
     fontFamily: sponsorNameSlot?.fontFamily ?? "Poppins",
     fontWeight: 700,
+    baseSizePx: scaleTextSize(
+      sponsorNameSlot?.baseSizePx ?? 40,
+      template.authoredWidth,
+      template.authoredHeight,
+      format,
+    ),
     color: resolveAccentColor(template, "sponsorName", theme),
     align: "center",
   };
@@ -275,7 +313,7 @@ export function buildSponsorPlan(
   const logoSlot = template.imageSlots.logo;
   if (logoSlot) {
     const box = reflowed.imageSlots.logo;
-    elements.push(buildLogoElement(sponsor, template, theme, logoSlot.shape, box));
+    elements.push(buildLogoElement(sponsor, template, format, theme, logoSlot.shape, box));
   }
 
   for (const key of ["sponsorName", "tierBadge"] as const) {
@@ -296,6 +334,7 @@ export function buildSponsorPlan(
       box: reflowed.textSlots[key],
       fontFamily: slot.fontFamily,
       fontWeight: slot.fontWeight,
+      baseSizePx: scaleTextSize(slot.baseSizePx, template.authoredWidth, template.authoredHeight, format),
       color: key === "tierBadge" ? tierAccentColor(sponsor.tier) : resolveAccentColor(template, key, theme),
       align: slot.align,
     });
@@ -381,7 +420,7 @@ export function buildComboPlan(
   const sponsorLogoSlot = template.imageSlots.sponsorLogo;
   if (sponsorLogoSlot) {
     const box = reflowed.imageSlots.sponsorLogo;
-    elements.push(buildLogoElement(sponsor, template, theme, sponsorLogoSlot.shape, box));
+    elements.push(buildLogoElement(sponsor, template, format, theme, sponsorLogoSlot.shape, box));
   }
 
   const textValues: Record<"name" | "presentedBy" | "sponsorName", string> = {
@@ -401,6 +440,7 @@ export function buildComboPlan(
       box: reflowed.textSlots[key],
       fontFamily: slot.fontFamily,
       fontWeight: slot.fontWeight,
+      baseSizePx: scaleTextSize(slot.baseSizePx, template.authoredWidth, template.authoredHeight, format),
       color: resolveAccentColor(template, key, theme),
       align: slot.align,
     });
@@ -422,10 +462,19 @@ export function buildComboPlan(
 
 /**
  * Given a slot's anchor+max box and an image's native pixel size, computes
- * the final draw box: native size if it fits entirely within the slot,
- * else uniformly downscaled to fit — never upscaled, never non-uniformly
- * stretched (Requirement 3.3). In both cases the resulting box is centered
+ * the final draw box: uniformly scaled to FIT within the slot while
+ * preserving aspect ratio (upscaling small logos so they actually fill the
+ * available space, downscaling large ones so they don't overflow), never
+ * non-uniformly stretched (Requirement 3.3). The resulting box is centered
  * within `slot`. Pure. Property 4.
+ *
+ * Rationale for allowing upscale: the previous "never upscale" rule meant
+ * a 200×100 sponsor logo dropped into a 600×360 slot rendered at 200×100
+ * with 400+ px of empty slot around it. That's what the fallback text
+ * element in `buildLogoElement` exists to avoid — but for actual images we
+ * want to fill the designated space. Modern PNG/SVG logos scale up cleanly
+ * to typical Platform_Format sizes; upscaling artifacts are visually
+ * preferable to a tiny centered logo swimming in whitespace.
  *
  * Degenerate case: when `naturalWidth` or `naturalHeight` is `0`, returns a
  * zero-size box centered at the slot's center rather than dividing by zero
@@ -441,9 +490,7 @@ export function nativeSizedLogoBox(slot: ResolvedBox, naturalWidth: number, natu
     };
   }
 
-  const fits = naturalWidth <= slot.width && naturalHeight <= slot.height;
-  const scale = fits ? 1 : Math.min(slot.width / naturalWidth, slot.height / naturalHeight);
-
+  const scale = Math.min(slot.width / naturalWidth, slot.height / naturalHeight);
   const width = naturalWidth * scale;
   const height = naturalHeight * scale;
 
@@ -915,14 +962,16 @@ async function drawImageElement(
  * for that log (design's Error Handling section).
  */
 function drawTextElement(ctx: CanvasRenderingContext2D, el: Extract<PlanElement, { kind: "text" }>): void {
-  const baseSizePx = Math.max(10, el.box.height * 0.6);
-
+  // The plan builders already scaled the template's authored `baseSizePx`
+  // to the target Platform_Format via `scaleTextSize`, so use it directly.
+  // `fitText` will still shrink further via `SHRINK_STEP` if the text
+  // doesn't fit `el.box` (e.g. very long names).
   const measure = (text: string, fontSizePx: number): number => {
     ctx.font = `${el.fontWeight} ${fontSizePx}px ${el.fontFamily}, sans-serif`;
     return ctx.measureText(text).width;
   };
 
-  const fit = fitText(el.text, el.box, baseSizePx, measure);
+  const fit = fitText(el.text, el.box, el.baseSizePx, measure);
 
   if (fit.lines.length === 0) {
     return;
@@ -964,24 +1013,91 @@ function drawDividerElement(ctx: CanvasRenderingContext2D, el: Extract<PlanEleme
 }
 
 /**
+ * Ensures the Poppins font used by the templates is actually loaded before
+ * the canvas draws any text. `ctx.font` silently falls back to the system
+ * sans-serif when the requested family isn't loaded — that's what caused
+ * the earlier "text looks wrong on first render, then correct on reload"
+ * behavior, since the browser hadn't fetched Poppins yet when the canvas
+ * did its measurements and draws. `document.fonts.load` primes the font
+ * and resolves once it's usable. Fails silently (returns void) so a font
+ * that can't be fetched degrades gracefully to the system fallback rather
+ * than crashing the render.
+ *
+ * The font weights loaded here (400 / 500 / 600 / 700) match every weight
+ * used across `SPEAKER_TEMPLATES`, `SPONSOR_TEMPLATES`, and `COMBO_TEMPLATES`.
+ */
+async function ensureFontsLoaded(): Promise<void> {
+  if (typeof document === "undefined" || !document.fonts) return;
+  try {
+    await Promise.all([
+      document.fonts.load("400 16px Poppins"),
+      document.fonts.load("500 16px Poppins"),
+      document.fonts.load("600 16px Poppins"),
+      document.fonts.load("700 16px Poppins"),
+    ]);
+  } catch {
+    // Font loading is best-effort — a failed load falls back to
+    // `sans-serif` via the CSS font stack in `drawTextElement`, which is
+    // ugly but not broken.
+  }
+}
+
+/**
+ * When the resolved background is an image (AI-generated or otherwise),
+ * random imagery underneath white/dark template text can render the text
+ * unreadable — a bright cloud in an AI background behind white "presented
+ * by" copy is a common failure mode. Paint a soft dark scrim over the
+ * background before any text/photo/logo elements draw so the template's
+ * type stays legible regardless of what the image contains. The scrim is
+ * a full-canvas semitransparent black rectangle — subtle enough not to
+ * darken the imagery significantly, strong enough to guarantee text
+ * contrast against typical mid-tone photography.
+ *
+ * Applied only when the background's `type === "image"` — solid and
+ * gradient backgrounds are already color-controlled by the template
+ * author, so they don't need it.
+ */
+function drawBackgroundScrim(
+  ctx: CanvasRenderingContext2D,
+  style: CreativeBgStyle,
+  width: number,
+  height: number,
+): void {
+  if (style.type !== "image") return;
+  ctx.save();
+  ctx.fillStyle = "rgba(15, 23, 42, 0.32)";
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+}
+
+/**
  * Draws a `RenderPlan` onto `ctx`, walking `plan.elements` in order (later
  * elements draw on top of earlier ones — `background` is always first per
  * the plan builders). The only DOM/canvas-touching function in the renderer;
  * everything upstream (plan building, reflow, text fitting) is pure. Awaits
- * every image load before returning, so a `canvas.toBlob()` call issued
- * immediately after this resolves captures the fully-drawn canvas.
+ * every image load AND font load before returning, so a `canvas.toBlob()`
+ * call issued immediately after this resolves captures the fully-drawn
+ * canvas with the correct typography.
  *
  * Draws the photo/logo composite unmodified — no `ctx.filter` or color/
  * transform manipulation is ever applied, only geometric crop/clip/position/
  * scale (Requirements 2.4, 3.3). Image load failures are logged via
  * `logger.warn` and fall back to the placeholder path (design's Error
  * Handling section).
+ *
+ * A soft dark scrim is painted over image backgrounds (and only image
+ * backgrounds) after the background draws but before any foreground
+ * elements, keeping template text legible over unpredictable AI-generated
+ * imagery.
  */
 export async function drawPlan(ctx: CanvasRenderingContext2D, plan: RenderPlan): Promise<void> {
+  await ensureFontsLoaded();
+
   for (const el of plan.elements) {
     switch (el.kind) {
       case "background":
         await drawBackground(ctx, el.style, plan.format.width, plan.format.height);
+        drawBackgroundScrim(ctx, el.style, plan.format.width, plan.format.height);
         break;
       case "image":
         await drawImageElement(ctx, el);

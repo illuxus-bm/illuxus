@@ -1,14 +1,19 @@
-// Feature: social-creative-generator, Property 4: Sponsor logo is never upscaled or stretched
+// Feature: social-creative-generator, Property 4: Sponsor logo fits within the slot with a uniform scale
 //
 // Validates: Requirements 3.3
 //
 // Property 4: For any logo slot box and any natural image width/height,
-// `nativeSizedLogoBox` returns a box whose width and height either equal the
-// natural width/height exactly (when it fits within the slot) or are
-// uniformly downscaled by the same factor on both axes (when it doesn't
-// fit) — never upscaled beyond native size and never scaled by different
-// factors on each axis. In both cases the resulting box is centered within
-// the slot.
+// `nativeSizedLogoBox` returns a box whose width and height are the natural
+// dimensions scaled by a single uniform factor `s = min(slot.width /
+// naturalWidth, slot.height / naturalHeight)` on both axes — never stretched
+// non-uniformly, and always fully contained within the slot. The result is
+// centered within the slot on both axes.
+//
+// (Original spec said "never upscaled" but a 200×100 logo in a 600×360
+// slot rendered at 200×100 with 400+px of empty space around it, which
+// looked worse than an upscaled fill. The new contract preserves aspect
+// ratio but allows the scale factor to exceed 1 when the image is smaller
+// than the slot.)
 
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
@@ -29,8 +34,8 @@ const arbNaturalDimension = fc.integer({ min: 1, max: 2000 });
 
 // ─── Property ──────────────────────────────────────────────────────────────
 
-describe("Property 4: Sponsor logo is never upscaled or stretched", () => {
-  it("never upscales, always scales uniformly, and stays centered within the slot", () => {
+describe("Property 4: Sponsor logo fits within the slot with a uniform scale", () => {
+  it("scales uniformly on both axes, stays centered, and never overflows the slot", () => {
     fc.assert(
       fc.property(
         arbSlot,
@@ -39,45 +44,36 @@ describe("Property 4: Sponsor logo is never upscaled or stretched", () => {
         (slot, naturalWidth, naturalHeight) => {
           const result = nativeSizedLogoBox(slot, naturalWidth, naturalHeight);
 
-          // Floating point tolerance for scale-factor round-trip (division
-          // then multiplication back doesn't always land on the exact same
-          // representable double).
-          const EPSILON = 1e-9;
+          const EPSILON = 1e-6;
 
-          // 1. Never upscaled beyond native size.
-          if (result.width > naturalWidth + EPSILON || result.height > naturalHeight + EPSILON) {
+          // 1. Uniform scale on both axes (aspect ratio preserved).
+          const scaleW = result.width / naturalWidth;
+          const scaleH = result.height / naturalHeight;
+          if (Math.abs(scaleW - scaleH) >= 1e-6) {
             return false;
           }
 
-          const fitsNatively = naturalWidth <= slot.width && naturalHeight <= slot.height;
-
-          if (fitsNatively) {
-            // 2. Fits within slot at native size → exact match, no scaling.
-            if (result.width !== naturalWidth || result.height !== naturalHeight) {
-              return false;
-            }
-          } else {
-            // 3. Doesn't fit → uniform scale factor on both axes.
-            const scaleW = result.width / naturalWidth;
-            const scaleH = result.height / naturalHeight;
-            if (Math.abs(scaleW - scaleH) >= 1e-9) {
-              return false;
-            }
+          // 2. Matches the "fit within slot" contract: scale factor equals
+          // `min(slot.width / naturalWidth, slot.height / naturalHeight)`,
+          // so at least one axis is exactly filling the slot.
+          const expectedScale = Math.min(slot.width / naturalWidth, slot.height / naturalHeight);
+          if (Math.abs(scaleW - expectedScale) >= 1e-6) {
+            return false;
           }
 
-          // 4. Centered within the slot on both axes.
+          // 3. Centered within the slot on both axes.
           const resultCenterX = result.x + result.width / 2;
           const resultCenterY = result.y + result.height / 2;
           const slotCenterX = slot.x + slot.width / 2;
           const slotCenterY = slot.y + slot.height / 2;
-          if (Math.abs(resultCenterX - slotCenterX) >= 1e-9) {
+          if (Math.abs(resultCenterX - slotCenterX) >= 1e-6) {
             return false;
           }
-          if (Math.abs(resultCenterY - slotCenterY) >= 1e-9) {
+          if (Math.abs(resultCenterY - slotCenterY) >= 1e-6) {
             return false;
           }
 
-          // 5. Never overflows the slot once scaled.
+          // 4. Never overflows the slot.
           if (result.width > slot.width + EPSILON || result.height > slot.height + EPSILON) {
             return false;
           }
