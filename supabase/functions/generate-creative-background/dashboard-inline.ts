@@ -1,56 +1,199 @@
-// deno-lint-ignore-file no-explicit-any
 /**
- * Creative_AI_Backgrounds — `generate-creative-background` Edge Function.
+ * generate-creative-background — self-contained Dashboard build.
  *
- * The only code path in the Illuxus codebase that calls the Google Gemini
- * (Imagen 4) image-generation API (Requirement 3.1). Runs on Deno; talks to
- * Gemini via a raw `fetch` (no `@google/genai` npm dependency — matches the
- * "minimal npm surface" convention of the other functions in this directory)
- * and uses the existing `@supabase/supabase-js` esm.sh import.
+ * The repo version (`index.ts`) splits CORS / structured-logging into
+ * `../_shared/*` modules, but the Supabase Dashboard editor (and the
+ * "deploy from dashboard" bundler that produced the
+ * `Module not found "file:///tmp/.../_shared/cors.ts"` error) only
+ * bundles the single file you paste — it never resolves `../_shared/*`
+ * relative imports. Paste THIS file's contents into the Dashboard
+ * "Edit function" view for `generate-creative-background` and click
+ * Deploy. Same pattern as `send-event-email/dashboard-inline.ts`.
  *
- * Contract (mirrors the client in `src/lib/creatives/creative-ai.ts`):
+ * Contract (mirrors the client in `src/lib/creatives/creative-ai.ts`) and
+ * all behavior are IDENTICAL to `index.ts` — only the CORS + logger
+ * helpers are inlined instead of imported. Keep this file in sync with
+ * `index.ts` whenever the handler logic changes.
  *
- *   POST /functions/v1/generate-creative-background
- *   Authorization: Bearer <supabase-jwt>
- *   Content-Type: application/json
- *   x-correlation-id: <optional client-supplied id — echoed into every log>
- *   {
- *     "eventId":     "<uuid>",
- *     "promptText":  "<already-composed resolved prompt from buildResolvedPrompt>",
- *     "stylePreset": "abstract-gradient" | "minimal-geometric" | ...,
- *     "aspectRatio": "1:1" | "16:9" | "9:16" | "4:3"
- *   }
+ * ── Required Supabase secrets ────────────────────────────────────────────
+ *   GEMINI_API_KEY               Google AI Studio API key (server-side only)
+ *   SUPABASE_URL                 provided automatically by the runtime
+ *   SUPABASE_SERVICE_ROLE_KEY    provided automatically by the runtime
  *
- * Success (200):
- *   { assetUrl, storagePath, cacheKey, fromCache: boolean }
+ * Optional:
+ *   GEMINI_PER_EVENT_DAILY_QUOTA default 20 — max Gemini calls/event/24h
+ *   ALLOWED_ORIGINS              comma-separated extra CORS origins
+ *   PUBLIC_DOMAIN / VITE_PUBLIC_DOMAIN
+ *   PUBLIC_PUBLISHED_HOST / VITE_PUBLIC_PUBLISHED_HOST
  *
- * Failure (see design.md's "Failure category mapping" table):
- *   { error: "<human message>", code: AiBackgroundErrorCode }
- *
- * Every error branch calls `rlog.error(...)` (or `rlog.warn` for expected
- * organizer-facing failures like quota / content policy). No `console.*`
- * calls anywhere — the project's ESLint rule targets the browser bundle,
- * but the same discipline is applied here so the shared logger's redaction
- * pipeline is the single log surface (Requirement 9.4).
- *
- * The `computeCacheKey` here MUST byte-match the client's `computeCacheKey`
- * (Property 20). Both use `\x1f` (ASCII Unit Separator) as the field
- * delimiter over `[eventId, normalizedPrompt, stylePreset, aspectRatio]`.
- *
- * NOTE: this is the local-CLI version that imports from `../_shared/`. The
- *       Supabase Dashboard editor cannot follow relative imports — deploying
- *       this file there fails with `Module not found ".../_shared/cors.ts"`.
- *       Deploy the sibling `dashboard-inline.ts` instead (same behavior,
- *       CORS + logger helpers inlined). Keep both files in sync.
+ * See `docs/gemini-setup.md` for the full setup + troubleshooting guide.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import {
-  buildCorsHeaders,
-  corsJson,
-  handlePreflight,
-} from "../_shared/cors.ts";
-import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+
+// ────────────────────────────────────────────────────────────────────────────
+// CORS helpers (inlined from ../_shared/cors.ts)
+// ────────────────────────────────────────────────────────────────────────────
+
+const DEV_ORIGINS = new Set<string>([
+  "http://localhost:5173",
+  "http://localhost:8080",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:8080",
+]);
+
+const ALLOWED_HEADERS =
+  "authorization, x-client-info, apikey, content-type, x-correlation-id";
+
+function stripTrailingSlash(s: string): string {
+  return s.endsWith("/") ? s.slice(0, -1) : s;
+}
+
+function envAllowedOrigins(): Set<string> {
+  const set = new Set<string>(DEV_ORIGINS);
+  const fromSecret = (Deno.env.get("ALLOWED_ORIGINS") || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const o of fromSecret) set.add(stripTrailingSlash(o));
+  const publicDomain = Deno.env.get("PUBLIC_DOMAIN") || Deno.env.get("VITE_PUBLIC_DOMAIN");
+  const publishedHost = Deno.env.get("PUBLIC_PUBLISHED_HOST") || Deno.env.get("VITE_PUBLIC_PUBLISHED_HOST");
+  for (const host of [publicDomain, publishedHost]) {
+    if (!host) continue;
+    const trimmed = stripTrailingSlash(host).trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) set.add(trimmed);
+    else set.add(`https://${trimmed}`);
+  }
+  return set;
+}
+
+function buildCorsHeaders(req: Request): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers": ALLOWED_HEADERS,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    Vary: "Origin",
+  };
+  const origin = req.headers.get("Origin") ?? "";
+  const allowed = envAllowedOrigins();
+
+  const isVercel = /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin);
+
+  if (origin && (allowed.has(stripTrailingSlash(origin)) || isVercel)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers["Access-Control-Allow-Credentials"] = "true";
+  } else {
+    headers["Access-Control-Allow-Origin"] = "null";
+  }
+  return headers;
+}
+
+function handlePreflight(req: Request, cors: Record<string, string>): Response | null {
+  if (req.method !== "OPTIONS") return null;
+  return new Response(null, { status: 204, headers: cors });
+}
+
+function corsJson(
+  body: unknown,
+  init: { status?: number; cors: Record<string, string>; extraHeaders?: Record<string, string> },
+): Response {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...init.cors,
+    ...(init.extraHeaders ?? {}),
+  };
+  return new Response(JSON.stringify(body), { status: init.status ?? 200, headers });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Structured logger (inlined from ../_shared/edge-logger.ts)
+// ────────────────────────────────────────────────────────────────────────────
+
+type EdgeLogLevel = "debug" | "info" | "warn" | "error";
+
+const DENY_LIST_KEYS = new Set([
+  "password", "passwd", "secret", "api_key", "apikey", "access_token",
+  "refresh_token", "service_role_key", "service-role-key",
+  "supabase_service_role_key", "token", "authorization", "cookie",
+  "set-cookie", "session_id", "session", "otp", "otp_code", "code_hash",
+  "private_key", "credit_card", "card_number", "cvv", "ssn",
+]);
+
+function redactValue(key: string, value: unknown): unknown {
+  if (DENY_LIST_KEYS.has(key.toLowerCase())) return "[redacted]";
+  if (value === null || value === undefined) return value;
+  if (typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((v, i) => redactValue(`${key}[${i}]`, v));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k] = redactValue(k, v);
+  }
+  return out;
+}
+
+interface EdgeLogger {
+  debug(msg: string, fields?: Record<string, unknown>): void;
+  info(msg: string, fields?: Record<string, unknown>): void;
+  warn(msg: string, fields?: Record<string, unknown>): void;
+  error(msg: string, fields?: Record<string, unknown>): void;
+  child(extra: Record<string, unknown>): EdgeLogger;
+}
+
+function emit(
+  level: EdgeLogLevel,
+  fnName: string,
+  bound: Record<string, unknown>,
+  msg: string,
+  fields: Record<string, unknown> | undefined,
+): void {
+  const record: Record<string, unknown> = {
+    ts: new Date().toISOString(),
+    level,
+    fn: fnName,
+    msg,
+    ...(redactValue("__bound__", bound) as Record<string, unknown>),
+  };
+  if (fields) {
+    Object.assign(record, redactValue("__fields__", fields) as Record<string, unknown>);
+  }
+  const line = JSON.stringify(record);
+  switch (level) {
+    case "error":
+      console.error(line);
+      break;
+    case "warn":
+      console.warn(line);
+      break;
+    case "info":
+      console.info(line);
+      break;
+    default:
+      console.debug(line);
+      break;
+  }
+}
+
+function makeLogger(fnName: string, bound: Record<string, unknown>): EdgeLogger {
+  return {
+    debug(msg, fields) { emit("debug", fnName, bound, msg, fields); },
+    info(msg, fields) { emit("info", fnName, bound, msg, fields); },
+    warn(msg, fields) { emit("warn", fnName, bound, msg, fields); },
+    error(msg, fields) { emit("error", fnName, bound, msg, fields); },
+    child(extra) { return makeLogger(fnName, { ...bound, ...extra }); },
+  };
+}
+
+function createEdgeLogger(fnName: string): EdgeLogger {
+  return makeLogger(fnName, {});
+}
+
+function toErrorFields(err: unknown): Record<string, unknown> {
+  if (err instanceof Error) {
+    return { error_name: err.name, error_message: err.message, error_stack: err.stack };
+  }
+  return { error_message: String(err) };
+}
 
 // ─── Types (mirrored from src/lib/creatives/creative-ai.ts) ──────────────────
 
@@ -93,11 +236,6 @@ interface ErrorResponseBody {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-/**
- * The five Style_Preset identifiers accepted by the request body. MUST
- * match the client's `STYLE_PRESETS` tuple exactly (any drift causes a
- * legitimate client request to be rejected with `code: "bad_request"`).
- */
 const ALLOWED_PRESETS: ReadonlySet<StylePreset> = new Set<StylePreset>([
   "abstract-gradient",
   "minimal-geometric",
@@ -106,11 +244,6 @@ const ALLOWED_PRESETS: ReadonlySet<StylePreset> = new Set<StylePreset>([
   "tech-mesh",
 ]);
 
-/**
- * The four Aspect_Ratio_Selection values accepted by the request body.
- * These match Gemini's Imagen API's `aspectRatio` parameter verbatim so
- * no client → provider mapping table is needed (Requirement 5.1).
- */
 const ALLOWED_RATIOS: ReadonlySet<AspectRatio> = new Set<AspectRatio>([
   "1:1",
   "16:9",
@@ -118,51 +251,18 @@ const ALLOWED_RATIOS: ReadonlySet<AspectRatio> = new Set<AspectRatio>([
   "4:3",
 ]);
 
-/**
- * Google's public Imagen 4 predict endpoint. The API key is passed as a
- * `?key=...` query parameter per Google's docs for API-key auth on this
- * endpoint. Documented in `docs/gemini-setup.md`.
- */
 const GEMINI_ENDPOINT =
   "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict";
 
-/**
- * The Supabase Storage bucket AI_Background_Assets are materialized into.
- * Reuses the existing `site-assets` bucket under an `ai-backgrounds/{event_id}/`
- * prefix (Requirement 6.3) — no new bucket is provisioned by this feature.
- */
 const STORAGE_BUCKET = "site-assets";
-
-/**
- * The provider + model strings recorded on every persisted
- * `event_creative_backgrounds` row for provenance. Not part of the request
- * contract; the client doesn't need these values.
- */
 const PROVIDER_NAME = "gemini";
 const MODEL_NAME = "imagen-4.0-generate-001";
-
-/**
- * The per-event daily cap on Gemini invocations, applied ONLY to cache
- * misses (cache hits don't call Gemini and don't count — Requirement 8.1).
- * Overridable via the `GEMINI_PER_EVENT_DAILY_QUOTA` Edge Function secret
- * (Requirement 8.4).
- */
 const DEFAULT_DAILY_QUOTA = 20;
 
 const log = createEdgeLogger("generate-creative-background");
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/**
- * Deterministic Background_Cache_Key. MUST byte-match the client's
- * `computeCacheKey` in `src/lib/creatives/creative-ai.ts` for identical
- * inputs — Property 20 pins this by asserting equality of both
- * implementations against `fast-check`-generated inputs.
- *
- * Uses `\x1f` (ASCII Unit Separator) as the field delimiter rather than a
- * cryptographic hash so the resulting string is human-inspectable from
- * Postgres. See the design's "Data Models" section for the full rationale.
- */
 function computeCacheKey(
   eventId: string,
   normalizedPrompt: string,
@@ -172,17 +272,6 @@ function computeCacheKey(
   return [eventId, normalizedPrompt, stylePreset, aspectRatio].join("\x1f");
 }
 
-/**
- * Derives a URL-/path-safe filename component from the Background_Cache_Key
- * for use as the Storage object path. The raw cache key contains `\x1f`
- * (unit separator) which is not a valid character in a Supabase Storage
- * object key — SHA-256 hashing gives a fixed-length, filesystem-safe
- * fingerprint while preserving determinism (same cache key → same path,
- * so `upsert: true` retries reuse the same object).
- *
- * The full raw cache key is still persisted on the `event_creative_backgrounds`
- * row for lookup; only the on-disk filename is hashed.
- */
 async function cacheKeyToStorageSegment(cacheKey: string): Promise<string> {
   const bytes = new TextEncoder().encode(cacheKey);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -191,12 +280,6 @@ async function cacheKeyToStorageSegment(cacheKey: string): Promise<string> {
     .join("");
 }
 
-/**
- * Decodes a base64-encoded PNG (as returned by Imagen's
- * `predictions[0].bytesBase64Encoded`) into a `Uint8Array` suitable for
- * `supabase.storage.upload`. Uses Deno's global `atob` — matches the
- * pattern documented in the design's Edge Function skeleton.
- */
 function base64ToBytes(b64: string): Uint8Array {
   const binaryString = atob(b64);
   const bytes = new Uint8Array(binaryString.length);
@@ -206,13 +289,6 @@ function base64ToBytes(b64: string): Uint8Array {
   return bytes;
 }
 
-/**
- * Reads the caller-supplied `x-correlation-id` header (a fresh UUID minted
- * by the client wrapper — see `newAiBackgroundCorrelationId` in
- * `creative-ai.ts`) so both sides of the wire tag every log record with
- * the same id (Requirement 9.4). Falls back to a server-minted UUID when
- * the header is missing so no request goes uncorrelated.
- */
 function readCorrelationId(req: Request): string {
   const raw = req.headers.get("x-correlation-id");
   if (raw && raw.trim().length > 0) return raw.trim();
@@ -389,8 +465,6 @@ Deno.serve(async (req: Request) => {
         user_id: userId,
         error_message: rpcErr.message,
       });
-      // Fail closed on RPC error — an admin check that couldn't run
-      // shouldn't grant access.
       return errorResponse(403, { error: "Forbidden", code: "auth" });
     }
     isAdmin = !!hasAdminRole;
@@ -423,9 +497,6 @@ Deno.serve(async (req: Request) => {
       event_id: body.eventId,
       error_message: cacheErr.message,
     });
-    // Treat a cache-read failure as a service outage rather than falling
-    // through to a Gemini call the operator didn't consent to spending
-    // quota on.
     return errorResponse(500, {
       error: "Failed to look up cached background",
       code: "service_outage",
@@ -534,9 +605,6 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      // Gemini reports safety-filter blocks with a 400 status and a body
-      // containing `safety` or `policy` markers. Distinct from generic
-      // 4xx so the client can surface a distinct toast (Requirement 10.1).
       if (
         response.status === 400 &&
         /safety|polic(y|ies)|blocked|prohibited/i.test(errBody)
@@ -564,8 +632,6 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      // Any other 4xx — malformed request from our side or an unknown
-      // policy trigger we didn't match above.
       rlog.error("gemini bad request", {
         event_id: body.eventId,
         status: response.status,
@@ -581,8 +647,6 @@ Deno.serve(async (req: Request) => {
     const prediction = geminiResponseJson?.predictions?.[0];
     const encoded = prediction?.bytesBase64Encoded;
     if (typeof encoded !== "string" || encoded.length === 0) {
-      // Some Imagen safety blocks return an OK-status response with an
-      // empty predictions array (or with a `raiFilteredReason` marker).
       const raiReason =
         prediction?.raiFilteredReason ??
         geminiResponseJson?.raiFilteredReason;
@@ -705,11 +769,6 @@ Deno.serve(async (req: Request) => {
     .from("event_creative_backgrounds")
     .insert(insertPayload);
   if (insertErr) {
-    // Postgres unique-violation on `UNIQUE (event_id, cache_key)`. This
-    // happens when two identical requests race — the losing insert lands
-    // here. The winning row is already visible; re-select it and return
-    // its stored URL so the caller gets a coherent result rather than an
-    // opaque 5xx.
     const isUniqueViolation =
       (insertErr as { code?: string }).code === "23505";
     if (isUniqueViolation) {
@@ -746,9 +805,6 @@ Deno.serve(async (req: Request) => {
         error_message: insertErr.message,
       });
     }
-    // The PNG is already uploaded with `upsert: true`, so a retry with
-    // identical inputs will reuse it via the cache-hit path once the row
-    // exists — no orphan proliferation.
     return errorResponse(503, {
       error: "Failed to persist background record",
       code: "service_outage",

@@ -63,6 +63,23 @@ change) so the new env is picked up:
 supabase functions deploy generate-creative-background
 ```
 
+> **Deploying from the Supabase Dashboard instead of the CLI?** The repo
+> version of this function (`index.ts`) imports its CORS + logging helpers
+> from `../_shared/*`. The Dashboard's "Edit function" editor only bundles
+> the single file you paste — it does not resolve relative imports outside
+> the function's own folder — so pasting `index.ts` directly fails with:
+>
+> ```
+> Module not found "file:///tmp/.../_shared/cors.ts"
+> ```
+>
+> Use `supabase/functions/generate-creative-background/dashboard-inline.ts`
+> instead: it's the identical handler with the `_shared` helpers inlined, so
+> it's a single self-contained file safe to paste into the Dashboard editor.
+> This mirrors the same split already used for `send-event-email` and
+> `send-speaker-invite-email`/`send-sponsor-invite-email` in this repo. Keep
+> `dashboard-inline.ts` in sync with `index.ts` if the handler logic changes.
+
 > **Don't put `GEMINI_API_KEY` in the Vite build env.** Unlike the Agora App
 > ID, there is no client-side counterpart to this key — the browser never
 > calls Gemini. If a `VITE_GEMINI_API_KEY` ever shows up anywhere in the
