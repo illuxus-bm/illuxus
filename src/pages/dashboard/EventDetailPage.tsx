@@ -37,6 +37,7 @@ import EventSettingsSection from "@/components/event/EventSettingsSection";
 import { checkRouteParam, eventPublicPath, eventPublicUrl } from "@/lib/event-routes";
 import { useAuth } from "@/contexts/AuthContext";
 import { isAuthorizedForEventCreatives } from "@/lib/creatives/creative-storage";
+import { isAuthorizedForBrochureGeneration } from "@/lib/brochure/brochure-templates";
 import { useOrg } from "@/contexts/OrgContext";
 import { formatMoney, DEFAULT_EVENT_CURRENCY } from "@/lib/currency";
 import { useFxRates, formatConverted } from "@/lib/fx";
@@ -48,6 +49,7 @@ const BroadcastPageLazy = lazy(() => import("./event/BroadcastPage"));
 const ApplicationsSectionLazy = lazy(() => import("@/components/event/ApplicationsSection").then((m) => ({ default: m.ApplicationsSection })));
 const UtmAnalyticsPageLazy = lazy(() => import("./event/UtmAnalyticsPage"));
 const CreativesSectionLazy = lazy(() => import("./event/CreativesSection"));
+const BrochureSectionPageLazy = lazy(() => import("./event/BrochureSectionPage"));
 
 type Event = Tables<"events">;
 
@@ -63,6 +65,7 @@ const sidebarNav = [
   { label: "Communicate",   icon: Mail,            key: "communicate"   },
   { label: "Community",     icon: Users2,          key: "community"     },
   { label: "Creatives",     icon: ImagePlus,       key: "creatives"     },
+  { label: "Brochure",      icon: FileText,        key: "brochure"      },
   { label: "UTM / Links",   icon: BarChart3,       key: "utm"           },
   { label: "Reports",       icon: BarChart3,       key: "reports"       },
 ];
@@ -74,12 +77,13 @@ const CHART_COLORS = {
   available: "hsl(240 5% 85%)",
 };
 
-function EventSidebar({ active, onSelect, eventTitle, eventFormat, canAccessCreatives }: { active: string; onSelect: (k: string) => void; eventTitle: string; eventFormat?: string | null; canAccessCreatives: boolean }) {
+function EventSidebar({ active, onSelect, eventTitle, eventFormat, canAccessCreatives, canAccessBrochure }: { active: string; onSelect: (k: string) => void; eventTitle: string; eventFormat?: string | null; canAccessCreatives: boolean; canAccessBrochure: boolean }) {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const nav = sidebarNav.filter((i) =>
     !(i.key === "broadcast" && eventFormat === "physical") &&
-    !(i.key === "creatives" && !canAccessCreatives)
+    !(i.key === "creatives" && !canAccessCreatives) &&
+    !(i.key === "brochure" && !canAccessBrochure)
   );
 
   return (
@@ -410,6 +414,11 @@ const EventDetailPage = () => {
   // boundary (Requirement 9.2); this only prevents rendering a tab the
   // current user can't use.
   const canAccessCreatives = isAuthorizedForEventCreatives(event.user_id, authUser?.id ?? "", isAdmin);
+  // Brochure tab is UI-gated the same way — owner or admin only. RLS on
+  // events/sessions/speakers/sponsors remains the actual enforcement
+  // boundary (Requirement 10.2); this only prevents rendering a tab the
+  // current user can't use.
+  const canAccessBrochure = isAuthorizedForBrochureGeneration(event.user_id, authUser?.id ?? "", isAdmin);
 
   const statusStyle: Record<string, string> = {
     draft: "bg-muted text-muted-foreground",
@@ -438,7 +447,7 @@ const EventDetailPage = () => {
             return;
           }
           setActiveSection(k);
-        }} eventTitle={event.title} eventFormat={(event as any).event_format} canAccessCreatives={canAccessCreatives} />
+        }} eventTitle={event.title} eventFormat={(event as any).event_format} canAccessCreatives={canAccessCreatives} canAccessBrochure={canAccessBrochure} />
 
         <div className="flex-1 flex flex-col min-w-0">
           {/* Header */}
@@ -814,6 +823,12 @@ const EventDetailPage = () => {
             {activeSection === "creatives" && canAccessCreatives && (
               <Suspense fallback={<FullPageLoader label="Loading creatives…" />}>
                 <CreativesSectionLazy eventId={event.id} />
+              </Suspense>
+            )}
+
+            {activeSection === "brochure" && canAccessBrochure && (
+              <Suspense fallback={<FullPageLoader label="Loading brochure…" />}>
+                <BrochureSectionPageLazy eventId={event.id} />
               </Suspense>
             )}
           </main>

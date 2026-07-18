@@ -216,6 +216,28 @@ export interface EventPageConfig {
    * `CreativeType` ever changes.
    */
   creativeTemplatePrefs?: Partial<Record<"speaker" | "sponsor" | "combo", string>>;
+  /**
+   * Per-event saved defaults for the Brochure_Generator feature (auto-generated
+   * multi-page PDF brochure: cover, agenda, speakers, sponsors, venue/logistics).
+   * Optional so existing saved configs (pre-dating this field) remain valid —
+   * `normalizeConfig` forward-merges it from `fresh` when a stored config
+   * doesn't have it yet, mirroring `creativeTemplatePrefs`'s exact pattern.
+   *
+   * `sectionLayout`'s `id` union is deliberately re-declared here (rather than
+   * importing `BrochureSectionId` from `@/lib/brochure/brochure-templates`) for
+   * the same reason `creativeTemplatePrefs` re-declares its own type literal —
+   * to avoid a dependency from this low-level page-form schema module onto the
+   * brochure feature module. Keep the two literal unions in sync if
+   * `BrochureSectionId` ever changes.
+   */
+  brochurePrefs?: {
+    themeId?: string;
+    colorOverride?: { primaryColor?: string; accentColor?: string; fontFamily?: string };
+    sectionLayout?: {
+      id: "cover" | "agenda" | "speakers" | "sponsors" | "venueLogistics";
+      included: boolean;
+    }[];
+  };
 }
 
 /* ─── Section catalog (what appears in the Design sidebar) ─── */
@@ -298,7 +320,7 @@ export function buildDefaultConfig(): EventPageConfig {
     enabled: meta.group === "core" || meta.id === "speakers" || meta.id === "agenda" || meta.id === "sponsors",
     order:   idx,
   })) as EventSection[];
-  return { v: 2, theme: { ...DEFAULT_THEME }, seo: {}, sections, creativeTemplatePrefs: {} };
+  return { v: 2, theme: { ...DEFAULT_THEME }, seo: {}, sections, creativeTemplatePrefs: {}, brochurePrefs: {} };
 }
 
 /**
@@ -315,6 +337,7 @@ export function normalizeConfig(raw: unknown): EventPageConfig {
     seo?: SeoConfig;
     sections?: EventSection[];
     creativeTemplatePrefs?: EventPageConfig["creativeTemplatePrefs"];
+    brochurePrefs?: EventPageConfig["brochurePrefs"];
   };
 
   // Legacy or incompatible format → start fresh, preserve theme colours.
@@ -323,6 +346,7 @@ export function normalizeConfig(raw: unknown): EventPageConfig {
       ...fresh,
       theme: { ...fresh.theme, ...(r.theme || {}) },
       creativeTemplatePrefs: { ...fresh.creativeTemplatePrefs, ...(r.creativeTemplatePrefs || {}) },
+      brochurePrefs: { ...fresh.brochurePrefs, ...(r.brochurePrefs || {}) },
     };
   }
 
@@ -360,6 +384,7 @@ export function normalizeConfig(raw: unknown): EventPageConfig {
     seo:   r.seo || {},
     sections: merged,
     creativeTemplatePrefs: { ...fresh.creativeTemplatePrefs, ...(r.creativeTemplatePrefs || {}) },
+    brochurePrefs: { ...fresh.brochurePrefs, ...(r.brochurePrefs || {}) },
   };
 }
 
