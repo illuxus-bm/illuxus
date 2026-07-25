@@ -55,7 +55,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, Download, Loader2 } from "lucide-react";
+import { FileText, Download, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -63,6 +63,7 @@ import { logger } from "@/lib/observability";
 
 import BrochureSectionList from "./BrochureSectionList";
 import BrochurePreviewFrame from "./BrochurePreviewFrame";
+import BrochureEditorDialog from "./BrochureEditorDialog";
 
 import {
   BROCHURE_THEMES,
@@ -333,6 +334,11 @@ export default function BrochureConfiguratorDialog({
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null);
+  // Editor dialog visibility — opened via the "Open in Editor" footer
+  // button. Separate from the configurator dialog's own open state so
+  // both can be up simultaneously (though the editor renders inside the
+  // configurator's dialog tree so keyboard focus stays local).
+  const [editorOpen, setEditorOpen] = useState(false);
 
   // Fetch every entity the brochure needs whenever the dialog opens — the
   // organizer may have edited sessions/speakers/sponsors elsewhere since
@@ -704,6 +710,18 @@ export default function BrochureConfiguratorDialog({
             <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
+            {(selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold") && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setEditorOpen(true)}
+                disabled={loading}
+                className="gap-1.5"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Open in Editor
+              </Button>
+            )}
             <Button size="sm" onClick={handleGenerate} disabled={loading || isGenerating} className="gap-1.5">
               {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
               Download brochure
@@ -711,6 +729,34 @@ export default function BrochureConfiguratorDialog({
           </div>
         </DialogFooter>
       </DialogContent>
+
+      {/* WYSIWYG editor — opens as a separate dialog with the current
+          theme seeded as a live document. Persists in memory only for
+          Phase 1; Supabase persistence lands in Phase 2. */}
+      {editorOpen && event && (selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold") && (
+        <BrochureEditorDialog
+          open={editorOpen}
+          onOpenChange={setEditorOpen}
+          templateId={selectedTheme.id}
+          seed={{
+            eventTitle: event.title,
+            dateText: (() => {
+              try {
+                const d = new Date(event.date);
+                return `${d.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" })}  |  ${d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })} onwards`;
+              } catch {
+                return event.date;
+              }
+            })(),
+            venueText: event.venue ?? event.location ?? "",
+            coverImageUrl: event.image_url ?? event.banner_landscape_url ?? "",
+            logoUrl: posterContent.logoUrl,
+            organizerLogoUrl: posterContent.organizerLogoUrl,
+            coverTagline: posterContent.coverTagline,
+            coverPills: posterContent.coverPills,
+          }}
+        />
+      )}
     </Dialog>
   );
 }
