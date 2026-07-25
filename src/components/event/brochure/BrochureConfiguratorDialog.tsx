@@ -48,7 +48,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
@@ -65,6 +67,7 @@ import BrochurePreviewFrame from "./BrochurePreviewFrame";
 import {
   BROCHURE_THEMES,
   DEFAULT_SECTION_LAYOUT,
+  POSTER_BOLD_SECTION_LAYOUT,
   readBrochurePrefs,
   saveBrochurePrefs,
   type BrochureTheme,
@@ -316,6 +319,14 @@ export default function BrochureConfiguratorDialog({
   const [selectedTheme, setSelectedTheme] = useState<BrochureTheme>(BROCHURE_THEMES[0]);
   const [themeOverride, setThemeOverride] = useState<BrochureThemeOverride>({});
   const [sectionLayout, setSectionLayout] = useState<SectionLayout>(DEFAULT_SECTION_LAYOUT);
+  // Poster_Bold-only content payload. Backed by
+  // `eventPageConfig.brochurePrefs.posterContent`; edits in this dialog
+  // flow through the same `saveBrochurePrefs` path as `sectionLayout` /
+  // `themeOverride` when "save as event default" is on.
+  type PosterContent = NonNullable<
+    NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]
+  >;
+  const [posterContent, setPosterContent] = useState<PosterContent>({});
   const hydratedRef = useRef(false);
 
   const [saveAsDefault, setSaveAsDefault] = useState(false);
@@ -355,7 +366,14 @@ export default function BrochureConfiguratorDialog({
     const theme = (prefs?.themeId && BROCHURE_THEMES.find((t) => t.id === prefs.themeId)) || BROCHURE_THEMES[0];
     setSelectedTheme(theme);
     setThemeOverride(prefs?.colorOverride ?? {});
-    setSectionLayout(prefs?.sectionLayout ?? DEFAULT_SECTION_LAYOUT);
+    // Poster_Bold events default to the Poster_Bold layout preset (which
+    // has every section on) rather than the base DEFAULT_SECTION_LAYOUT
+    // (which has the three Poster_Bold-only sections off) — the intent
+    // when picking Poster_Bold is almost always "give me the full poster
+    // spread", not "the same layout as a Classic Editorial brochure".
+    const fallbackLayout = theme.id === "poster-bold" ? POSTER_BOLD_SECTION_LAYOUT : DEFAULT_SECTION_LAYOUT;
+    setSectionLayout(prefs?.sectionLayout ?? fallbackLayout);
+    setPosterContent(prefs?.posterContent ?? {});
     hydratedRef.current = true;
   }, [open, eventPageConfig]);
 
@@ -417,8 +435,30 @@ export default function BrochureConfiguratorDialog({
       eventTheme,
       themeOverride,
       sectionLayout,
+      // Only pass Poster_Bold content when the Poster_Bold theme is
+      // active; keeping the field undefined on other themes lets the
+      // renderer short-circuit cleanly without checking the theme id
+      // twice.
+      posterContent:
+        selectedTheme.id === "poster-bold"
+          ? {
+              logoUrl: posterContent.logoUrl ?? null,
+              organizerLogoUrl: posterContent.organizerLogoUrl ?? null,
+              socialLinks: posterContent.socialLinks ?? null,
+              abstract: {
+                abstract: posterContent.abstract,
+                featured: posterContent.featured,
+                learningOutcomes: posterContent.learningOutcomes,
+              },
+              whySponsor: { items: posterContent.whySponsor },
+              pricing: {
+                cards: posterContent.pricingCards,
+                showRegistrationForm: posterContent.registrationForm,
+              },
+            }
+          : undefined,
     }),
-    [event, sessions, speakers, sponsors, venueLogistics, selectedTheme, eventTheme, themeOverride, sectionLayout]
+    [event, sessions, speakers, sponsors, venueLogistics, selectedTheme, eventTheme, themeOverride, sectionLayout, posterContent]
   );
 
   const includedCount = sectionLayout.filter((s) => s.included).length;
@@ -434,6 +474,7 @@ export default function BrochureConfiguratorDialog({
             themeId: selectedTheme.id,
             colorOverride: themeOverride,
             sectionLayout,
+            posterContent: selectedTheme.id === "poster-bold" ? posterContent : undefined,
           })
         );
       }
@@ -572,6 +613,13 @@ export default function BrochureConfiguratorDialog({
                 <BrochureSectionList layout={sectionLayout} onChange={setSectionLayout} />
               </section>
 
+              {/* Poster_Bold-only content editor. Only rendered when the
+                  active theme is `poster-bold` because the other themes
+                  never surface these fields in their rendered output. */}
+              {selectedTheme.id === "poster-bold" && (
+                <PosterBoldContentPanel value={posterContent} onChange={setPosterContent} />
+              )}
+
               {/* PROGRESS */}
               {isGenerating && progress && (
                 <section className="space-y-1.5">
@@ -692,6 +740,285 @@ function SwatchGroup({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+
+// ─── PosterBoldContentPanel ─────────────────────────────────────────────────
+
+/**
+ * Organizer form for the extra content used by the Poster_Bold theme:
+ * cover/organizer logos, social media links, page 2's Abstract + Featured
+ * + Learning Outcomes, page 3's Why Sponsor value props, and page 5's
+ * pricing cards + registration form toggle.
+ *
+ * Kept in this file (as a local component) rather than a separate module
+ * because it's tightly coupled to the parent dialog's state shape and
+ * has no reusable surface outside of it. Every field is optional; the
+ * pure content builders in `brochure-sections.ts` drop empty entries so
+ * the organizer can populate as much or as little as they like.
+ */
+function PosterBoldContentPanel({
+  value,
+  onChange,
+}: {
+  value: NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>;
+  onChange: (v: NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>) => void;
+}) {
+  type PC = NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>;
+  const set = <K extends keyof PC>(key: K, next: PC[K]) => onChange({ ...value, [key]: next });
+
+  // Arrays are edited as newline-delimited textareas for simplicity —
+  // one line per item. Empty lines are stripped by the pure builders.
+  const linesToArray = (raw: string): string[] =>
+    raw.split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
+  const arrayToLines = (arr: string[] | undefined) => (arr ?? []).join("\n");
+
+  return (
+    <section className="space-y-3 border border-dashed border-primary/40 rounded-lg p-3 bg-primary/5">
+      <div className="flex items-center justify-between">
+        <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          Poster Bold content
+        </Label>
+        <span className="text-[10px] text-muted-foreground">
+          Only used by Poster Bold theme
+        </span>
+      </div>
+
+      {/* Logos + social */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label className="text-[11px]">Header wordmark URL</Label>
+          <Input
+            className="h-8 text-[12px]"
+            value={value.logoUrl ?? ""}
+            placeholder="https://…/logo.png"
+            onChange={(e) => set("logoUrl", e.target.value || undefined)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[11px]">Organizer footer logo URL</Label>
+          <Input
+            className="h-8 text-[12px]"
+            value={value.organizerLogoUrl ?? ""}
+            placeholder="https://…/org.png"
+            onChange={(e) => set("organizerLogoUrl", e.target.value || undefined)}
+          />
+        </div>
+      </div>
+      <SocialLinksEditor
+        value={value.socialLinks ?? []}
+        onChange={(v) => set("socialLinks", v.length > 0 ? v : undefined)}
+      />
+
+      {/* Abstract + Featured + Learning Outcomes */}
+      <div className="space-y-2">
+        <div className="space-y-1">
+          <Label className="text-[11px]">Abstract (page 2, top card)</Label>
+          <Textarea
+            className="text-[12px] min-h-[70px]"
+            value={value.abstract ?? ""}
+            placeholder="High-level description of the event…"
+            onChange={(e) => set("abstract", e.target.value || undefined)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[11px]">Featured (page 2, middle card)</Label>
+          <Textarea
+            className="text-[12px] min-h-[70px]"
+            value={value.featured ?? ""}
+            placeholder="What's featured / included…"
+            onChange={(e) => set("featured", e.target.value || undefined)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[11px]">Learning Outcomes (one per line, up to 6)</Label>
+          <Textarea
+            className="text-[12px] min-h-[70px]"
+            value={arrayToLines(value.learningOutcomes)}
+            placeholder={"Master AI-Driven DevOps\nOptimize Cloud Costs with FinOps\n…"}
+            onChange={(e) => {
+              const next = linesToArray(e.target.value).slice(0, 6);
+              set("learningOutcomes", next.length > 0 ? next : undefined);
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Why Sponsor */}
+      <div className="space-y-1">
+        <Label className="text-[11px]">Why Sponsor? (numbered items, one per line)</Label>
+        <Textarea
+          className="text-[12px] min-h-[80px]"
+          value={arrayToLines(value.whySponsor)}
+          placeholder={"Connect with CIOs, CTOs, DevOps leaders…\nShowcase your solutions…"}
+          onChange={(e) => {
+            const next = linesToArray(e.target.value);
+            set("whySponsor", next.length > 0 ? next : undefined);
+          }}
+        />
+      </div>
+
+      {/* Pricing cards */}
+      <PricingCardsEditor
+        value={value.pricingCards ?? []}
+        onChange={(v) => set("pricingCards", v.length > 0 ? v : undefined)}
+      />
+      <label className="flex items-center gap-2 text-[12px] cursor-pointer">
+        <Checkbox
+          checked={value.registrationForm === true}
+          onCheckedChange={(v) => set("registrationForm", v === true ? true : undefined)}
+        />
+        Include blank registration form on the pricing page
+      </label>
+    </section>
+  );
+}
+
+/** Editor for the four supported social platforms — one row per
+ *  platform with a URL input. Empty URLs drop the row from the payload
+ *  so the caller ends up with only populated links. */
+function SocialLinksEditor({
+  value,
+  onChange,
+}: {
+  value: NonNullable<
+    NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>["socialLinks"]
+  >;
+  onChange: (
+    v: NonNullable<
+      NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>["socialLinks"]
+    >,
+  ) => void;
+}) {
+  const platforms: Array<"linkedin" | "instagram" | "facebook" | "twitter"> = [
+    "linkedin",
+    "instagram",
+    "facebook",
+    "twitter",
+  ];
+  const urlFor = (p: string) => value.find((l) => l.platform === p)?.url ?? "";
+  const setUrl = (p: "linkedin" | "instagram" | "facebook" | "twitter", url: string) => {
+    const trimmed = url.trim();
+    const other = value.filter((l) => l.platform !== p);
+    onChange(trimmed ? [...other, { platform: p, url: trimmed }] : other);
+  };
+  return (
+    <div className="space-y-1">
+      <Label className="text-[11px]">Social links (cover footer)</Label>
+      <div className="grid grid-cols-2 gap-2">
+        {platforms.map((p) => (
+          <Input
+            key={p}
+            className="h-8 text-[12px]"
+            value={urlFor(p)}
+            placeholder={`${p} URL`}
+            onChange={(e) => setUrl(p, e.target.value)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Editor for pricing cards. Adds a card via a button, edits fields
+ *  inline, and lets the organizer remove a card via a small "Remove"
+ *  link. Discounts are edited as newline-delimited lines for simplicity. */
+function PricingCardsEditor({
+  value,
+  onChange,
+}: {
+  value: NonNullable<
+    NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>["pricingCards"]
+  >;
+  onChange: (
+    v: NonNullable<
+      NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>["pricingCards"]
+    >,
+  ) => void;
+}) {
+  const updateAt = (
+    idx: number,
+    patch: Partial<{
+      title: string;
+      subtitle: string | null;
+      price: string;
+      discounts: string[] | null;
+    }>,
+  ) => {
+    const next = value.slice();
+    next[idx] = { ...next[idx], ...patch };
+    onChange(next);
+  };
+  const removeAt = (idx: number) => onChange(value.filter((_, i) => i !== idx));
+  const addOne = () =>
+    onChange([...value, { title: "", price: "", discounts: [] }]);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-[11px]">Pricing cards</Label>
+        <button
+          type="button"
+          onClick={addOne}
+          className="text-[11px] text-primary hover:underline"
+        >
+          + Add card
+        </button>
+      </div>
+      {value.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          No pricing cards yet. Add one to enable the pricing page.
+        </p>
+      ) : (
+        value.map((card, idx) => (
+          <div key={idx} className="border border-border rounded-md p-2 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-muted-foreground">Card {idx + 1}</span>
+              <button
+                type="button"
+                onClick={() => removeAt(idx)}
+                className="text-[11px] text-destructive hover:underline"
+              >
+                Remove
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                className="h-8 text-[12px]"
+                placeholder="Title (e.g. Individual)"
+                value={card.title}
+                onChange={(e) => updateAt(idx, { title: e.target.value })}
+              />
+              <Input
+                className="h-8 text-[12px]"
+                placeholder="Subtitle (e.g. Early Bird: ₹12,500/-)"
+                value={card.subtitle ?? ""}
+                onChange={(e) => updateAt(idx, { subtitle: e.target.value || null })}
+              />
+            </div>
+            <Input
+              className="h-8 text-[12px]"
+              placeholder="Price (e.g. ₹15,000/-)"
+              value={card.price}
+              onChange={(e) => updateAt(idx, { price: e.target.value })}
+            />
+            <Textarea
+              className="text-[12px] min-h-[52px]"
+              placeholder="Discounts, one per line (optional)"
+              value={(card.discounts ?? []).join("\n")}
+              onChange={(e) => {
+                const next = e.target.value
+                  .split("\n")
+                  .map((s) => s.trim())
+                  .filter((s) => s.length > 0);
+                updateAt(idx, { discounts: next.length > 0 ? next : null });
+              }}
+            />
+          </div>
+        ))
+      )}
     </div>
   );
 }

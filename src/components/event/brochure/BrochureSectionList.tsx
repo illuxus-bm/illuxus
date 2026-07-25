@@ -17,12 +17,20 @@ interface Props {
   onChange: (layout: SectionLayout) => void;
 }
 
-/** Human-readable label for each fixed Brochure_Section id. */
+/** Human-readable label for each fixed Brochure_Section id. The three
+ *  Poster_Bold-specific ids (`abstract`, `whySponsor`, `pricing`) are
+ *  toggleable on any theme's section list — the renderer short-circuits
+ *  them when the active theme isn't `poster-bold`, so an organizer
+ *  toggling them on with a different theme silently does nothing rather
+ *  than raising an error. */
 const SECTION_LABELS: Record<BrochureSectionId, string> = {
   cover: "Cover",
+  abstract: "Abstract & Learning Outcomes",
+  whySponsor: "Why Sponsor?",
   agenda: "Agenda",
   speakers: "Speakers",
   sponsors: "Sponsors",
+  pricing: "Pricing & Registration",
   venueLogistics: "Venue & Logistics",
 };
 

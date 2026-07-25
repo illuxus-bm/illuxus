@@ -37,11 +37,30 @@ export { tierAccentColor } from "@/lib/creatives/creative-templates";
 
 // ─── Core types ───────────────────────────────────────────────────────────
 
-/** One of the five fixed page types a brochure can include. */
-export type BrochureSectionId = "cover" | "agenda" | "speakers" | "sponsors" | "venueLogistics";
+/** Fixed page types a brochure can include.
+ *
+ *  The first five are the original Brochure_Section set shared by every
+ *  theme. The last three (`abstract`, `whySponsor`, `pricing`) are
+ *  Poster_Bold-specific pages sourced from the organizer's
+ *  `brochurePrefs.posterContent` fields; when the Poster_Bold theme is
+ *  active they render on their own pages, and when a different theme is
+ *  active they simply short-circuit (the content builders in
+ *  `brochure-sections.ts` return `null` if the underlying content is
+ *  empty, so mixed use is safe). */
+export type BrochureSectionId =
+  | "cover"
+  | "agenda"
+  | "speakers"
+  | "sponsors"
+  | "venueLogistics"
+  | "abstract"
+  | "whySponsor"
+  | "pricing";
 
-/** Cover_Section layout style — three code-defined presets ship in v1. */
-export type CoverStyle = "full-bleed-image" | "banner-strip" | "centered-card";
+/** Cover_Section layout style. Four code-defined presets ship today:
+ *  the three original variants plus `poster-bold` (the DevOps-Connect-
+ *  style pill-chip cover with a hero image and organizer footer). */
+export type CoverStyle = "full-bleed-image" | "banner-strip" | "centered-card" | "poster-bold";
 
 export interface BrochureTheme {
   id: string;
@@ -175,6 +194,42 @@ export const BROCHURE_THEMES: BrochureTheme[] = [
       primaryColor: "#0a0a0a", // near-black
       accentColor: "#22d3ee", // cyan
       fontFamily: "JetBrains Mono",
+    },
+  },
+  {
+    // Poster_Bold theme — the DevOps-Connect-style brochure format
+    // (bright orange + solid-black + white poster pages, pill-chip
+    // date/venue on the cover, rounded card content sections, orange
+    // numbered value props, card-based agenda). Enables three extra
+    // sections (`abstract`, `whySponsor`, `pricing`) that pull their
+    // content from `brochurePrefs.posterContent` on the event's page
+    // config.
+    id: "poster-bold",
+    name: "Poster Bold",
+    description:
+      "Big-format poster: pill-chip cover, orange & black solid-color pages, card-based agenda, numbered value props, pricing cards.",
+    margins: { top: 22, right: 20, bottom: 22, left: 20 },
+    cover: {
+      style: "poster-bold",
+      defaultBackgroundColor: "#ffffff",
+      titleFontSizePt: 44,
+      accentBarHeightMm: 0,
+    },
+    heading: {
+      fontSizePt: 26,
+      fontStyle: "bold",
+      showAccentUnderline: false,
+    },
+    table: {
+      theme: "plain",
+      fontSizePt: 10.5,
+      cellPaddingMm: 3,
+      headFillDefault: "#ff5722",
+    },
+    defaultColors: {
+      primaryColor: "#000000",
+      accentColor: "#ff5722", // brand-forward orange
+      fontFamily: "Poppins",
     },
   },
 ];
@@ -337,9 +392,33 @@ export type SectionLayout = SectionLayoutEntry[];
 
 export const DEFAULT_SECTION_LAYOUT: SectionLayout = [
   { id: "cover", included: true },
+  { id: "abstract", included: false },
+  { id: "whySponsor", included: false },
   { id: "agenda", included: true },
   { id: "speakers", included: true },
   { id: "sponsors", included: true },
+  { id: "pricing", included: false },
+  { id: "venueLogistics", included: true },
+];
+
+/**
+ * Section layout preset tuned for the Poster_Bold theme. Every section
+ * is included, ordered to mirror the reference DevOps Connect brochure:
+ * cover → abstract → why sponsor → agenda → speakers → sponsors →
+ * pricing → venue. When an organizer selects the Poster_Bold theme in
+ * `BrochureConfiguratorDialog` for the first time (i.e. their event has
+ * no saved `brochurePrefs.sectionLayout` yet), the dialog seeds the
+ * layout with this preset so the extra Poster_Bold-only sections are
+ * on by default.
+ */
+export const POSTER_BOLD_SECTION_LAYOUT: SectionLayout = [
+  { id: "cover", included: true },
+  { id: "abstract", included: true },
+  { id: "whySponsor", included: true },
+  { id: "agenda", included: true },
+  { id: "speakers", included: true },
+  { id: "sponsors", included: true },
+  { id: "pricing", included: true },
   { id: "venueLogistics", included: true },
 ];
 

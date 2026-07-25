@@ -270,9 +270,72 @@ export interface EventPageConfig {
     themeId?: string;
     colorOverride?: { primaryColor?: string; accentColor?: string; fontFamily?: string };
     sectionLayout?: {
-      id: "cover" | "agenda" | "speakers" | "sponsors" | "venueLogistics";
+      id:
+        | "cover"
+        | "agenda"
+        | "speakers"
+        | "sponsors"
+        | "venueLogistics"
+        | "abstract"
+        | "whySponsor"
+        | "pricing";
       included: boolean;
     }[];
+    /**
+     * Organizer-authored content used exclusively by the Poster_Bold theme's
+     * extra sections (Abstract, Why Sponsor, Pricing). Every field is
+     * optional — when a field is absent or empty, the corresponding section
+     * silently omits that block rather than rendering an empty placeholder,
+     * matching the Missing_Data_Placeholder contract used elsewhere in the
+     * brochure pipeline.
+     *
+     * Kept co-located with `brochurePrefs` (rather than a separate top-level
+     * `posterBoldContent` field) so the "save as event default" toggle in
+     * `BrochureConfiguratorDialog` continues to persist the whole shape
+     * through the existing `saveBrochurePrefs`/`readBrochurePrefs` path
+     * without introducing a second persistence key.
+     */
+    posterContent?: {
+      /** Brand logo shown at the top of every content page (page 2+). Not
+       *  the same as the cover image — the cover image renders as the
+       *  hero, this logo is a small wordmark. */
+      logoUrl?: string;
+      /** Organizer / production company logo shown in the cover footer
+       *  ("Conceptualized & Organized by"). */
+      organizerLogoUrl?: string;
+      /** Social media links rendered as icon chips at the bottom-right of
+       *  the cover. Empty array or omitted → the "Follow us" line is
+       *  omitted entirely. */
+      socialLinks?: Array<{
+        platform: "linkedin" | "instagram" | "facebook" | "twitter";
+        url: string;
+      }>;
+      /** Page 2 top card body copy — describes the event at a high level. */
+      abstract?: string;
+      /** Page 2 middle card body copy — what's featured / included. */
+      featured?: string;
+      /** Page 2 bottom grid — 4–6 short chips describing attendee outcomes.
+       *  Rendered in a two-column grid of dark rounded rectangles. */
+      learningOutcomes?: string[];
+      /** Page 3 numbered value-prop items ("Why Sponsor?"). Rendered as a
+       *  vertical stack with an orange circular number badge on the left. */
+      whySponsor?: string[];
+      /** Page 5 pricing cards. Rendered as a two-column grid (or single
+       *  column when only one card is provided). */
+      pricingCards?: Array<{
+        /** Card headline, e.g. "Individual" or "Award Nominations". */
+        title: string;
+        /** Small line under the title, e.g. "Early Bird: ₹12,500/-". */
+        subtitle?: string;
+        /** Headline price, e.g. "₹15,000/-". */
+        price: string;
+        /** Bulleted discount lines, e.g. "10% on 2 or more participants". */
+        discounts?: string[];
+      }>;
+      /** When true, a blank registration form (3 rows × 2 columns of empty
+       *  input pill fields) is drawn below the pricing cards on page 5. */
+      registrationForm?: boolean;
+    };
   };
 }
 

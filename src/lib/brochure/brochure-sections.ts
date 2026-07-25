@@ -399,3 +399,157 @@ export function buildVenueLogisticsContent(input: VenueLogisticsInput): VenueLog
 
   return content;
 }
+
+
+// ─── Abstract_Section (Poster_Bold, page 2) ─────────────────────────────────
+
+/** Raw content for the Poster_Bold Abstract page — sourced verbatim from
+ *  `brochurePrefs.posterContent` on the event's page config. */
+export interface AbstractSectionInput {
+  abstract?: string | null;
+  featured?: string | null;
+  learningOutcomes?: string[] | null;
+}
+
+/** Fully resolved, drawable Abstract_Section content. */
+export interface AbstractSectionContent {
+  /** First card body text — omitted from the render when null. */
+  abstract?: string;
+  /** Second card body text — omitted from the render when null. */
+  featured?: string;
+  /** Grid of dark-chip outcomes. Guaranteed non-empty when this array
+   *  key is set; when the input has no outcomes, this key is omitted
+   *  entirely rather than being an empty array so the caller can
+   *  short-circuit rendering the grid heading. */
+  learningOutcomes?: string[];
+}
+
+/**
+ * Builds the Abstract_Section content structure. Returns `null` when
+ * every input field is empty (post-`.trim()`) so the caller can omit
+ * the section entirely — mirrors `buildVenueLogisticsContent`'s
+ * null-return contract. Pure.
+ */
+export function buildAbstractSectionContent(
+  input: AbstractSectionInput
+): AbstractSectionContent | null {
+  const abstract = typeof input.abstract === "string" && input.abstract.trim().length > 0
+    ? input.abstract.trim()
+    : undefined;
+  const featured = typeof input.featured === "string" && input.featured.trim().length > 0
+    ? input.featured.trim()
+    : undefined;
+  const outcomes = (input.learningOutcomes ?? [])
+    .map((o) => (typeof o === "string" ? o.trim() : ""))
+    .filter((o) => o.length > 0);
+
+  if (!abstract && !featured && outcomes.length === 0) {
+    return null;
+  }
+
+  const content: AbstractSectionContent = {};
+  if (abstract) content.abstract = abstract;
+  if (featured) content.featured = featured;
+  if (outcomes.length > 0) content.learningOutcomes = outcomes;
+  return content;
+}
+
+// ─── WhySponsor_Section (Poster_Bold, page 3) ───────────────────────────────
+
+/** Raw content for the Poster_Bold Why-Sponsor page. */
+export interface WhySponsorSectionInput {
+  items?: string[] | null;
+}
+
+/** Fully resolved, drawable Why-Sponsor content. */
+export interface WhySponsorSectionContent {
+  /** Ordered value-prop lines. Every item is a non-empty (post-trim)
+   *  string; the caller assigns a sequential 1-indexed badge number to
+   *  each one. */
+  items: string[];
+}
+
+/**
+ * Builds the Why-Sponsor content structure. Returns `null` when there
+ * are zero non-empty items so the caller can omit the section entirely.
+ * Pure.
+ */
+export function buildWhySponsorSectionContent(
+  input: WhySponsorSectionInput
+): WhySponsorSectionContent | null {
+  const items = (input.items ?? [])
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter((s) => s.length > 0);
+  if (items.length === 0) return null;
+  return { items };
+}
+
+// ─── Pricing_Section (Poster_Bold, page 5) ─────────────────────────────────
+
+/** Raw content for one pricing card (one column on the Poster_Bold
+ *  pricing page). */
+export interface PricingCardInput {
+  title: string;
+  subtitle?: string | null;
+  price: string;
+  discounts?: string[] | null;
+}
+
+/** Raw content for the Poster_Bold Pricing page. */
+export interface PricingSectionInput {
+  cards?: PricingCardInput[] | null;
+  showRegistrationForm?: boolean;
+}
+
+/** Fully resolved, drawable Pricing card. */
+export interface PricingCard {
+  title: string;
+  subtitle?: string;
+  price: string;
+  discounts: string[];
+}
+
+/** Fully resolved, drawable Pricing_Section content. */
+export interface PricingSectionContent {
+  cards: PricingCard[];
+  /** Whether to render a 3-row blank registration form below the cards
+   *  (mirrors page 5 of the reference brochure). */
+  showRegistrationForm: boolean;
+}
+
+/**
+ * Builds the Pricing_Section content structure. Returns `null` when
+ * there are zero pricing cards AND the registration form is disabled —
+ * either condition alone (cards OR form) is enough for the section to
+ * render. A card with an empty `title` OR `price` is dropped; a card
+ * missing its `subtitle` or `discounts` still renders but the missing
+ * fields are omitted. Pure.
+ */
+export function buildPricingSectionContent(
+  input: PricingSectionInput
+): PricingSectionContent | null {
+  const cards: PricingCard[] = [];
+  for (const raw of input.cards ?? []) {
+    if (!raw) continue;
+    const title = typeof raw.title === "string" ? raw.title.trim() : "";
+    const price = typeof raw.price === "string" ? raw.price.trim() : "";
+    if (title.length === 0 || price.length === 0) continue;
+
+    const card: PricingCard = {
+      title,
+      price,
+      discounts: (raw.discounts ?? [])
+        .map((d) => (typeof d === "string" ? d.trim() : ""))
+        .filter((d) => d.length > 0),
+    };
+    if (typeof raw.subtitle === "string" && raw.subtitle.trim().length > 0) {
+      card.subtitle = raw.subtitle.trim();
+    }
+    cards.push(card);
+  }
+
+  const showRegistrationForm = input.showRegistrationForm === true;
+  if (cards.length === 0 && !showRegistrationForm) return null;
+
+  return { cards, showRegistrationForm };
+}
