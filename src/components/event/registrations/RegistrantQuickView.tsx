@@ -393,6 +393,33 @@ export default function RegistrantQuickView({
                 {record.checked_in_at && (
                   <Field label="Last check-in" value={`${new Date(record.checked_in_at).toLocaleString()} (${relTime(record.checked_in_at)})`} />
                 )}
+                {/* First-touch UTM attribution — read-only, historical.
+                    Only rendered when the row has at least one UTM value
+                    so unattributed registrations (direct visits, imported
+                    rows) don't display a wall of "—" placeholders. Each
+                    field falls back to `null` when absent; the shared
+                    `Field` component hides null-valued fields entirely. */}
+                {(() => {
+                  const r = record as typeof record & {
+                    utm_source?: string | null;
+                    utm_medium?: string | null;
+                    utm_campaign?: string | null;
+                    utm_content?: string | null;
+                    utm_term?: string | null;
+                  };
+                  const anyUtm =
+                    r.utm_source || r.utm_medium || r.utm_campaign || r.utm_content || r.utm_term;
+                  if (!anyUtm) return null;
+                  return (
+                    <>
+                      <Field label="Source" value={r.utm_source} />
+                      <Field label="Medium" value={r.utm_medium} />
+                      <Field label="Campaign" value={r.utm_campaign} />
+                      <Field label="Content" value={r.utm_content} />
+                      <Field label="Term" value={r.utm_term} />
+                    </>
+                  );
+                })()}
               </>
             )}
           </div>

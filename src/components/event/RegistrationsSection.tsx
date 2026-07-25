@@ -869,14 +869,61 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   };
 
   const exportCSV = () => {
-    const headers = ["Name", "Email", "Role", "Ticket Type", "Status", "Amount Paid", "Registered At"];
-    const rows = filtered.map((r) => [
-      r.name, r.email, r.kind, r.ticket_type, r.status,
-      r.amount_paid ?? 0,
-      new Date(r.created_at).toLocaleString(),
-    ]);
-    const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    // First-touch UTM attribution columns (utm_source / utm_medium /
+    // utm_campaign / utm_content / utm_term) are threaded through from the
+    // `registrations` row when `source === "registration"`. Speaker/sponsor
+    // rows have no registration linkage — they get blank values so the
+    // column stays present + aligned across every row.
+    const headers = [
+      "Name",
+      "Email",
+      "Role",
+      "Ticket Type",
+      "Status",
+      "Amount Paid",
+      "Registered At",
+      "UTM Source",
+      "UTM Medium",
+      "UTM Campaign",
+      "UTM Content",
+      "UTM Term",
+    ];
+    const rows = filtered.map((r) => {
+      const reg = r.registration as (Registration & {
+        utm_source?: string | null;
+        utm_medium?: string | null;
+        utm_campaign?: string | null;
+        utm_content?: string | null;
+        utm_term?: string | null;
+      }) | undefined;
+      return [
+        r.name,
+        r.email,
+        r.kind,
+        r.ticket_type,
+        r.status,
+        r.amount_paid ?? 0,
+        new Date(r.created_at).toLocaleString(),
+        reg?.utm_source ?? "",
+        reg?.utm_medium ?? "",
+        reg?.utm_campaign ?? "",
+        reg?.utm_content ?? "",
+        reg?.utm_term ?? "",
+      ];
+    });
+    // Proper CSV escaping — values containing commas, quotes, or newlines
+    // must be wrapped in double-quotes with any embedded quotes doubled.
+    // Fixes a pre-existing bug where a UTM value like
+    // `utm_content=blog,post` would split into two cells; also protects
+    // the pre-existing Name/Email columns.
+    const escape = (v: unknown): string => {
+      const s = v === null || v === undefined ? "" : String(v);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [headers, ...rows]
+      .map((row) => row.map(escape).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1375,6 +1422,25 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                         <div className="min-w-0 flex-1">
                           <p className="font-medium truncate">{r.name}</p>
                           <p className="text-[11px] text-muted-foreground truncate">{r.email || (r.company ?? "")}</p>
+                          {/* First-touch UTM attribution (Requirement: show
+                              source alongside every registration). Shown
+                              inline under the email so the organiser can see
+                              per-attendee attribution at a glance without
+                              needing to open the drawer. `utm_medium` /
+                              `utm_campaign` etc are surfaced in the
+                              RegistrantQuickView drawer for the full detail. */}
+                          {(() => {
+                            const src = (r.registration as (Registration & { utm_source?: string | null }) | undefined)?.utm_source;
+                            if (!src) return null;
+                            return (
+                              <p
+                                className="text-[10px] text-muted-foreground/80 truncate"
+                                title={`Source: ${src}`}
+                              >
+                                via <span className="font-medium">{src}</span>
+                              </p>
+                            );
+                          })()}
                           <span className={`md:hidden inline-flex mt-1 px-1.5 py-0 rounded-full text-[10px] font-medium border capitalize ${kindColors[r.kind]}`}>
                             {r.kind}
                           </span>
