@@ -89,16 +89,19 @@ export const BROCHURE_THEMES: BrochureTheme[] = [
   {
     id: "classic-editorial",
     name: "Classic Editorial",
-    description: "A traditional, print-magazine layout with a banner-style cover and gridded tables.",
-    margins: { top: 20, right: 18, bottom: 20, left: 18 },
+    description: "Print-magazine layout: hero image banner up top, editorial title below on a solid page.",
+    margins: { top: 22, right: 20, bottom: 22, left: 20 },
     cover: {
+      // Image occupies the top ~45% of the page (banner), title/date/accent
+      // bar sit below on the theme's solid background — genuinely distinct
+      // from the other two cover styles.
       style: "banner-strip",
       defaultBackgroundColor: "#0a1429",
-      titleFontSizePt: 28,
-      accentBarHeightMm: 4,
+      titleFontSizePt: 22,
+      accentBarHeightMm: 3,
     },
     heading: {
-      fontSizePt: 16,
+      fontSizePt: 15,
       fontStyle: "bold",
       showAccentUnderline: true,
     },
@@ -117,12 +120,14 @@ export const BROCHURE_THEMES: BrochureTheme[] = [
   {
     id: "modern-minimal",
     name: "Modern Minimal",
-    description: "A clean, spacious layout with a centered-card cover and striped tables.",
-    margins: { top: 18, right: 16, bottom: 18, left: 16 },
+    description: "Clean, spacious layout: centered image card on a light page with striped tables.",
+    margins: { top: 24, right: 22, bottom: 24, left: 22 },
     cover: {
+      // Light page, centered image card, centered title/date + short accent
+      // bar below.
       style: "centered-card",
-      defaultBackgroundColor: "#faf5ff",
-      titleFontSizePt: 24,
+      defaultBackgroundColor: "#f8fafc",
+      titleFontSizePt: 20,
       accentBarHeightMm: 2,
     },
     heading: {
@@ -132,8 +137,8 @@ export const BROCHURE_THEMES: BrochureTheme[] = [
     },
     table: {
       theme: "striped",
-      fontSizePt: 9,
-      cellPaddingMm: 2,
+      fontSizePt: 9.5,
+      cellPaddingMm: 2.5,
       headFillDefault: "#6366f1",
     },
     defaultColors: {
@@ -145,23 +150,25 @@ export const BROCHURE_THEMES: BrochureTheme[] = [
   {
     id: "bold-conference",
     name: "Bold Conference",
-    description: "A high-contrast, large-format layout with a full-bleed cover image and plain tables.",
-    margins: { top: 15, right: 15, bottom: 15, left: 15 },
+    description: "High-contrast poster: full-bleed image with a bottom gradient overlay for the title.",
+    margins: { top: 18, right: 18, bottom: 18, left: 18 },
     cover: {
+      // Full-bleed image + bottom gradient overlay. Title sits in the
+      // overlay area at the bottom so it never collides with the image.
       style: "full-bleed-image",
       defaultBackgroundColor: "#0a0a0a",
-      titleFontSizePt: 36,
-      accentBarHeightMm: 8,
+      titleFontSizePt: 26,
+      accentBarHeightMm: 5,
     },
     heading: {
-      fontSizePt: 18,
+      fontSizePt: 16,
       fontStyle: "bold",
       showAccentUnderline: true,
     },
     table: {
       theme: "plain",
-      fontSizePt: 11,
-      cellPaddingMm: 4,
+      fontSizePt: 10.5,
+      cellPaddingMm: 3.5,
       headFillDefault: "#0a0a0a",
     },
     defaultColors: {

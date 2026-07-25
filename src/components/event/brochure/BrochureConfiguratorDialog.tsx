@@ -509,57 +509,31 @@ export default function BrochureConfiguratorDialog({
                 <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">
                   Color & font overrides
                 </Label>
-                <div className="space-y-3">
-                  <div className="space-y-1">
-                    <span className="text-[11px] text-muted-foreground">Primary color</span>
-                    <div className="grid grid-cols-8 gap-1">
-                      {COLOR_SWATCHES.map((c) => (
-                        <button
-                          key={c}
-                          type="button"
-                          onClick={() =>
-                            setThemeOverride((prev) => ({
-                              ...prev,
-                              primaryColor: prev.primaryColor?.toLowerCase() === c.toLowerCase() ? undefined : c,
-                            }))
-                          }
-                          className={`h-4 w-4 rounded-sm border transition-transform hover:scale-110 ${
-                            themeOverride.primaryColor?.toLowerCase() === c.toLowerCase()
-                              ? "ring-1 ring-offset-1 ring-primary border-primary"
-                              : "border-black/10"
-                          }`}
-                          style={{ backgroundColor: c }}
-                          aria-label={`Primary color ${c}`}
-                          title={c}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <span className="text-[11px] text-muted-foreground">Accent color</span>
-                    <div className="grid grid-cols-8 gap-1">
-                      {COLOR_SWATCHES.map((c) => (
-                        <button
-                          key={c}
-                          type="button"
-                          onClick={() =>
-                            setThemeOverride((prev) => ({
-                              ...prev,
-                              accentColor: prev.accentColor?.toLowerCase() === c.toLowerCase() ? undefined : c,
-                            }))
-                          }
-                          className={`h-4 w-4 rounded-sm border transition-transform hover:scale-110 ${
-                            themeOverride.accentColor?.toLowerCase() === c.toLowerCase()
-                              ? "ring-1 ring-offset-1 ring-primary border-primary"
-                              : "border-black/10"
-                          }`}
-                          style={{ backgroundColor: c }}
-                          aria-label={`Accent color ${c}`}
-                          title={c}
-                        />
-                      ))}
-                    </div>
-                  </div>
+                <div className="space-y-4">
+                  <SwatchGroup
+                    label="Primary color"
+                    swatches={COLOR_SWATCHES}
+                    selected={themeOverride.primaryColor}
+                    onSelect={(c) =>
+                      setThemeOverride((prev) => ({
+                        ...prev,
+                        primaryColor: prev.primaryColor?.toLowerCase() === c.toLowerCase() ? undefined : c,
+                      }))
+                    }
+                    onClear={() => setThemeOverride((prev) => ({ ...prev, primaryColor: undefined }))}
+                  />
+                  <SwatchGroup
+                    label="Accent color"
+                    swatches={COLOR_SWATCHES}
+                    selected={themeOverride.accentColor}
+                    onSelect={(c) =>
+                      setThemeOverride((prev) => ({
+                        ...prev,
+                        accentColor: prev.accentColor?.toLowerCase() === c.toLowerCase() ? undefined : c,
+                      }))
+                    }
+                    onClear={() => setThemeOverride((prev) => ({ ...prev, accentColor: undefined }))}
+                  />
                   <div className="space-y-1">
                     <Label className="text-[11px] text-muted-foreground">Font family</Label>
                     <Select
@@ -658,5 +632,66 @@ export default function BrochureConfiguratorDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * A labelled row of clickable color swatches with a "reset to default"
+ * affordance. Extracted from the inline duplication that had two nearly
+ * identical 32-swatch grids stacked back-to-back — with 32 swatches in
+ * an 8-column grid that gave four cramped rows per palette, doubled to
+ * eight rows once primary and accent were both shown. Rendering these
+ * in a 16-column grid halves that to two rows per palette and gives each
+ * swatch enough breathing room to be picked at a glance.
+ */
+function SwatchGroup({
+  label,
+  swatches,
+  selected,
+  onSelect,
+  onClear,
+}: {
+  label: string;
+  swatches: string[];
+  selected: string | undefined;
+  onSelect: (color: string) => void;
+  onClear: () => void;
+}) {
+  const hasSelection = !!selected;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-muted-foreground">{label}</span>
+        {hasSelection && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-16 gap-1.5" style={{ gridTemplateColumns: "repeat(16, minmax(0, 1fr))" }}>
+        {swatches.map((c) => {
+          const isSelected = selected?.toLowerCase() === c.toLowerCase();
+          return (
+            <button
+              key={c}
+              type="button"
+              onClick={() => onSelect(c)}
+              className={`h-5 w-5 rounded-full border transition-transform hover:scale-110 ${
+                isSelected
+                  ? "ring-2 ring-offset-1 ring-primary border-primary"
+                  : "border-black/10 dark:border-white/15"
+              }`}
+              style={{ backgroundColor: c }}
+              aria-label={`${label} ${c}`}
+              title={c}
+            />
+          );
+        })}
+      </div>
+    </div>
   );
 }
