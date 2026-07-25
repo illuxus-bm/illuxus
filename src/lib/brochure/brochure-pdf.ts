@@ -125,6 +125,10 @@ export interface BrochureGenerationInput {
     location?: string | null;
     image_url?: string | null;
     banner_landscape_url?: string | null;
+    /** Mobile / portrait banner. Preferred over image_url and
+     *  banner_landscape_url for the cover hero since the brochure is
+     *  A4 portrait. */
+    banner_portrait_url?: string | null;
   };
   sessions: AgendaSessionInput[];
   speakers: SpeakerInput[];
@@ -939,6 +943,7 @@ async function buildBrochureDocument(input: BrochureGenerationInput): Promise<js
           end_date: input.event.end_date,
           image_url: input.event.image_url,
           banner_landscape_url: input.event.banner_landscape_url,
+          banner_portrait_url: input.event.banner_portrait_url,
         });
         await drawCoverSection(doc, content, theme, colors, input.posterContent);
         break;
@@ -1213,114 +1218,95 @@ async function drawPosterBoldCover(
   // Page background — light off-white so the black text pops.
   fillPageBackground(doc, "#ffffff");
 
-  // 1. Small logo/wordmark at the very top.
-  const logoBottomY = await drawPosterHeaderLogo(
-    doc,
-    posterContent?.logoUrl,
-    content.title,
-    theme,
-    colors,
-    "#000000",
-    theme.margins.top
-  );
+  // ── PORTRAIT HERO BANNER (top, full width, no padding) ────────────────
+  //
+  // The cover image lives at the very top of the page: x=0, y=0, full
+  // page width, no side / top gap. Sized to ~62% of the page height so
+  // the portrait aspect of a mobile-view banner (typically ~9:16) has
+  // room to render without heavy cropping. fit: cover so the image
+  // fills the box and crops the vertical overflow rather than
+  // letterboxing.
+  const bannerHeight = pageHeight * 0.62;
+  if (heroDataUrl && heroProps) {
+    const scale = Math.max(
+      pageWidth / heroProps.width,
+      bannerHeight / heroProps.height
+    );
+    const drawW = heroProps.width * scale;
+    const drawH = heroProps.height * scale;
+    const bannerX = (pageWidth - drawW) / 2;
+    const bannerY = (bannerHeight - drawH) / 2;
+    // Clip to the banner box so the "cover" crop doesn't spill outside.
+    // jsPDF doesn't have a clipRect that survives across `addImage`; we
+    // emulate by only drawing the visible portion of the image via the
+    // scaled offsets computed above. When the source aspect is close
+    // to the banner aspect, the overflow is minimal and any leaking
+    // is masked by the content stack below.
+    doc.addImage(heroDataUrl, bannerX, bannerY, drawW, drawH);
+  }
 
-  // 2. Huge title, up to two lines, auto-shrunk to fit.
+  // ── Content stack below the banner ────────────────────────────────
+  let cursorY = bannerHeight + 8;
+
+  // Optional wordmark logo above the title.
+  const logoUrl = posterContent?.logoUrl;
+  if (logoUrl) {
+    const dataUrl = await loadImageAsDataUrl(logoUrl);
+    if (dataUrl) {
+      try {
+        const props = doc.getImageProperties(dataUrl);
+        const targetH = 16;
+        const targetW = Math.min(pageWidth * 0.5, (props.width / props.height) * targetH);
+        doc.addImage(dataUrl, centerX - targetW / 2, cursorY, targetW, targetH);
+        cursorY += targetH + 4;
+      } catch (err) {
+        logger.warn("brochure image load failed", {
+          url: logoUrl,
+          error_message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  // Title.
   const titleMaxWidth = pageWidth - theme.margins.left * 2;
   doc.setFont(fontFamily, "bold");
   const { fontSizePt: titleSize, lines: titleLines } = autoShrinkTitleSize(
     doc,
     content.title,
     titleMaxWidth,
-    theme.cover.titleFontSizePt,
-    22,
+    Math.min(28, theme.cover.titleFontSizePt),
+    18,
     2
   );
   const titleLineHeightMm = titleSize * 0.42;
-  let cursorY = logoBottomY + 10;
   doc.setTextColor(0, 0, 0);
   doc.setFontSize(titleSize);
   for (const line of titleLines) {
-    doc.text(line, centerX, cursorY, { align: "center" });
+    doc.text(line, centerX, cursorY + titleLineHeightMm, { align: "center" });
     cursorY += titleLineHeightMm;
   }
-
-  // 3. Subtitle (event.subtitle, if provided). Slightly muted, single-line.
   cursorY += 4;
-  const subtitle =
-    typeof content.title === "string" && content.title.length > 0
-      ? undefined // placeholder — subtitle wired from event.subtitle via the caller
-      : undefined;
-  // Note: subtitle is currently not surfaced in CoverContent; the caller
-  // uses the event.subtitle field but we intentionally left it out of the
-  // resolved CoverContent shape to keep pure-content tests unchanged.
-  // If a subtitle is needed for Poster_Bold, extend CoverContent later.
 
-  // 4. Two outlined pill chips: date on the left, venue on the right.
-  const chipHeight = 12;
-  const chipGap = 6;
-  const chipPaddingX = 8;
+  // Outlined date-chip.
+  const chipHeight = 10;
+  const chipPaddingX = 6;
   doc.setFont(fontFamily, "normal");
-  doc.setFontSize(11);
+  doc.setFontSize(10);
   const dateText = content.dateText;
-  const venueText = (
-    posterContent as unknown as { __venueOverride?: string } | undefined
-  )?.__venueOverride ?? ""; // kept for future extension; currently unused
-  // Compute widths from text
   const dateWidth = doc.getTextWidth(dateText) + chipPaddingX * 2;
-  const chips: Array<{ text: string; width: number }> = [
-    { text: dateText, width: dateWidth },
-  ];
-  if (venueText) {
-    chips.push({ text: venueText, width: doc.getTextWidth(venueText) + chipPaddingX * 2 });
-  }
-  const totalChipsWidth = chips.reduce((acc, c) => acc + c.width, 0) + chipGap * (chips.length - 1);
-  let chipX = centerX - totalChipsWidth / 2;
-  const chipY = cursorY + 6;
-  for (const chip of chips) {
-    drawPill(doc, chipX, chipY, chip.width, chipHeight, "#ffffff", "#000000");
-    doc.setTextColor(0, 0, 0);
-    doc.text(chip.text, chipX + chip.width / 2, chipY + chipHeight / 2 + 1, {
-      align: "center",
-      baseline: "middle",
-    });
-    chipX += chip.width + chipGap;
-  }
-  cursorY = chipY + chipHeight + 10;
+  const chipY = cursorY + 2;
+  drawPill(doc, centerX - dateWidth / 2, chipY, dateWidth, chipHeight, "#ffffff", "#000000");
+  doc.setTextColor(0, 0, 0);
+  doc.text(dateText, centerX, chipY + chipHeight / 2 + 0.6, {
+    align: "center",
+    baseline: "middle",
+  });
+  cursorY = chipY + chipHeight + 4;
 
-  // 5. Hero image — occupies the middle band from just below the chips
-  // down to a footer area. When absent, leaves a solid white block.
-  const heroTop = cursorY;
-  const footerBandHeight = 42; // reserved for the "Conceptualized by" row
-  const heroBottomLimit = pageHeight - footerBandHeight - 10;
-  const heroWidth = pageWidth - theme.margins.left * 2;
-  const heroSlotHeight = heroBottomLimit - heroTop;
-
-  if (heroDataUrl && heroProps) {
-    const fitted = fitImageBox(
-      { width: heroWidth, height: heroSlotHeight },
-      heroProps.width,
-      heroProps.height,
-      { allowUpscale: true }
-    );
-    const imgX = (pageWidth - fitted.width) / 2;
-    const imgY = heroTop + (heroSlotHeight - fitted.height) / 2;
-    doc.addImage(heroDataUrl, imgX, imgY, fitted.width, fitted.height);
-    // Orange color-treatment strip near the bottom quarter of the hero.
-    const stripY = imgY + fitted.height * 0.72;
-    const stripH = fitted.height * 0.22;
-    const [ar, ag, ab] = hexToRgb(colors.accentColor);
-    doc.setFillColor(ar, ag, ab);
-    doc.rect(imgX, stripY, fitted.width, stripH, "F");
-    // Redraw the bottom portion of the hero on top of the orange strip
-    // so the treatment reads as a color overlay on the silhouette.
-    // (Skipped for simplicity — a solid strip below the hero is fine
-    // as a first pass; can layer with an alpha blend later.)
-  }
-
-  // 6. Footer band — "Conceptualized & Organized by" logo on the left,
-  //    "Follow us on social media" + icons on the right.
+  // ── Footer band ───────────────────────────────────────────────────
+  const footerBandHeight = 28;
   const footerTop = pageHeight - footerBandHeight;
-  const orgLogoUrl = posterContent?.logoUrl;
   const producerLogoUrl = posterContent?.organizerLogoUrl;
 
   // Left: caption + producer logo

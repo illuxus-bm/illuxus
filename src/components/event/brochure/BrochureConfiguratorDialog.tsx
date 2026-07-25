@@ -104,6 +104,7 @@ interface BrochureEventRow {
   location: string | null;
   image_url: string | null;
   banner_landscape_url: string | null;
+  banner_portrait_url: string | null;
 }
 
 /** Raw `sessions` row shape needed to resolve the Agenda_Section's
@@ -141,7 +142,7 @@ async function fetchBrochureData(eventId: string): Promise<{
   const [eventRes, sessionsRes, eventSpeakersRes, eventSponsorsRes] = await Promise.all([
     supabase
       .from("events")
-      .select("title, date, end_date, venue, location, image_url, banner_landscape_url")
+      .select("title, date, end_date, venue, location, image_url, banner_landscape_url, banner_portrait_url")
       .eq("id", eventId)
       .single(),
     supabase
@@ -438,6 +439,12 @@ export default function BrochureConfiguratorDialog({
         location: event?.location ?? null,
         image_url: event?.image_url ?? null,
         banner_landscape_url: event?.banner_landscape_url ?? null,
+        // Portrait banner is preferred as the cover hero (A4 is
+        // portrait; the mobile-view banner slots in without heavy
+        // cropping). buildCoverContent's resolveCoverBackground picks
+        // this first when defined, falling back to image_url and
+        // banner_landscape_url in that order.
+        banner_portrait_url: event?.banner_portrait_url ?? null,
       },
       sessions,
       speakers,
@@ -750,7 +757,12 @@ export default function BrochureConfiguratorDialog({
               }
             })(),
             venueText: event.venue ?? event.location ?? "",
-            coverImageUrl: event.image_url ?? event.banner_landscape_url ?? "",
+            // Prefer the mobile / portrait banner (matches the event's
+            // mobile-view hero); fall back through image_url, then the
+            // landscape banner as last-resort so the cover always has
+            // something to render.
+            coverImageUrl:
+              event.banner_portrait_url ?? event.image_url ?? event.banner_landscape_url ?? "",
             logoUrl: posterContent.logoUrl,
             organizerLogoUrl: posterContent.organizerLogoUrl,
             coverTagline: posterContent.coverTagline,

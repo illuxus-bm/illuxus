@@ -31,6 +31,11 @@ export interface CoverInput {
   date: string;
   /** ISO date string, or absent/null when the event has no distinct end date. */
   end_date?: string | null;
+  /** Mobile / portrait banner. Preferred over the other two image
+   *  sources so the A4 portrait cover fills correctly. Added later —
+   *  older callers omitting it still get the original precedence via
+   *  `image_url` / `banner_landscape_url`. */
+  banner_portrait_url?: string | null;
   image_url?: string | null;
   banner_landscape_url?: string | null;
 }
@@ -69,14 +74,26 @@ export function formatCoverDateRange(date: string, endDate?: string | null): str
 }
 
 /**
- * Resolves the Cover_Section's background source: `imageUrl` when defined,
- * else `bannerLandscapeUrl` when defined, else the Brochure_Theme's default
- * background. Always resolves to exactly one source. Pure. Property 26.
+ * Resolves the Cover_Section's background source. Precedence:
+ * `bannerPortraitUrl` (highest) > `imageUrl` > `bannerLandscapeUrl` >
+ * theme-default. The portrait banner is preferred because the brochure
+ * cover is a portrait A4 page, so a portrait-oriented source fills
+ * correctly without cropping/letterboxing.
+ *
+ * Always resolves to exactly one source. Pure. Property 26 was
+ * originally written against the two-argument version (imageUrl,
+ * bannerLandscapeUrl); calling with those two args still delivers the
+ * documented behavior because the new `bannerPortraitUrl` defaults to
+ * `undefined` and falls through to the existing precedence path.
  */
 export function resolveCoverBackground(
   imageUrl?: string | null,
-  bannerLandscapeUrl?: string | null
+  bannerLandscapeUrl?: string | null,
+  bannerPortraitUrl?: string | null
 ): { type: "image"; url: string } | { type: "theme-default" } {
+  if (bannerPortraitUrl) {
+    return { type: "image", url: bannerPortraitUrl };
+  }
   if (imageUrl) {
     return { type: "image", url: imageUrl };
   }
@@ -94,7 +111,11 @@ export function buildCoverContent(input: CoverInput): CoverContent {
   return {
     title: input.title,
     dateText: formatCoverDateRange(input.date, input.end_date),
-    background: resolveCoverBackground(input.image_url, input.banner_landscape_url),
+    background: resolveCoverBackground(
+      input.image_url,
+      input.banner_landscape_url,
+      input.banner_portrait_url
+    ),
   };
 }
 

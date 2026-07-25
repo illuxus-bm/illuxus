@@ -130,73 +130,109 @@ function buildPosterBoldCoverPage(
   showFooter: boolean
 ): BrochurePage {
   const pageW = A4_WIDTH_MM;
+  const pageH = A4_HEIGHT_MM;
   const elements: BrochureElement[] = [];
   const push = (el: BrochureElement) => {
     el.zIndex = elements.length;
     elements.push(el);
   };
 
+  // ── Portrait hero banner at top ────────────────────────────────────────
+  //
+  // The cover image (event.banner_portrait_url when available) is drawn
+  // FLUSH TO THE PAGE: x=0, y=0, full page width, no side or top
+  // padding, no corner radius. Sized to occupy roughly two-thirds of
+  // the A4 page height so the portrait aspect ratio isn't compressed.
+  // fit: "cover" so the image fills the box and crops overflow rather
+  // than letterboxing.
+  const bannerHeight = pageH * 0.62; // 62% of 297mm ≈ 184mm
+  push(
+    newImageElement({
+      x: 0,
+      y: 0,
+      width: pageW,
+      height: bannerHeight,
+      src: input.coverImageUrl,
+      fit: "cover",
+      cornerRadius: 0,
+    })
+  );
+
+  // Everything else stacks below the banner in the remaining ~113mm.
+  const belowBannerY = bannerHeight + 6; // 6mm breathing room under the image
+
+  // Optional wordmark logo above the title (centered).
+  let cursorY = belowBannerY;
   if (input.logoUrl) {
     push(
       newImageElement({
-        x: pageW / 2 - 40,
-        y: 22,
-        width: 80,
-        height: 20,
+        x: pageW / 2 - 30,
+        y: cursorY,
+        width: 60,
+        height: 16,
         src: input.logoUrl,
         fit: "contain",
       })
     );
+    cursorY += 20;
   }
+
+  // Title.
   push(
     newTextElement({
-      x: 20,
-      y: 52,
-      width: pageW - 40,
-      height: 48,
+      x: 12,
+      y: cursorY,
+      width: pageW - 24,
+      height: 22,
       content: input.eventTitle,
       fontFamily: "Poppins",
-      fontSize: 44,
+      fontSize: 26,
       fontWeight: "bold",
       color: titleColor,
       align: "center",
       lineHeight: 1.05,
     })
   );
+  cursorY += 26;
+
+  // Optional tagline pill.
   if (input.coverTagline?.trim()) {
     push(
       newPillElement({
         x: pageW / 2 - 45,
-        y: 110,
+        y: cursorY,
         width: 90,
-        height: 14,
+        height: 11,
         text: input.coverTagline.trim(),
         fontFamily: "Poppins",
-        fontSize: 12,
+        fontSize: 11,
         textColor: accent,
         fillColor: "#ffffff",
         strokeColor: accent,
-        strokeWidth: 0.8,
+        strokeWidth: 0.6,
       })
     );
+    cursorY += 15;
   }
+
+  // Optional pill chip row.
   const pills = (input.coverPills ?? []).filter((p) => p && p.trim().length > 0);
   if (pills.length > 0) {
-    const pillH = 10;
-    const pillGap = 4;
-    const pillW = 34;
+    const pillH = 8;
+    const pillGap = 3;
+    const pillW = 28;
     const totalW = pills.length * pillW + (pills.length - 1) * pillGap;
     let x = pageW / 2 - totalW / 2;
     for (const label of pills) {
       push(
         newPillElement({
           x,
-          y: 130,
+          y: cursorY,
           width: pillW,
           height: pillH,
           text: label,
           fontFamily: "Poppins",
-          fontSize: 9,
+          fontSize: 8,
           textColor: titleColor,
           fillColor: "transparent",
           strokeColor: titleColor,
@@ -205,44 +241,37 @@ function buildPosterBoldCoverPage(
       );
       x += pillW + pillGap;
     }
+    cursorY += pillH + 4;
   }
+
+  // Date + venue line.
   push(
     newTextElement({
-      x: 20,
-      y: 148,
-      width: pageW - 40,
-      height: 8,
+      x: 12,
+      y: cursorY,
+      width: pageW - 24,
+      height: 6,
       content: `${input.dateText}${input.venueText ? "  |  " + input.venueText : ""}`,
       fontFamily: "Poppins",
-      fontSize: 12,
+      fontSize: 10,
       fontWeight: "normal",
       color: titleColor,
       align: "center",
       lineHeight: 1.1,
     })
   );
-  push(
-    newImageElement({
-      x: 20,
-      y: 168,
-      width: pageW - 40,
-      height: 88,
-      src: input.coverImageUrl,
-      fit: "cover",
-      cornerRadius: 4,
-    })
-  );
 
+  // Footer.
   if (showFooter) {
     push(
       newTextElement({
-        x: 20,
-        y: 262,
+        x: 12,
+        y: pageH - 22,
         width: 90,
-        height: 6,
+        height: 5,
         content: "Conceptualized & Organized by",
         fontFamily: "Poppins",
-        fontSize: 9,
+        fontSize: 8,
         fontWeight: "bold",
         color: "#111111",
         align: "left",
@@ -252,10 +281,10 @@ function buildPosterBoldCoverPage(
     if (input.organizerLogoUrl) {
       push(
         newImageElement({
-          x: 20,
-          y: 270,
-          width: 44,
-          height: 18,
+          x: 12,
+          y: pageH - 16,
+          width: 40,
+          height: 14,
           src: input.organizerLogoUrl,
           fit: "contain",
         })
@@ -263,13 +292,13 @@ function buildPosterBoldCoverPage(
     }
     push(
       newTextElement({
-        x: pageW - 20 - 60,
-        y: 262,
+        x: pageW - 12 - 60,
+        y: pageH - 22,
         width: 60,
-        height: 6,
+        height: 5,
         content: "Follow us on social media",
         fontFamily: "Poppins",
-        fontSize: 9,
+        fontSize: 8,
         fontWeight: "bold",
         color: "#111111",
         align: "right",
