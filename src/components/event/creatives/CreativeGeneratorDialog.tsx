@@ -34,6 +34,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -58,11 +59,14 @@ import {
   saveCreativeTemplatePref,
   readCreativeTemplatePref,
   readEffectiveTemplateId,
+  createCustomFormat,
+  isValidCustomSize,
+  CUSTOM_SIZE_MIN_PX,
+  CUSTOM_SIZE_MAX_PX,
   type CreativeTemplate,
   type CreativeType,
   type EventTheme,
   type PlatformFormat,
-  type PlatformFormatId,
 } from "@/lib/creatives/creative-templates";
 import {
   buildSpeakerPlan,
@@ -174,7 +178,15 @@ export default function CreativeGeneratorDialog({
   );
   const [speaker, setSpeaker] = useState<SpeakerLike | null>(null);
   const [sponsor, setSponsor] = useState<SponsorLike | null>(null);
-  const [selectedFormats, setSelectedFormats] = useState<Set<PlatformFormatId>>(new Set());
+  const [selectedFormats, setSelectedFormats] = useState<Set<string>>(new Set());
+  // Custom_Size state — organizer-supplied width/height in px. `enabled`
+  // gates whether the custom format is included in `formatsList`; the
+  // width/height inputs stay populated even when disabled so re-enabling
+  // doesn't lose the values. Not persisted across dialog opens (mirrors
+  // `selectedFormats`).
+  const [customEnabled, setCustomEnabled] = useState(false);
+  const [customWidth, setCustomWidth] = useState<number>(1080);
+  const [customHeight, setCustomHeight] = useState<number>(1350);
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [backgroundSource, setBackgroundSource] = useState<BackgroundSource>("template");
@@ -220,6 +232,9 @@ export default function CreativeGeneratorDialog({
   useEffect(() => {
     if (!open) return;
     setSelectedFormats(new Set());
+    setCustomEnabled(false);
+    setCustomWidth(1080);
+    setCustomHeight(1350);
     setSaveAsDefault(false);
     setBackgroundSource("template");
     setAiBackground(null);
@@ -318,10 +333,19 @@ export default function CreativeGeneratorDialog({
     [eventPageConfig.theme?.primaryColor, eventPageConfig.theme?.accentColor]
   );
 
-  const formatsList = useMemo<PlatformFormat[]>(
-    () => PLATFORM_FORMATS.filter((f) => selectedFormats.has(f.id)),
-    [selectedFormats]
+  // Custom_Size validity — derived so the UI can show inline feedback and
+  // decide whether to include the custom format in the outgoing render list.
+  const customSizeValid = isValidCustomSize(customWidth, customHeight);
+  const customFormat: PlatformFormat | null = useMemo(
+    () => (customEnabled && customSizeValid ? createCustomFormat(customWidth, customHeight) : null),
+    [customEnabled, customSizeValid, customWidth, customHeight]
   );
+
+  const formatsList = useMemo<PlatformFormat[]>(() => {
+    const presets = PLATFORM_FORMATS.filter((f) => selectedFormats.has(f.id));
+    return customFormat ? [...presets, customFormat] : presets;
+  }, [selectedFormats, customFormat]);
+
   const previewFormat: PlatformFormat = formatsList[0] ?? PLATFORM_FORMATS[0];
 
   // Identify the "primary" entity for the Creative_Customization panel —
@@ -394,7 +418,7 @@ export default function CreativeGeneratorDialog({
     return effective.template;
   }, [effective.template, backgroundSource, aiBackground]);
 
-  const toggleFormat = (id: PlatformFormatId) => {
+  const toggleFormat = (id: string) => {
     setSelectedFormats((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -404,7 +428,7 @@ export default function CreativeGeneratorDialog({
   };
 
   const canGenerate =
-    selectedFormats.size > 0 &&
+    formatsList.length > 0 &&
     (type === "speaker" ? !!speaker : type === "sponsor" ? !!sponsor : !!speaker && !!sponsor);
 
   const handleGenerate = async () => {
@@ -703,9 +727,17 @@ export default function CreativeGeneratorDialog({
                   </label>
                 ))}
               </div>
-              {selectedFormats.size === 0 && (
+              <CustomSizeRow
+                enabled={customEnabled}
+                onEnabledChange={setCustomEnabled}
+                width={customWidth}
+                height={customHeight}
+                onWidthChange={setCustomWidth}
+                onHeightChange={setCustomHeight}
+              />
+              {formatsList.length === 0 && (
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  Select at least one format to generate.
+                  Select at least one format (or add a custom size) to generate.
                 </p>
               )}
             </section>
@@ -778,7 +810,7 @@ export default function CreativeGeneratorDialog({
 
         <DialogFooter className="px-5 py-3 border-t border-border bg-muted/30 shrink-0 sm:justify-between gap-2 flex-wrap">
           <span className="text-[12px] text-muted-foreground self-center">
-            {selectedFormats.size} format{selectedFormats.size === 1 ? "" : "s"} selected
+            {formatsList.length} format{formatsList.length === 1 ? "" : "s"} selected
           </span>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>
@@ -792,5 +824,126 @@ export default function CreativeGeneratorDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── CustomSizeRow ───────────────────────────────────────────────────────────
+
+/**
+ * A single-row Custom_Size affordance rendered directly below the preset
+ * Platform_Format grid. When the toggle is off, the row is a compact
+ * checkbox + label with the width/height controls disabled; toggling it
+ * on activates the inputs so the resulting `Custom_${w}×${h}` format
+ * flows into the parent's `formatsList` and is generated alongside any
+ * ticked presets.
+ *
+ * Inputs clamp to `[CUSTOM_SIZE_MIN_PX, CUSTOM_SIZE_MAX_PX]` on blur so
+ * a stray keystroke can't push the render off into an unreasonable
+ * dimension. Inline validation text explains the bounds when either
+ * value is out of range.
+ */
+function CustomSizeRow({
+  enabled,
+  onEnabledChange,
+  width,
+  height,
+  onWidthChange,
+  onHeightChange,
+}: {
+  enabled: boolean;
+  onEnabledChange: (enabled: boolean) => void;
+  width: number;
+  height: number;
+  onWidthChange: (n: number) => void;
+  onHeightChange: (n: number) => void;
+}) {
+  const valid = isValidCustomSize(width, height);
+  const clampAndSet = (setter: (n: number) => void) => (raw: string) => {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isNaN(parsed)) {
+      setter(0);
+      return;
+    }
+    // Don't clamp on every keystroke — that would jerk the input up to
+    // MIN as soon as the user starts typing (e.g. "1" -> 200). Only
+    // clamp when the user commits (blur handled by the input's
+    // native `onBlur`).
+    setter(parsed);
+  };
+  const clampOnBlur = (value: number, setter: (n: number) => void) => () => {
+    if (!Number.isFinite(value)) {
+      setter(CUSTOM_SIZE_MIN_PX);
+      return;
+    }
+    if (value < CUSTOM_SIZE_MIN_PX) setter(CUSTOM_SIZE_MIN_PX);
+    else if (value > CUSTOM_SIZE_MAX_PX) setter(CUSTOM_SIZE_MAX_PX);
+    else setter(Math.round(value));
+  };
+
+  return (
+    <div
+      className={`mt-2 border rounded-lg px-3 py-2 transition-colors ${
+        enabled ? "border-primary bg-primary/5" : "border-border"
+      }`}
+    >
+      <label className="flex items-start gap-2 cursor-pointer">
+        <Checkbox
+          checked={enabled}
+          onCheckedChange={(v) => onEnabledChange(!!v)}
+          className="mt-0.5 shrink-0"
+        />
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-medium leading-tight">Custom size</div>
+          <div className="text-[11px] text-muted-foreground leading-tight">
+            Set any dimensions from {CUSTOM_SIZE_MIN_PX}px to {CUSTOM_SIZE_MAX_PX}px.
+          </div>
+        </div>
+      </label>
+      {enabled && (
+        <div className="mt-2 pl-6 flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="custom-w" className="text-[11px] text-muted-foreground">
+              W
+            </Label>
+            <Input
+              id="custom-w"
+              type="number"
+              inputMode="numeric"
+              min={CUSTOM_SIZE_MIN_PX}
+              max={CUSTOM_SIZE_MAX_PX}
+              step={10}
+              value={Number.isFinite(width) && width > 0 ? width : ""}
+              onChange={(e) => clampAndSet(onWidthChange)(e.target.value)}
+              onBlur={clampOnBlur(width, onWidthChange)}
+              className="h-8 w-24 text-[12px]"
+            />
+          </div>
+          <span className="text-[11px] text-muted-foreground">×</span>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="custom-h" className="text-[11px] text-muted-foreground">
+              H
+            </Label>
+            <Input
+              id="custom-h"
+              type="number"
+              inputMode="numeric"
+              min={CUSTOM_SIZE_MIN_PX}
+              max={CUSTOM_SIZE_MAX_PX}
+              step={10}
+              value={Number.isFinite(height) && height > 0 ? height : ""}
+              onChange={(e) => clampAndSet(onHeightChange)(e.target.value)}
+              onBlur={clampOnBlur(height, onHeightChange)}
+              className="h-8 w-24 text-[12px]"
+            />
+          </div>
+          <span className="text-[11px] text-muted-foreground">px</span>
+          {!valid && (
+            <span className="text-[11px] text-destructive">
+              Enter {CUSTOM_SIZE_MIN_PX}–{CUSTOM_SIZE_MAX_PX}px per side.
+            </span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

@@ -30,6 +30,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -56,10 +57,13 @@ import {
   saveCreativeTemplatePref,
   readCreativeTemplatePref,
   readEffectiveTemplateId,
+  createCustomFormat,
+  isValidCustomSize,
+  CUSTOM_SIZE_MIN_PX,
+  CUSTOM_SIZE_MAX_PX,
   type CreativeTemplate,
   type EventTheme,
   type PlatformFormat,
-  type PlatformFormatId,
 } from "@/lib/creatives/creative-templates";
 import {
   buildSpeakerPlan,
@@ -119,7 +123,12 @@ export default function BatchCreativeGeneratorDialog({
   const [templateId, setTemplateId] = useState<string>(
     () => readCreativeTemplatePref(eventPageConfig, batchType) ?? templatesFor(batchType)[0].id
   );
-  const [selectedFormats, setSelectedFormats] = useState<Set<PlatformFormatId>>(new Set());
+  const [selectedFormats, setSelectedFormats] = useState<Set<string>>(new Set());
+  // Custom_Size state — see `CustomSizeRow`'s doc comment in
+  // `CreativeGeneratorDialog.tsx` for behavior.
+  const [customEnabled, setCustomEnabled] = useState(false);
+  const [customWidth, setCustomWidth] = useState<number>(1080);
+  const [customHeight, setCustomHeight] = useState<number>(1350);
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [backgroundSource, setBackgroundSource] = useState<BackgroundSource>("template");
   const [aiBackground, setAiBackground] = useState<AiBackgroundSelection | null>(null);
@@ -143,6 +152,9 @@ export default function BatchCreativeGeneratorDialog({
     if (!open) return;
     setTemplateId(readCreativeTemplatePref(eventPageConfig, batchType) ?? templatesFor(batchType)[0].id);
     setSelectedFormats(new Set());
+    setCustomEnabled(false);
+    setCustomWidth(1080);
+    setCustomHeight(1350);
     setSaveAsDefault(false);
     setBackgroundSource("template");
     setAiBackground(null);
@@ -251,10 +263,19 @@ export default function BatchCreativeGeneratorDialog({
     [eventPageConfig.theme.primaryColor, eventPageConfig.theme.accentColor]
   );
 
-  const formatsList = useMemo<PlatformFormat[]>(
-    () => PLATFORM_FORMATS.filter((f) => selectedFormats.has(f.id)),
-    [selectedFormats]
+  // Custom_Size derived state — synthesizes a `PlatformFormat` on the fly
+  // when the toggle is on and the dimensions are valid, then appends it
+  // to the outgoing batch format list.
+  const customSizeValid = isValidCustomSize(customWidth, customHeight);
+  const customFormat: PlatformFormat | null = useMemo(
+    () => (customEnabled && customSizeValid ? createCustomFormat(customWidth, customHeight) : null),
+    [customEnabled, customSizeValid, customWidth, customHeight]
   );
+
+  const formatsList = useMemo<PlatformFormat[]>(() => {
+    const presets = PLATFORM_FORMATS.filter((f) => selectedFormats.has(f.id));
+    return customFormat ? [...presets, customFormat] : presets;
+  }, [selectedFormats, customFormat]);
 
   // Representative format for the `CustomizationPanel` — the first selected
   // format when the organizer has picked at least one, else the first entry
@@ -280,7 +301,7 @@ export default function BatchCreativeGeneratorDialog({
     [onConfigChange]
   );
 
-  const toggleFormat = (id: PlatformFormatId) => {
+  const toggleFormat = (id: string) => {
     setSelectedFormats((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -289,7 +310,7 @@ export default function BatchCreativeGeneratorDialog({
     });
   };
 
-  const canRun = !isRunning && !loadingEntities && entities.length > 0 && selectedFormats.size > 0;
+  const canRun = !isRunning && !loadingEntities && entities.length > 0 && formatsList.length > 0;
 
   const sortedOutcomes = useMemo(() => {
     if (!outcomes) return [];
@@ -623,9 +644,17 @@ export default function BatchCreativeGeneratorDialog({
                 </label>
               ))}
             </div>
-            {selectedFormats.size === 0 && (
+            <BatchCustomSizeRow
+              enabled={customEnabled}
+              onEnabledChange={setCustomEnabled}
+              width={customWidth}
+              height={customHeight}
+              onWidthChange={setCustomWidth}
+              onHeightChange={setCustomHeight}
+            />
+            {formatsList.length === 0 && (
               <p className="mt-1.5 text-[11px] text-muted-foreground">
-                Select at least one format to run the batch.
+                Select at least one format (or add a custom size) to run the batch.
               </p>
             )}
           </section>
@@ -734,7 +763,7 @@ export default function BatchCreativeGeneratorDialog({
 
         <DialogFooter className="px-5 py-3 border-t border-border bg-muted/30 shrink-0 sm:justify-between gap-2 flex-wrap">
           <span className="text-[12px] text-muted-foreground self-center">
-            {selectedFormats.size} format{selectedFormats.size === 1 ? "" : "s"} · {entities.length} {entityLabel}
+            {formatsList.length} format{formatsList.length === 1 ? "" : "s"} · {entities.length} {entityLabel}
           </span>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>
@@ -754,5 +783,114 @@ export default function BatchCreativeGeneratorDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── BatchCustomSizeRow ──────────────────────────────────────────────────────
+
+/**
+ * Batch-dialog variant of `CustomSizeRow` (see
+ * `CreativeGeneratorDialog.tsx`) — identical UX; kept as a local
+ * component to avoid a cross-dialog import cycle. When the toggle is
+ * on and the dimensions are valid, the parent synthesizes a
+ * `Custom_${w}×${h}` format and appends it to `formatsList` so every
+ * batched entity is rendered at the custom size alongside any ticked
+ * presets.
+ */
+function BatchCustomSizeRow({
+  enabled,
+  onEnabledChange,
+  width,
+  height,
+  onWidthChange,
+  onHeightChange,
+}: {
+  enabled: boolean;
+  onEnabledChange: (enabled: boolean) => void;
+  width: number;
+  height: number;
+  onWidthChange: (n: number) => void;
+  onHeightChange: (n: number) => void;
+}) {
+  const valid = isValidCustomSize(width, height);
+  const setFromInput = (setter: (n: number) => void) => (raw: string) => {
+    const parsed = Number.parseInt(raw, 10);
+    setter(Number.isNaN(parsed) ? 0 : parsed);
+  };
+  const clampOnBlur = (value: number, setter: (n: number) => void) => () => {
+    if (!Number.isFinite(value)) {
+      setter(CUSTOM_SIZE_MIN_PX);
+      return;
+    }
+    if (value < CUSTOM_SIZE_MIN_PX) setter(CUSTOM_SIZE_MIN_PX);
+    else if (value > CUSTOM_SIZE_MAX_PX) setter(CUSTOM_SIZE_MAX_PX);
+    else setter(Math.round(value));
+  };
+
+  return (
+    <div
+      className={`mt-2 border rounded-lg px-3 py-2 transition-colors ${
+        enabled ? "border-primary bg-primary/5" : "border-border"
+      }`}
+    >
+      <label className="flex items-start gap-2 cursor-pointer">
+        <Checkbox
+          checked={enabled}
+          onCheckedChange={(v) => onEnabledChange(!!v)}
+          className="mt-0.5 shrink-0"
+        />
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-medium leading-tight">Custom size</div>
+          <div className="text-[11px] text-muted-foreground leading-tight">
+            Set any dimensions from {CUSTOM_SIZE_MIN_PX}px to {CUSTOM_SIZE_MAX_PX}px.
+          </div>
+        </div>
+      </label>
+      {enabled && (
+        <div className="mt-2 pl-6 flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="batch-custom-w" className="text-[11px] text-muted-foreground">
+              W
+            </Label>
+            <Input
+              id="batch-custom-w"
+              type="number"
+              inputMode="numeric"
+              min={CUSTOM_SIZE_MIN_PX}
+              max={CUSTOM_SIZE_MAX_PX}
+              step={10}
+              value={Number.isFinite(width) && width > 0 ? width : ""}
+              onChange={(e) => setFromInput(onWidthChange)(e.target.value)}
+              onBlur={clampOnBlur(width, onWidthChange)}
+              className="h-8 w-24 text-[12px]"
+            />
+          </div>
+          <span className="text-[11px] text-muted-foreground">×</span>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="batch-custom-h" className="text-[11px] text-muted-foreground">
+              H
+            </Label>
+            <Input
+              id="batch-custom-h"
+              type="number"
+              inputMode="numeric"
+              min={CUSTOM_SIZE_MIN_PX}
+              max={CUSTOM_SIZE_MAX_PX}
+              step={10}
+              value={Number.isFinite(height) && height > 0 ? height : ""}
+              onChange={(e) => setFromInput(onHeightChange)(e.target.value)}
+              onBlur={clampOnBlur(height, onHeightChange)}
+              className="h-8 w-24 text-[12px]"
+            />
+          </div>
+          <span className="text-[11px] text-muted-foreground">px</span>
+          {!valid && (
+            <span className="text-[11px] text-destructive">
+              Enter {CUSTOM_SIZE_MIN_PX}–{CUSTOM_SIZE_MAX_PX}px per side.
+            </span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

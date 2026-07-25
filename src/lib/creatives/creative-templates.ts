@@ -26,6 +26,10 @@
 export type CreativeType = "speaker" | "sponsor" | "combo";
 
 /** Named output specification matching a target social/email surface. */
+/** The five preset `Platform_Format` ids shipped by the registry.
+ *  A `PlatformFormat` value can also carry a synthesized string id like
+ *  `"custom-1080x1350"` when the organizer picked a Custom_Size — the
+ *  wider `PlatformFormat.id` type below reflects that. */
 export type PlatformFormatId =
   | "linkedin-post"
   | "instagram-post"
@@ -34,8 +38,12 @@ export type PlatformFormatId =
   | "email-banner";
 
 export interface PlatformFormat {
-  id: PlatformFormatId;
-  label: string; // e.g. "LinkedIn Post"
+  /** Opaque id. Preset formats use one of `PlatformFormatId`'s literals;
+   *  custom sizes get a synthesized string via `createCustomFormat`. The
+   *  storage layer treats this as an arbitrary short string, so the type
+   *  is deliberately widened to `string`. */
+  id: string;
+  label: string; // e.g. "LinkedIn Post" or "Custom 1080×1350"
   width: number; // px
   height: number; // px
 }
@@ -48,6 +56,54 @@ export const PLATFORM_FORMATS: PlatformFormat[] = [
   { id: "twitter-post", label: "Twitter/X Post", width: 1600, height: 900 },
   { id: "email-banner", label: "Email Banner", width: 600, height: 200 },
 ];
+
+/** Minimum permitted dimension (px) for a Custom_Size. Below this the
+ *  rendered creative starts producing illegible text and layout guides
+ *  become meaningless. */
+export const CUSTOM_SIZE_MIN_PX = 200;
+/** Maximum permitted dimension (px) for a Custom_Size. 4000 keeps memory
+ *  and export time within reasonable bounds while still covering common
+ *  cases (billboards, cover images, poster mockups). */
+export const CUSTOM_SIZE_MAX_PX = 4000;
+
+/**
+ * `true` iff `width` and `height` are both finite integers inside
+ * `[CUSTOM_SIZE_MIN_PX, CUSTOM_SIZE_MAX_PX]`. Used by the Custom_Size UI
+ * to enable/disable the "Add" affordance and by `createCustomFormat` to
+ * refuse to synthesize an out-of-range format.
+ */
+export function isValidCustomSize(width: number, height: number): boolean {
+  return (
+    Number.isInteger(width) &&
+    Number.isInteger(height) &&
+    width >= CUSTOM_SIZE_MIN_PX &&
+    width <= CUSTOM_SIZE_MAX_PX &&
+    height >= CUSTOM_SIZE_MIN_PX &&
+    height <= CUSTOM_SIZE_MAX_PX
+  );
+}
+
+/**
+ * Synthesizes a `PlatformFormat` for a Custom_Size. The synthesized id is
+ * deterministic (`custom-<w>x<h>`) so the same dimensions always produce
+ * the same id — useful when the id is persisted alongside a rendered
+ * asset. Throws when the dimensions fall outside the
+ * `[CUSTOM_SIZE_MIN_PX, CUSTOM_SIZE_MAX_PX]` range; callers should gate
+ * on `isValidCustomSize` first.
+ */
+export function createCustomFormat(width: number, height: number): PlatformFormat {
+  if (!isValidCustomSize(width, height)) {
+    throw new RangeError(
+      `Custom creative size ${width}x${height} out of range (${CUSTOM_SIZE_MIN_PX}-${CUSTOM_SIZE_MAX_PX})`
+    );
+  }
+  return {
+    id: `custom-${width}x${height}`,
+    label: `Custom ${width}×${height}`,
+    width,
+    height,
+  };
+}
 
 /** Background fill — mirrors FrontBgStyle in badge-design.ts, image type added. */
 export type CreativeBgStyle =
