@@ -259,9 +259,12 @@ function drawBottomGradient(doc: jsPDF, x: number, y: number, w: number, h: numb
  * Draws the Cover_Section. The three theme cover styles produce
  * genuinely distinct compositions:
  *
- * - `banner-strip` (Classic Editorial): image at top ~45% of the page as
- *   a horizontal banner, solid theme background below, title/date/accent
- *   bar comfortably placed in the lower half.
+ * - `banner-strip` (Classic Editorial): the portrait banner image is
+ *   drawn edge-to-edge (cover-fit) as the ENTIRE cover — the banner is
+ *   a pre-designed poster that already carries the event's title,
+ *   sponsors, date, and imagery, so no additional text overlays are
+ *   drawn on top. Falls back to a text-only cover on the theme's solid
+ *   background when no banner image is available.
  * - `centered-card` (Modern Minimal): light page, image centered as a
  *   card (~65% width × 38% height), title/date centered below, short
  *   centered accent bar.
@@ -335,23 +338,35 @@ async function drawCoverSection(
   }
 
   if (theme.cover.style === "banner-strip") {
-    // Banner image occupies the top 45% of the page.
-    const bannerHeight = pageHeight * 0.45;
+    // Classic Editorial cover — full-page portrait banner.
+    //
+    // The event's `banner_portrait_url` (or configurator-picked cover
+    // image) is a pre-designed poster that already carries all the
+    // event branding: title, sponsors, date, imagery. Overlaying our
+    // own title / date / accent bar on top would duplicate content
+    // and collide with the banner's own layout, which is exactly the
+    // editor-vs-preview mismatch users have been reporting.
+    //
+    // When an image is available, draw it edge-to-edge with a
+    // `cover` fit (scale to fill BOTH dimensions, center, let jsPDF
+    // clip the overflow at page edges) and short-circuit the rest of
+    // this function so no text overlays land on top. This mirrors
+    // the editor's `buildPosterBoldCoverPage` full-page banner path.
     if (imageDataUrl && imageProps) {
-      const fitted = fitImageBox(
-        { width: pageWidth, height: bannerHeight },
-        imageProps.width,
-        imageProps.height,
-        { allowUpscale: true }
-      );
-      const imgX = (pageWidth - fitted.width) / 2;
-      const imgY = (bannerHeight - fitted.height) / 2;
-      doc.addImage(imageDataUrl, imgX, imgY, fitted.width, fitted.height);
+      const scaleX = pageWidth / imageProps.width;
+      const scaleY = pageHeight / imageProps.height;
+      const scale = Math.max(scaleX, scaleY);
+      const drawW = imageProps.width * scale;
+      const drawH = imageProps.height * scale;
+      const imgX = (pageWidth - drawW) / 2;
+      const imgY = (pageHeight - drawH) / 2;
+      doc.addImage(imageDataUrl, imgX, imgY, drawW, drawH);
+      return;
     }
-    // Title zone below the banner with generous padding.
-    titleZoneY = bannerHeight + 24;
+    // Fallback: no banner available — place title/date on the lower
+    // half of the solid theme background so the cover still reads.
+    titleZoneY = pageHeight * 0.5;
     titleZoneHeight = pageHeight - titleZoneY - margin;
-    // Text lives on the solid theme background — use light-vs-dark contrast.
     titleColor = isDarkColor(theme.cover.defaultBackgroundColor)
       ? COVER_TITLE_LIGHT_COLOR
       : COVER_TITLE_DARK_COLOR;

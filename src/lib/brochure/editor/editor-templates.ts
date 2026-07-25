@@ -153,32 +153,52 @@ function buildPosterBoldCoverPage(
     elements.push(el);
   };
 
-  // ── Portrait hero banner at top ────────────────────────────────────────
+  // ── Full-page portrait banner cover ──────────────────────────────
   //
-  // The cover image (event.banner_portrait_url when available) is drawn
-  // FLUSH TO THE PAGE: x=0, y=0, full page width, no side or top
-  // padding, no corner radius. Sized to occupy roughly two-thirds of
-  // the A4 page height so the portrait aspect ratio isn't compressed.
-  // fit: "cover" so the image fills the box and crops overflow rather
-  // than letterboxing.
-  const bannerHeight = pageH * 0.62; // 62% of 297mm ≈ 184mm
-  push(
-    newImageElement({
-      x: 0,
-      y: 0,
-      width: pageW,
-      height: bannerHeight,
-      src: input.coverImageUrl,
-      fit: "cover",
-      cornerRadius: 0,
-    })
-  );
+  // When a portrait banner (event.banner_portrait_url or any other
+  // cover image) is available, the entire cover IS that image. The
+  // banner is expected to already carry all the event branding —
+  // title, sponsors, date, imagery — so overlaying our own title /
+  // date / venue text on top would duplicate content and often
+  // collide with the banner's own layout.
+  //
+  // The image is placed at (0, 0) with full page dimensions and
+  // fit="cover" so it fills the page edge-to-edge. The organizer
+  // can still click the image in the editor to reposition, resize,
+  // or replace it — the geometry is not locked.
+  const hasCover = typeof input.coverImageUrl === "string" && input.coverImageUrl.trim().length > 0;
+  if (hasCover) {
+    push(
+      newImageElement({
+        x: 0,
+        y: 0,
+        width: pageW,
+        height: pageH,
+        src: input.coverImageUrl,
+        fit: "cover",
+        cornerRadius: 0,
+      })
+    );
+    return {
+      id: `page-cover-${Math.random().toString(36).slice(2, 8)}`,
+      width: A4_WIDTH_MM,
+      height: A4_HEIGHT_MM,
+      background: { type: "solid", color: bgColor },
+      elements,
+    };
+  }
 
-  // Everything else stacks below the banner in the remaining ~113mm.
-  const belowBannerY = bannerHeight + 6; // 6mm breathing room under the image
+  // ── Fallback layout: no banner uploaded yet ──────────────────────
+  //
+  // When the event has no banner_portrait_url / image_url /
+  // banner_landscape_url configured, seed a text-only cover with the
+  // wordmark, title, tagline pill, chip row, date/venue line, and
+  // footer so the editor still shows something meaningful. The
+  // organizer can add an image via the palette once they've uploaded
+  // one.
+  let cursorY = pageH * 0.15;
 
   // Optional wordmark logo above the title (centered).
-  let cursorY = belowBannerY;
   if (input.logoUrl) {
     push(
       newImageElement({
@@ -199,17 +219,17 @@ function buildPosterBoldCoverPage(
       x: 12,
       y: cursorY,
       width: pageW - 24,
-      height: 22,
+      height: 40,
       content: input.eventTitle,
       fontFamily: "Poppins",
-      fontSize: 26,
+      fontSize: 40,
       fontWeight: "bold",
       color: titleColor,
       align: "center",
       lineHeight: 1.05,
     })
   );
-  cursorY += 26;
+  cursorY += 48;
 
   // Optional tagline pill.
   if (input.coverTagline?.trim()) {
@@ -218,25 +238,25 @@ function buildPosterBoldCoverPage(
         x: pageW / 2 - 45,
         y: cursorY,
         width: 90,
-        height: 11,
+        height: 12,
         text: input.coverTagline.trim(),
         fontFamily: "Poppins",
-        fontSize: 11,
+        fontSize: 12,
         textColor: accent,
         fillColor: "#ffffff",
         strokeColor: accent,
         strokeWidth: 0.6,
       })
     );
-    cursorY += 15;
+    cursorY += 16;
   }
 
   // Optional pill chip row.
   const pills = (input.coverPills ?? []).filter((p) => p && p.trim().length > 0);
   if (pills.length > 0) {
-    const pillH = 8;
-    const pillGap = 3;
-    const pillW = 28;
+    const pillH = 9;
+    const pillGap = 4;
+    const pillW = 32;
     const totalW = pills.length * pillW + (pills.length - 1) * pillGap;
     let x = pageW / 2 - totalW / 2;
     for (const label of pills) {
@@ -248,7 +268,7 @@ function buildPosterBoldCoverPage(
           height: pillH,
           text: label,
           fontFamily: "Poppins",
-          fontSize: 8,
+          fontSize: 9,
           textColor: titleColor,
           fillColor: "transparent",
           strokeColor: titleColor,
@@ -257,7 +277,7 @@ function buildPosterBoldCoverPage(
       );
       x += pillW + pillGap;
     }
-    cursorY += pillH + 4;
+    cursorY += pillH + 6;
   }
 
   // Date + venue line.
@@ -266,10 +286,10 @@ function buildPosterBoldCoverPage(
       x: 12,
       y: cursorY,
       width: pageW - 24,
-      height: 6,
+      height: 8,
       content: `${input.dateText}${input.venueText ? "  |  " + input.venueText : ""}`,
       fontFamily: "Poppins",
-      fontSize: 10,
+      fontSize: 12,
       fontWeight: "normal",
       color: titleColor,
       align: "center",
