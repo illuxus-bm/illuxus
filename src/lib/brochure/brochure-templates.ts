@@ -55,12 +55,22 @@ export type BrochureSectionId =
   | "venueLogistics"
   | "abstract"
   | "whySponsor"
-  | "pricing";
+  | "pricing"
+  // Corporate_Bold-only pages (Finance 6.0 reference brochure):
+  | "focusOfSummit"
+  | "whoShouldAttend"
+  | "solutionProviders"
+  | "highlights";
 
-/** Cover_Section layout style. Four code-defined presets ship today:
- *  the three original variants plus `poster-bold` (the DevOps-Connect-
- *  style pill-chip cover with a hero image and organizer footer). */
-export type CoverStyle = "full-bleed-image" | "banner-strip" | "centered-card" | "poster-bold";
+/** Cover_Section layout style. Five code-defined presets ship today:
+ *  the three original variants plus `poster-bold` (DevOps-Connect white
+ *  cover) and `corporate-bold` (Finance-6.0 deep-purple gradient cover). */
+export type CoverStyle =
+  | "full-bleed-image"
+  | "banner-strip"
+  | "centered-card"
+  | "poster-bold"
+  | "corporate-bold";
 
 export interface BrochureTheme {
   id: string;
@@ -194,6 +204,49 @@ export const BROCHURE_THEMES: BrochureTheme[] = [
       primaryColor: "#0a0a0a", // near-black
       accentColor: "#22d3ee", // cyan
       fontFamily: "JetBrains Mono",
+    },
+  },
+  {
+    // Corporate_Bold theme — the Finance-6.0-style brochure format
+    // (deep-purple gradient cover, dark black content pages, purple
+    // pill chips and time-slot chips, circular speaker photos with
+    // purple rings, "Focus of the Summit" + "Who Should Attend" +
+    // "Solution Providers" + dual "Why Matters / What You Gain"
+    // gradient cards). Enables four Corporate_Bold-only sections
+    // (`focusOfSummit`, `whoShouldAttend`, `solutionProviders`,
+    // `highlights`) that pull their content from
+    // `brochurePrefs.posterContent` on the event's page config —
+    // shared with Poster_Bold so an organizer can flip between the
+    // two palettes without re-entering copy.
+    id: "corporate-bold",
+    name: "Corporate Bold",
+    description:
+      "Deep-purple executive poster: gradient cover, dark pages, purple time chips, circular speaker photos, dual highlight cards.",
+    margins: { top: 22, right: 20, bottom: 22, left: 20 },
+    cover: {
+      style: "corporate-bold",
+      // Deep purple base — the renderer paints a vertical gradient
+      // over this so a solid color still reads correctly if gradient
+      // painting fails.
+      defaultBackgroundColor: "#1a0730",
+      titleFontSizePt: 56,
+      accentBarHeightMm: 0,
+    },
+    heading: {
+      fontSizePt: 24,
+      fontStyle: "bold",
+      showAccentUnderline: false,
+    },
+    table: {
+      theme: "plain",
+      fontSizePt: 10.5,
+      cellPaddingMm: 3,
+      headFillDefault: "#7f2fbf",
+    },
+    defaultColors: {
+      primaryColor: "#0a0014",
+      accentColor: "#a259e6", // vivid purple / magenta
+      fontFamily: "Poppins",
     },
   },
   {
@@ -393,6 +446,10 @@ export type SectionLayout = SectionLayoutEntry[];
 export const DEFAULT_SECTION_LAYOUT: SectionLayout = [
   { id: "cover", included: true },
   { id: "abstract", included: false },
+  { id: "focusOfSummit", included: false },
+  { id: "whoShouldAttend", included: false },
+  { id: "solutionProviders", included: false },
+  { id: "highlights", included: false },
   { id: "whySponsor", included: false },
   { id: "agenda", included: true },
   { id: "speakers", included: true },
@@ -420,6 +477,28 @@ export const POSTER_BOLD_SECTION_LAYOUT: SectionLayout = [
   { id: "sponsors", included: true },
   { id: "pricing", included: true },
   { id: "venueLogistics", included: true },
+];
+
+/**
+ * Section layout preset tuned for the Corporate_Bold theme. Mirrors
+ * the reference Finance 6.0 brochure exactly: cover → speakers →
+ * abstract → focus of summit → who should attend → solution providers
+ * → why-matters / what-you-gain (dual card) → agenda. Seeded when an
+ * organizer picks Corporate_Bold with no saved section layout.
+ */
+export const CORPORATE_BOLD_SECTION_LAYOUT: SectionLayout = [
+  { id: "cover", included: true },
+  { id: "speakers", included: true },
+  { id: "abstract", included: true },
+  { id: "focusOfSummit", included: true },
+  { id: "whoShouldAttend", included: true },
+  { id: "solutionProviders", included: true },
+  { id: "highlights", included: true },
+  { id: "agenda", included: true },
+  { id: "sponsors", included: false },
+  { id: "whySponsor", included: false },
+  { id: "pricing", included: false },
+  { id: "venueLogistics", included: false },
 ];
 
 /**

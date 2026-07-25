@@ -17,12 +17,11 @@ interface Props {
   onChange: (layout: SectionLayout) => void;
 }
 
-/** Human-readable label for each fixed Brochure_Section id. The three
- *  Poster_Bold-specific ids (`abstract`, `whySponsor`, `pricing`) are
- *  toggleable on any theme's section list — the renderer short-circuits
- *  them when the active theme isn't `poster-bold`, so an organizer
- *  toggling them on with a different theme silently does nothing rather
- *  than raising an error. */
+/** Human-readable label for each fixed Brochure_Section id. Poster_Bold-
+ *  and Corporate_Bold-specific ids are toggleable on any theme's section
+ *  list — the renderer short-circuits them when the active theme doesn't
+ *  produce that page, so an organizer toggling them on under a different
+ *  theme silently does nothing rather than raising an error. */
 const SECTION_LABELS: Record<BrochureSectionId, string> = {
   cover: "Cover",
   abstract: "Abstract & Learning Outcomes",
@@ -32,6 +31,10 @@ const SECTION_LABELS: Record<BrochureSectionId, string> = {
   sponsors: "Sponsors",
   pricing: "Pricing & Registration",
   venueLogistics: "Venue & Logistics",
+  focusOfSummit: "Focus of the Summit",
+  whoShouldAttend: "Who Should Attend",
+  solutionProviders: "Solution Providers",
+  highlights: "Why It Matters & What You'll Gain",
 };
 
 /**

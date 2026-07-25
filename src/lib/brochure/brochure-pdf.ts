@@ -40,22 +40,34 @@ import {
   type AgendaSessionInput,
   type AgendaSectionContent,
   type CoverContent,
+  type FocusOfSummitContent,
+  type FocusOfSummitInput,
+  type HighlightsContent,
+  type HighlightsInput,
   type PricingSectionContent,
   type PricingSectionInput,
+  type SolutionProvidersContent,
+  type SolutionProvidersInput,
   type SpeakerInput,
   type SpeakerRow,
   type SponsorInput,
   type SponsorTierGroup,
   type VenueLogisticsContent,
   type VenueLogisticsInput,
+  type WhoShouldAttendContent,
+  type WhoShouldAttendInput,
   type WhySponsorSectionContent,
   type WhySponsorSectionInput,
   buildAbstractSectionContent,
   buildAgendaSectionContent,
   buildCoverContent,
+  buildFocusOfSummitContent,
+  buildHighlightsContent,
   buildPricingSectionContent,
+  buildSolutionProvidersContent,
   buildSpeakerRows,
   buildVenueLogisticsContent,
+  buildWhoShouldAttendContent,
   buildWhySponsorSectionContent,
   groupSponsorsByTierOrdered,
   shouldRenderSponsorsSection,
@@ -137,9 +149,20 @@ export interface BrochureGenerationInput {
       platform: "linkedin" | "instagram" | "facebook" | "twitter";
       url: string;
     }> | null;
+    /** Optional secondary tagline surfaced as a large pill on the
+     *  Corporate_Bold cover ("The Next Big Shift"). */
+    coverTagline?: string | null;
+    /** Optional short chip labels ("Autonomy | Governance | Capital"). */
+    coverPills?: string[] | null;
     abstract?: AbstractSectionInput;
     whySponsor?: WhySponsorSectionInput;
     pricing?: PricingSectionInput;
+    /** Corporate_Bold-only content shared with the four extra pages
+     *  the reference Finance 6.0 brochure introduces. */
+    focusOfSummit?: FocusOfSummitInput;
+    whoShouldAttend?: WhoShouldAttendInput;
+    solutionProviders?: SolutionProvidersInput;
+    highlights?: HighlightsInput;
   };
   /** Fires once per included section as it finishes drawing, for the
    *  Brochure_Configurator's progress indicator (Requirement 9.3). */
@@ -298,6 +321,13 @@ async function drawCoverSection(
     // + organizer footer) — delegate and short-circuit the rest of this
     // function.
     return drawPosterBoldCover(doc, content, theme, colors, imageDataUrl, imageProps, posterContent);
+  }
+
+  if (theme.cover.style === "corporate-bold") {
+    // Corporate_Bold uses a deep-purple gradient cover with a large
+    // wordmark, giant title, tagline pill, chip row, and cityscape hero
+    // image. Delegate and short-circuit.
+    return drawCorporateBoldCover(doc, content, theme, colors, imageDataUrl, imageProps, posterContent);
   }
 
   if (theme.cover.style === "banner-strip") {
@@ -857,20 +887,35 @@ async function buildBrochureDocument(input: BrochureGenerationInput): Promise<js
   const abstractContent = buildAbstractSectionContent(input.posterContent?.abstract ?? {});
   const whySponsorContent = buildWhySponsorSectionContent(input.posterContent?.whySponsor ?? {});
   const pricingContent = buildPricingSectionContent(input.posterContent?.pricing ?? {});
+  const focusOfSummitContent = buildFocusOfSummitContent(input.posterContent?.focusOfSummit ?? {});
+  const whoShouldAttendContent = buildWhoShouldAttendContent(input.posterContent?.whoShouldAttend ?? {});
+  const solutionProvidersContent = buildSolutionProvidersContent(input.posterContent?.solutionProviders ?? {});
+  const highlightsContent = buildHighlightsContent(input.posterContent?.highlights ?? {});
 
-  // The three Poster_Bold-only section ids (`abstract`, `whySponsor`,
-  // `pricing`) render only when both (a) the active theme is
-  // `poster-bold` AND (b) the organizer authored non-empty content for
-  // them. On any other theme, or with empty content, they short-circuit
-  // out of the id list so the drawing loop never lands on them.
+  // Poster_Bold-only sections (`abstract`, `whySponsor`, `pricing`) render
+  // only under the `poster-bold` theme; Corporate_Bold-only sections
+  // (`focusOfSummit`, `whoShouldAttend`, `solutionProviders`, `highlights`)
+  // render only under the `corporate-bold` theme. `abstract` is shared
+  // between the two — both themes use it. Any section with null content
+  // short-circuits out of the id list so the drawing loop never lands on
+  // an empty page.
   const isPosterBold = theme.id === "poster-bold";
+  const isCorporateBold = theme.id === "corporate-bold";
+  const isPosterFamily = isPosterBold || isCorporateBold;
 
   const resolvedIds = resolveSectionLayout(input.sectionLayout).filter((id) => {
     if (id === "sponsors") return shouldRenderSponsorsSection(input.sponsors);
     if (id === "venueLogistics") return venueLogisticsContent !== null;
-    if (id === "abstract") return isPosterBold && abstractContent !== null;
+    // Shared Poster_Bold / Corporate_Bold section — either theme can render it.
+    if (id === "abstract") return isPosterFamily && abstractContent !== null;
+    // Poster_Bold-only sections.
     if (id === "whySponsor") return isPosterBold && whySponsorContent !== null;
     if (id === "pricing") return isPosterBold && pricingContent !== null;
+    // Corporate_Bold-only sections.
+    if (id === "focusOfSummit") return isCorporateBold && focusOfSummitContent !== null;
+    if (id === "whoShouldAttend") return isCorporateBold && whoShouldAttendContent !== null;
+    if (id === "solutionProviders") return isCorporateBold && solutionProvidersContent !== null;
+    if (id === "highlights") return isCorporateBold && highlightsContent !== null;
     return true;
   });
 
@@ -937,6 +982,30 @@ async function buildBrochureDocument(input: BrochureGenerationInput): Promise<js
       case "pricing": {
         if (pricingContent) {
           await drawPricingSection(doc, pricingContent, theme, colors, input.posterContent?.logoUrl ?? null);
+        }
+        break;
+      }
+      case "focusOfSummit": {
+        if (focusOfSummitContent) {
+          await drawFocusOfSummitSection(doc, focusOfSummitContent, theme, colors, input);
+        }
+        break;
+      }
+      case "whoShouldAttend": {
+        if (whoShouldAttendContent) {
+          await drawWhoShouldAttendSection(doc, whoShouldAttendContent, theme, colors, input);
+        }
+        break;
+      }
+      case "solutionProviders": {
+        if (solutionProvidersContent) {
+          await drawSolutionProvidersSection(doc, solutionProvidersContent, theme, colors, input);
+        }
+        break;
+      }
+      case "highlights": {
+        if (highlightsContent) {
+          await drawHighlightsSection(doc, highlightsContent, theme, colors, input);
         }
         break;
       }
@@ -1649,5 +1718,586 @@ async function drawPricingSection(
       }
       y += rowH + 2;
     }
+  }
+}
+
+
+// ─── Corporate_Bold shared helpers ──────────────────────────────────────────
+
+/**
+ * Draws the recurring Corporate_Bold page header: small event wordmark
+ * on the top-left, date/venue line on the top-right, thin purple
+ * divider bar underneath. Returns the Y-cursor position just below the
+ * divider so the caller can start its content immediately after.
+ *
+ * Called at the top of every Corporate_Bold content page (page 2+) so
+ * the reference brochure's consistent header stripe is preserved.
+ */
+async function drawCorporateBoldPageHeader(
+  doc: jsPDF,
+  input: BrochureGenerationInput,
+  theme: BrochureTheme,
+  colors: ResolvedBrochureColors
+): Promise<number> {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = theme.margins.left;
+  const fontFamily = resolveFontFamilyForPdf(colors.fontFamily);
+  const topY = theme.margins.top - 6;
+
+  // Left: wordmark (falls back to plain title text).
+  let leftBottom = topY;
+  const logoUrl = input.posterContent?.logoUrl ?? null;
+  if (logoUrl) {
+    const dataUrl = await loadImageAsDataUrl(logoUrl);
+    if (dataUrl) {
+      try {
+        const props = doc.getImageProperties(dataUrl);
+        const fitted = fitImageBox(
+          { width: 42, height: 12 },
+          props.width,
+          props.height,
+          { allowUpscale: false }
+        );
+        doc.addImage(dataUrl, margin, topY, fitted.width, fitted.height);
+        leftBottom = topY + fitted.height;
+      } catch (err) {
+        logger.warn("brochure image load failed", {
+          url: logoUrl,
+          error_message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+  if (leftBottom === topY) {
+    // No logo loaded — draw event title as a mini wordmark.
+    doc.setFont(fontFamily, "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(255, 255, 255);
+    doc.text(input.event.title || "Event", margin, topY + 6);
+    leftBottom = topY + 8;
+  }
+
+  // Right: "DD MMM YYYY | HH:MM onwards | Venue" line.
+  const dateText = (() => {
+    try {
+      const d = new Date(input.event.date);
+      const dateStr = d.toLocaleDateString("en-US", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+      const timeStr = d.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
+      const venue = input.event.venue || input.event.location || "";
+      return venue ? `${dateStr}  |  ${timeStr} onwards  |  ${venue}` : `${dateStr}  |  ${timeStr} onwards`;
+    } catch {
+      return input.event.title;
+    }
+  })();
+  doc.setFont(fontFamily, "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(255, 255, 255);
+  doc.text(dateText, pageWidth - theme.margins.right, topY + 6, { align: "right" });
+
+  // Thin purple divider under both.
+  const dividerY = Math.max(leftBottom, topY + 10) + 3;
+  const [ar, ag, ab] = hexToRgb(colors.accentColor);
+  doc.setFillColor(ar, ag, ab);
+  doc.rect(margin, dividerY, pageWidth - margin * 2, 0.3, "F");
+
+  return dividerY + 4;
+}
+
+/** Fills the whole page with a deep purple → magenta vertical gradient
+ *  approximation. jsPDF has no native gradient primitive, so this
+ *  draws N horizontal bands each interpolated between two hex colors. */
+function drawVerticalGradient(doc: jsPDF, hexTop: string, hexBottom: string): void {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const [r1, g1, b1] = hexToRgb(hexTop);
+  const [r2, g2, b2] = hexToRgb(hexBottom);
+  const bands = 40;
+  const bandHeight = pageHeight / bands;
+  for (let i = 0; i < bands; i += 1) {
+    const t = i / (bands - 1);
+    const r = Math.round(r1 + (r2 - r1) * t);
+    const g = Math.round(g1 + (g2 - g1) * t);
+    const b = Math.round(b1 + (b2 - b1) * t);
+    doc.setFillColor(r, g, b);
+    doc.rect(0, i * bandHeight, pageWidth, bandHeight + 0.3, "F");
+  }
+}
+
+// ─── Corporate_Bold Cover ───────────────────────────────────────────────────
+
+async function drawCorporateBoldCover(
+  doc: jsPDF,
+  content: CoverContent,
+  theme: BrochureTheme,
+  colors: ResolvedBrochureColors,
+  heroDataUrl: string | null,
+  heroProps: { width: number; height: number } | null,
+  posterContent: BrochureGenerationInput["posterContent"] | undefined
+): Promise<void> {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const centerX = pageWidth / 2;
+  const fontFamily = resolveFontFamilyForPdf(colors.fontFamily);
+
+  // Deep purple gradient background.
+  drawVerticalGradient(doc, "#1a0730", "#3a1152");
+
+  // Top wordmark logo.
+  const logoUrl = posterContent?.logoUrl;
+  let cursorY = theme.margins.top + 12;
+  if (logoUrl) {
+    const dataUrl = await loadImageAsDataUrl(logoUrl);
+    if (dataUrl) {
+      try {
+        const props = doc.getImageProperties(dataUrl);
+        const fitted = fitImageBox(
+          { width: pageWidth * 0.55, height: 22 },
+          props.width,
+          props.height,
+          { allowUpscale: false }
+        );
+        doc.addImage(
+          dataUrl,
+          centerX - fitted.width / 2,
+          cursorY,
+          fitted.width,
+          fitted.height
+        );
+        cursorY += fitted.height + 6;
+      } catch (err) {
+        logger.warn("brochure image load failed", {
+          url: logoUrl,
+          error_message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  // Huge white title (auto-shrunk to two lines).
+  const titleMaxW = pageWidth - theme.margins.left * 2;
+  doc.setFont(fontFamily, "bold");
+  const { fontSizePt: titleSize, lines: titleLines } = autoShrinkTitleSize(
+    doc,
+    content.title,
+    titleMaxW,
+    theme.cover.titleFontSizePt,
+    28,
+    2
+  );
+  const titleLh = titleSize * 0.42;
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(titleSize);
+  cursorY += 4;
+  for (const line of titleLines) {
+    doc.text(line, centerX, cursorY, { align: "center" });
+    cursorY += titleLh;
+  }
+
+  // Tagline pill (white bg, accent-colored text + arrow).
+  const tagline = typeof posterContent?.coverTagline === "string" ? posterContent.coverTagline.trim() : "";
+  if (tagline) {
+    cursorY += 8;
+    doc.setFont(fontFamily, "bold");
+    doc.setFontSize(14);
+    const w = doc.getTextWidth(tagline) + 30;
+    const h = 14;
+    drawPill(doc, centerX - w / 2, cursorY, w, h, "#ffffff");
+    const [ar, ag, ab] = hexToRgb(colors.accentColor);
+    doc.setTextColor(ar, ag, ab);
+    doc.text(tagline, centerX - 8, cursorY + h / 2 + 0.6, {
+      align: "center",
+      baseline: "middle",
+    });
+    // Arrow in a small dark circle on the right end.
+    const circleR = 4;
+    const circleCx = centerX + w / 2 - circleR - 4;
+    const circleCy = cursorY + h / 2;
+    doc.setFillColor(ar, ag, ab);
+    doc.setDrawColor(ar, ag, ab);
+    doc.circle(circleCx, circleCy, circleR, "S");
+    doc.setTextColor(ar, ag, ab);
+    doc.setFontSize(8);
+    doc.text("→", circleCx, circleCy + 1, { align: "center", baseline: "middle" });
+    cursorY += h + 4;
+  }
+
+  // Outlined chip row (Autonomy | Governance | Capital).
+  const pills = (posterContent?.coverPills ?? []).filter(
+    (p) => typeof p === "string" && p.trim().length > 0
+  );
+  if (pills.length > 0) {
+    cursorY += 6;
+    doc.setFont(fontFamily, "normal");
+    doc.setFontSize(10);
+    const chipH = 9;
+    const chipPadX = 10;
+    const chipGap = 6;
+    const widths = pills.map((p) => doc.getTextWidth(p) + chipPadX * 2);
+    const total = widths.reduce((a, b) => a + b, 0) + chipGap * (pills.length - 1);
+    let x = centerX - total / 2;
+    for (let i = 0; i < pills.length; i += 1) {
+      const w = widths[i];
+      // Outline-only pill: white stroke on gradient bg.
+      doc.setDrawColor(255, 255, 255);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, cursorY, w, chipH, chipH / 2, chipH / 2, "S");
+      doc.setTextColor(255, 255, 255);
+      doc.text(pills[i], x + w / 2, cursorY + chipH / 2 + 0.6, {
+        align: "center",
+        baseline: "middle",
+      });
+      x += w + chipGap;
+    }
+    cursorY += chipH + 6;
+  }
+
+  // Date | venue line.
+  const dateLine = `${content.dateText}${
+    (posterContent as unknown as { __venueOverride?: string } | undefined)?.__venueOverride
+      ? "  |  " + (posterContent as unknown as { __venueOverride?: string } | undefined)!.__venueOverride
+      : ""
+  }`;
+  doc.setFont(fontFamily, "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(255, 255, 255);
+  doc.text(dateLine, centerX, cursorY + 4, { align: "center" });
+  cursorY += 12;
+
+  // Hero image (cityscape) in a rounded card centered below.
+  const heroTop = cursorY + 6;
+  const footerH = 40;
+  const heroBottomLimit = pageHeight - footerH - 8;
+  const heroSlotW = pageWidth - theme.margins.left * 2;
+  const heroSlotH = heroBottomLimit - heroTop;
+  if (heroDataUrl && heroProps) {
+    const fitted = fitImageBox(
+      { width: heroSlotW, height: heroSlotH },
+      heroProps.width,
+      heroProps.height,
+      { allowUpscale: true }
+    );
+    const imgX = centerX - fitted.width / 2;
+    const imgY = heroTop + (heroSlotH - fitted.height) / 2;
+    doc.addImage(heroDataUrl, imgX, imgY, fitted.width, fitted.height);
+  }
+
+  // Footer band (white background carved out at the bottom).
+  const footerY = pageHeight - footerH;
+  doc.setFillColor(255, 255, 255);
+  doc.rect(0, footerY, pageWidth, footerH, "F");
+
+  // Left: "Conceptualized & Organized by" + logo.
+  doc.setFont(fontFamily, "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(0, 0, 0);
+  doc.text("Conceptualized & Organized by", theme.margins.left, footerY + 8);
+  const producerLogoUrl = posterContent?.organizerLogoUrl;
+  if (producerLogoUrl) {
+    const dataUrl = await loadImageAsDataUrl(producerLogoUrl);
+    if (dataUrl) {
+      try {
+        const props = doc.getImageProperties(dataUrl);
+        const fitted = fitImageBox(
+          { width: 44, height: 20 },
+          props.width,
+          props.height,
+          { allowUpscale: false }
+        );
+        doc.addImage(
+          dataUrl,
+          theme.margins.left,
+          footerY + 12,
+          fitted.width,
+          fitted.height
+        );
+      } catch (err) {
+        logger.warn("brochure image load failed", {
+          url: producerLogoUrl,
+          error_message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  // Right: "Follow us on social media" + icons.
+  const socials = posterContent?.socialLinks ?? [];
+  if (Array.isArray(socials) && socials.length > 0) {
+    doc.setFont(fontFamily, "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
+    doc.text(
+      "Follow us on social media",
+      pageWidth - theme.margins.right,
+      footerY + 8,
+      { align: "right" }
+    );
+    const iconSize = 7;
+    const iconGap = 4;
+    const total = socials.length * iconSize + (socials.length - 1) * iconGap;
+    let iconX = pageWidth - theme.margins.right - total;
+    const iconY = footerY + 14;
+    const brandColors: Record<string, string> = {
+      linkedin: "#0a66c2",
+      instagram: "#e1306c",
+      facebook: "#1877f2",
+      twitter: "#1da1f2",
+    };
+    const brandInitials: Record<string, string> = {
+      linkedin: "in",
+      instagram: "ig",
+      facebook: "f",
+      twitter: "x",
+    };
+    for (const s of socials) {
+      const [br, bgc, bb] = hexToRgb(brandColors[s.platform] ?? "#000000");
+      doc.setFillColor(br, bgc, bb);
+      doc.circle(iconX + iconSize / 2, iconY + iconSize / 2, iconSize / 2, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(5);
+      doc.setFont(fontFamily, "bold");
+      doc.text(brandInitials[s.platform] ?? "•", iconX + iconSize / 2, iconY + iconSize / 2 + 0.6, {
+        align: "center",
+        baseline: "middle",
+      });
+      iconX += iconSize + iconGap;
+    }
+  }
+}
+
+// ─── Focus of the Summit page ───────────────────────────────────────────────
+
+async function drawFocusOfSummitSection(
+  doc: jsPDF,
+  content: FocusOfSummitContent,
+  theme: BrochureTheme,
+  colors: ResolvedBrochureColors,
+  input: BrochureGenerationInput
+): Promise<void> {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = theme.margins.left;
+  const contentW = pageWidth - margin * 2;
+  const fontFamily = resolveFontFamilyForPdf(colors.fontFamily);
+
+  // Solid black page background.
+  fillPageBackground(doc, "#000000");
+  const startY = await drawCorporateBoldPageHeader(doc, input, theme, colors);
+
+  // Dark rounded card with the title + bulleted list. Card takes most
+  // of the page's remaining height minus a small margin.
+  const cardX = margin;
+  const cardY = startY + 4;
+  const cardH = pageHeight - cardY - theme.margins.bottom;
+  const cardW = contentW;
+  drawCard(doc, cardX, cardY, cardW, cardH, "#0f0a1a", 10);
+
+  // Title on the card.
+  doc.setFont(fontFamily, "bold");
+  doc.setFontSize(theme.heading.fontSizePt);
+  doc.setTextColor(255, 255, 255);
+  doc.text("Focus of the Summit", cardX + 10, cardY + 18);
+
+  // Bulleted items.
+  const [ar, ag, ab] = hexToRgb(colors.accentColor);
+  const listX = cardX + 14;
+  const bulletX = cardX + 8;
+  const listW = cardW - 20;
+  let y = cardY + 28;
+  doc.setFont(fontFamily, "normal");
+  doc.setFontSize(10.5);
+  doc.setTextColor(230, 230, 230);
+  for (const item of content.items) {
+    if (y + 14 > cardY + cardH - 6) break;
+    // Bullet.
+    doc.setFillColor(ar, ag, ab);
+    doc.circle(bulletX, y - 1.6, 1.1, "F");
+    // Body wrap.
+    const wrapped = doc.splitTextToSize(item, listW);
+    doc.text(wrapped, listX, y);
+    y += wrapped.length * 4.6 + 3;
+  }
+
+  // Small purple accent bar on the right edge of the card, echoing the
+  // reference. Only decorative.
+  doc.setFillColor(ar, ag, ab);
+  doc.rect(cardX + cardW - 4, cardY + cardH * 0.4, 2, cardH * 0.4, "F");
+}
+
+// ─── Who Should Attend page ────────────────────────────────────────────────
+
+async function drawWhoShouldAttendSection(
+  doc: jsPDF,
+  content: WhoShouldAttendContent,
+  theme: BrochureTheme,
+  colors: ResolvedBrochureColors,
+  input: BrochureGenerationInput
+): Promise<void> {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = theme.margins.left;
+  const contentW = pageWidth - margin * 2;
+  const fontFamily = resolveFontFamilyForPdf(colors.fontFamily);
+
+  fillPageBackground(doc, "#000000");
+  let y = await drawCorporateBoldPageHeader(doc, input, theme, colors);
+
+  // "Who should attend?" pill title.
+  y += 6;
+  doc.setFont(fontFamily, "bold");
+  doc.setFontSize(13);
+  const titleText = "Who should attend?";
+  const pillW = doc.getTextWidth(titleText) + 24;
+  const pillH = 12;
+  drawPill(doc, margin, y, pillW, pillH, "#111111");
+  doc.setTextColor(255, 255, 255);
+  doc.text(titleText, margin + pillW / 2, y + pillH / 2 + 0.6, {
+    align: "center",
+    baseline: "middle",
+  });
+  y += pillH + 6;
+
+  // Description paragraph.
+  if (content.description) {
+    doc.setFont(fontFamily, "normal");
+    doc.setFontSize(10.5);
+    doc.setTextColor(220, 220, 220);
+    const wrapped = doc.splitTextToSize(content.description, contentW);
+    doc.text(wrapped, margin, y + 4);
+    y += wrapped.length * 5 + 6;
+  }
+
+  // Two-column bulleted list of attendee types.
+  if (content.items.length > 0) {
+    y += 2;
+    const cols = 2;
+    const colGap = 10;
+    const colW = (contentW - colGap) / cols;
+    doc.setFont(fontFamily, "normal");
+    doc.setFontSize(11);
+    const bullet = "•";
+    doc.setTextColor(220, 220, 220);
+    for (let i = 0; i < content.items.length; i += 1) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const xBase = margin + col * (colW + colGap);
+      const yLine = y + row * 8;
+      doc.text(`${bullet}  ${content.items[i]}`, xBase, yLine);
+    }
+  }
+}
+
+// ─── Solution Providers page ────────────────────────────────────────────────
+
+async function drawSolutionProvidersSection(
+  doc: jsPDF,
+  content: SolutionProvidersContent,
+  theme: BrochureTheme,
+  colors: ResolvedBrochureColors,
+  input: BrochureGenerationInput
+): Promise<void> {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = theme.margins.left;
+  const contentW = pageWidth - margin * 2;
+  const fontFamily = resolveFontFamilyForPdf(colors.fontFamily);
+
+  fillPageBackground(doc, "#000000");
+  let y = await drawCorporateBoldPageHeader(doc, input, theme, colors);
+
+  y += 8;
+  // Full-width black card with the title + wide description.
+  const bodyLines = doc.splitTextToSize(content.description, contentW - 20);
+  const bodyHeight = bodyLines.length * 5.4;
+  const cardH = 22 + bodyHeight + 14;
+  drawCard(doc, margin, y, contentW, cardH, "#0d0912", 12);
+
+  doc.setFont(fontFamily, "bold");
+  doc.setFontSize(28);
+  doc.setTextColor(255, 255, 255);
+  doc.text("Solution Providers", margin + 12, y + 20);
+
+  doc.setFont(fontFamily, "normal");
+  doc.setFontSize(11);
+  doc.setTextColor(220, 220, 220);
+  doc.text(bodyLines, margin + 12, y + 30);
+}
+
+// ─── Highlights (Why Matters + What You Gain) page ─────────────────────────
+
+async function drawHighlightsSection(
+  doc: jsPDF,
+  content: HighlightsContent,
+  theme: BrochureTheme,
+  colors: ResolvedBrochureColors,
+  input: BrochureGenerationInput
+): Promise<void> {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = theme.margins.left;
+  const contentW = pageWidth - margin * 2;
+  const fontFamily = resolveFontFamilyForPdf(colors.fontFamily);
+
+  fillPageBackground(doc, "#000000");
+  let y = await drawCorporateBoldPageHeader(doc, input, theme, colors);
+  y += 6;
+
+  // One or two side-by-side purple-gradient cards.
+  const cardCount = content.cards.length;
+  const cardGap = 6;
+  const cardW = cardCount === 1 ? contentW : (contentW - cardGap) / 2;
+  const cardH = Math.min(pageHeight - y - theme.margins.bottom - 4, 130);
+
+  const drawCardAt = (card: HighlightsContent["cards"][number], x: number) => {
+    // Purple gradient card.
+    const bandCount = 20;
+    const bandH = cardH / bandCount;
+    const [r1, g1, b1] = hexToRgb("#4a1e6b");
+    const [r2, g2, b2] = hexToRgb("#0f0a1a");
+    for (let i = 0; i < bandCount; i += 1) {
+      const t = i / (bandCount - 1);
+      const r = Math.round(r1 + (r2 - r1) * t);
+      const g = Math.round(g1 + (g2 - g1) * t);
+      const b = Math.round(b1 + (b2 - b1) * t);
+      doc.setFillColor(r, g, b);
+      if (i === 0) {
+        // Top rounded band.
+        doc.roundedRect(x, y + i * bandH, cardW, bandH + 0.4, 6, 6, "F");
+      } else if (i === bandCount - 1) {
+        doc.roundedRect(x, y + i * bandH - 0.4, cardW, bandH + 0.4, 6, 6, "F");
+      } else {
+        doc.rect(x, y + i * bandH, cardW, bandH + 0.4, "F");
+      }
+    }
+    // Content.
+    doc.setFont(fontFamily, "bold");
+    doc.setFontSize(15);
+    doc.setTextColor(255, 255, 255);
+    doc.text(card.title, x + 8, y + 12);
+    doc.setFont(fontFamily, "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(230, 230, 230);
+    const [ar, ag, ab] = hexToRgb(colors.accentColor);
+    let by = y + 24;
+    for (const item of card.items) {
+      if (by + 8 > y + cardH - 6) break;
+      // Bullet.
+      doc.setFillColor(ar, ag, ab);
+      doc.circle(x + 12, by - 1.6, 1.1, "F");
+      const wrapped = doc.splitTextToSize(item, cardW - 24);
+      doc.setTextColor(230, 230, 230);
+      doc.text(wrapped, x + 18, by);
+      by += wrapped.length * 4.6 + 3;
+    }
+  };
+
+  for (let i = 0; i < content.cards.length; i += 1) {
+    const x = margin + i * (cardW + cardGap);
+    drawCardAt(content.cards[i], x);
   }
 }

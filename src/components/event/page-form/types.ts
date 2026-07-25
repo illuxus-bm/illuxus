@@ -278,7 +278,11 @@ export interface EventPageConfig {
         | "venueLogistics"
         | "abstract"
         | "whySponsor"
-        | "pricing";
+        | "pricing"
+        | "focusOfSummit"
+        | "whoShouldAttend"
+        | "solutionProviders"
+        | "highlights";
       included: boolean;
     }[];
     /**
@@ -310,6 +314,14 @@ export interface EventPageConfig {
         platform: "linkedin" | "instagram" | "facebook" | "twitter";
         url: string;
       }>;
+      /** Optional secondary tagline used by Poster_Bold-style covers as a
+       *  purple/orange pill under the main title (e.g. "The Next Big
+       *  Shift" for Finance 6.0). Rendered only when non-empty. */
+      coverTagline?: string;
+      /** Optional short pill-chip labels for the cover row above the
+       *  date/venue line (e.g. ["Autonomy", "Governance", "Capital"]).
+       *  Rendered only when non-empty. */
+      coverPills?: string[];
       /** Page 2 top card body copy — describes the event at a high level. */
       abstract?: string;
       /** Page 2 middle card body copy — what's featured / included. */
@@ -318,7 +330,8 @@ export interface EventPageConfig {
        *  Rendered in a two-column grid of dark rounded rectangles. */
       learningOutcomes?: string[];
       /** Page 3 numbered value-prop items ("Why Sponsor?"). Rendered as a
-       *  vertical stack with an orange circular number badge on the left. */
+       *  vertical stack with an orange/purple circular number badge on
+       *  the left. */
       whySponsor?: string[];
       /** Page 5 pricing cards. Rendered as a two-column grid (or single
        *  column when only one card is provided). */
@@ -335,6 +348,31 @@ export interface EventPageConfig {
       /** When true, a blank registration form (3 rows × 2 columns of empty
        *  input pill fields) is drawn below the pricing cards on page 5. */
       registrationForm?: boolean;
+
+      /* ── Corporate_Bold-only sections (Finance 6.0 reference) ─────── */
+
+      /** "Focus of the Summit" — a bulleted list card that follows the
+       *  abstract. Rendered as a dark rounded card with the section
+       *  title on top and one bullet per line. */
+      focusOfSummit?: string[];
+      /** "Who should attend?" description paragraph — one to three
+       *  sentences describing the audience. */
+      whoShouldAttendDescription?: string;
+      /** Two-column bulleted list of attendee types (e.g. "CFOs",
+       *  "VP Finance"). Rendered as `whoShouldAttendItems.length / 2`
+       *  rows across two columns. */
+      whoShouldAttendItems?: string[];
+      /** "Solution Providers" wide description paragraph shown on a
+       *  full-width black card. */
+      solutionProvidersDescription?: string;
+      /** "Why X Matters" gradient card — bulleted list. Paired with
+       *  {@link whatYouWillGain} below to render as two side-by-side
+       *  gradient cards. When only one of the two is populated, the
+       *  populated card renders full-width. */
+      whyMattersTitle?: string;
+      whyMattersItems?: string[];
+      whatYouWillGainTitle?: string;
+      whatYouWillGainItems?: string[];
     };
   };
 }

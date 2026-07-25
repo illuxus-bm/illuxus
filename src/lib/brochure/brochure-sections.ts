@@ -553,3 +553,100 @@ export function buildPricingSectionContent(
 
   return { cards, showRegistrationForm };
 }
+
+
+// ─── FocusOfSummit_Section (Corporate_Bold) ────────────────────────────────
+
+export interface FocusOfSummitInput {
+  items?: string[] | null;
+}
+export interface FocusOfSummitContent {
+  items: string[];
+}
+export function buildFocusOfSummitContent(
+  input: FocusOfSummitInput
+): FocusOfSummitContent | null {
+  const items = (input.items ?? [])
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter((s) => s.length > 0);
+  return items.length > 0 ? { items } : null;
+}
+
+// ─── WhoShouldAttend_Section (Corporate_Bold) ──────────────────────────────
+
+export interface WhoShouldAttendInput {
+  description?: string | null;
+  items?: string[] | null;
+}
+export interface WhoShouldAttendContent {
+  description?: string;
+  items: string[];
+}
+export function buildWhoShouldAttendContent(
+  input: WhoShouldAttendInput
+): WhoShouldAttendContent | null {
+  const description =
+    typeof input.description === "string" && input.description.trim().length > 0
+      ? input.description.trim()
+      : undefined;
+  const items = (input.items ?? [])
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter((s) => s.length > 0);
+  if (!description && items.length === 0) return null;
+  const content: WhoShouldAttendContent = { items };
+  if (description) content.description = description;
+  return content;
+}
+
+// ─── SolutionProviders_Section (Corporate_Bold) ────────────────────────────
+
+export interface SolutionProvidersInput {
+  description?: string | null;
+}
+export interface SolutionProvidersContent {
+  description: string;
+}
+export function buildSolutionProvidersContent(
+  input: SolutionProvidersInput
+): SolutionProvidersContent | null {
+  const description =
+    typeof input.description === "string" && input.description.trim().length > 0
+      ? input.description.trim()
+      : undefined;
+  return description ? { description } : null;
+}
+
+// ─── Highlights_Section (Corporate_Bold) ───────────────────────────────────
+
+/** Content for the two side-by-side gradient cards on the Highlights page
+ *  ("Why Finance 6.0 Matters" + "What You Will Gain" in the reference). */
+export interface HighlightsInput {
+  leftTitle?: string | null;
+  leftItems?: string[] | null;
+  rightTitle?: string | null;
+  rightItems?: string[] | null;
+}
+export interface HighlightCard {
+  title: string;
+  items: string[];
+}
+export interface HighlightsContent {
+  cards: HighlightCard[];
+}
+export function buildHighlightsContent(input: HighlightsInput): HighlightsContent | null {
+  const buildCard = (title: string | null | undefined, items: string[] | null | undefined): HighlightCard | null => {
+    const t = typeof title === "string" && title.trim().length > 0 ? title.trim() : undefined;
+    const list = (items ?? [])
+      .map((s) => (typeof s === "string" ? s.trim() : ""))
+      .filter((s) => s.length > 0);
+    if (!t && list.length === 0) return null;
+    return { title: t ?? "", items: list };
+  };
+
+  const cards: HighlightCard[] = [];
+  const left = buildCard(input.leftTitle, input.leftItems);
+  const right = buildCard(input.rightTitle, input.rightItems);
+  if (left) cards.push(left);
+  if (right) cards.push(right);
+  return cards.length > 0 ? { cards } : null;
+}

@@ -66,6 +66,7 @@ import BrochurePreviewFrame from "./BrochurePreviewFrame";
 
 import {
   BROCHURE_THEMES,
+  CORPORATE_BOLD_SECTION_LAYOUT,
   DEFAULT_SECTION_LAYOUT,
   POSTER_BOLD_SECTION_LAYOUT,
   readBrochurePrefs,
@@ -371,7 +372,12 @@ export default function BrochureConfiguratorDialog({
     // (which has the three Poster_Bold-only sections off) — the intent
     // when picking Poster_Bold is almost always "give me the full poster
     // spread", not "the same layout as a Classic Editorial brochure".
-    const fallbackLayout = theme.id === "poster-bold" ? POSTER_BOLD_SECTION_LAYOUT : DEFAULT_SECTION_LAYOUT;
+    const fallbackLayout =
+      theme.id === "poster-bold"
+        ? POSTER_BOLD_SECTION_LAYOUT
+        : theme.id === "corporate-bold"
+          ? CORPORATE_BOLD_SECTION_LAYOUT
+          : DEFAULT_SECTION_LAYOUT;
     setSectionLayout(prefs?.sectionLayout ?? fallbackLayout);
     setPosterContent(prefs?.posterContent ?? {});
     hydratedRef.current = true;
@@ -440,11 +446,13 @@ export default function BrochureConfiguratorDialog({
       // renderer short-circuit cleanly without checking the theme id
       // twice.
       posterContent:
-        selectedTheme.id === "poster-bold"
+        selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold"
           ? {
               logoUrl: posterContent.logoUrl ?? null,
               organizerLogoUrl: posterContent.organizerLogoUrl ?? null,
               socialLinks: posterContent.socialLinks ?? null,
+              coverTagline: posterContent.coverTagline ?? null,
+              coverPills: posterContent.coverPills ?? null,
               abstract: {
                 abstract: posterContent.abstract,
                 featured: posterContent.featured,
@@ -454,6 +462,20 @@ export default function BrochureConfiguratorDialog({
               pricing: {
                 cards: posterContent.pricingCards,
                 showRegistrationForm: posterContent.registrationForm,
+              },
+              focusOfSummit: { items: posterContent.focusOfSummit },
+              whoShouldAttend: {
+                description: posterContent.whoShouldAttendDescription,
+                items: posterContent.whoShouldAttendItems,
+              },
+              solutionProviders: {
+                description: posterContent.solutionProvidersDescription,
+              },
+              highlights: {
+                leftTitle: posterContent.whyMattersTitle,
+                leftItems: posterContent.whyMattersItems,
+                rightTitle: posterContent.whatYouWillGainTitle,
+                rightItems: posterContent.whatYouWillGainItems,
               },
             }
           : undefined,
@@ -474,7 +496,10 @@ export default function BrochureConfiguratorDialog({
             themeId: selectedTheme.id,
             colorOverride: themeOverride,
             sectionLayout,
-            posterContent: selectedTheme.id === "poster-bold" ? posterContent : undefined,
+            posterContent:
+              selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold"
+                ? posterContent
+                : undefined,
           })
         );
       }
@@ -613,11 +638,18 @@ export default function BrochureConfiguratorDialog({
                 <BrochureSectionList layout={sectionLayout} onChange={setSectionLayout} />
               </section>
 
-              {/* Poster_Bold-only content editor. Only rendered when the
-                  active theme is `poster-bold` because the other themes
-                  never surface these fields in their rendered output. */}
-              {selectedTheme.id === "poster-bold" && (
-                <PosterBoldContentPanel value={posterContent} onChange={setPosterContent} />
+              {/* Content editor for Poster_Bold and Corporate_Bold. Both
+                  themes source their extra content from the same
+                  brochurePrefs.posterContent bag; the panel below
+                  conditionally reveals subsections based on which theme
+                  is active so an organizer only fills in what actually
+                  renders. */}
+              {(selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold") && (
+                <PosterBoldContentPanel
+                  value={posterContent}
+                  onChange={setPosterContent}
+                  themeId={selectedTheme.id}
+                />
               )}
 
               {/* PROGRESS */}
@@ -762,9 +794,11 @@ function SwatchGroup({
 function PosterBoldContentPanel({
   value,
   onChange,
+  themeId,
 }: {
   value: NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>;
   onChange: (v: NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>) => void;
+  themeId: string;
 }) {
   type PC = NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>;
   const set = <K extends keyof PC>(key: K, next: PC[K]) => onChange({ ...value, [key]: next });
@@ -775,14 +809,18 @@ function PosterBoldContentPanel({
     raw.split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
   const arrayToLines = (arr: string[] | undefined) => (arr ?? []).join("\n");
 
+  const isPosterBold = themeId === "poster-bold";
+  const isCorporateBold = themeId === "corporate-bold";
+  const panelLabel = isCorporateBold ? "Corporate Bold content" : "Poster Bold content";
+
   return (
     <section className="space-y-3 border border-dashed border-primary/40 rounded-lg p-3 bg-primary/5">
       <div className="flex items-center justify-between">
         <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
-          Poster Bold content
+          {panelLabel}
         </Label>
         <span className="text-[10px] text-muted-foreground">
-          Only used by Poster Bold theme
+          Only used by this theme
         </span>
       </div>
 
@@ -846,32 +884,158 @@ function PosterBoldContentPanel({
         </div>
       </div>
 
-      {/* Why Sponsor */}
-      <div className="space-y-1">
-        <Label className="text-[11px]">Why Sponsor? (numbered items, one per line)</Label>
-        <Textarea
-          className="text-[12px] min-h-[80px]"
-          value={arrayToLines(value.whySponsor)}
-          placeholder={"Connect with CIOs, CTOs, DevOps leaders…\nShowcase your solutions…"}
-          onChange={(e) => {
-            const next = linesToArray(e.target.value);
-            set("whySponsor", next.length > 0 ? next : undefined);
-          }}
-        />
+      {/* Cover extras — shared by both Poster_Bold and Corporate_Bold. */}
+      <div className="space-y-2">
+        <div className="space-y-1">
+          <Label className="text-[11px]">Cover tagline pill (optional)</Label>
+          <Input
+            className="h-8 text-[12px]"
+            value={value.coverTagline ?? ""}
+            placeholder="The Next Big Shift"
+            onChange={(e) => set("coverTagline", e.target.value || undefined)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[11px]">Cover chip labels (one per line)</Label>
+          <Textarea
+            className="text-[12px] min-h-[52px]"
+            value={arrayToLines(value.coverPills)}
+            placeholder={"Autonomy\nGovernance\nCapital"}
+            onChange={(e) => {
+              const next = linesToArray(e.target.value);
+              set("coverPills", next.length > 0 ? next : undefined);
+            }}
+          />
+        </div>
       </div>
 
-      {/* Pricing cards */}
-      <PricingCardsEditor
-        value={value.pricingCards ?? []}
-        onChange={(v) => set("pricingCards", v.length > 0 ? v : undefined)}
-      />
-      <label className="flex items-center gap-2 text-[12px] cursor-pointer">
-        <Checkbox
-          checked={value.registrationForm === true}
-          onCheckedChange={(v) => set("registrationForm", v === true ? true : undefined)}
-        />
-        Include blank registration form on the pricing page
-      </label>
+      {/* Poster_Bold-only sections (Why Sponsor + Pricing) */}
+      {isPosterBold && (
+        <>
+          <div className="space-y-1">
+            <Label className="text-[11px]">Why Sponsor? (numbered items, one per line)</Label>
+            <Textarea
+              className="text-[12px] min-h-[80px]"
+              value={arrayToLines(value.whySponsor)}
+              placeholder={"Connect with CIOs, CTOs, DevOps leaders…\nShowcase your solutions…"}
+              onChange={(e) => {
+                const next = linesToArray(e.target.value);
+                set("whySponsor", next.length > 0 ? next : undefined);
+              }}
+            />
+          </div>
+          <PricingCardsEditor
+            value={value.pricingCards ?? []}
+            onChange={(v) => set("pricingCards", v.length > 0 ? v : undefined)}
+          />
+          <label className="flex items-center gap-2 text-[12px] cursor-pointer">
+            <Checkbox
+              checked={value.registrationForm === true}
+              onCheckedChange={(v) => set("registrationForm", v === true ? true : undefined)}
+            />
+            Include blank registration form on the pricing page
+          </label>
+        </>
+      )}
+
+      {/* Corporate_Bold-only sections (Focus of Summit, Who Should
+          Attend, Solution Providers, Highlights) */}
+      {isCorporateBold && (
+        <>
+          <div className="space-y-1">
+            <Label className="text-[11px]">Focus of the Summit (bulleted, one per line)</Label>
+            <Textarea
+              className="text-[12px] min-h-[80px]"
+              value={arrayToLines(value.focusOfSummit)}
+              placeholder={"Understand how autonomous AI systems reshape financial governance…\nExplore advanced scenario modeling…"}
+              onChange={(e) => {
+                const next = linesToArray(e.target.value);
+                set("focusOfSummit", next.length > 0 ? next : undefined);
+              }}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[11px]">Who should attend? — description</Label>
+            <Textarea
+              className="text-[12px] min-h-[60px]"
+              value={value.whoShouldAttendDescription ?? ""}
+              placeholder="The conference provides an opportunity for attendees to network…"
+              onChange={(e) =>
+                set("whoShouldAttendDescription", e.target.value || undefined)
+              }
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[11px]">Who should attend? — bullet list (one per line)</Label>
+            <Textarea
+              className="text-[12px] min-h-[68px]"
+              value={arrayToLines(value.whoShouldAttendItems)}
+              placeholder={"CFOs | Global CFOs | Group CFOs\nDirector — Finance\nVP Finance"}
+              onChange={(e) => {
+                const next = linesToArray(e.target.value);
+                set("whoShouldAttendItems", next.length > 0 ? next : undefined);
+              }}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[11px]">Solution Providers — description</Label>
+            <Textarea
+              className="text-[12px] min-h-[68px]"
+              value={value.solutionProvidersDescription ?? ""}
+              placeholder="Invoicing, Expense Management, Accounting, Accounts Payable Automation…"
+              onChange={(e) =>
+                set("solutionProvidersDescription", e.target.value || undefined)
+              }
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-[11px]">"Why it matters" — title</Label>
+              <Input
+                className="h-8 text-[12px]"
+                value={value.whyMattersTitle ?? ""}
+                placeholder="Why Finance 6.0 Matters"
+                onChange={(e) => set("whyMattersTitle", e.target.value || undefined)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[11px]">"What you'll gain" — title</Label>
+              <Input
+                className="h-8 text-[12px]"
+                value={value.whatYouWillGainTitle ?? ""}
+                placeholder="What You Will Gain"
+                onChange={(e) => set("whatYouWillGainTitle", e.target.value || undefined)}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-[11px]">"Why it matters" — bullets</Label>
+              <Textarea
+                className="text-[12px] min-h-[80px]"
+                value={arrayToLines(value.whyMattersItems)}
+                placeholder={"The acceleration of autonomous systems…"}
+                onChange={(e) => {
+                  const next = linesToArray(e.target.value);
+                  set("whyMattersItems", next.length > 0 ? next : undefined);
+                }}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[11px]">"What you'll gain" — bullets</Label>
+              <Textarea
+                className="text-[12px] min-h-[80px]"
+                value={arrayToLines(value.whatYouWillGainItems)}
+                placeholder={"Frameworks for governing AI-driven financial systems…"}
+                onChange={(e) => {
+                  const next = linesToArray(e.target.value);
+                  set("whatYouWillGainItems", next.length > 0 ? next : undefined);
+                }}
+              />
+            </div>
+          </div>
+        </>
+      )}
     </section>
   );
 }
