@@ -271,6 +271,18 @@ function ElementNode(props: ElementNodeProps) {
         rotation={element.rotation}
         opacity={element.opacity}
         draggable
+        onMouseEnter={(e) => {
+          // Change the cursor to "move" so users know the element (or
+          // full-bleed image) is grabbable — otherwise a page-sized
+          // image looks like a static background and users don't
+          // realise they can click to select it.
+          const stage = e.target.getStage();
+          if (stage) stage.container().style.cursor = "move";
+        }}
+        onMouseLeave={(e) => {
+          const stage = e.target.getStage();
+          if (stage) stage.container().style.cursor = "default";
+        }}
         onClick={(e) => {
           e.cancelBubble = true;
           onSelect();
@@ -367,8 +379,38 @@ function TextBody({ el, width, height }: { el: TextElement; width: number; heigh
 function ImageBody({ el, width, height }: { el: ImageElement; width: number; height: number }) {
   const [image, status] = useImage(el.src || "", "anonymous");
   if (status !== "loaded" || !image) {
-    // Placeholder gray box while loading / on error.
-    return <Rect x={0} y={0} width={width} height={height} fill="#e5e7eb" cornerRadius={el.cornerRadius} />;
+    // Placeholder gray box while loading / on error. Include a dashed
+    // border and hint text so a page-sized image whose URL failed to
+    // load is still visibly a selectable element (users otherwise
+    // mistake it for a blank page background).
+    const hint = el.src ? "Image failed to load — click to replace" : "Image — click to add source";
+    return (
+      <>
+        <Rect
+          x={0}
+          y={0}
+          width={width}
+          height={height}
+          fill="#f3f4f6"
+          stroke="#cbd5e1"
+          strokeWidth={1}
+          dash={[6, 4]}
+          cornerRadius={el.cornerRadius}
+        />
+        <Text
+          x={0}
+          y={Math.max(0, height / 2 - 8)}
+          width={width}
+          height={16}
+          text={hint}
+          fontFamily="Inter, sans-serif"
+          fontSize={12}
+          fill="#64748b"
+          align="center"
+          listening={false}
+        />
+      </>
+    );
   }
 
   const scale = el.fit === "cover"

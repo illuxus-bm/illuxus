@@ -31,6 +31,16 @@ import {
   type BrochurePage,
   type PageBackground,
 } from "./editor-document";
+import {
+  buildAgendaSectionContent,
+  buildSpeakerRows,
+  buildVenueLogisticsContent,
+  groupSponsorsByTierOrdered,
+  type AgendaSessionInput,
+  type SpeakerInput,
+  type SponsorInput,
+  type VenueLogisticsInput,
+} from "../brochure-sections";
 
 /** Input for template pre-loading. Mirrors the essential fields the
  *  jsPDF renderer already receives via `BrochureGenerationInput`. */
@@ -65,6 +75,20 @@ export interface TemplateSeedInput {
   accentColor?: string;
   /** Primary text color for cover title (contrasting the background). */
   titleColor?: string;
+
+  // ── Content pages (Classic seed) ────────────────────────────────
+  //
+  // The Classic seed matches the jsPDF preview's section layout
+  // (Cover + Agenda + Speakers + Sponsors + Venue) rather than the
+  // legacy Poster_Bold seed's abstract/why-sponsor pages, so the
+  // editor and the preview show the SAME set of pages. When any of
+  // these arrays is absent or empty, the corresponding page is
+  // skipped entirely (the organizer can still add it manually via
+  // the "add page" control in the pages bar).
+  sessions?: AgendaSessionInput[];
+  speakers?: SpeakerInput[];
+  sponsors?: SponsorInput[];
+  venueLogistics?: VenueLogisticsInput;
 }
 
 // ─── Poster Bold seed (white bg, orange accent) ─────────────────────────────
@@ -121,19 +145,49 @@ export const seedPosterBoldCover = seedPosterBoldFullBrochure;
 export const seedCorporateBoldCover = seedCorporateBoldFullBrochure;
 
 /** Classic seed — the only theme shipped after the mass theme trim.
- *  Reuses the Poster_Bold full-brochure builder (portrait banner top,
- *  abstract page, numbered list page) but with the Classic editorial
- *  navy/gold palette. The organizer edits from here freely; Canva-
- *  style presets and page sizes are available through the editor's
- *  page properties panel. */
+ *  Builds an editable Brochure_Document whose pages match the jsPDF
+ *  preview's Section_Layout one-to-one: Cover → Agenda → Speakers →
+ *  Sponsors → Venue & Logistics. Every page is composed of ordinary
+ *  editable elements (text, shape, image), so the organizer can
+ *  select, drag, resize, restyle, or delete any part of any page
+ *  Canva-style — including the cover banner image and the speaker
+ *  photos — with no hidden or read-only content.
+ *
+ *  When an event has no sessions / speakers / sponsors / venue data,
+ *  the corresponding page is skipped entirely so the editor doesn't
+ *  ship pages with only a heading. The organizer can add a fresh
+ *  page at any time via the pages bar. */
 export function seedClassicBrochure(input: TemplateSeedInput): BrochureDocument {
-  return seedPosterBoldFullBrochure({
-    ...input,
-    // Classic editorial defaults: navy accent, black title text on a
-    // white cover, gold as the secondary accent.
-    accentColor: input.accentColor ?? "#1e3a8a",
-    titleColor: input.titleColor ?? "#0a1429",
-  });
+  // Classic editorial defaults: navy accent, black title text.
+  const accent = input.accentColor ?? "#1e3a8a";
+  const titleColor = input.titleColor ?? "#0a1429";
+
+  const doc = newDocument(input.eventTitle || "Untitled Brochure");
+  const pages: BrochurePage[] = [];
+
+  // Page 1 — Cover. Full-page portrait banner when a cover image is
+  // available; text-only editorial fallback otherwise. This reuses
+  // the existing cover builder (with the recent full-page banner
+  // fix) so cover behavior stays consistent across seeds.
+  pages.push(buildPosterBoldCoverPage(input, accent, titleColor, "#ffffff", false));
+
+  // Page 2 — Agenda.
+  const agendaPage = buildAgendaPage(input.sessions ?? [], input.eventTitle, input.dateText, accent, titleColor);
+  if (agendaPage) pages.push(agendaPage);
+
+  // Page 3 — Speakers.
+  const speakersPage = buildSpeakersPage(input.speakers ?? [], input.eventTitle, input.dateText, accent, titleColor);
+  if (speakersPage) pages.push(speakersPage);
+
+  // Page 4 — Sponsors.
+  const sponsorsPage = buildSponsorsPage(input.sponsors ?? [], input.eventTitle, input.dateText, accent, titleColor);
+  if (sponsorsPage) pages.push(sponsorsPage);
+
+  // Page 5 — Venue & Logistics.
+  const venuePage = buildVenuePage(input.venueLogistics, input.eventTitle, input.dateText, accent, titleColor);
+  if (venuePage) pages.push(venuePage);
+
+  return { ...doc, pages };
 }
 
 // ─── Cover page builders ───────────────────────────────────────────────────
@@ -632,6 +686,657 @@ function buildNumberedListPage(
     width: A4_WIDTH_MM,
     height: A4_HEIGHT_MM,
     background: { type: "solid", color: bgColor },
+    elements,
+  };
+}
+
+// ─── Classic seed content pages ────────────────────────────────────────────
+//
+// The four page builders below turn the same event data the jsPDF
+// preview uses (sessions, speakers, sponsors, venue) into ordinary
+// editable elements so the editor and the preview render matching
+// content by construction. Layout numbers are in mm.
+
+/** Shared page-header (small event title top-left, date/venue top-right,
+ *  accent divider). Every content page starts with this so the editor
+ *  and preview both carry the same identity across pages. */
+function pushClassicPageHeader(
+  elements: BrochureElement[],
+  push: (el: BrochureElement) => void,
+  eventTitle: string,
+  dateText: string,
+  accent: string,
+  titleColor: string
+): void {
+  const pageW = A4_WIDTH_MM;
+  push(
+    newTextElement({
+      x: 20,
+      y: 18,
+      width: 100,
+      height: 6,
+      content: eventTitle,
+      fontFamily: "Playfair Display",
+      fontSize: 12,
+      fontWeight: "bold",
+      color: titleColor,
+      align: "left",
+      lineHeight: 1,
+    })
+  );
+  push(
+    newTextElement({
+      x: pageW - 120,
+      y: 18,
+      width: 100,
+      height: 6,
+      content: dateText,
+      fontFamily: "Poppins",
+      fontSize: 9,
+      fontWeight: "normal",
+      color: titleColor,
+      align: "right",
+      lineHeight: 1,
+    })
+  );
+  push(
+    newShapeElement({
+      x: 20,
+      y: 28,
+      width: pageW - 40,
+      height: 0.4,
+      shape: "rect",
+      fill: accent,
+      stroke: "transparent",
+      strokeWidth: 0,
+      cornerRadius: 0,
+    })
+  );
+  void elements; // just to signal the push closure is the intended sink
+}
+
+/** Shared section-heading (large bold title + short accent underline
+ *  beneath). */
+function pushClassicSectionHeading(
+  push: (el: BrochureElement) => void,
+  y: number,
+  text: string,
+  accent: string,
+  titleColor: string
+): void {
+  push(
+    newTextElement({
+      x: 20,
+      y,
+      width: 150,
+      height: 10,
+      content: text,
+      fontFamily: "Playfair Display",
+      fontSize: 22,
+      fontWeight: "bold",
+      color: titleColor,
+      align: "left",
+      lineHeight: 1,
+    })
+  );
+  push(
+    newShapeElement({
+      x: 20,
+      y: y + 10,
+      width: 24,
+      height: 1.4,
+      shape: "rect",
+      fill: accent,
+      stroke: "transparent",
+      strokeWidth: 0,
+      cornerRadius: 0,
+    })
+  );
+}
+
+/** Builds the Agenda page — one row per session (time • title • speakers)
+ *  as separate editable text elements inside a bordered row container.
+ *  Returns `null` when there are no sessions so the page isn't seeded
+ *  with an empty heading. */
+function buildAgendaPage(
+  sessions: AgendaSessionInput[],
+  eventTitle: string,
+  dateText: string,
+  accent: string,
+  titleColor: string
+): BrochurePage | null {
+  const content = buildAgendaSectionContent(sessions);
+  if (content.rows.length === 0) return null;
+
+  const pageW = A4_WIDTH_MM;
+  const elements: BrochureElement[] = [];
+  const push = (el: BrochureElement) => {
+    el.zIndex = elements.length;
+    elements.push(el);
+  };
+
+  pushClassicPageHeader(elements, push, eventTitle, dateText, accent, titleColor);
+  pushClassicSectionHeading(push, 40, "Agenda", accent, titleColor);
+
+  // Column layout: time (28mm) | title (rest) | speakers (48mm).
+  const timeColW = 28;
+  const speakersColW = 48;
+  const rowGap = 3;
+  const rowH = 16;
+  const startY = 62;
+  const bodyLeft = 20;
+  const bodyRight = pageW - 20;
+  const titleColX = bodyLeft + timeColW + 4;
+  const titleColW = bodyRight - titleColX - speakersColW - 4;
+  const speakersColX = bodyRight - speakersColW;
+
+  // Column header strip.
+  push(
+    newShapeElement({
+      x: bodyLeft,
+      y: startY - 8,
+      width: pageW - 40,
+      height: 6.5,
+      shape: "rect",
+      fill: accent,
+      stroke: "transparent",
+      strokeWidth: 0,
+      cornerRadius: 0,
+    })
+  );
+  const headerY = startY - 6.5;
+  push(
+    newTextElement({
+      x: bodyLeft + 2,
+      y: headerY,
+      width: timeColW,
+      height: 5,
+      content: "Time",
+      fontFamily: "Poppins",
+      fontSize: 9,
+      fontWeight: "bold",
+      color: "#ffffff",
+      align: "left",
+      lineHeight: 1,
+    })
+  );
+  push(
+    newTextElement({
+      x: titleColX,
+      y: headerY,
+      width: titleColW,
+      height: 5,
+      content: "Session",
+      fontFamily: "Poppins",
+      fontSize: 9,
+      fontWeight: "bold",
+      color: "#ffffff",
+      align: "left",
+      lineHeight: 1,
+    })
+  );
+  push(
+    newTextElement({
+      x: speakersColX,
+      y: headerY,
+      width: speakersColW - 2,
+      height: 5,
+      content: "Speaker(s)",
+      fontFamily: "Poppins",
+      fontSize: 9,
+      fontWeight: "bold",
+      color: "#ffffff",
+      align: "left",
+      lineHeight: 1,
+    })
+  );
+
+  const maxRows = 12;
+  const rows = content.rows.slice(0, maxRows);
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    const y = startY + i * (rowH + rowGap);
+
+    // Row divider line.
+    push(
+      newShapeElement({
+        x: bodyLeft,
+        y: y + rowH,
+        width: pageW - 40,
+        height: 0.2,
+        shape: "rect",
+        fill: "#e5e7eb",
+        stroke: "transparent",
+        strokeWidth: 0,
+        cornerRadius: 0,
+      })
+    );
+    push(
+      newTextElement({
+        x: bodyLeft + 2,
+        y: y + 1,
+        width: timeColW,
+        height: rowH - 2,
+        content: row.timeRangeText,
+        fontFamily: "Poppins",
+        fontSize: 9,
+        fontWeight: "bold",
+        color: titleColor,
+        align: "left",
+        lineHeight: 1.15,
+      })
+    );
+    push(
+      newTextElement({
+        x: titleColX,
+        y: y + 1,
+        width: titleColW,
+        height: rowH - 2,
+        content: row.title,
+        fontFamily: "Poppins",
+        fontSize: 10,
+        fontWeight: "normal",
+        color: titleColor,
+        align: "left",
+        lineHeight: 1.2,
+      })
+    );
+    if (row.speakerLine) {
+      push(
+        newTextElement({
+          x: speakersColX,
+          y: y + 1,
+          width: speakersColW - 2,
+          height: rowH - 2,
+          content: row.speakerLine,
+          fontFamily: "Poppins",
+          fontSize: 9,
+          fontWeight: "normal",
+          color: "#4b5563",
+          align: "left",
+          lineHeight: 1.2,
+        })
+      );
+    }
+  }
+
+  return {
+    id: `page-agenda-${Math.random().toString(36).slice(2, 8)}`,
+    width: A4_WIDTH_MM,
+    height: A4_HEIGHT_MM,
+    background: { type: "solid", color: "#ffffff" },
+    elements,
+  };
+}
+
+/** Builds the Speakers page — 2-column grid of speaker cards
+ *  (photo + name + subtitle + company). Each field is a separate
+ *  element so the organizer can retitle or remove any of them.
+ *  Returns `null` when there are no speakers. */
+function buildSpeakersPage(
+  speakers: SpeakerInput[],
+  eventTitle: string,
+  dateText: string,
+  accent: string,
+  titleColor: string
+): BrochurePage | null {
+  const rows = buildSpeakerRows(speakers);
+  if (rows.length === 0) return null;
+
+  const pageW = A4_WIDTH_MM;
+  const elements: BrochureElement[] = [];
+  const push = (el: BrochureElement) => {
+    el.zIndex = elements.length;
+    elements.push(el);
+  };
+
+  pushClassicPageHeader(elements, push, eventTitle, dateText, accent, titleColor);
+  pushClassicSectionHeading(push, 40, "Speakers", accent, titleColor);
+
+  const cols = 2;
+  const gap = 8;
+  const startY = 64;
+  const bodyLeft = 20;
+  const cardW = (pageW - 40 - gap * (cols - 1)) / cols;
+  const photoH = 44;
+  const textH = 22;
+  const cardH = photoH + textH + 2;
+  const maxCards = 8; // 4 rows × 2 cols
+  const shown = rows.slice(0, maxCards);
+
+  for (let i = 0; i < shown.length; i += 1) {
+    const row = shown[i];
+    const col = i % cols;
+    const rowIdx = Math.floor(i / cols);
+    const x = bodyLeft + col * (cardW + gap);
+    const y = startY + rowIdx * (cardH + 6);
+
+    // Card background.
+    push(
+      newShapeElement({
+        x,
+        y,
+        width: cardW,
+        height: cardH,
+        shape: "rect",
+        fill: "#f9fafb",
+        stroke: "#e5e7eb",
+        strokeWidth: 0.3,
+        cornerRadius: 2,
+      })
+    );
+
+    // Photo (URL image) or initial placeholder shape.
+    if (row.photo.type === "url") {
+      push(
+        newImageElement({
+          x,
+          y,
+          width: cardW,
+          height: photoH,
+          src: row.photo.url,
+          fit: "cover",
+          cornerRadius: 2,
+        })
+      );
+    } else {
+      push(
+        newShapeElement({
+          x,
+          y,
+          width: cardW,
+          height: photoH,
+          shape: "rect",
+          fill: accent,
+          stroke: "transparent",
+          strokeWidth: 0,
+          cornerRadius: 2,
+        })
+      );
+      push(
+        newTextElement({
+          x,
+          y: y + photoH / 2 - 8,
+          width: cardW,
+          height: 16,
+          content: row.photo.initial,
+          fontFamily: "Poppins",
+          fontSize: 32,
+          fontWeight: "bold",
+          color: "#ffffff",
+          align: "center",
+          lineHeight: 1,
+        })
+      );
+    }
+
+    // Name.
+    push(
+      newTextElement({
+        x: x + 2,
+        y: y + photoH + 2,
+        width: cardW - 4,
+        height: 6,
+        content: row.name,
+        fontFamily: "Poppins",
+        fontSize: 11,
+        fontWeight: "bold",
+        color: titleColor,
+        align: "center",
+        lineHeight: 1.1,
+      })
+    );
+    // Subtitle.
+    if (row.subtitleLine) {
+      push(
+        newTextElement({
+          x: x + 2,
+          y: y + photoH + 8,
+          width: cardW - 4,
+          height: 5,
+          content: row.subtitleLine,
+          fontFamily: "Poppins",
+          fontSize: 8.5,
+          fontWeight: "normal",
+          color: "#4b5563",
+          align: "center",
+          lineHeight: 1.1,
+        })
+      );
+    }
+    // Company.
+    if (row.companyLine) {
+      push(
+        newTextElement({
+          x: x + 2,
+          y: y + photoH + 14,
+          width: cardW - 4,
+          height: 5,
+          content: row.companyLine,
+          fontFamily: "Poppins",
+          fontSize: 8.5,
+          fontWeight: "normal",
+          color: accent,
+          align: "center",
+          lineHeight: 1.1,
+        })
+      );
+    }
+  }
+
+  return {
+    id: `page-speakers-${Math.random().toString(36).slice(2, 8)}`,
+    width: A4_WIDTH_MM,
+    height: A4_HEIGHT_MM,
+    background: { type: "solid", color: "#ffffff" },
+    elements,
+  };
+}
+
+/** Builds the Sponsors page — tier headings followed by sponsor
+ *  logos (or name text when no logo URL). Returns `null` when there
+ *  are no sponsors. */
+function buildSponsorsPage(
+  sponsors: SponsorInput[],
+  eventTitle: string,
+  dateText: string,
+  accent: string,
+  titleColor: string
+): BrochurePage | null {
+  if (sponsors.length === 0) return null;
+  const groups = groupSponsorsByTierOrdered(sponsors);
+
+  const pageW = A4_WIDTH_MM;
+  const elements: BrochureElement[] = [];
+  const push = (el: BrochureElement) => {
+    el.zIndex = elements.length;
+    elements.push(el);
+  };
+
+  pushClassicPageHeader(elements, push, eventTitle, dateText, accent, titleColor);
+  pushClassicSectionHeading(push, 40, "Sponsors", accent, titleColor);
+
+  const bodyLeft = 20;
+  const bodyW = pageW - 40;
+  const perRow = 3;
+  const logoGap = 4;
+  const logoW = (bodyW - logoGap * (perRow - 1)) / perRow;
+  const logoH = 22;
+
+  let cursorY = 62;
+
+  for (const group of groups) {
+    // Tier heading (colored by tier accent).
+    push(
+      newTextElement({
+        x: bodyLeft,
+        y: cursorY,
+        width: bodyW,
+        height: 7,
+        content: group.label.toUpperCase(),
+        fontFamily: "Poppins",
+        fontSize: 12,
+        fontWeight: "bold",
+        color: group.accentColor,
+        align: "left",
+        lineHeight: 1,
+      })
+    );
+    push(
+      newShapeElement({
+        x: bodyLeft,
+        y: cursorY + 8,
+        width: 16,
+        height: 0.8,
+        shape: "rect",
+        fill: group.accentColor,
+        stroke: "transparent",
+        strokeWidth: 0,
+        cornerRadius: 0,
+      })
+    );
+    cursorY += 12;
+
+    // Sponsor cards for this tier.
+    const items = group.sponsors.slice(0, 12);
+    for (let i = 0; i < items.length; i += 1) {
+      const sponsor = items[i];
+      const col = i % perRow;
+      const rowIdx = Math.floor(i / perRow);
+      const x = bodyLeft + col * (logoW + logoGap);
+      const y = cursorY + rowIdx * (logoH + 4);
+
+      // Card background so text logos have a distinct surface.
+      push(
+        newShapeElement({
+          x,
+          y,
+          width: logoW,
+          height: logoH,
+          shape: "rect",
+          fill: "#f9fafb",
+          stroke: "#e5e7eb",
+          strokeWidth: 0.3,
+          cornerRadius: 2,
+        })
+      );
+      if (sponsor.logo.type === "url") {
+        push(
+          newImageElement({
+            x: x + 2,
+            y: y + 2,
+            width: logoW - 4,
+            height: logoH - 4,
+            src: sponsor.logo.url,
+            fit: "contain",
+            cornerRadius: 0,
+          })
+        );
+      } else {
+        push(
+          newTextElement({
+            x: x + 2,
+            y: y + logoH / 2 - 3,
+            width: logoW - 4,
+            height: 6,
+            content: sponsor.logo.text,
+            fontFamily: "Poppins",
+            fontSize: 10,
+            fontWeight: "bold",
+            color: titleColor,
+            align: "center",
+            lineHeight: 1.1,
+          })
+        );
+      }
+    }
+    const rowsForGroup = Math.ceil(items.length / perRow);
+    cursorY += rowsForGroup * (logoH + 4) + 4;
+    if (cursorY > A4_HEIGHT_MM - 30) break; // stop before overflowing the page
+  }
+
+  return {
+    id: `page-sponsors-${Math.random().toString(36).slice(2, 8)}`,
+    width: A4_WIDTH_MM,
+    height: A4_HEIGHT_MM,
+    background: { type: "solid", color: "#ffffff" },
+    elements,
+  };
+}
+
+/** Builds the Venue & Logistics page — venue name, address, transit
+ *  notes, parking notes. Returns `null` when there's no meaningful
+ *  content to show. */
+function buildVenuePage(
+  input: VenueLogisticsInput | undefined,
+  eventTitle: string,
+  dateText: string,
+  accent: string,
+  titleColor: string
+): BrochurePage | null {
+  if (!input) return null;
+  const content = buildVenueLogisticsContent(input);
+  if (!content) return null;
+
+  const pageW = A4_WIDTH_MM;
+  const elements: BrochureElement[] = [];
+  const push = (el: BrochureElement) => {
+    el.zIndex = elements.length;
+    elements.push(el);
+  };
+
+  pushClassicPageHeader(elements, push, eventTitle, dateText, accent, titleColor);
+  pushClassicSectionHeading(push, 40, "Venue & Logistics", accent, titleColor);
+
+  const bodyLeft = 20;
+  const bodyW = pageW - 40;
+  let cursorY = 62;
+
+  const addSection = (label: string, body: string): void => {
+    push(
+      newTextElement({
+        x: bodyLeft,
+        y: cursorY,
+        width: bodyW,
+        height: 6,
+        content: label.toUpperCase(),
+        fontFamily: "Poppins",
+        fontSize: 10,
+        fontWeight: "bold",
+        color: accent,
+        align: "left",
+        lineHeight: 1,
+      })
+    );
+    cursorY += 8;
+    push(
+      newTextElement({
+        x: bodyLeft,
+        y: cursorY,
+        width: bodyW,
+        height: 24,
+        content: body,
+        fontFamily: "Poppins",
+        fontSize: 11,
+        fontWeight: "normal",
+        color: titleColor,
+        align: "left",
+        lineHeight: 1.35,
+      })
+    );
+    cursorY += 28;
+  };
+
+  if (content.venueName) addSection("Venue", content.venueName);
+  if (content.address) addSection("Address", content.address);
+  if (content.transitNotes) addSection("Getting there", content.transitNotes);
+  if (content.parkingNotes) addSection("Parking", content.parkingNotes);
+
+  return {
+    id: `page-venue-${Math.random().toString(36).slice(2, 8)}`,
+    width: A4_WIDTH_MM,
+    height: A4_HEIGHT_MM,
+    background: { type: "solid", color: "#ffffff" },
     elements,
   };
 }

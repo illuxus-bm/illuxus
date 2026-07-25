@@ -89,11 +89,18 @@ function PageThumbnail({
   isActive: boolean;
   onSelect: () => void;
 }) {
-  // Very rough "preview": show first text element content truncated,
-  // plus a color swatch derived from the background type.
+  // Rough "preview": show the first text element's content
+  // truncated (so a "Speakers" heading page reads as "Speakers", etc).
+  // When a page has no text (like a full-bleed image cover), fall back
+  // to a kind-based label so the thumbnail still reads meaningfully
+  // instead of showing the generic "Page" fallback.
   const firstText = page.elements.find((el) => el.kind === "text");
   const previewText =
-    firstText && firstText.kind === "text" ? firstText.content.slice(0, 24) : "";
+    firstText && firstText.kind === "text"
+      ? firstText.content.slice(0, 24)
+      : page.elements.some((el) => el.kind === "image")
+        ? "Cover"
+        : "";
   const bg =
     page.background.type === "solid"
       ? page.background.color

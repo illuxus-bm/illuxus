@@ -768,6 +768,14 @@ export default function BrochureConfiguratorDialog({
               selectedTheme.id === "corporate-bold"
                 ? posterContent.focusOfSummit
                 : posterContent.whySponsor,
+            // Content-page data — the Classic seed uses these to build
+            // Agenda / Speakers / Sponsors / Venue pages that match the
+            // preview one-to-one so the editor and the live preview
+            // show the SAME set of pages.
+            sessions,
+            speakers,
+            sponsors,
+            venueLogistics,
           }}
           initialDocument={
             eventPageConfig.brochurePrefs?.editorDocument
