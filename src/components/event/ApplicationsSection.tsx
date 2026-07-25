@@ -23,11 +23,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   Mic, Building2, CheckCircle2, XCircle, Clock, Mail, Linkedin, Globe,
-  Briefcase, ExternalLink, MoreHorizontal, RotateCcw,
+  Briefcase, ExternalLink, MoreHorizontal, RotateCcw, Download,
 } from "lucide-react";
 import type {
   ApplicationStatus, SpeakerApplication, SponsorApplication,
 } from "@/types/applications";
+import {
+  buildSpeakerApplicationsCsv,
+  buildSponsorApplicationsCsv,
+  downloadCsv,
+  type SpeakerApplicationRow,
+  type SponsorApplicationRow,
+} from "@/lib/utm/applications-csv";
+import { CsvEscapeError } from "@/lib/utm/csv-escape";
 
 type Tab = "pending" | "approved" | "rejected" | "all";
 
@@ -158,9 +166,39 @@ function SpeakerApplicationsList({
     }
   };
 
+  const handleExportSpeakers = () => {
+    try {
+      const csv = buildSpeakerApplicationsCsv(filtered as SpeakerApplicationRow[]);
+      downloadCsv(`speaker-applications-${eventId}.csv`, csv);
+      toast.success("CSV exported", { description: `${filtered.length} row(s).` });
+    } catch (err) {
+      if (err instanceof CsvEscapeError) {
+        toast.error("Export blocked", {
+          description:
+            "One or more rows contained a value that could not be exported. No file was created.",
+        });
+      } else {
+        toast.error("Export failed", {
+          description: err instanceof Error ? err.message : "Unknown error.",
+        });
+      }
+    }
+  };
+
   return (
     <>
-      <StatusTabs tab={tab} setTab={setTab} counts={counts} />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <StatusTabs tab={tab} setTab={setTab} counts={counts} />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 text-[12px]"
+          onClick={handleExportSpeakers}
+        >
+          <Download className="h-3.5 w-3.5 mr-1.5" />
+          Export CSV
+        </Button>
+      </div>
       {isLoading ? (
         <div className="space-y-2">
           {[1, 2].map((i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
@@ -228,6 +266,18 @@ function SpeakerApplicationRow({
           <p className="text-[12px] text-muted-foreground mt-0.5">
             {app.job_title}{app.company ? ` · ${app.company}` : ""}
           </p>
+          {/* First-touch UTM attribution hint — mirrors the shipped attendee
+              pattern in RegistrationsSection.tsx. Only rendered when
+              `utm_source` contains at least one non-whitespace character; we
+              never substitute a placeholder when absent (Requirement 7.2). */}
+          {app.utm_source && app.utm_source.trim() !== "" ? (
+            <p
+              className="text-[10px] text-muted-foreground/80 truncate"
+              title={`Source: ${app.utm_source}`}
+            >
+              via <span className="font-medium">{app.utm_source}</span>
+            </p>
+          ) : null}
           <p className="text-[13px] mt-2 line-clamp-2">
             <span className="font-medium">Proposed:</span> {app.session_title}
           </p>
@@ -338,6 +388,14 @@ function SpeakerApplicationDetailDialog({
               </div>
             </Section>
           )}
+
+          <AttributionSection
+            utm_source={app.utm_source}
+            utm_medium={app.utm_medium}
+            utm_campaign={app.utm_campaign}
+            utm_content={app.utm_content}
+            utm_term={app.utm_term}
+          />
         </div>
 
         <DialogFooter className="gap-2">
@@ -405,9 +463,39 @@ function SponsorApplicationsList({
     }
   };
 
+  const handleExportSponsors = () => {
+    try {
+      const csv = buildSponsorApplicationsCsv(filtered as SponsorApplicationRow[]);
+      downloadCsv(`sponsor-applications-${eventId}.csv`, csv);
+      toast.success("CSV exported", { description: `${filtered.length} row(s).` });
+    } catch (err) {
+      if (err instanceof CsvEscapeError) {
+        toast.error("Export blocked", {
+          description:
+            "One or more rows contained a value that could not be exported. No file was created.",
+        });
+      } else {
+        toast.error("Export failed", {
+          description: err instanceof Error ? err.message : "Unknown error.",
+        });
+      }
+    }
+  };
+
   return (
     <>
-      <StatusTabs tab={tab} setTab={setTab} counts={counts} />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <StatusTabs tab={tab} setTab={setTab} counts={counts} />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 text-[12px]"
+          onClick={handleExportSponsors}
+        >
+          <Download className="h-3.5 w-3.5 mr-1.5" />
+          Export CSV
+        </Button>
+      </div>
       {isLoading ? (
         <div className="space-y-2">
           {[1, 2].map((i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
@@ -484,6 +572,18 @@ function SponsorApplicationRow({
             <p className="text-[12px] text-muted-foreground mt-0.5">
               {app.contact_name} · {app.contact_email}
             </p>
+            {/* First-touch UTM attribution hint — mirrors the shipped attendee
+                pattern in RegistrationsSection.tsx. Only rendered when
+                `utm_source` contains at least one non-whitespace character; we
+                never substitute a placeholder when absent (Requirement 8.2). */}
+            {app.utm_source && app.utm_source.trim() !== "" ? (
+              <p
+                className="text-[10px] text-muted-foreground/80 truncate"
+                title={`Source: ${app.utm_source}`}
+              >
+                via <span className="font-medium">{app.utm_source}</span>
+              </p>
+            ) : null}
             {app.budget_range && (
               <p className="text-[12px] text-muted-foreground mt-1">Budget: {app.budget_range}</p>
             )}
@@ -592,6 +692,14 @@ function SponsorApplicationDetailDialog({
               </div>
             </Section>
           )}
+
+          <AttributionSection
+            utm_source={app.utm_source}
+            utm_medium={app.utm_medium}
+            utm_campaign={app.utm_campaign}
+            utm_content={app.utm_content}
+            utm_term={app.utm_term}
+          />
         </div>
 
         <DialogFooter className="gap-2">
@@ -754,6 +862,63 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         {title}
       </p>
       {children}
+    </div>
+  );
+}
+
+/**
+ * Read-only Attribution section for an Application detail dialog. Mirrors
+ * the shipped attendee Attribution block in `RegistrantQuickView.tsx`:
+ * when at least one UTM_Field on the row is non-empty, all five fields
+ * are rendered in the canonical order (`utm_source`, `utm_medium`,
+ * `utm_campaign`, `utm_content`, `utm_term`). Absent fields on such a
+ * row still render their label but leave the value area empty rather
+ * than substituting placeholder text (Requirement 7.4 / 8.4). When every
+ * field is Absent_UTM, the entire section is omitted (Requirement 7.5 /
+ * 8.5).
+ */
+function AttributionSection({
+  utm_source, utm_medium, utm_campaign, utm_content, utm_term,
+}: {
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  utm_content: string | null;
+  utm_term: string | null;
+}) {
+  const hasValue = (v: string | null) => typeof v === "string" && v.trim() !== "";
+  const anyUtm =
+    hasValue(utm_source) ||
+    hasValue(utm_medium) ||
+    hasValue(utm_campaign) ||
+    hasValue(utm_content) ||
+    hasValue(utm_term);
+  if (!anyUtm) return null;
+  return (
+    <Section title="Attribution">
+      <div className="grid sm:grid-cols-2 gap-2">
+        <AttributionField label="Source" value={utm_source} />
+        <AttributionField label="Medium" value={utm_medium} />
+        <AttributionField label="Campaign" value={utm_campaign} />
+        <AttributionField label="Content" value={utm_content} />
+        <AttributionField label="Term" value={utm_term} />
+      </div>
+    </Section>
+  );
+}
+
+/**
+ * Label + value pair for the Attribution section. Unlike the generic
+ * `Field` helper this component always renders the label and renders the
+ * value area empty for Absent_UTM values — no em-dash or placeholder
+ * (Requirement 7.4 / 8.4).
+ */
+function AttributionField({ label, value }: { label: string; value: string | null }) {
+  const present = typeof value === "string" && value.trim() !== "";
+  return (
+    <div className="space-y-0.5">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="text-[13px] truncate">{present ? value : "\u00A0"}</p>
     </div>
   );
 }

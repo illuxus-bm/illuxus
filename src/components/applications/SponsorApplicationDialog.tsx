@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Building2, Loader2 } from "lucide-react";
 import { isValidEmailFormat } from "@/lib/email-format";
 import { notifyOrganiserOfApplication } from "@/lib/application-notify";
+import { loadStoredUtm } from "@/lib/utm";
 
 interface Props {
   eventId: string;
@@ -111,6 +112,19 @@ export function SponsorApplicationDialog({ eventId, open, onOpenChange, onSubmit
     if (err) { toast.error(err); return; }
 
     setSubmitting(true);
+
+    // First-touch UTM attribution (Requirement 4.1-4.4). Read whatever the
+    // tab captured on its Marketing_Landing_Surface entry and stamp the
+    // five UTM_Fields onto the row in the same insert. A read failure or
+    // unparseable storage collapses to Absent_UTM per Requirement 4.4;
+    // storage is NEVER cleared here (Requirement 4.3).
+    let utm: ReturnType<typeof loadStoredUtm> = {};
+    try {
+      utm = loadStoredUtm() ?? {};
+    } catch {
+      utm = {};
+    }
+
     const { error } = await supabase.from("sponsor_applications" as never).insert({
       event_id: eventId,
       user_id: user.id,
@@ -131,6 +145,11 @@ export function SponsorApplicationDialog({ eventId, open, onOpenChange, onSubmit
       deck_url: form.deck_url.trim() || null,
       promotional_url: form.promotional_url.trim() || null,
       notes: form.notes.trim() || null,
+      utm_source:   utm.utm_source   ?? null,
+      utm_medium:   utm.utm_medium   ?? null,
+      utm_campaign: utm.utm_campaign ?? null,
+      utm_content:  utm.utm_content  ?? null,
+      utm_term:     utm.utm_term     ?? null,
     } as never);
 
     setSubmitting(false);

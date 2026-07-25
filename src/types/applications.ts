@@ -43,6 +43,13 @@ export interface SpeakerApplication {
   reviewed_at: string | null;
   created_at: string;
   updated_at: string;
+  // First-touch UTM attribution — stamped at submission time from
+  // sessionStorage. See .kiro/specs/utm-attribution-coverage/.
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  utm_content: string | null;
+  utm_term: string | null;
 }
 
 export interface SponsorApplication {
@@ -78,6 +85,13 @@ export interface SponsorApplication {
   reviewed_at: string | null;
   created_at: string;
   updated_at: string;
+  // First-touch UTM attribution — stamped at submission time from
+  // sessionStorage. See .kiro/specs/utm-attribution-coverage/.
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  utm_content: string | null;
+  utm_term: string | null;
 }
 
 export interface MyApplicationRow {

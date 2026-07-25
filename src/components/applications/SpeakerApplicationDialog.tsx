@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { Mic, Loader2 } from "lucide-react";
 import { isValidEmailFormat } from "@/lib/email-format";
 import { notifyOrganiserOfApplication } from "@/lib/application-notify";
+import { loadStoredUtm } from "@/lib/utm";
 
 interface Props {
   eventId: string;
@@ -118,6 +119,21 @@ export function SpeakerApplicationDialog({ eventId, open, onOpenChange, onSubmit
     if (err) { toast.error(err); return; }
 
     setSubmitting(true);
+
+    // First-touch UTM attribution: read the tab's captured UTM params (if
+    // any) and stamp them onto the speaker_applications row. A read failure
+    // (private-browsing quirks, unparseable stored payload) is treated as
+    // absence per Requirement 3.3; the insert proceeds with NULL UTM.
+    // Attribution_Storage is intentionally NOT cleared on success or failure
+    // (Requirements 3.4 / 3.5) so a subsequent RSVP in the same tab can
+    // still attribute to the same first-touch UTM.
+    let utm: ReturnType<typeof loadStoredUtm> = {};
+    try {
+      utm = loadStoredUtm() ?? {};
+    } catch {
+      utm = {};
+    }
+
     const { error } = await supabase.from("speaker_applications" as never).insert({
       event_id: eventId,
       user_id: user.id,
@@ -143,6 +159,11 @@ export function SpeakerApplicationDialog({ eventId, open, onOpenChange, onSubmit
       past_videos_url: form.past_videos_url.trim() || null,
       resume_url: form.resume_url.trim() || null,
       notes: form.notes.trim() || null,
+      utm_source:   utm.utm_source   ?? null,
+      utm_medium:   utm.utm_medium   ?? null,
+      utm_campaign: utm.utm_campaign ?? null,
+      utm_content:  utm.utm_content  ?? null,
+      utm_term:     utm.utm_term     ?? null,
     } as never);
 
     setSubmitting(false);

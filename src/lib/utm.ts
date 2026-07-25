@@ -14,6 +14,16 @@
 const SESSION_KEY = "illuxus:utm";
 const TAB_KEY = "illuxus:utm:tab";
 
+/**
+ * Per-UTM_Field maximum length (in JavaScript string units) enforced on the
+ * client before values are persisted to sessionStorage or forwarded to any
+ * insert/signUp path. The cap matches the server-side documentation for the
+ * five UTM columns (see utm-attribution-coverage spec, Requirement 12.4)
+ * and defends application databases against pathological/attacker-supplied
+ * query-string values.
+ */
+export const UTM_MAX_LENGTH = 512;
+
 export interface UtmParams {
   utm_source?:   string;
   utm_medium?:   string;
@@ -30,8 +40,15 @@ export function readUtmFromSearch(search: string | URLSearchParams): UtmParams {
     "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
   ];
   for (const k of keys) {
-    const v = p.get(k);
-    if (v && v.trim()) out[k] = v.trim();
+    const raw = p.get(k);
+    if (!raw) continue;
+    // Trim after URL-decoding (URLSearchParams.get returns decoded value).
+    // Whitespace-only values collapse to "" and are dropped.
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    // Enforce the 512-character cap: truncate anything longer so persisted
+    // values never exceed the documented UTM_Field maximum.
+    out[k] = trimmed.length > UTM_MAX_LENGTH ? trimmed.slice(0, UTM_MAX_LENGTH) : trimmed;
   }
   return out;
 }

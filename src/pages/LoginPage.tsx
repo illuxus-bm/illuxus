@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { publicOrigin } from "@/lib/publicUrl";
+import { captureUtm, loadStoredUtm } from "@/lib/utm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,6 +47,14 @@ const LoginPage = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
+
+  // Capture UTM query params on mount so they persist across the sign-in /
+  // sign-up two-step flow and are still available when the sign-up submit
+  // path reads `loadStoredUtm()` before calling `supabase.auth.signUp`.
+  // Runs once — the empty dep array is intentional (Requirements 2.2, 2.4-2.7).
+  useEffect(() => {
+    captureUtm(window.location.search);
+  }, []);
   /** Pending team-invite token from `?invite=<uuid>`. Consumed by
    *  `accept_org_invitation` after the user successfully signs in (or after
    *  the must-change-password reset for organiser-created accounts). */
@@ -127,6 +136,19 @@ const LoginPage = () => {
         setLoading(false);
         return;
       }
+      // Read First_Touch_UTM from Attribution_Storage and thread it through
+      // `options.data` so the `handle_new_user` trigger can stamp the five
+      // UTM_Fields onto the new `profiles` row (Requirements 5.1, 5.3). A
+      // failing read is treated as absent — the row's UTM_Fields land as
+      // SQL NULL (Requirement 5.3). Storage is NOT cleared after signUp so
+      // a subsequent RSVP or Application in the same tab still attributes
+      // to the same First_Touch_UTM (Requirements 5.4, 5.5).
+      let utm: ReturnType<typeof loadStoredUtm> = {};
+      try {
+        utm = loadStoredUtm() ?? {};
+      } catch {
+        utm = {};
+      }
       const { data: signUpResult, error } = await supabase.auth.signUp({
         email,
         password,
@@ -146,6 +168,11 @@ const LoginPage = () => {
             company_employee_count: personCheck.data.company_employee_count || "",
             industry: personCheck.data.industry || "",
             display_name: `${personCheck.data.first_name} ${personCheck.data.last_name}`.trim(),
+            utm_source:   utm.utm_source   ?? null,
+            utm_medium:   utm.utm_medium   ?? null,
+            utm_campaign: utm.utm_campaign ?? null,
+            utm_content:  utm.utm_content  ?? null,
+            utm_term:     utm.utm_term     ?? null,
           },
         },
       });
