@@ -22,6 +22,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { logger } from "@/lib/observability";
 
+import type { CustomizationConfig } from "./creative-customization";
 import type { CreativeType, PlatformFormat } from "./creative-templates";
 
 export interface UploadCreativeAssetResult {
@@ -61,6 +62,41 @@ export async function uploadCreativeAsset(
   return { assetUrl: data.publicUrl, storagePath: path };
 }
 
+/**
+ * Uploads a Creative-specific watermark logo to the existing `site-assets`
+ * Storage bucket under `watermark-logos/{orgId}/` and returns its public URL
+ * and storage path (Requirement 6.4). Reuses the existing bucket's RLS
+ * policies (public read + authenticated write) — no new bucket, no new
+ * policy needed (Requirement 11.4). Mirrors the `uploadCreativeAsset`
+ * upsert-safe pattern so a retry with the same filename overwrites in place
+ * instead of orphaning a duplicate file. `blob.type` is preferred as the
+ * content type when set (organizer may upload PNG, SVG, or JPEG); falls
+ * back to `image/png` for blobs without a MIME type.
+ */
+export async function uploadWatermarkLogo(
+  orgId: string,
+  filename: string,
+  blob: Blob
+): Promise<{ url: string; storagePath: string }> {
+  const path = `watermark-logos/${orgId}/${filename}`;
+  const { error } = await supabase.storage.from("site-assets").upload(path, blob, {
+    cacheControl: "3600",
+    upsert: true,
+    contentType: blob.type || "image/png",
+  });
+  if (error) {
+    logger.error("watermark logo upload failed", {
+      org_id: orgId,
+      storage_path: path,
+      error_message: error.message,
+    });
+    throw error;
+  }
+
+  const { data } = supabase.storage.from("site-assets").getPublicUrl(path);
+  return { url: data.publicUrl, storagePath: path };
+}
+
 export interface CreativeAssetInput {
   eventId: string;
   creativeType: CreativeType;
@@ -80,6 +116,18 @@ export interface CreativeAssetInput {
    * shape produced by pre-AI callers (Requirement 11.3).
    */
   metadata?: Record<string, unknown>;
+  /**
+   * Optional Customization_Config JSONB payload persisted alongside the
+   * creative row. Introduced by the Creative_Customization feature so
+   * organizer-customized creatives can record the full customization state
+   * — custom prompt slots, slot overrides, position nudges, background
+   * overlay, watermark config, border style, applied Brand_Kit id,
+   * embedded Custom_Template snapshot (Requirement 12.1, 12.2). Omitting
+   * this parameter yields `customization: {}` on the resulting record,
+   * preserving the exact shape produced by pre-customization callers per
+   * the base-spec Additivity_Invariant (Requirement 14.3).
+   */
+  customization?: CustomizationConfig;
 }
 
 export interface CreativeAssetRecord {
@@ -93,6 +141,15 @@ export interface CreativeAssetRecord {
   storage_path: string;
   created_by: string;
   metadata: Record<string, unknown>;
+  /**
+   * JSONB payload landing in `event_creatives.customization`. Required (not
+   * optional) because migration `024_event_creatives_customization.sql` made
+   * the column `NOT NULL DEFAULT '{}'::jsonb`, so every record inserted
+   * must carry this field. Pre-customization callers omitting the input
+   * `customization` field get `{}` via the default in
+   * `buildCreativeAssetRecord` (Requirement 12.1, 14.3).
+   */
+  customization: Record<string, unknown>;
 }
 
 /**
@@ -127,6 +184,7 @@ export function buildCreativeAssetRecord(input: CreativeAssetInput): CreativeAss
     storage_path: input.storagePath,
     created_by: input.createdBy,
     metadata: input.metadata ?? {},
+    customization: (input.customization ?? {}) as Record<string, unknown>,
   };
 }
 
@@ -169,6 +227,16 @@ export interface EventCreativeRow {
    * promptText }` (Requirement 11.1, 11.3).
    */
   metadata: Json;
+  /**
+   * JSONB payload from `event_creatives.customization`. Migration
+   * `024_event_creatives_customization.sql` added this column as
+   * `customization jsonb NOT NULL DEFAULT '{}'::jsonb`, so every row (old
+   * or new) is guaranteed to have this field non-null — pre-customization
+   * rows read as `{}` and customized rows carry the full
+   * `CustomizationConfig` shape (Requirement 12.1, 14.3). Feed through
+   * `parseCustomization` before use.
+   */
+  customization: Json;
 }
 
 /**

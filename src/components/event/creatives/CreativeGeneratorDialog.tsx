@@ -2,16 +2,25 @@
  * CreativeGeneratorDialog — single-creative flow for the Creative_Generator.
  *
  * Mirrors `PrintBadgesDialog.tsx`'s two-pane layout: a scrollable left pane
- * of settings (creative type, template, entity, platform formats, "save as
- * default" toggle) and a right pane hosting the live `CreativePreviewCanvas`.
+ * of settings (a Settings tab with creative type, template, entity,
+ * platform formats, "save as default" toggle; a Customize tab hosting the
+ * Creative_Customization spec's `CustomizationPanel`) and a right pane
+ * hosting the live `CreativePreviewCanvas`.
  *
  * The primary "Generate" action, for each selected `Platform_Format`: (for
  * combo) validates the speaker/sponsor pair is actually linked to the event
  * via `assertComboEligible` ONCE before the format loop (Requirement 4.3),
- * then renders via the matching `renderXCreative` function, uploads the PNG
- * to `site-assets` (`uploadCreativeAsset`), inserts an `event_creatives` row
- * (`buildCreativeAssetRecord` + `insertCreativeAssetRecord`), and triggers a
- * browser download — mirroring `src/lib/ticket-pdf.ts`'s
+ * then routes through the explicit `resolveEffective` → `buildXPlan` →
+ * `decoratePlanWithCustomization` → `drawPlan` → `canvas.toBlob("image/png")`
+ * pipeline so the Customization_Config is applied end-to-end (Property 49 —
+ * Preview_Parity). When `customization = {}` (no active customization),
+ * the decorator short-circuits and the output stays byte-identical to the
+ * base spec's `renderXCreative` convenience wrappers (Property 45 —
+ * Additivity_Invariant). The resulting PNG is uploaded to `site-assets`
+ * (`uploadCreativeAsset`), an `event_creatives` row is inserted
+ * (`buildCreativeAssetRecord` + `insertCreativeAssetRecord`, carrying the
+ * persisted `customization` snapshot for Property 47 round-trip), and a
+ * browser download is triggered — mirroring `src/lib/ticket-pdf.ts`'s
  * `downloadTicketPdf` object-URL pattern. A failure for one format is
  * toasted and the loop continues to the next format rather than aborting.
  */
@@ -38,12 +47,17 @@ import TemplatePicker from "./TemplatePicker";
 import EntityPicker from "./EntityPicker";
 import CreativePreviewCanvas from "./CreativePreviewCanvas";
 import AiBackgroundPanel, { type AiBackgroundSelection } from "./AiBackgroundPanel";
+import CustomizationPanel from "./CustomizationPanel";
+
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useOrg } from "@/contexts/OrgContext";
 
 import {
   templatesFor,
   PLATFORM_FORMATS,
   saveCreativeTemplatePref,
   readCreativeTemplatePref,
+  readEffectiveTemplateId,
   type CreativeTemplate,
   type CreativeType,
   type EventTheme,
@@ -51,12 +65,14 @@ import {
   type PlatformFormatId,
 } from "@/lib/creatives/creative-templates";
 import {
-  renderSpeakerCreative,
-  renderSponsorCreative,
-  renderComboCreative,
+  buildSpeakerPlan,
+  buildSponsorPlan,
+  buildComboPlan,
+  drawPlan,
   assertComboEligible,
   creativeFilename,
   ComboEntityNotLinkedError,
+  type RenderPlan,
   type SpeakerLike,
   type SponsorLike,
 } from "@/lib/creatives/creative-renderer";
@@ -65,6 +81,13 @@ import {
   buildCreativeAssetRecord,
   insertCreativeAssetRecord,
 } from "@/lib/creatives/creative-storage";
+import {
+  resolveEffective,
+  decoratePlanWithCustomization,
+  type AppliedBrandKit,
+  type CustomCreativeTemplate,
+  type CustomizationConfig,
+} from "@/lib/creatives/creative-customization";
 import type { EventPageConfig } from "@/components/event/page-form/types";
 
 interface CreativeGeneratorDialogProps {
@@ -88,6 +111,53 @@ const BACKGROUND_SOURCE_OPTIONS: { v: BackgroundSource; label: string; sub: stri
   { v: "template", label: "Template", sub: "Use the template's built-in background" },
   { v: "ai", label: "AI-generated", sub: "Generate a bespoke background with AI" },
 ];
+
+/**
+ * Resolves a template id to a `CreativeTemplate` by first checking the
+ * built-in registry for the given `CreativeType`, then falling back to any
+ * `Custom_Template` persisted on `page_config.customCreativeTemplates`.
+ * Returns `undefined` when neither has it — used by the render pipeline to
+ * resolve `Entity_Template_Override` (Requirement 10.3). The `customCreativeTemplates`
+ * schema is stored as `[key: string]: unknown` to keep the low-level
+ * `page-form/types.ts` module independent of the creatives module; casting
+ * back to `CreativeTemplate` here is safe because `saveCustomTemplate` writes
+ * the full `CreativeTemplate` shape.
+ */
+function findTemplateById(
+  id: string,
+  type: CreativeType,
+  pageConfig: EventPageConfig,
+): CreativeTemplate | undefined {
+  const builtin = templatesFor(type).find((t) => t.id === id);
+  if (builtin) return builtin;
+  const custom = pageConfig.customCreativeTemplates?.find((t) => t.id === id && t.type === type);
+  return custom as CreativeTemplate | undefined;
+}
+
+/**
+ * Renders a decorated `RenderPlan` to a `"image/png"` `Blob`. Mirrors the
+ * private `renderPlanToPngBlob` in `creative-renderer.ts` — an off-screen
+ * `<canvas>` sized exactly to `plan.format`'s pixel dimensions, drawn via
+ * `drawPlan`, exported via `canvas.toBlob("image/png")`. Wrapped locally so
+ * the dialog can route through `decoratePlanWithCustomization` before
+ * exporting (Property 49 — Preview_Parity), rather than via the base-spec
+ * convenience wrappers which take a template + theme + format tuple and
+ * skip the decorator.
+ */
+async function renderDecoratedPlanToBlob(plan: RenderPlan): Promise<Blob> {
+  const canvas = document.createElement("canvas");
+  canvas.width = plan.format.width;
+  canvas.height = plan.format.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not get 2D canvas context");
+  await drawPlan(ctx, plan);
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("canvas.toBlob returned null — PNG export failed"));
+    }, "image/png");
+  });
+}
 
 export default function CreativeGeneratorDialog({
   open,
@@ -113,6 +183,28 @@ export default function CreativeGeneratorDialog({
   const [eventSpeakerIds, setEventSpeakerIds] = useState<Set<string>>(new Set());
   const [eventSponsorIds, setEventSponsorIds] = useState<Set<string>>(new Set());
 
+  // ─── Creative_Customization state (Task 12.1) ─────────────────────────────
+  // Local `customization` state fed to `CustomizationPanel` (Requirement
+  // 13.1). Default `{}` means every hook point in the plan pipeline
+  // short-circuits and the rendered output stays byte-identical to the
+  // base spec (Property 45 — Additivity_Invariant). `appliedBrandKit`
+  // (Requirement 9) is fed to `resolveEffective` at render time.
+  const [customization, setCustomization] = useState<CustomizationConfig>({});
+  const [appliedBrandKit, setAppliedBrandKit] = useState<AppliedBrandKit | undefined>(undefined);
+
+  // Event date + timezone, needed by `CustomizationPanel`'s Custom_Prompt_Slot
+  // section to pre-populate `eventDate` slots (Requirement 1.7). Fetched
+  // once per dialog open — a small denormalized fetch rather than
+  // extending the parent's prop surface.
+  const [eventMeta, setEventMeta] = useState<{ date: string | null; timezone: string | null }>({
+    date: null,
+    timezone: null,
+  });
+
+  const { org } = useOrg();
+  const currentOrgId = org?.id ?? null;
+  const organizationLogoUrl = org?.logo_url ?? undefined;
+
   // Re-initialize template + entity selection whenever the creative type
   // changes, mirroring TemplatePicker's per-type registry switch.
   useEffect(() => {
@@ -131,6 +223,8 @@ export default function CreativeGeneratorDialog({
     setSaveAsDefault(false);
     setBackgroundSource("template");
     setAiBackground(null);
+    setCustomization({});
+    setAppliedBrandKit(undefined);
   }, [open]);
 
   // Clear any selected AI background whenever the organizer switches back to
@@ -179,6 +273,34 @@ export default function CreativeGeneratorDialog({
     };
   }, [open, eventId]);
 
+  // Fetch `events.date` + `events.timezone` on dialog open — used by
+  // `CustomizationPanel`'s Custom_Prompt_Slot section to pre-populate
+  // `eventDate` slots with the event's own timezone-aware date
+  // (Requirement 1.7).
+  useEffect(() => {
+    if (!open) return;
+    let mounted = true;
+    supabase
+      .from("events")
+      .select("date, timezone")
+      .eq("id", eventId)
+      .single()
+      .then(({ data, error }) => {
+        if (!mounted) return;
+        if (error) {
+          logger.error("creative generator event meta fetch failed", {
+            event_id: eventId,
+            error_message: error.message,
+          });
+          return;
+        }
+        setEventMeta({ date: data?.date ?? null, timezone: data?.timezone ?? null });
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [open, eventId]);
+
   const template = useMemo<CreativeTemplate>(() => {
     const templates = templatesFor(type);
     return templates.find((t) => t.id === templateId) ?? templates[0];
@@ -188,8 +310,10 @@ export default function CreativeGeneratorDialog({
     () => ({
       primaryColor: eventPageConfig.theme?.primaryColor,
       accentColor: eventPageConfig.theme?.accentColor,
-      // orgLogoUrl intentionally left undefined — no org logo source wired
-      // up yet; documented gap, not a blocker for this dialog.
+      // orgLogoUrl is passed to `resolveEffective(orgLogoUrl: ...)` at
+      // render time (Requirement 6.2) rather than being spliced into
+      // the base theme, so the base-spec render path stays byte-identical
+      // when no customization is applied.
     }),
     [eventPageConfig.theme?.primaryColor, eventPageConfig.theme?.accentColor]
   );
@@ -200,17 +324,75 @@ export default function CreativeGeneratorDialog({
   );
   const previewFormat: PlatformFormat = formatsList[0] ?? PLATFORM_FORMATS[0];
 
+  // Identify the "primary" entity for the Creative_Customization panel —
+  // used for its Entity_Template_Override section (Requirement 10.1) and
+  // as the reset key for `customization` / `appliedBrandKit` (per the
+  // task's "avoid stale config carrying between entities" rule). For
+  // combo creatives the speaker is the primary entity.
+  const primaryEntityId: string | undefined =
+    type === "sponsor" ? sponsor?.id : speaker?.id;
+
+  // Reset customization + applied Brand_Kit whenever the entity, primary
+  // format, or template changes — avoids a customization crafted for one
+  // entity/format/template combo silently applying to the next one. The
+  // reset is a no-op on the mount pass since both start at `{} /
+  // undefined`.
+  useEffect(() => {
+    setCustomization({});
+    setAppliedBrandKit(undefined);
+  }, [primaryEntityId, previewFormat.id, templateId, type]);
+
+  // Entity_Template_Override resolution (Requirement 10.3). Looks up any
+  // saved per-entity template preference for `primaryEntityId`, and when
+  // present, resolves it to a `CreativeTemplate` reference from either the
+  // built-in registry or `page_config.customCreativeTemplates`. When no
+  // override exists (or the id no longer resolves to a template), returns
+  // `undefined` and `resolveEffective` falls back to the base template
+  // selected in the TemplatePicker.
+  const entityOverrideTemplate = useMemo<CreativeTemplate | undefined>(() => {
+    if (!primaryEntityId) return undefined;
+    const overrideId = readEffectiveTemplateId(eventPageConfig, primaryEntityId, type);
+    if (!overrideId) return undefined;
+    return findTemplateById(overrideId, type, eventPageConfig);
+  }, [primaryEntityId, type, eventPageConfig]);
+
+  // Effective render inputs (Property 44 — Resolution_Precedence). Threads
+  // the base template, base theme, current customization, applied Brand_Kit,
+  // any Entity_Template_Override, and the organization's logo URL through
+  // the pure `resolveEffective` helper. The result is fed into both the
+  // exported render (`handleGenerate`) and the live preview canvas —
+  // Property 49 (Preview_Parity) requires both paths to share this exact
+  // resolution.
+  const effective = useMemo(
+    () =>
+      resolveEffective({
+        baseTemplate: template,
+        baseTheme: theme,
+        config: customization,
+        brandKit: appliedBrandKit,
+        entityOverrideTemplate,
+        orgLogoUrl: organizationLogoUrl,
+      }),
+    [template, theme, customization, appliedBrandKit, entityOverrideTemplate, organizationLogoUrl],
+  );
+
   // Live-preview counterpart of the `templateForRender` splice performed in
   // `handleGenerate` below — keeps the preview pane showing the AI
   // background once selected, not just the exported file. When
   // `aiBackground` is `null` (AI selected but no successful generation yet),
-  // this falls back to `template` unchanged (Requirement 9.1, 9.3).
+  // this falls back to `effective.template` unchanged (Requirement 9.1, 9.3).
+  // The AI background splice happens AFTER `resolveEffective` so the AI
+  // background is applied to whichever template ultimately wins (snapshot,
+  // entity override, or base).
   const previewTemplate = useMemo<CreativeTemplate>(() => {
     if (backgroundSource === "ai" && aiBackground) {
-      return { ...template, background: { type: "image", url: aiBackground.assetUrl, fit: "cover" } };
+      return {
+        ...effective.template,
+        background: { type: "image", url: aiBackground.assetUrl, fit: "cover" },
+      };
     }
-    return template;
-  }, [template, backgroundSource, aiBackground]);
+    return effective.template;
+  }, [effective.template, backgroundSource, aiBackground]);
 
   const toggleFormat = (id: PlatformFormatId) => {
     setSelectedFormats((prev) => {
@@ -271,30 +453,68 @@ export default function CreativeGeneratorDialog({
             ? sponsor?.name ?? "sponsor"
             : `${speaker?.name ?? "speaker"}-${sponsor?.name ?? "sponsor"}`;
 
+      // Whether the effective template came from `customCreativeTemplates`
+      // — used at persistence time to bake a `snapshotTemplate` into the
+      // Creative's `Customization_Config` so the row keeps rendering
+      // identically even after the source Custom_Template is deleted
+      // (Requirement 8.10, Property 47 — Customization_Config round-trip).
+      const usedCustomTemplate = Boolean(
+        eventPageConfig.customCreativeTemplates?.some((t) => t.id === effective.template.id),
+      );
+
+      // Bake `appliedBrandKitId` + `snapshotTemplate` into the persisted
+      // Customization_Config once, outside the per-format loop — every
+      // format share the same customization payload per Creative row.
+      const persistedCustomization: CustomizationConfig = { ...customization };
+      if (appliedBrandKit) {
+        persistedCustomization.appliedBrandKitId = appliedBrandKit.id;
+      }
+      if (usedCustomTemplate) {
+        persistedCustomization.snapshotTemplate = effective.template as CustomCreativeTemplate;
+      }
+
       for (const format of formatsList) {
         try {
-          // Splice the AI background URL into a template COPY — never
-          // mutates `template` or the static preset registry. When AI was
-          // selected but no generation was ever confirmed (`aiBackground`
-          // is `null`), this falls back to `template` unchanged, so the
-          // export still succeeds using the template's original background
-          // (Requirement 9.1, 9.3).
+          // Splice the AI background URL into an effective-template COPY
+          // AFTER `resolveEffective` picks the winning template — never
+          // mutates `effective.template` or the static preset registry.
+          // When AI was selected but no generation was ever confirmed
+          // (`aiBackground` is `null`), this falls back to
+          // `effective.template` unchanged, so the export still succeeds
+          // using the template's original background (Requirement 9.1,
+          // 9.3).
           const templateForRender: CreativeTemplate =
             backgroundSource === "ai" && aiBackground
-              ? { ...template, background: { type: "image", url: aiBackground.assetUrl, fit: "cover" } }
-              : template;
+              ? {
+                  ...effective.template,
+                  background: { type: "image", url: aiBackground.assetUrl, fit: "cover" },
+                }
+              : effective.template;
 
-          let blob: Blob;
+          // Explicit `buildXPlan` + `decoratePlanWithCustomization` +
+          // `drawPlan` + `canvas.toBlob` pipeline — replaces the
+          // base-spec `renderXCreative` convenience wrappers so the
+          // Customization_Config is routed through the decorator
+          // (Property 49 — Preview_Parity). When
+          // `customization = {}`, `decoratePlanWithCustomization`
+          // short-circuits and the output stays byte-identical to the
+          // base spec (Property 45 — Additivity_Invariant).
+          let basePlan: RenderPlan;
           if (type === "speaker") {
             if (!speaker) continue;
-            blob = await renderSpeakerCreative(speaker, templateForRender, format, theme);
+            basePlan = buildSpeakerPlan(speaker, templateForRender, format, effective.theme);
           } else if (type === "sponsor") {
             if (!sponsor) continue;
-            blob = await renderSponsorCreative(sponsor, templateForRender, format, theme);
+            basePlan = buildSponsorPlan(sponsor, templateForRender, format, effective.theme);
           } else {
             if (!speaker || !sponsor) continue;
-            blob = await renderComboCreative(speaker, sponsor, templateForRender, format, theme);
+            basePlan = buildComboPlan(speaker, sponsor, templateForRender, format, effective.theme);
           }
+          const decoratedPlan = decoratePlanWithCustomization(basePlan, customization, {
+            effectiveFontFamily: effective.effectiveFontFamily,
+            effectiveWatermarkLogoUrl: effective.effectiveWatermarkLogoUrl,
+          });
+          const blob = await renderDecoratedPlanToBlob(decoratedPlan);
 
           const filename = creativeFilename(entityName, format);
           const { assetUrl, storagePath } = await uploadCreativeAsset(eventId, filename, blob);
@@ -320,6 +540,7 @@ export default function CreativeGeneratorDialog({
             storagePath,
             createdBy,
             metadata,
+            customization: persistedCustomization,
           });
           await insertCreativeAssetRecord(record);
 
@@ -357,32 +578,45 @@ export default function CreativeGeneratorDialog({
         </DialogHeader>
 
         <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-          {/* LEFT — settings (scrollable) */}
-          <div className="overflow-y-auto px-5 py-4 space-y-5 md:border-r border-border min-h-0">
-            {/* TYPE */}
-            <section>
-              <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">
-                Creative type
-              </Label>
-              <RadioGroup
-                value={type}
-                onValueChange={(v) => setType(v as CreativeType)}
-                className="grid grid-cols-3 gap-2"
+          {/* LEFT — settings + customization tabs (scrollable) */}
+          <div className="flex flex-col md:border-r border-border min-h-0">
+            <Tabs defaultValue="settings" className="flex flex-col flex-1 min-h-0">
+              <TabsList className="mx-5 mt-4 grid grid-cols-2">
+                <TabsTrigger value="settings" className="text-[12px]">
+                  Settings
+                </TabsTrigger>
+                <TabsTrigger value="customize" className="text-[12px]">
+                  Customize
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent
+                value="settings"
+                className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-5 mt-0"
               >
-                {TYPE_OPTIONS.map((opt) => (
-                  <label
-                    key={opt.v}
-                    className={`border rounded-lg px-3 py-2 cursor-pointer transition-colors ${
-                      type === opt.v ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
-                    }`}
+                {/* TYPE */}
+                <section>
+                  <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">
+                    Creative type
+                  </Label>
+                  <RadioGroup
+                    value={type}
+                    onValueChange={(v) => setType(v as CreativeType)}
+                    className="grid grid-cols-3 gap-2"
                   >
-                    <RadioGroupItem value={opt.v} className="sr-only" />
-                    <div className="text-[13px] font-medium leading-tight">{opt.label}</div>
-                    <div className="text-[11px] text-muted-foreground leading-tight">{opt.sub}</div>
-                  </label>
-                ))}
-              </RadioGroup>
-            </section>
+                    {TYPE_OPTIONS.map((opt) => (
+                      <label
+                        key={opt.v}
+                        className={`border rounded-lg px-3 py-2 cursor-pointer transition-colors ${
+                          type === opt.v ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+                        }`}
+                      >
+                        <RadioGroupItem value={opt.v} className="sr-only" />
+                        <div className="text-[13px] font-medium leading-tight">{opt.label}</div>
+                        <div className="text-[11px] text-muted-foreground leading-tight">{opt.sub}</div>
+                      </label>
+                    ))}
+                  </RadioGroup>
+                </section>
 
             {/* TEMPLATE */}
             <section>
@@ -476,22 +710,46 @@ export default function CreativeGeneratorDialog({
               )}
             </section>
 
-            {/* SAVE AS DEFAULT */}
-            <section className="border border-border rounded-lg p-3 bg-muted/30">
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <Checkbox
-                  checked={saveAsDefault}
-                  onCheckedChange={(v) => setSaveAsDefault(!!v)}
-                  className="mt-0.5 shrink-0"
+                {/* SAVE AS DEFAULT */}
+                <section className="border border-border rounded-lg p-3 bg-muted/30">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <Checkbox
+                      checked={saveAsDefault}
+                      onCheckedChange={(v) => setSaveAsDefault(!!v)}
+                      className="mt-0.5 shrink-0"
+                    />
+                    <div>
+                      <div className="text-[12px] font-medium">Save as event default</div>
+                      <div className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
+                        Use this template by default for {type} creatives on this event.
+                      </div>
+                    </div>
+                  </label>
+                </section>
+              </TabsContent>
+              <TabsContent
+                value="customize"
+                className="flex-1 min-h-0 overflow-y-auto px-5 py-4 mt-0"
+              >
+                <CustomizationPanel
+                  config={customization}
+                  onChange={setCustomization}
+                  template={effective.template}
+                  format={previewFormat}
+                  event={{ id: eventId, date: eventMeta.date, timezone: eventMeta.timezone }}
+                  orgId={currentOrgId}
+                  entityId={primaryEntityId}
+                  creativeType={type}
+                  pageConfig={eventPageConfig}
+                  onSavePageConfig={async (next) => {
+                    await Promise.resolve(onConfigChange(next));
+                  }}
+                  onApplyBrandKit={setAppliedBrandKit}
+                  appliedBrandKit={appliedBrandKit}
+                  hasOrgLogo={Boolean(organizationLogoUrl)}
                 />
-                <div>
-                  <div className="text-[12px] font-medium">Save as event default</div>
-                  <div className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
-                    Use this template by default for {type} creatives on this event.
-                  </div>
-                </div>
-              </label>
-            </section>
+              </TabsContent>
+            </Tabs>
           </div>
 
           {/* RIGHT — live preview */}
@@ -507,9 +765,12 @@ export default function CreativeGeneratorDialog({
                 mode={type}
                 template={previewTemplate}
                 format={previewFormat}
-                theme={theme}
+                theme={effective.theme}
                 speaker={speaker}
                 sponsor={sponsor}
+                customization={customization}
+                effectiveFontFamily={effective.effectiveFontFamily}
+                effectiveWatermarkLogoUrl={effective.effectiveWatermarkLogoUrl}
               />
             </div>
           </div>

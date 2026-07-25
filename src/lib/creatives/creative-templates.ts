@@ -615,3 +615,133 @@ export function readCreativeTemplatePref(
 ): string | undefined {
   return config.creativeTemplatePrefs?.[type];
 }
+
+// ─── Per-entity template override helpers (Requirement 10.2, 10.3, 10.5) ────
+//
+// `creativeTemplatePrefs.perEntity[entityId]` (added by the
+// Creative_Customization spec) carries per-speaker / per-sponsor template
+// overrides. The batch render loop resolves each entity's effective
+// template via `readEffectiveTemplateId` before calling the base spec's
+// `buildXPlan`, so an entity with an override renders with a different
+// template than the event-level default (Property 46).
+//
+// Purity note: every helper below returns a NEW `EventPageConfig` and
+// never mutates `config` or any nested field, matching the pattern
+// established by `saveCreativeTemplatePref` above.
+//
+// The import below pulls in ONLY the `CustomCreativeTemplate` type from
+// `./creative-customization` — a mutual import that TypeScript handles
+// fine because `creative-customization.ts` only imports types from this
+// file (never values), so there is no runtime cycle. The `import type`
+// form makes the type-only nature explicit for the reader.
+
+import type { CustomCreativeTemplate } from "./creative-customization";
+
+/**
+ * Reads the effective template id for an entity — checks
+ * `creativeTemplatePrefs.perEntity[entityId]` first (Requirement 10.3),
+ * then falls back to `creativeTemplatePrefs[creativeType]`, then returns
+ * `undefined` so the caller can resolve to the built-in registry's first
+ * preset. Pure — property 46.
+ */
+export function readEffectiveTemplateId(
+  config: EventPageConfig,
+  entityId: string,
+  creativeType: CreativeType
+): string | undefined {
+  const perEntity = config.creativeTemplatePrefs?.perEntity?.[entityId];
+  if (perEntity) return perEntity;
+  return config.creativeTemplatePrefs?.[creativeType];
+}
+
+/**
+ * Returns a NEW `EventPageConfig` with `creativeTemplatePrefs.perEntity`
+ * updated to point `entityId` → `templateId`, preserving every other
+ * per-entity override and every per-type default (Requirement 10.2).
+ * Pure — never mutates `config`.
+ */
+export function saveEntityTemplateOverride(
+  config: EventPageConfig,
+  entityId: string,
+  templateId: string
+): EventPageConfig {
+  return {
+    ...config,
+    creativeTemplatePrefs: {
+      ...config.creativeTemplatePrefs,
+      perEntity: {
+        ...config.creativeTemplatePrefs?.perEntity,
+        [entityId]: templateId,
+      },
+    },
+  };
+}
+
+/**
+ * Returns a NEW `EventPageConfig` with `entityId` removed from
+ * `creativeTemplatePrefs.perEntity`. Deletes the key (rather than storing
+ * `null`) so the map stays minimal (Requirement 10.5). Pure — never
+ * mutates `config`.
+ */
+export function clearEntityTemplateOverride(
+  config: EventPageConfig,
+  entityId: string
+): EventPageConfig {
+  const nextPerEntity = { ...(config.creativeTemplatePrefs?.perEntity ?? {}) };
+  delete nextPerEntity[entityId];
+  return {
+    ...config,
+    creativeTemplatePrefs: {
+      ...config.creativeTemplatePrefs,
+      perEntity: nextPerEntity,
+    },
+  };
+}
+
+// ─── Custom_Template persistence helpers (Requirement 8.8, 8.10) ────────────
+//
+// Custom_Templates are organizer-forked `CreativeTemplate`s stored on
+// `page_config.customCreativeTemplates`. Adding a new template or editing
+// an existing one both go through `saveCustomTemplate` (upsert-by-id).
+// Deleting only removes the template from this list — any `event_creatives`
+// rows referencing the template's id continue to render via their embedded
+// `Customization_Config.snapshotTemplate` (Requirement 8.10), so this
+// function deliberately doesn't need to touch those rows.
+
+/**
+ * Returns a NEW `EventPageConfig` with `template` upserted into
+ * `customCreativeTemplates` by `template.id`. Preserves every other
+ * template already in the list (Requirement 8.8). Pure — never mutates
+ * `config`.
+ */
+export function saveCustomTemplate(
+  config: EventPageConfig,
+  template: CustomCreativeTemplate
+): EventPageConfig {
+  const existing = config.customCreativeTemplates ?? [];
+  const idx = existing.findIndex((t) => t.id === template.id);
+  const nextList = idx === -1
+    ? [...existing, template]
+    : existing.map((t, i) => (i === idx ? template : t));
+  return { ...config, customCreativeTemplates: nextList };
+}
+
+/**
+ * Returns a NEW `EventPageConfig` with the `templateId` filtered out of
+ * `customCreativeTemplates` (Requirement 8.10). Any `event_creatives`
+ * rows that reference this id keep rendering via their embedded
+ * `Customization_Config.snapshotTemplate` — that JSONB snapshot is the
+ * server-side round-trip guarantee, so this function doesn't need to
+ * touch those rows. Pure — never mutates `config`.
+ */
+export function deleteCustomTemplate(
+  config: EventPageConfig,
+  templateId: string
+): EventPageConfig {
+  return {
+    ...config,
+    customCreativeTemplates: (config.customCreativeTemplates ?? []).filter(
+      (t) => t.id !== templateId
+    ),
+  };
+}

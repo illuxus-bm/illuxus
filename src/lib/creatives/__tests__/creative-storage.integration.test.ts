@@ -143,6 +143,11 @@ describe("creative-storage integration — upload + insert (REQ 8.1)", () => {
       storage_path: "event-creatives/event-1/jane-doe-linkedin-post.png",
       created_by: "user-1",
       metadata: {},
+      // Additive column landed by migration 024_event_creatives_customization.sql
+      // (Requirement 12.1) — pre-customization callers omitting the input
+      // `customization` field get `{}` via `buildCreativeAssetRecord`'s
+      // default, preserving the base-spec Additivity_Invariant.
+      customization: {},
     });
   });
 });

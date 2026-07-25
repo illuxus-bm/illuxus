@@ -83,6 +83,41 @@ export type Database = {
         }
         Relationships: []
       }
+      brand_kits: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+          org_id: string
+          snapshot: Json
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          name: string
+          org_id: string
+          snapshot?: Json
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          name?: string
+          org_id?: string
+          snapshot?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_kits_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cities: {
         Row: {
           ascii_name: string
@@ -280,6 +315,7 @@ export type Database = {
           created_at: string
           created_by: string
           creative_type: string
+          customization: Json
           event_id: string
           id: string
           metadata: Json
@@ -294,6 +330,7 @@ export type Database = {
           created_at?: string
           created_by: string
           creative_type: string
+          customization?: Json
           event_id: string
           id?: string
           metadata?: Json | null
@@ -308,6 +345,7 @@ export type Database = {
           created_at?: string
           created_by?: string
           creative_type?: string
+          customization?: Json
           event_id?: string
           id?: string
           metadata?: Json | null

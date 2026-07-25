@@ -214,8 +214,44 @@ export interface EventPageConfig {
    * dependency from this low-level page-form schema module onto the
    * creatives feature module — keep the two literal unions in sync if
    * `CreativeType` ever changes.
+   *
+   * `perEntity` (added by the Creative_Customization spec, Requirement 10.2)
+   * carries per-speaker / per-sponsor template overrides keyed by the
+   * entity's stable id. Reads go through
+   * `readEffectiveTemplateId(config, entityId, creativeType)` which falls
+   * back to `creativeTemplatePrefs[creativeType]` when no per-entity
+   * override is set (Requirement 10.3). Writes go through
+   * `saveEntityTemplateOverride` / `clearEntityTemplateOverride` in
+   * `@/lib/creatives/creative-templates`; the clear path deletes the key
+   * (rather than storing null) so the map stays minimal (Requirement 10.5).
    */
-  creativeTemplatePrefs?: Partial<Record<"speaker" | "sponsor" | "combo", string>>;
+  creativeTemplatePrefs?: Partial<Record<"speaker" | "sponsor" | "combo", string>> & {
+    perEntity?: Record<string, string>;
+  };
+  /**
+   * Organizer-forked `CreativeTemplate` presets stored on the event's
+   * `page_config` (Creative_Customization spec, Requirement 8.8). Reads and
+   * writes go through `saveCustomTemplate` / `deleteCustomTemplate` in
+   * `@/lib/creatives/creative-templates`. `event_creatives` rows that
+   * reference a Custom_Template's id continue to render via their
+   * embedded `Customization_Config.snapshotTemplate`
+   * even after the template is deleted from this list (Requirement 8.10).
+   *
+   * The element shape is inlined with an `unknown` index signature (rather
+   * than importing `CustomCreativeTemplate` from
+   * `@/lib/creatives/creative-customization`) to avoid a dependency from
+   * this low-level page-form schema module onto the creatives feature
+   * module — the same pattern used for `creativeTemplatePrefs` and
+   * `brochurePrefs`. `parseCustomization` in the creatives module
+   * validates the fuller shape at runtime.
+   */
+  customCreativeTemplates?: Array<{
+    id: string;
+    name: string;
+    basedOn: string | null;
+    type: "speaker" | "sponsor" | "combo";
+    [key: string]: unknown;
+  }>;
   /**
    * Per-event saved defaults for the Brochure_Generator feature (auto-generated
    * multi-page PDF brochure: cover, agenda, speakers, sponsors, venue/logistics).
@@ -320,7 +356,7 @@ export function buildDefaultConfig(): EventPageConfig {
     enabled: meta.group === "core" || meta.id === "speakers" || meta.id === "agenda" || meta.id === "sponsors",
     order:   idx,
   })) as EventSection[];
-  return { v: 2, theme: { ...DEFAULT_THEME }, seo: {}, sections, creativeTemplatePrefs: {}, brochurePrefs: {} };
+  return { v: 2, theme: { ...DEFAULT_THEME }, seo: {}, sections, creativeTemplatePrefs: {}, brochurePrefs: {}, customCreativeTemplates: [] };
 }
 
 /**
@@ -338,6 +374,7 @@ export function normalizeConfig(raw: unknown): EventPageConfig {
     sections?: EventSection[];
     creativeTemplatePrefs?: EventPageConfig["creativeTemplatePrefs"];
     brochurePrefs?: EventPageConfig["brochurePrefs"];
+    customCreativeTemplates?: EventPageConfig["customCreativeTemplates"];
   };
 
   // Legacy or incompatible format → start fresh, preserve theme colours.
@@ -347,6 +384,7 @@ export function normalizeConfig(raw: unknown): EventPageConfig {
       theme: { ...fresh.theme, ...(r.theme || {}) },
       creativeTemplatePrefs: { ...fresh.creativeTemplatePrefs, ...(r.creativeTemplatePrefs || {}) },
       brochurePrefs: { ...fresh.brochurePrefs, ...(r.brochurePrefs || {}) },
+      customCreativeTemplates: r.customCreativeTemplates ?? fresh.customCreativeTemplates,
     };
   }
 
@@ -385,6 +423,11 @@ export function normalizeConfig(raw: unknown): EventPageConfig {
     sections: merged,
     creativeTemplatePrefs: { ...fresh.creativeTemplatePrefs, ...(r.creativeTemplatePrefs || {}) },
     brochurePrefs: { ...fresh.brochurePrefs, ...(r.brochurePrefs || {}) },
+    // Custom_Templates are a full-replacement list (a fresh save carries the
+    // organizer's current library) — mirror the pattern used by `sections`
+    // rather than by the merged-object prefs. Fall back to the fresh
+    // default's empty list when the stored config predates this field.
+    customCreativeTemplates: r.customCreativeTemplates ?? fresh.customCreativeTemplates,
   };
 }
 

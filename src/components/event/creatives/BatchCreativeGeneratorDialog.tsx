@@ -20,7 +20,7 @@
  * format) and a single "Download all (.zip)" button (Requirement 6.6) builds
  * an archive of every successful PNG via `buildBatchArchive`.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -34,32 +34,47 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
-import { Layers, Download, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Layers, Download, Loader2, CheckCircle2, XCircle, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOrg } from "@/contexts/OrgContext";
 
 import TemplatePicker from "./TemplatePicker";
 import AiBackgroundPanel, { type AiBackgroundSelection } from "./AiBackgroundPanel";
+import CustomizationPanel from "./CustomizationPanel";
 
 import {
   templatesFor,
   PLATFORM_FORMATS,
   saveCreativeTemplatePref,
   readCreativeTemplatePref,
+  readEffectiveTemplateId,
   type CreativeTemplate,
   type EventTheme,
   type PlatformFormat,
   type PlatformFormatId,
 } from "@/lib/creatives/creative-templates";
 import {
-  renderSpeakerCreative,
-  renderSponsorCreative,
+  buildSpeakerPlan,
+  buildSponsorPlan,
+  drawPlan,
   creativeFilename,
   type SpeakerLike,
   type SponsorLike,
 } from "@/lib/creatives/creative-renderer";
+import {
+  resolveEffective,
+  decoratePlanWithCustomization,
+  type AppliedBrandKit,
+  type CustomizationConfig,
+} from "@/lib/creatives/creative-customization";
 import { runBatch, buildBatchArchive, type BatchOutcome, type BatchProgress } from "@/lib/creatives/creative-batch";
 import {
   uploadCreativeAsset,
@@ -96,6 +111,7 @@ export default function BatchCreativeGeneratorDialog({
   onConfigChange,
 }: BatchCreativeGeneratorDialogProps) {
   const { user } = useAuth();
+  const { org } = useOrg();
 
   const [entities, setEntities] = useState<BatchEntity[]>([]);
   const [loadingEntities, setLoadingEntities] = useState(true);
@@ -107,6 +123,15 @@ export default function BatchCreativeGeneratorDialog({
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [backgroundSource, setBackgroundSource] = useState<BackgroundSource>("template");
   const [aiBackground, setAiBackground] = useState<AiBackgroundSelection | null>(null);
+
+  // Creative_Customization spec — shared config across the batch (Task 13.1).
+  // A single `CustomizationConfig` applies to every entity × format pair in
+  // the run; `appliedBrandKit` mirrors what `CustomizationPanel` reports up
+  // through `onApplyBrandKit`, so `resolveEffective` can thread the kit's
+  // theme/font/logo fallbacks into every render (Requirement 9.4, 9.5).
+  const [customization, setCustomization] = useState<CustomizationConfig>({});
+  const [appliedBrandKit, setAppliedBrandKit] = useState<AppliedBrandKit | undefined>(undefined);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
 
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState<BatchProgress | null>(null);
@@ -121,6 +146,9 @@ export default function BatchCreativeGeneratorDialog({
     setSaveAsDefault(false);
     setBackgroundSource("template");
     setAiBackground(null);
+    setCustomization({});
+    setAppliedBrandKit(undefined);
+    setCustomizeOpen(false);
     setProgress(null);
     setOutcomes(null);
     // Only re-init on open/batchType change — re-reading eventPageConfig here
@@ -228,6 +256,30 @@ export default function BatchCreativeGeneratorDialog({
     [selectedFormats]
   );
 
+  // Representative format for the `CustomizationPanel` — the first selected
+  // format when the organizer has picked at least one, else the first entry
+  // in the registry. The panel uses this to clamp border corner-radius and
+  // blur-region geometry; per-format re-clamps still happen at render time
+  // via `clampBorder` / `resolveWatermarkBox`, so the "wrong" format here
+  // only affects the panel's slider caps, never a saved value.
+  const previewFormat = useMemo<PlatformFormat>(
+    () => formatsList[0] ?? PLATFORM_FORMATS[0],
+    [formatsList]
+  );
+
+  // Adapter for `CustomizationPanel.onSavePageConfig`. The parent already
+  // persists `page_config` changes through `onConfigChange`
+  // (`CreativesSection.handleConfigChange` writes to Supabase), so this
+  // wrapper simply forwards and returns a resolved promise — matching the
+  // async signature the panel expects while leaving the parent's exact
+  // persistence path unchanged.
+  const handleSavePageConfig = useCallback(
+    async (next: EventPageConfig) => {
+      onConfigChange(next);
+    },
+    [onConfigChange]
+  );
+
   const toggleFormat = (id: PlatformFormatId) => {
     setSelectedFormats((prev) => {
       const next = new Set(prev);
@@ -294,10 +346,94 @@ export default function BatchCreativeGeneratorDialog({
             }
           : {};
 
+      // Preset registry + Custom_Templates that match this batch's
+      // creative type — used to resolve a per-entity template override id
+      // to a `CreativeTemplate` object. Computed once per run because
+      // neither the registry nor `page_config.customCreativeTemplates`
+      // changes mid-run.
+      const templateRegistry = templatesFor(batchType);
+      const customTemplates = (eventPageConfig.customCreativeTemplates ?? []).filter(
+        (t) => t.type === batchType
+      );
+
+      // Resolves `entity` → the `CreativeTemplate` to use, applying the
+      // per-entity template override precedence (Requirement 10.3 / Task
+      // 13.2). Falls back to the batch's default template when no override
+      // is stored. The AI-background splice still applies to whichever
+      // template is chosen — the batch reuses the same AI background
+      // across every entity per the AI_Backgrounds spec's contract.
+      const resolvePerEntityTemplate = (entity: BatchEntity): CreativeTemplate => {
+        const effectiveId = readEffectiveTemplateId(eventPageConfig, entity.id, batchType);
+        if (!effectiveId || effectiveId === templateId) {
+          return templateForRender;
+        }
+        const builtIn = templateRegistry.find((t) => t.id === effectiveId);
+        const overrideTemplate: CreativeTemplate | undefined =
+          builtIn ??
+          (customTemplates.find((t) => t.id === effectiveId) as unknown as
+            | CreativeTemplate
+            | undefined);
+        if (!overrideTemplate) {
+          logger.warn("batch creative per-entity template not found, falling back to batch default", {
+            event_id: eventId,
+            entity_id: entity.id,
+            template_id: effectiveId,
+          });
+          return templateForRender;
+        }
+        // Splice AI background into the override too, so a batch running
+        // with AI background source reuses the same generated image on
+        // every entity regardless of which template they use.
+        return backgroundSource === "ai" && aiBackground
+          ? {
+              ...overrideTemplate,
+              background: { type: "image", url: aiBackground.assetUrl, fit: "cover" },
+            }
+          : overrideTemplate;
+      };
+
+      // Per-entity render pipeline (Task 13.2). Every stage is the same
+      // pure code path the single-creative dialog uses (Task 12.2), which
+      // is how Property 49 (Preview_Parity) is a structural guarantee:
+      //   1. resolveEffective — apply Resolution_Precedence
+      //   2. buildXPlan       — pure base plan
+      //   3. decoratePlanWithCustomization — additive customization pass
+      //   4. drawPlan + canvas.toBlob — export to PNG
       const render = async (entity: BatchEntity, format: PlatformFormat): Promise<Blob> => {
-        return batchType === "speaker"
-          ? renderSpeakerCreative(entity as SpeakerLike, templateForRender, format, theme)
-          : renderSponsorCreative(entity as SponsorLike, templateForRender, format, theme);
+        const baseTemplate = resolvePerEntityTemplate(entity);
+        const effective = resolveEffective({
+          baseTemplate,
+          baseTheme: theme,
+          config: customization,
+          brandKit: appliedBrandKit,
+          orgLogoUrl: org?.logo_url ?? undefined,
+        });
+
+        const basePlan =
+          batchType === "speaker"
+            ? buildSpeakerPlan(entity as SpeakerLike, effective.template, format, effective.theme)
+            : buildSponsorPlan(entity as SponsorLike, effective.template, format, effective.theme);
+
+        const decoratedPlan = decoratePlanWithCustomization(basePlan, customization, {
+          effectiveFontFamily: effective.effectiveFontFamily,
+          effectiveWatermarkLogoUrl: effective.effectiveWatermarkLogoUrl,
+        });
+
+        const canvas = document.createElement("canvas");
+        canvas.width = format.width;
+        canvas.height = format.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          throw new Error("Could not get 2D canvas context");
+        }
+        await drawPlan(ctx, decoratedPlan);
+
+        return new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob((blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error("canvas.toBlob returned null — PNG export failed"));
+          }, "image/png");
+        });
       };
 
       const results = await runBatch(entities, formatsList, render, (completed, total) =>
@@ -309,21 +445,31 @@ export default function BatchCreativeGeneratorDialog({
       // so a persistence failure for one never blocks persisting the others
       // — the render step's fault isolation (Requirement 6.5) already
       // happened inside runBatch; this is a secondary, logged-only concern.
+      //
+      // Task 13.2 — persist the effective `template_id` per row (the
+      // per-entity override wins over the batch default) and the shared
+      // `customization` config with `appliedBrandKitId` baked in. The
+      // `customization` state already carries `appliedBrandKitId` because
+      // `CustomizationPanel.BrandKitSection.onApply` writes it into the
+      // config alongside firing `onApplyBrandKit`.
       for (const outcome of results) {
         if (outcome.status !== "success") continue;
         try {
           const { assetUrl, storagePath } = await uploadCreativeAsset(eventId, outcome.filename, outcome.blob);
+          const effectiveTemplateId =
+            readEffectiveTemplateId(eventPageConfig, outcome.entity.id, batchType) ?? templateId;
           const record = buildCreativeAssetRecord({
             eventId,
             creativeType: batchType,
             speakerId: batchType === "speaker" ? outcome.entity.id : null,
             sponsorId: batchType === "sponsor" ? outcome.entity.id : null,
-            templateId,
+            templateId: effectiveTemplateId,
             platformFormat: outcome.format.id,
             assetUrl,
             storagePath,
             createdBy,
             metadata,
+            customization,
           });
           await insertCreativeAssetRecord(record);
         } catch (err) {
@@ -499,6 +645,46 @@ export default function BatchCreativeGeneratorDialog({
                 </div>
               </div>
             </label>
+          </section>
+
+          {/* CUSTOMIZE — shared config across the batch (Task 13.1). The
+              `CustomizationPanel` is mounted once and every entity × format
+              pair in the run picks up the same `CustomizationConfig`.
+              `entityId` is deliberately omitted so the panel's Entity
+              Override section stays hidden — batch mode has no single
+              entity to target (per Task 7.9's conditional render). */}
+          <section>
+            <Collapsible open={customizeOpen} onOpenChange={setCustomizeOpen}>
+              <CollapsibleTrigger className="w-full flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2.5 hover:bg-muted/50">
+                <div className="text-left">
+                  <div className="text-[12px] font-medium">Customize</div>
+                  <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                    Custom prompts, overlays, watermark, border, brand kit — applied to every {batchType} in this run.
+                  </div>
+                </div>
+                <ChevronDown
+                  className={`h-4 w-4 text-muted-foreground transition-transform ${
+                    customizeOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3">
+                <CustomizationPanel
+                  config={customization}
+                  onChange={setCustomization}
+                  template={template}
+                  format={previewFormat}
+                  event={{ id: eventId }}
+                  orgId={org?.id ?? null}
+                  creativeType={batchType}
+                  pageConfig={eventPageConfig}
+                  onSavePageConfig={handleSavePageConfig}
+                  onApplyBrandKit={setAppliedBrandKit}
+                  appliedBrandKit={appliedBrandKit}
+                  hasOrgLogo={Boolean(org?.logo_url)}
+                />
+              </CollapsibleContent>
+            </Collapsible>
           </section>
 
           {/* PROGRESS */}

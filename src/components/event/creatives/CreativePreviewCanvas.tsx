@@ -38,6 +38,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { buildSpeakerPlan, buildSponsorPlan, buildComboPlan, drawPlan, type SpeakerLike, type SponsorLike } from "@/lib/creatives/creative-renderer";
 import type { CreativeTemplate, CreativeType, EventTheme, PlatformFormat } from "@/lib/creatives/creative-templates";
+import {
+  decoratePlanWithCustomization,
+  type CustomizationConfig,
+} from "@/lib/creatives/creative-customization";
 
 interface CreativePreviewCanvasProps {
   mode: CreativeType;
@@ -46,6 +50,22 @@ interface CreativePreviewCanvasProps {
   theme: EventTheme;
   speaker?: SpeakerLike | null;
   sponsor?: SponsorLike | null;
+  /**
+   * Optional Creative_Customization payload. When provided, the built plan is
+   * routed through `decoratePlanWithCustomization` before drawing so the
+   * live-preview canvas and the exported PNG share the exact same code path
+   * (Property 49 — Preview_Parity). When omitted or empty, `decoratePlan…`
+   * short-circuits and the preview stays byte-identical to the base spec's
+   * output (Property 45 — Additivity_Invariant).
+   */
+  customization?: CustomizationConfig;
+  /** Effective font family resolved via `resolveEffective` — passed through
+   *  to `decoratePlanWithCustomization` as `DecorateContext.effectiveFontFamily`. */
+  effectiveFontFamily?: string;
+  /** Effective watermark logo URL resolved via `resolveEffective` — passed
+   *  through to `decoratePlanWithCustomization` so the decorator can gate
+   *  emission of the watermark element (Requirement 6.3). */
+  effectiveWatermarkLogoUrl?: string;
 }
 
 /** Stand-in speaker used while no real speaker is selected yet, mirroring
@@ -73,7 +93,17 @@ const SAMPLE_SPONSOR: SponsorLike = {
  *  the target `Platform_Format` is (e.g. a 1600x900 Twitter/X post). */
 const PREVIEW_MAX_WIDTH_PX = 360;
 
-export default function CreativePreviewCanvas({ mode, template, format, theme, speaker, sponsor }: CreativePreviewCanvasProps) {
+export default function CreativePreviewCanvas({
+  mode,
+  template,
+  format,
+  theme,
+  speaker,
+  sponsor,
+  customization,
+  effectiveFontFamily,
+  effectiveWatermarkLogoUrl,
+}: CreativePreviewCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
@@ -97,12 +127,26 @@ export default function CreativePreviewCanvas({ mode, template, format, theme, s
 
         const usedSpeaker = speaker ?? SAMPLE_SPEAKER;
         const usedSponsor = sponsor ?? SAMPLE_SPONSOR;
-        const plan =
+        const basePlan =
           mode === "speaker"
             ? buildSpeakerPlan(usedSpeaker, template, format, theme)
             : mode === "sponsor"
               ? buildSponsorPlan(usedSponsor, template, format, theme)
               : buildComboPlan(usedSpeaker, usedSponsor, template, format, theme);
+
+        // Route through the decorator when a Customization_Config is
+        // provided so the preview and the exported PNG share the exact
+        // same code path (Property 49 — Preview_Parity). When
+        // `customization` is omitted, or every field is unset,
+        // `decoratePlanWithCustomization` short-circuits to `basePlan`
+        // by reference — preserving the base spec's byte-identical
+        // output (Property 45 — Additivity_Invariant).
+        const plan = customization
+          ? decoratePlanWithCustomization(basePlan, customization, {
+              effectiveFontFamily: effectiveFontFamily ?? "Poppins",
+              effectiveWatermarkLogoUrl,
+            })
+          : basePlan;
 
         await drawPlan(ctx, plan);
         ctx.restore();
@@ -110,7 +154,17 @@ export default function CreativePreviewCanvas({ mode, template, format, theme, s
         setPreviewLoading(false);
       }
     },
-    [mode, template, format, theme, speaker, sponsor],
+    [
+      mode,
+      template,
+      format,
+      theme,
+      speaker,
+      sponsor,
+      customization,
+      effectiveFontFamily,
+      effectiveWatermarkLogoUrl,
+    ],
   );
 
   // Refresh preview when key settings change (debounced 400ms) — mirrors

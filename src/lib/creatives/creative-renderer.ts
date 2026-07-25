@@ -101,7 +101,64 @@ export type PlanElement =
       color: string;
       align: TextSlot["align"];
     }
-  | { kind: "divider"; x: number; y1: number; y2: number; color: string };
+  | { kind: "divider"; x: number; y1: number; y2: number; color: string }
+  // ─── Creative_Customization variants (Task 5) ──────────────────────────
+  // Every base-spec variant above remains byte-identical; the variants
+  // below are only emitted by `decoratePlanWithCustomization` in
+  // `creative-customization.ts`, and only when the corresponding config
+  // field is present. Base-spec plans never contain these elements, so
+  // Property 45 (Additivity_Invariant) is a structural guarantee.
+  | {
+      /** Full-canvas dim overlay drawn on top of the background element,
+       *  strictly before every base image/text element (Property 43). */
+      kind: "overlay-dim";
+      color: string;
+      /** 0..1 — already converted from the config's 0..100 by the
+       *  decorator. */
+      opacity: number;
+    }
+  | {
+      /** Full-canvas linear gradient overlay (Requirement 5.3). */
+      kind: "overlay-gradient";
+      from: string;
+      to: string;
+      /** Radians — the decorator converts the config's degrees using the
+       *  same `(degrees - 90) * π / 180` conversion the base spec's
+       *  `drawBackground` uses for its gradient angles, so
+       *  `drawOverlayGradient` never re-converts. */
+      direction: number;
+      /** 0..1. */
+      opacity: number;
+    }
+  | {
+      /** Rectangular blur applied to pixels ALREADY drawn below the plan
+       *  cursor — scoped to `box` so subsequent image/text elements are
+       *  never blurred (Requirement 5.4). */
+      kind: "overlay-blur-region";
+      box: ResolvedBox;
+      blurRadiusPx: number;
+    }
+  | {
+      /** Organizer-uploaded (or org-fallback) watermark logo drawn AFTER
+       *  every base image/text element and BEFORE any border (Property
+       *  43). `box` is already resolved to a square via
+       *  `resolveWatermarkBox`. */
+      kind: "watermark";
+      url: string;
+      box: ResolvedBox;
+      /** 0..1. */
+      opacity: number;
+    }
+  | {
+      /** Outer stroked rounded-rect, always drawn last so it sits on top
+       *  of every other element (Property 43). Optional drop shadow
+       *  applied via `ctx.shadow*` before the stroke. */
+      kind: "border";
+      color: string;
+      thicknessPx: number;
+      cornerRadiusPx: number;
+      dropShadow?: { color: string; offsetX: number; offsetY: number; blur: number };
+    };
 
 /** A fully resolved, ready-to-draw creative: target format + its elements. */
 export interface RenderPlan {
@@ -1012,6 +1069,205 @@ function drawDividerElement(ctx: CanvasRenderingContext2D, el: Extract<PlanEleme
   ctx.stroke();
 }
 
+// ─── Creative_Customization drawing helpers (Task 5) ────────────────────────
+//
+// These functions are only invoked when the corresponding `PlanElement`
+// variant is present in the plan (all five variants are only emitted by
+// `decoratePlanWithCustomization`). Base-spec plans never trigger these
+// branches, so Property 45 (Additivity_Invariant) is preserved.
+
+/**
+ * Draws a full-canvas dim overlay (Requirement 5.2): a solid-color rectangle
+ * covering the entire canvas at the specified opacity. `ctx.save` /
+ * `ctx.restore` bracket the draw so `globalAlpha` doesn't leak out to
+ * subsequent elements.
+ */
+function drawOverlayDim(
+  ctx: CanvasRenderingContext2D,
+  el: Extract<PlanElement, { kind: "overlay-dim" }>,
+  format: PlatformFormat,
+): void {
+  ctx.save();
+  ctx.globalAlpha = el.opacity;
+  ctx.fillStyle = el.color;
+  ctx.fillRect(0, 0, format.width, format.height);
+  ctx.restore();
+}
+
+/**
+ * Draws a full-canvas linear gradient overlay (Requirement 5.3). `el.direction`
+ * is already in radians — converted from degrees at plan-build time by
+ * `decoratePlanWithCustomization`'s `buildOverlayElements` using the same
+ * `(degrees - 90) * π / 180` convention as `drawBackground`'s gradient
+ * branch — so this helper never re-converts. Endpoints span the full
+ * canvas, matching the base spec's gradient-endpoint derivation.
+ */
+function drawOverlayGradient(
+  ctx: CanvasRenderingContext2D,
+  el: Extract<PlanElement, { kind: "overlay-gradient" }>,
+  format: PlatformFormat,
+): void {
+  const { width, height } = format;
+  const rad = el.direction;
+  const x1 = width / 2 - (Math.cos(rad) * width) / 2;
+  const y1 = height / 2 - (Math.sin(rad) * height) / 2;
+  const x2 = width / 2 + (Math.cos(rad) * width) / 2;
+  const y2 = height / 2 + (Math.sin(rad) * height) / 2;
+
+  ctx.save();
+  ctx.globalAlpha = el.opacity;
+  const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
+  gradient.addColorStop(0, el.from);
+  gradient.addColorStop(1, el.to);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+}
+
+/**
+ * Blurs the pixels ALREADY drawn under `el.box`, scoped strictly to that
+ * region so subsequent image/text/watermark elements draw over an
+ * unblurred surface (Requirement 5.4).
+ *
+ * Implementation: (1) extract the region's pixels via `getImageData`, (2)
+ * paint them onto a scratch `OffscreenCanvas` (falling back to a DOM
+ * `<canvas>` when unavailable — Safari < 16.4 in particular), (3) apply
+ * `filter = "blur(Npx)"` on the main context and draw the scratch canvas
+ * back into the target box, (4) restore state.
+ *
+ * `blurRadiusPx <= 0` is a no-op — nothing to blur, and passing 0 to
+ * `filter = "blur(0px)"` is a needless context state change.
+ *
+ * Degenerate boxes (zero width / height / off-canvas) are no-ops. The
+ * plan builder already clamps `box` inside the format's bounds via
+ * `buildOverlayElements`, but this helper defends against ill-formed
+ * inputs anyway so a malformed plan never throws.
+ */
+function drawOverlayBlurRegion(
+  ctx: CanvasRenderingContext2D,
+  el: Extract<PlanElement, { kind: "overlay-blur-region" }>,
+  format: PlatformFormat,
+): void {
+  if (el.blurRadiusPx <= 0) return;
+  const bx = Math.round(el.box.x);
+  const by = Math.round(el.box.y);
+  const bw = Math.round(el.box.width);
+  const bh = Math.round(el.box.height);
+  if (bw <= 0 || bh <= 0) return;
+  if (bx < 0 || by < 0 || bx + bw > format.width || by + bh > format.height) return;
+
+  let imageData: ImageData;
+  try {
+    imageData = ctx.getImageData(bx, by, bw, bh);
+  } catch (error) {
+    logger.warn("creative overlay blur region getImageData failed", {
+      x: bx,
+      y: by,
+      width: bw,
+      height: bh,
+      error_message: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
+  const scratch: OffscreenCanvas | HTMLCanvasElement =
+    typeof OffscreenCanvas !== "undefined"
+      ? new OffscreenCanvas(bw, bh)
+      : document.createElement("canvas");
+  if (scratch instanceof HTMLCanvasElement) {
+    scratch.width = bw;
+    scratch.height = bh;
+  }
+
+  const scratchCtx = scratch.getContext("2d") as
+    | CanvasRenderingContext2D
+    | OffscreenCanvasRenderingContext2D
+    | null;
+  if (!scratchCtx) return;
+
+  scratchCtx.putImageData(imageData, 0, 0);
+
+  ctx.save();
+  ctx.filter = `blur(${el.blurRadiusPx}px)`;
+  ctx.drawImage(scratch as CanvasImageSource, bx, by, bw, bh);
+  ctx.restore();
+}
+
+/**
+ * Draws the resolved watermark logo (Requirement 6.1). Uses the base spec's
+ * `loadImage` helper for cross-origin safety; on load failure logs
+ * `logger.warn("creative watermark load failed", { url })` and returns
+ * without drawing (Requirement 6.3 — no placeholder). Applies
+ * `ctx.globalAlpha = el.opacity` for the draw and restores after so
+ * downstream elements keep the default alpha.
+ */
+async function drawWatermark(
+  ctx: CanvasRenderingContext2D,
+  el: Extract<PlanElement, { kind: "watermark" }>,
+): Promise<void> {
+  const img = await loadImage(el.url);
+  if (!img) {
+    logger.warn("creative watermark load failed", { url: el.url });
+    return;
+  }
+  ctx.save();
+  ctx.globalAlpha = el.opacity;
+  ctx.drawImage(img, el.box.x, el.box.y, el.box.width, el.box.height);
+  ctx.restore();
+}
+
+/**
+ * Strokes an outer border (Requirement 7.1) inset by `thicknessPx / 2` so
+ * the stroke sits fully inside the canvas bounds. Applies an optional
+ * drop shadow via `ctx.shadow*` before the stroke; the `ctx.save` /
+ * `ctx.restore` bracket resets shadow state afterwards. Uses
+ * `ctx.roundRect` when available and falls back to the same manual
+ * `arcTo` rounded-rect path used by `drawImageCropped` for older engines.
+ *
+ * A zero-thickness border is a no-op (matches the clamp guarantee in
+ * `clampBorder` — a stroke of width 0 is undefined behavior on some
+ * engines, so we skip the draw explicitly).
+ */
+function drawBorder(
+  ctx: CanvasRenderingContext2D,
+  el: Extract<PlanElement, { kind: "border" }>,
+  format: PlatformFormat,
+): void {
+  if (el.thicknessPx <= 0) return;
+
+  ctx.save();
+  if (el.dropShadow) {
+    const ds = el.dropShadow;
+    ctx.shadowColor = ds.color;
+    ctx.shadowOffsetX = ds.offsetX;
+    ctx.shadowOffsetY = ds.offsetY;
+    ctx.shadowBlur = ds.blur;
+  }
+  ctx.strokeStyle = el.color;
+  ctx.lineWidth = el.thicknessPx;
+
+  const inset = el.thicknessPx / 2;
+  const x = inset;
+  const y = inset;
+  const w = format.width - el.thicknessPx;
+  const h = format.height - el.thicknessPx;
+  const r = Math.max(0, Math.min(el.cornerRadiusPx, Math.min(w, h) / 2));
+
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, r);
+  } else {
+    // Manual arcTo fallback matching `drawImageCropped`'s pattern.
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 /**
  * Ensures the Poppins font used by the templates is actually loaded before
  * the canvas draws any text. `ctx.font` silently falls back to the system
@@ -1040,6 +1296,57 @@ async function ensureFontsLoaded(): Promise<void> {
     // `sans-serif` via the CSS font stack in `drawTextElement`, which is
     // ugly but not broken.
   }
+}
+
+/**
+ * Pure helper: collects the unique `(fontFamily, fontWeight)` pairs used by
+ * `text` `PlanElement`s in `plan`. Exposed for testing (Property 50) — a
+ * pure predicate is easier to property-test than a helper that touches
+ * `document.fonts`. Order in the returned array follows first-encounter
+ * order across `plan.elements` so callers get a deterministic sequence,
+ * but consumers of this helper (including `ensureFontsLoadedForPlan`) MUST
+ * NOT depend on ordering because the underlying set semantics are
+ * unordered.
+ */
+export function collectUniqueFontPairs(plan: RenderPlan): Array<{ family: string; weight: number }> {
+  const seen = new Set<string>();
+  const out: Array<{ family: string; weight: number }> = [];
+  for (const el of plan.elements) {
+    if (el.kind !== "text") continue;
+    const key = `${el.fontWeight}::${el.fontFamily}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ family: el.fontFamily, weight: el.fontWeight });
+  }
+  return out;
+}
+
+/**
+ * Loads every unique `(fontFamily, fontWeight)` pair present in `plan`'s
+ * `text` elements via `document.fonts.load(...)` (Requirement 4.4).
+ * Best-effort — a per-pair try/catch prevents one failing family from
+ * blocking the others, and unresolved families degrade to the CSS
+ * `sans-serif` fallback baked into `drawTextElement`'s font string
+ * (Requirement 4.3).
+ *
+ * Called from `drawPlan` AFTER the base-spec `ensureFontsLoaded()` so
+ * plans containing only Poppins text stay byte-identical to the base
+ * spec's behavior (Property 45): the same four Poppins weights are
+ * requested once each, then this function may re-request one of them if
+ * the plan uses it — a no-op after the browser has already loaded it.
+ */
+async function ensureFontsLoadedForPlan(plan: RenderPlan): Promise<void> {
+  if (typeof document === "undefined" || !document.fonts) return;
+  const pairs = collectUniqueFontPairs(plan);
+  await Promise.all(
+    pairs.map(async ({ family, weight }) => {
+      try {
+        await document.fonts.load(`${weight} 16px ${family}`);
+      } catch {
+        // Best-effort — a single font failure must not block the others.
+      }
+    }),
+  );
 }
 
 /**
@@ -1092,6 +1399,7 @@ function drawBackgroundScrim(
  */
 export async function drawPlan(ctx: CanvasRenderingContext2D, plan: RenderPlan): Promise<void> {
   await ensureFontsLoaded();
+  await ensureFontsLoadedForPlan(plan);
 
   for (const el of plan.elements) {
     switch (el.kind) {
@@ -1107,6 +1415,21 @@ export async function drawPlan(ctx: CanvasRenderingContext2D, plan: RenderPlan):
         break;
       case "divider":
         drawDividerElement(ctx, el);
+        break;
+      case "overlay-dim":
+        drawOverlayDim(ctx, el, plan.format);
+        break;
+      case "overlay-gradient":
+        drawOverlayGradient(ctx, el, plan.format);
+        break;
+      case "overlay-blur-region":
+        drawOverlayBlurRegion(ctx, el, plan.format);
+        break;
+      case "watermark":
+        await drawWatermark(ctx, el);
+        break;
+      case "border":
+        drawBorder(ctx, el, plan.format);
         break;
     }
   }

@@ -8,17 +8,34 @@
  * generated creatives show up without a manual "Refresh" click — the
  * refetch-trigger gap called out as deferred work in
  * `CreativeLibrarySection.tsx`'s doc comment.
+ *
+ * Creative_Customization spec — Task 14.1 mounts `BrandKitLibrary` behind
+ * a new "Brand kits" tab alongside "Creatives" and "AI backgrounds"
+ * (design.md § BrandKitLibrary). The two pre-existing sections keep their
+ * behavior unchanged; the additive tab structure just gates their render.
+ * `BrandKitLibrary` is `React.lazy`-loaded so its dialogs/RLS-scoped
+ * queries stay out of the initial creatives bundle until the organizer
+ * clicks the tab.
  */
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
+import { useAuth } from "@/contexts/AuthContext";
+import { useOrg } from "@/contexts/OrgContext";
 import { normalizeConfig, type EventPageConfig } from "@/components/event/page-form/types";
 import CreativeLibrarySection from "@/components/event/creatives/CreativeLibrarySection";
 import CreativeGeneratorDialog from "@/components/event/creatives/CreativeGeneratorDialog";
 import BatchCreativeGeneratorDialog from "@/components/event/creatives/BatchCreativeGeneratorDialog";
 import AiBackgroundLibrary from "@/components/event/creatives/AiBackgroundLibrary";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+const BrandKitLibraryLazy = lazy(
+  () => import("@/components/event/creatives/BrandKitLibrary"),
+);
 
 export default function CreativesSection({ eventId }: { eventId: string }) {
+  const { user, isAdmin } = useAuth();
+  const { org } = useOrg();
   const [config, setConfig] = useState<EventPageConfig | null>(null);
   const [generatorOpen, setGeneratorOpen] = useState(false);
   const [batchSpeakerOpen, setBatchSpeakerOpen] = useState(false);
@@ -76,16 +93,50 @@ export default function CreativesSection({ eventId }: { eventId: string }) {
     );
   }
 
+  const currentOrgId = org?.id ?? null;
+  const isOrgOwner = Boolean(org && user && org.owner_id === user.id);
+
   return (
     <>
-      <CreativeLibrarySection
-        key={libraryKey}
-        eventId={eventId}
-        onGenerateClick={() => setGeneratorOpen(true)}
-        onBatchSpeakerClick={() => setBatchSpeakerOpen(true)}
-        onBatchSponsorClick={() => setBatchSponsorOpen(true)}
-      />
-      <AiBackgroundLibrary eventId={eventId} variant="peer" />
+      <Tabs defaultValue="creatives" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="creatives">Creatives</TabsTrigger>
+          <TabsTrigger value="ai-backgrounds">AI backgrounds</TabsTrigger>
+          <TabsTrigger value="brand-kits">Brand kits</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="creatives" className="space-y-4">
+          <CreativeLibrarySection
+            key={libraryKey}
+            eventId={eventId}
+            onGenerateClick={() => setGeneratorOpen(true)}
+            onBatchSpeakerClick={() => setBatchSpeakerOpen(true)}
+            onBatchSponsorClick={() => setBatchSponsorOpen(true)}
+          />
+        </TabsContent>
+
+        <TabsContent value="ai-backgrounds" className="space-y-4">
+          <AiBackgroundLibrary eventId={eventId} variant="peer" />
+        </TabsContent>
+
+        <TabsContent value="brand-kits" className="space-y-4">
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center py-16 text-[13px] text-muted-foreground">
+                Loading brand kits…
+              </div>
+            }
+          >
+            <BrandKitLibraryLazy
+              orgId={currentOrgId}
+              isOrgOwner={isOrgOwner}
+              isAdmin={isAdmin}
+              currentUserId={user?.id ?? ""}
+            />
+          </Suspense>
+        </TabsContent>
+      </Tabs>
+
       <CreativeGeneratorDialog
         open={generatorOpen}
         onOpenChange={closeAndRefresh(setGeneratorOpen)}
