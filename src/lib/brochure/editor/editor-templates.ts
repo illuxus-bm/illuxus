@@ -120,6 +120,22 @@ export function seedCorporateBoldFullBrochure(input: TemplateSeedInput): Brochur
 export const seedPosterBoldCover = seedPosterBoldFullBrochure;
 export const seedCorporateBoldCover = seedCorporateBoldFullBrochure;
 
+/** Classic seed — the only theme shipped after the mass theme trim.
+ *  Reuses the Poster_Bold full-brochure builder (portrait banner top,
+ *  abstract page, numbered list page) but with the Classic editorial
+ *  navy/gold palette. The organizer edits from here freely; Canva-
+ *  style presets and page sizes are available through the editor's
+ *  page properties panel. */
+export function seedClassicBrochure(input: TemplateSeedInput): BrochureDocument {
+  return seedPosterBoldFullBrochure({
+    ...input,
+    // Classic editorial defaults: navy accent, black title text on a
+    // white cover, gold as the secondary accent.
+    accentColor: input.accentColor ?? "#1e3a8a",
+    titleColor: input.titleColor ?? "#0a1429",
+  });
+}
+
 // ─── Cover page builders ───────────────────────────────────────────────────
 
 function buildPosterBoldCoverPage(

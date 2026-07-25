@@ -51,6 +51,18 @@ function loadImageForCanvas(url: string): Promise<HTMLImageElement | null> {
 }
 
 async function renderPageToImage(page: BrochurePage): Promise<HTMLCanvasElement> {
+  // Wait for every stylesheet-injected Google Font to finish shaping
+  // before we render a page — otherwise Konva may snapshot text at
+  // the fallback family (usually a plain sans-serif). This is what
+  // makes user-picked fonts survive the export path.
+  if (typeof document !== "undefined" && document.fonts?.ready) {
+    try {
+      await document.fonts.ready;
+    } catch {
+      // fonts.ready is best-effort; failure just means we render with
+      // whatever's currently loaded.
+    }
+  }
   // Container is off-DOM; Konva mounts into a real element but we
   // never attach it to the document so it stays invisible.
   const container = document.createElement("div");

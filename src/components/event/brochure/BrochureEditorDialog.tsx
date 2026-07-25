@@ -34,6 +34,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { X, Undo2, Redo2, Download, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 
+import { preloadAllEditorFonts } from "@/lib/brochure/editor/editor-fonts";
+
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { logger } from "@/lib/observability";
@@ -43,8 +45,9 @@ import BrochureEditorProperties from "@/lib/brochure/editor/BrochureEditorProper
 import BrochureEditorPalette from "@/lib/brochure/editor/BrochureEditorPalette";
 import BrochureEditorPages from "@/lib/brochure/editor/BrochureEditorPages";
 import {
-  seedPosterBoldFullBrochure,
+  seedClassicBrochure,
   seedCorporateBoldFullBrochure,
+  seedPosterBoldFullBrochure,
   type TemplateSeedInput,
 } from "@/lib/brochure/editor/editor-templates";
 import {
@@ -66,8 +69,12 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Which template to seed the document from on first open. Ignored
-   *  when `initialDocument` is provided. */
-  templateId: "poster-bold" | "corporate-bold";
+   *  when `initialDocument` is provided. `"classic"` is the only
+   *  supported id after the theme trim; the older `"poster-bold"` /
+   *  `"corporate-bold"` values are still accepted so previously saved
+   *  configurator selections don't break, and all route to the same
+   *  Classic seed. */
+  templateId: "classic" | "poster-bold" | "corporate-bold";
   seed: TemplateSeedInput;
   /** Load an existing document (from Supabase) instead of seeding from
    *  a template. `null` triggers the template seed. */
@@ -90,9 +97,12 @@ export default function BrochureEditorDialog({
   const initial = useMemo<BrochureDocument | null>(() => {
     if (initialDocument) return initialDocument;
     if (!open) return null;
-    return templateId === "corporate-bold"
-      ? seedCorporateBoldFullBrochure(seed)
-      : seedPosterBoldFullBrochure(seed);
+    // Route to the Classic seed for the classic id; keep the legacy
+    // Poster_Bold / Corporate_Bold seed callable so any previously
+    // saved template selection continues to open in the same layout.
+    if (templateId === "corporate-bold") return seedCorporateBoldFullBrochure(seed);
+    if (templateId === "poster-bold") return seedPosterBoldFullBrochure(seed);
+    return seedClassicBrochure(seed);
     // Only re-seed when the template or seed shape changes; ignore
     // `open` toggling so mid-session close→reopen keeps user edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,6 +129,14 @@ export default function BrochureEditorDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial, open]);
+
+  // Preload the curated Google Fonts catalog once per dialog open so
+  // subsequent picks in the font dropdown apply instantly on the
+  // canvas and appear correctly in the PDF export.
+  useEffect(() => {
+    if (!open) return;
+    void preloadAllEditorFonts();
+  }, [open]);
 
   const setDoc = useCallback(
     (next: BrochureDocument) => history.set(next),

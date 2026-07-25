@@ -555,32 +555,26 @@ export default function BrochureConfiguratorDialog({
           <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
             {/* LEFT — settings (scrollable) */}
             <div className="overflow-y-auto px-5 py-4 space-y-5 md:border-r border-border min-h-0">
-              {/* BROCHURE THEME */}
+              {/* BROCHURE THEME — single-theme world; retained as an
+                  info card that surfaces the theme name and description
+                  without asking the organizer to pick one. Every look
+                  the Poster_Bold / Corporate_Bold themes produced is
+                  reachable through the editor from the Classic seed. */}
               <section>
                 <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">
                   Brochure theme
                 </Label>
-                <RadioGroup
-                  value={selectedTheme.id}
-                  onValueChange={(v) => {
-                    const theme = BROCHURE_THEMES.find((t) => t.id === v);
-                    if (theme) setSelectedTheme(theme);
-                  }}
-                  className="grid grid-cols-1 gap-2"
-                >
-                  {BROCHURE_THEMES.map((theme) => (
-                    <label
-                      key={theme.id}
-                      className={`border rounded-lg px-3 py-2 cursor-pointer transition-colors ${
-                        selectedTheme.id === theme.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
-                      }`}
-                    >
-                      <RadioGroupItem value={theme.id} className="sr-only" />
-                      <div className="text-[13px] font-medium leading-tight">{theme.name}</div>
-                      <div className="text-[11px] text-muted-foreground leading-tight">{theme.description}</div>
-                    </label>
-                  ))}
-                </RadioGroup>
+                <div className="border border-border rounded-lg px-3 py-2 bg-muted/30">
+                  <div className="text-[13px] font-medium leading-tight">
+                    {selectedTheme.name}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                    {selectedTheme.description}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground/80 mt-1.5">
+                    Any custom look — fonts, colors, layout — is available in the editor.
+                  </div>
+                </div>
               </section>
 
               {/* COLOR / FONT OVERRIDES */}
@@ -717,18 +711,16 @@ export default function BrochureConfiguratorDialog({
             <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            {(selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold") && (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => setEditorOpen(true)}
-                disabled={loading}
-                className="gap-1.5"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                Open in Editor
-              </Button>
-            )}
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setEditorOpen(true)}
+              disabled={loading}
+              className="gap-1.5"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Open in Editor
+            </Button>
             <Button size="sm" onClick={handleGenerate} disabled={loading || isGenerating} className="gap-1.5">
               {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
               Download brochure
@@ -741,11 +733,13 @@ export default function BrochureConfiguratorDialog({
           theme seeded as a live document. Save flows back through
           `onConfigChange` so the parent persists to Supabase via
           `events.page_config.brochurePrefs.editorDocument`. */}
-      {editorOpen && event && (selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold") && (
+      {editorOpen && event && (
         <BrochureEditorDialog
           open={editorOpen}
           onOpenChange={setEditorOpen}
-          templateId={selectedTheme.id}
+          // Only "classic" ships now; the editor's template seed dispatch
+          // routes anything unrecognized to the Classic seed anyway.
+          templateId="classic"
           seed={{
             eventTitle: event.title,
             dateText: (() => {

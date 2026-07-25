@@ -146,6 +146,15 @@ export const BROCHURE_THEMES: BrochureTheme[] = [
       fontFamily: "Playfair Display",
     },
   },
+  // Themes below (Modern Minimal, Bold Conference, Corporate Bold,
+  // Poster Bold) were removed — Classic is the only shipped theme now.
+  // The editor lets an organizer produce any of those looks by
+  // starting from the Classic template and editing freely.
+  //
+  // Retained the removed entries as inline comments so the diff
+  // history is easy to trace; if you need one back, the shape is
+  // stable and you can lift it out of git.
+  /* removed themes were:
   {
     id: "modern-minimal",
     name: "Modern Minimal",
@@ -285,6 +294,7 @@ export const BROCHURE_THEMES: BrochureTheme[] = [
       fontFamily: "Poppins",
     },
   },
+  */
 ];
 
 /** Returns the code-defined Brochure_Theme registry. Exposed as a function
@@ -443,18 +453,17 @@ export interface SectionLayoutEntry {
 
 export type SectionLayout = SectionLayoutEntry[];
 
+/** Section layout for the Classic theme. Only the five core sections
+ *  ship as visible entries — the Poster_Bold / Corporate_Bold-specific
+ *  section ids (`abstract`, `whySponsor`, `pricing`, `focusOfSummit`,
+ *  `whoShouldAttend`, `solutionProviders`, `highlights`) are omitted
+ *  since only Classic renders them via the editor, and the editor
+ *  works on a flat page-list model rather than section toggles. */
 export const DEFAULT_SECTION_LAYOUT: SectionLayout = [
   { id: "cover", included: true },
-  { id: "abstract", included: false },
-  { id: "focusOfSummit", included: false },
-  { id: "whoShouldAttend", included: false },
-  { id: "solutionProviders", included: false },
-  { id: "highlights", included: false },
-  { id: "whySponsor", included: false },
   { id: "agenda", included: true },
   { id: "speakers", included: true },
   { id: "sponsors", included: true },
-  { id: "pricing", included: false },
   { id: "venueLogistics", included: true },
 ];
 

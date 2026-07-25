@@ -13,6 +13,9 @@
  * element" empty state and page-level controls (page background
  * picker).
  */
+import { useRef } from "react";
+import { Upload } from "lucide-react";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -31,6 +34,8 @@ import {
   type ShapeElement,
   type TextElement,
 } from "./editor-document";
+import { EDITOR_FONTS, ensureFontLoaded } from "./editor-fonts";
+import { PAGE_SIZE_PRESETS, findPresetMatch } from "./editor-page-sizes";
 
 interface Props {
   document: BrochureDocument;
@@ -82,7 +87,19 @@ export default function BrochureEditorProperties({
           />
         ) : (
           <PageProperties
+            widthMm={page?.width ?? 210}
+            heightMm={page?.height ?? 297}
             background={page?.background ?? { type: "solid", color: "#ffffff" }}
+            onChangeSize={(width, height) => {
+              if (!page) return;
+              onChange({
+                ...doc,
+                pages: doc.pages.map((p) =>
+                  p.id === page.id ? { ...p, width, height } : p
+                ),
+                updatedAt: new Date().toISOString(),
+              });
+            }}
             onChangeBackground={patchPageBackground}
           />
         )}
@@ -181,6 +198,27 @@ function GeometryFields({
 }
 
 function TextFields({ el, onChange }: { el: TextElement; onChange: (p: Partial<TextElement>) => void }) {
+  // Group the curated font catalog by category for a nicer dropdown.
+  const fontGroups = EDITOR_FONTS.reduce<Record<string, typeof EDITOR_FONTS>>((acc, f) => {
+    if (!acc[f.category]) acc[f.category] = [];
+    acc[f.category].push(f);
+    return acc;
+  }, {});
+  const categoryOrder: Array<keyof typeof fontGroups> = [
+    "sans-serif",
+    "serif",
+    "display",
+    "handwriting",
+    "monospace",
+  ];
+  const categoryLabels: Record<string, string> = {
+    "sans-serif": "Sans-serif",
+    serif: "Serif",
+    display: "Display",
+    handwriting: "Handwriting",
+    monospace: "Monospace",
+  };
+
   return (
     <div className="space-y-2">
       <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Text</Label>
@@ -192,11 +230,39 @@ function TextFields({ el, onChange }: { el: TextElement; onChange: (p: Partial<T
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
           <Label className="text-[10px]">Font family</Label>
-          <Input
+          <Select
             value={el.fontFamily}
-            onChange={(e) => onChange({ fontFamily: e.target.value })}
-            className="h-8 text-[12px]"
-          />
+            onValueChange={(v) => {
+              onChange({ fontFamily: v });
+              // Fire-and-forget: inject the Google Fonts stylesheet
+              // for the newly-picked family so Konva picks up the
+              // correct glyphs. Failure is silent — CSS falls back
+              // to the family's category default.
+              void ensureFontLoaded(v);
+            }}
+          >
+            <SelectTrigger className="h-8 text-[12px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="max-h-[320px]">
+              {categoryOrder.map((cat) => {
+                const items = fontGroups[cat] ?? [];
+                if (items.length === 0) return null;
+                return (
+                  <div key={cat}>
+                    <div className="text-[9px] uppercase tracking-wider text-muted-foreground px-2 pt-2 pb-1">
+                      {categoryLabels[cat]}
+                    </div>
+                    {items.map((f) => (
+                      <SelectItem key={f.family} value={f.family}>
+                        <span style={{ fontFamily: `"${f.family}", sans-serif` }}>{f.family}</span>
+                      </SelectItem>
+                    ))}
+                  </div>
+                );
+              })}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-1">
           <Label className="text-[10px]">Font size (pt)</Label>
@@ -240,18 +306,78 @@ function TextFields({ el, onChange }: { el: TextElement; onChange: (p: Partial<T
 }
 
 function ImageFields({ el, onChange }: { el: ImageElement; onChange: (p: Partial<ImageElement>) => void }) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  /** Reads a local file and sets the element's src to the resulting
+   *  data URL. Data URLs are inline in the document JSON, so
+   *  persisting the brochure through Supabase carries the uploaded
+   *  image with it — no separate storage bucket required for the
+   *  MVP. Payload size caps at ~5 MB per image before the base64
+   *  encoding starts feeling slow in the editor; the file input's
+   *  `onChange` refuses larger files with a friendly toast. */
+  const handleFile = (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+    if (file.size > 5 * 1024 * 1024) return; // 5 MB cap
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = typeof reader.result === "string" ? reader.result : "";
+      if (url) onChange({ src: url });
+    };
+    reader.readAsDataURL(file);
+  };
+
   return (
     <div className="space-y-2">
       <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Image</Label>
+
+      {/* Upload from device */}
       <div className="space-y-1">
-        <Label className="text-[10px]">URL</Label>
+        <Label className="text-[10px]">Upload from device</Label>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0] ?? null;
+            handleFile(file);
+            // Reset the input so choosing the same file twice still
+            // fires the change handler.
+            if (fileInputRef.current) fileInputRef.current.value = "";
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full h-8 gap-1.5 text-[12px]"
+        >
+          <Upload className="h-3.5 w-3.5" />
+          Choose image…
+        </Button>
+        <p className="text-[10px] text-muted-foreground/80">
+          Max 5 MB. Uploaded images embed in the document and survive save/load.
+        </p>
+      </div>
+
+      {/* Or paste URL */}
+      <div className="space-y-1">
+        <Label className="text-[10px]">Or paste URL</Label>
         <Input
-          value={el.src}
+          value={el.src.startsWith("data:") ? "" : el.src}
           onChange={(e) => onChange({ src: e.target.value })}
           placeholder="https://…"
           className="h-8 text-[12px]"
         />
+        {el.src.startsWith("data:") && (
+          <p className="text-[10px] text-muted-foreground/80">
+            (Currently using an uploaded image; paste a URL to replace it.)
+          </p>
+        )}
       </div>
+
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
           <Label className="text-[10px]">Fit</Label>
@@ -361,12 +487,34 @@ function PillFields({ el, onChange }: { el: PillElement; onChange: (p: Partial<P
 // ─── Page-level editor (shown when nothing is selected) ────────────────────
 
 function PageProperties({
+  widthMm,
+  heightMm,
   background,
+  onChangeSize,
   onChangeBackground,
 }: {
+  widthMm: number;
+  heightMm: number;
   background: PageBackground;
+  onChangeSize: (widthMm: number, heightMm: number) => void;
   onChangeBackground: (bg: PageBackground) => void;
 }) {
+  const presetId = findPresetMatch(widthMm, heightMm);
+  // Group presets by category for the dropdown.
+  const groupOrder: Array<"Print" | "Presentation" | "Social" | "Web"> = [
+    "Print",
+    "Presentation",
+    "Social",
+    "Web",
+  ];
+  const grouped = PAGE_SIZE_PRESETS.reduce<Record<string, typeof PAGE_SIZE_PRESETS>>(
+    (acc, p) => {
+      if (!acc[p.group]) acc[p.group] = [];
+      acc[p.group].push(p);
+      return acc;
+    },
+    {}
+  );
   return (
     <div className="space-y-4">
       <div>
@@ -374,9 +522,76 @@ function PageProperties({
           Nothing selected
         </Label>
         <p className="text-[11px] text-muted-foreground mt-1">
-          Click an element on the canvas to edit it, or change the page background below.
+          Click an element on the canvas to edit it. Adjust the page size and background below.
         </p>
       </div>
+
+      {/* Page size presets */}
+      <div className="space-y-2">
+        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Page size
+        </Label>
+        <Select
+          value={presetId}
+          onValueChange={(v) => {
+            if (v === "custom") return;
+            const preset = PAGE_SIZE_PRESETS.find((p) => p.id === v);
+            if (preset) onChangeSize(preset.widthMm, preset.heightMm);
+          }}
+        >
+          <SelectTrigger className="h-8 text-[12px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="max-h-[360px]">
+            <SelectItem value="custom">Custom ({Math.round(widthMm * 10) / 10} × {Math.round(heightMm * 10) / 10} mm)</SelectItem>
+            {groupOrder.map((group) => {
+              const items = grouped[group] ?? [];
+              if (items.length === 0) return null;
+              return (
+                <div key={group}>
+                  <div className="text-[9px] uppercase tracking-wider text-muted-foreground px-2 pt-2 pb-1">
+                    {group}
+                  </div>
+                  {items.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </div>
+              );
+            })}
+          </SelectContent>
+        </Select>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <Label className="text-[10px]">Width (mm)</Label>
+            <Input
+              type="number"
+              step={1}
+              value={Math.round(widthMm * 10) / 10}
+              onChange={(e) => {
+                const n = Number.parseFloat(e.target.value);
+                if (Number.isFinite(n) && n >= 10 && n <= 2000) onChangeSize(n, heightMm);
+              }}
+              className="h-8 text-[12px]"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px]">Height (mm)</Label>
+            <Input
+              type="number"
+              step={1}
+              value={Math.round(heightMm * 10) / 10}
+              onChange={(e) => {
+                const n = Number.parseFloat(e.target.value);
+                if (Number.isFinite(n) && n >= 10 && n <= 2000) onChangeSize(widthMm, n);
+              }}
+              className="h-8 text-[12px]"
+            />
+          </div>
+        </div>
+      </div>
+
       <div className="space-y-2">
         <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
           Page background

@@ -103,7 +103,10 @@ describe("generateBrochurePdf (smoke)", () => {
       speakers: [],
       sponsors: [],
       venueLogistics: {},
-      theme: BROCHURE_THEMES[1],
+      // Only one theme ships now (Classic). Was `BROCHURE_THEMES[1]`
+      // when the registry had five themes; kept using index 0 after
+      // the trim.
+      theme: BROCHURE_THEMES[0],
       eventTheme: {},
       sectionLayout: DEFAULT_SECTION_LAYOUT,
       onProgress,
