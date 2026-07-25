@@ -26,7 +26,6 @@ import useImage from "use-image";
 import {
   mmToPx,
   ptToPx,
-  pxToMm,
   fitPageToViewport,
   SCREEN_DPI,
 } from "./editor-units";
@@ -235,11 +234,13 @@ function ElementNode(props: ElementNodeProps) {
   const wPx = element.width * scale;
   const hPx = element.height * scale;
 
+  // `scale` = canvas-px per document-mm (already includes fit-to-viewport
+  // zoom). Drag / resize commits divide by `scale` to go back to mm.
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
     const node = e.target;
     onGeometryCommit({
-      x: pxToMm(node.x() / scale * mmToPx(1, SCREEN_DPI), SCREEN_DPI),
-      y: pxToMm(node.y() / scale * mmToPx(1, SCREEN_DPI), SCREEN_DPI),
+      x: node.x() / scale,
+      y: node.y() / scale,
     });
   };
 
@@ -248,17 +249,15 @@ function ElementNode(props: ElementNodeProps) {
     if (!node) return;
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
-    // Reset internal Konva scale — we bake it into the width/height
-    // instead so subsequent transforms compose correctly.
+    // Reset internal Konva scale — we bake it into width/height so
+    // subsequent transforms compose correctly.
     node.scaleX(1);
     node.scaleY(1);
-    const newWmm = pxToMm((wPx * scaleX) / scale * mmToPx(1, SCREEN_DPI), SCREEN_DPI);
-    const newHmm = pxToMm((hPx * scaleY) / scale * mmToPx(1, SCREEN_DPI), SCREEN_DPI);
     onGeometryCommit({
-      x: pxToMm(node.x() / scale * mmToPx(1, SCREEN_DPI), SCREEN_DPI),
-      y: pxToMm(node.y() / scale * mmToPx(1, SCREEN_DPI), SCREEN_DPI),
-      width: Math.max(4, newWmm),
-      height: Math.max(4, newHmm),
+      x: node.x() / scale,
+      y: node.y() / scale,
+      width: Math.max(4, (wPx * scaleX) / scale),
+      height: Math.max(4, (hPx * scaleY) / scale),
       rotation: node.rotation(),
     });
   };

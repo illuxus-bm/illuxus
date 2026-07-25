@@ -1,111 +1,418 @@
 /**
- * BrochureEditorDialog — Phase 1 of the WYSIWYG brochure editor.
+ * BrochureEditorDialog — the WYSIWYG brochure editor.
  *
- * Opens as a large dialog with:
- *  - Centre: the interactive Konva canvas (`BrochureEditorCanvas`)
- *    rendering the active page.
- *  - Right: a properties panel (`BrochureEditorProperties`) for the
- *    currently-selected element (or page-level fields when nothing is
- *    selected).
- *  - Top: a small toolbar showing the document title and a Close
- *    button. Undo/redo, add-element palette, page management, and PDF
- *    export live in later phases.
+ * Layout:
+ *   ┌────────────────────────────────────────────────┐
+ *   │  Toolbar (title, undo, redo, export)           │
+ *   ├───┬────────────────────────────┬───────────────┤
+ *   │ P │        Canvas              │  Properties   │
+ *   │ a │                            │               │
+ *   │ l │                            │               │
+ *   │ e │                            │               │
+ *   │ t │                            │               │
+ *   │ t │                            │               │
+ *   │ e │                            │               │
+ *   ├───┴────────────────────────────┴───────────────┤
+ *   │  Page thumbnails + add / duplicate / delete    │
+ *   └────────────────────────────────────────────────┘
  *
- * Phase 1 loads a document from a template preset the first time the
- * dialog opens (Poster Bold cover for now). Edits are in-memory only —
- * closing the dialog discards them unless the caller supplies an
- * `onDocumentPersist` prop (Phase 2 wires this to Supabase).
+ * Loads a document from the chosen template seed on first open,
+ * maintains an undo/redo history stack, and offers global keyboard
+ * shortcuts:
+ *   - Delete / Backspace  — delete the selected element
+ *   - Cmd/Ctrl-Z          — undo
+ *   - Cmd/Ctrl-Shift-Z    — redo (also Cmd/Ctrl-Y)
+ *   - Cmd/Ctrl-D          — duplicate the selected element
+ *   - Arrow keys          — nudge selected element by 1 mm (10 mm with Shift)
+ *
+ * Export renders each page to a Konva canvas at print DPI and stamps
+ * into a jsPDF, then triggers a browser download. Save persists the
+ * document JSON via `onSaveDocument` (owned by the parent, which
+ * writes to `events.page_config.brochureDocument`).
  */
-import { useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { X, Undo2, Redo2, Download, Loader2, Save } from "lucide-react";
+import { toast } from "sonner";
 
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { logger } from "@/lib/observability";
 
 import BrochureEditorCanvas from "@/lib/brochure/editor/BrochureEditorCanvas";
 import BrochureEditorProperties from "@/lib/brochure/editor/BrochureEditorProperties";
-import { seedPosterBoldCover, seedCorporateBoldCover, type TemplateSeedInput } from "@/lib/brochure/editor/editor-templates";
-import type { BrochureDocument } from "@/lib/brochure/editor/editor-document";
+import BrochureEditorPalette from "@/lib/brochure/editor/BrochureEditorPalette";
+import BrochureEditorPages from "@/lib/brochure/editor/BrochureEditorPages";
+import {
+  seedPosterBoldFullBrochure,
+  seedCorporateBoldFullBrochure,
+  type TemplateSeedInput,
+} from "@/lib/brochure/editor/editor-templates";
+import {
+  addElement,
+  addPage,
+  findElement,
+  generateId,
+  newPage,
+  removePage,
+  updateElement,
+  type BrochureDocument,
+  type BrochureElement,
+  type BrochurePage,
+} from "@/lib/brochure/editor/editor-document";
+import { useHistory } from "@/lib/brochure/editor/editor-history";
+import { downloadDocumentAsPdf } from "@/lib/brochure/editor/editor-pdf";
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Which template to seed the document from on first open. */
+  /** Which template to seed the document from on first open. Ignored
+   *  when `initialDocument` is provided. */
   templateId: "poster-bold" | "corporate-bold";
   seed: TemplateSeedInput;
+  /** Load an existing document (from Supabase) instead of seeding from
+   *  a template. `null` triggers the template seed. */
+  initialDocument?: BrochureDocument | null;
+  /** Called when the user clicks Save. Parent persists to Supabase and
+   *  can return a Promise for a spinner. */
+  onSaveDocument?: (doc: BrochureDocument) => Promise<void> | void;
 }
 
-export default function BrochureEditorDialog({ open, onOpenChange, templateId, seed }: Props) {
-  const [doc, setDoc] = useState<BrochureDocument | null>(null);
-  const [activePageId, setActivePageId] = useState<string | null>(null);
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+export default function BrochureEditorDialog({
+  open,
+  onOpenChange,
+  templateId,
+  seed,
+  initialDocument,
+  onSaveDocument,
+}: Props) {
+  // Initial document is computed once when the dialog first opens.
+  // Re-opening resets to a fresh copy so switching templates works.
+  const initial = useMemo<BrochureDocument | null>(() => {
+    if (initialDocument) return initialDocument;
+    if (!open) return null;
+    return templateId === "corporate-bold"
+      ? seedCorporateBoldFullBrochure(seed)
+      : seedPosterBoldFullBrochure(seed);
+    // Only re-seed when the template or seed shape changes; ignore
+    // `open` toggling so mid-session close→reopen keeps user edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateId, seed.eventTitle, seed.coverImageUrl, seed.logoUrl, seed.organizerLogoUrl, initialDocument]);
 
-  // Seed the document the first time the dialog opens for this template.
-  const templateKey = useMemo(() => `${templateId}:${seed.eventTitle}`, [templateId, seed.eventTitle]);
+  const history = useHistory<BrochureDocument | null>(initial);
+  const doc = history.value;
+
+  const [activePageId, setActivePageId] = useState<string | null>(
+    initial?.pages[0]?.id ?? null
+  );
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // On template swap (or first mount), reset the history and select
+  // the first page.
   useEffect(() => {
     if (!open) return;
-    if (doc) return;
-    const seeded =
-      templateId === "corporate-bold" ? seedCorporateBoldCover(seed) : seedPosterBoldCover(seed);
-    setDoc(seeded);
-    setActivePageId(seeded.pages[0].id);
-    setSelectedElementId(null);
+    if (initial) {
+      history.reset(initial);
+      setActivePageId(initial.pages[0]?.id ?? null);
+      setSelectedElementId(null);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, templateKey]);
+  }, [initial, open]);
 
-  // When the dialog closes, wipe local state so re-opening starts
-  // fresh. Once persistence lands (Phase 2), replace this with a load
-  // from Supabase.
-  useEffect(() => {
-    if (open) return;
-    setDoc(null);
-    setActivePageId(null);
+  const setDoc = useCallback(
+    (next: BrochureDocument) => history.set(next),
+    [history]
+  );
+
+  // ─── Element mutations ──────────────────────────────────────────────────
+  const handleAddElement = useCallback(
+    (element: BrochureElement) => {
+      if (!doc || !activePageId) return;
+      const next = addElement(doc, activePageId, element);
+      setDoc(next);
+      // Find the just-added element (last one in the target page) so we
+      // can select it after commit.
+      const page = next.pages.find((p) => p.id === activePageId);
+      const last = page?.elements[page.elements.length - 1];
+      if (last) setSelectedElementId(last.id);
+    },
+    [doc, activePageId, setDoc]
+  );
+
+  const handleDuplicateSelected = useCallback(() => {
+    if (!doc || !activePageId || !selectedElementId) return;
+    const el = findElement(doc, activePageId, selectedElementId);
+    if (!el) return;
+    // Clone with a new id and offset the position slightly so the
+    // duplicate is visually distinct.
+    const clone: BrochureElement = {
+      ...el,
+      id: generateId(el.kind),
+      x: el.x + 4,
+      y: el.y + 4,
+    } as BrochureElement;
+    handleAddElement(clone);
+  }, [doc, activePageId, selectedElementId, handleAddElement]);
+
+  const handleDeleteSelected = useCallback(() => {
+    if (!doc || !activePageId || !selectedElementId) return;
+    setDoc({
+      ...doc,
+      pages: doc.pages.map((p) =>
+        p.id === activePageId
+          ? { ...p, elements: p.elements.filter((el) => el.id !== selectedElementId) }
+          : p
+      ),
+      updatedAt: new Date().toISOString(),
+    });
     setSelectedElementId(null);
-  }, [open]);
+  }, [doc, activePageId, selectedElementId, setDoc]);
+
+  const nudgeSelected = useCallback(
+    (dx: number, dy: number) => {
+      if (!doc || !activePageId || !selectedElementId) return;
+      const el = findElement(doc, activePageId, selectedElementId);
+      if (!el) return;
+      setDoc(updateElement(doc, activePageId, selectedElementId, {
+        x: el.x + dx,
+        y: el.y + dy,
+      }));
+    },
+    [doc, activePageId, selectedElementId, setDoc]
+  );
+
+  // ─── Page mutations ─────────────────────────────────────────────────────
+  const handleAddPage = useCallback(() => {
+    if (!doc) return;
+    const page = newPage();
+    const next = addPage(doc, page);
+    setDoc(next);
+    setActivePageId(page.id);
+    setSelectedElementId(null);
+  }, [doc, setDoc]);
+
+  const handleDuplicatePage = useCallback(
+    (pageId: string) => {
+      if (!doc) return;
+      const source = doc.pages.find((p) => p.id === pageId);
+      if (!source) return;
+      const cloned: BrochurePage = {
+        ...source,
+        id: generateId("page"),
+        // Each element also needs a fresh id so selecting the clone
+        // doesn't select the original.
+        elements: source.elements.map((el) => ({
+          ...el,
+          id: generateId(el.kind),
+        } as BrochureElement)),
+      };
+      setDoc(addPage(doc, cloned));
+      setActivePageId(cloned.id);
+      setSelectedElementId(null);
+    },
+    [doc, setDoc]
+  );
+
+  const handleDeletePage = useCallback(
+    (pageId: string) => {
+      if (!doc) return;
+      const next = removePage(doc, pageId);
+      setDoc(next);
+      // If the removed page was active, fall back to the first
+      // remaining page.
+      if (pageId === activePageId) {
+        setActivePageId(next.pages[0]?.id ?? null);
+      }
+      setSelectedElementId(null);
+    },
+    [doc, activePageId, setDoc]
+  );
+
+  // ─── Global keyboard shortcuts ──────────────────────────────────────────
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      const isTypingElement =
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable);
+      if (isTypingElement) return;
+
+      const isMeta = e.metaKey || e.ctrlKey;
+
+      if (isMeta && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        history.undo();
+      } else if (
+        (isMeta && e.shiftKey && e.key.toLowerCase() === "z") ||
+        (isMeta && e.key.toLowerCase() === "y")
+      ) {
+        e.preventDefault();
+        history.redo();
+      } else if (isMeta && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        handleDuplicateSelected();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedElementId) {
+          e.preventDefault();
+          handleDeleteSelected();
+        }
+      } else if (e.key.startsWith("Arrow")) {
+        if (!selectedElementId) return;
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        if (e.key === "ArrowLeft") nudgeSelected(-step, 0);
+        else if (e.key === "ArrowRight") nudgeSelected(step, 0);
+        else if (e.key === "ArrowUp") nudgeSelected(0, -step);
+        else if (e.key === "ArrowDown") nudgeSelected(0, step);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, history, selectedElementId, handleDuplicateSelected, handleDeleteSelected, nudgeSelected]);
+
+  // ─── Export / save ──────────────────────────────────────────────────────
+  const handleExport = useCallback(async () => {
+    if (!doc) return;
+    setIsExporting(true);
+    try {
+      const filename = `${(doc.title || "brochure").toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}.pdf`;
+      await downloadDocumentAsPdf(doc, filename);
+      toast.success("Brochure exported");
+    } catch (err) {
+      logger.error("brochure editor export failed", {
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+      toast.error("Export failed", {
+        description: err instanceof Error ? err.message : "Unknown error.",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  }, [doc]);
+
+  const handleSave = useCallback(async () => {
+    if (!doc || !onSaveDocument) return;
+    setIsSaving(true);
+    try {
+      await onSaveDocument(doc);
+      toast.success("Brochure saved");
+    } catch (err) {
+      logger.error("brochure editor save failed", {
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+      toast.error("Save failed", {
+        description: err instanceof Error ? err.message : "Unknown error.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [doc, onSaveDocument]);
+
+  const activePage = useMemo(
+    () => (doc && activePageId ? doc.pages.find((p) => p.id === activePageId) : null),
+    [doc, activePageId]
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[96vw] w-[96vw] h-[92vh] p-0 gap-0 flex flex-col overflow-hidden">
+      <DialogContent className="max-w-[98vw] w-[98vw] h-[95vh] p-0 gap-0 flex flex-col overflow-hidden">
         {/* Toolbar */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0 bg-background">
           <div className="flex items-center gap-3">
-            <span className="text-[13px] font-semibold">
-              Brochure editor
-            </span>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[13px] font-semibold">Brochure editor</span>
+            <span className="text-[11px] text-muted-foreground truncate max-w-[300px]">
               {doc?.title ?? "Loading…"}
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-muted-foreground hidden md:inline">
-              Click to select · Drag handles to resize · Drag element to move
-            </span>
-            <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)} className="h-7 w-7 p-0">
+          <div className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={history.undo}
+              disabled={!history.canUndo}
+              className="h-8 w-8 p-0"
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={history.redo}
+              disabled={!history.canRedo}
+              className="h-8 w-8 p-0"
+              title="Redo (Ctrl+Shift+Z)"
+            >
+              <Redo2 className="h-3.5 w-3.5" />
+            </Button>
+            <div className="w-px h-6 bg-border mx-1" />
+            {onSaveDocument && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSave}
+                disabled={isSaving || !doc}
+                className="h-8 gap-1.5 text-[12px]"
+              >
+                {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                Save
+              </Button>
+            )}
+            <Button
+              size="sm"
+              onClick={handleExport}
+              disabled={isExporting || !doc}
+              className="h-8 gap-1.5 text-[12px]"
+            >
+              {isExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              Export PDF
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)} className="h-8 w-8 p-0">
               <X className="h-4 w-4" />
             </Button>
           </div>
         </div>
 
         {/* Main workspace */}
-        {doc && activePageId ? (
-          <div className="flex-1 min-h-0 flex">
-            <div className="flex-1 min-w-0 relative">
-              <BrochureEditorCanvas
+        {doc && activePageId && activePage ? (
+          <>
+            <div className="flex-1 min-h-0 flex">
+              <BrochureEditorPalette
+                pageWidth={activePage.width}
+                pageHeight={activePage.height}
+                onAddElement={handleAddElement}
+              />
+              <div className="flex-1 min-w-0 relative">
+                <BrochureEditorCanvas
+                  document={doc}
+                  onChange={setDoc}
+                  activePageId={activePageId}
+                  selectedElementId={selectedElementId}
+                  onSelect={setSelectedElementId}
+                />
+              </div>
+              <BrochureEditorProperties
                 document={doc}
-                onChange={setDoc}
                 activePageId={activePageId}
                 selectedElementId={selectedElementId}
+                onChange={setDoc}
                 onSelect={setSelectedElementId}
               />
             </div>
-            <BrochureEditorProperties
+            <BrochureEditorPages
               document={doc}
               activePageId={activePageId}
-              selectedElementId={selectedElementId}
-              onChange={setDoc}
-              onSelect={setSelectedElementId}
+              onSelectPage={(id) => {
+                setActivePageId(id);
+                setSelectedElementId(null);
+              }}
+              onAddPage={handleAddPage}
+              onDuplicatePage={handleDuplicatePage}
+              onDeletePage={handleDeletePage}
             />
-          </div>
+          </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-[13px] text-muted-foreground">
             Loading template…

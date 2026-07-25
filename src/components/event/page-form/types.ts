@@ -374,6 +374,21 @@ export interface EventPageConfig {
       whatYouWillGainTitle?: string;
       whatYouWillGainItems?: string[];
     };
+    /**
+     * Serialized WYSIWYG editor document. When present, the editor
+     * opens this document verbatim on the next dialog open (skipping
+     * the template seed). Format is `Brochure_Document` from
+     * `src/lib/brochure/editor/editor-document.ts`; typed loosely
+     * here to avoid this low-level page-form module depending on the
+     * editor's runtime module.
+     */
+    editorDocument?: {
+      id: string;
+      title: string;
+      pages: unknown[];
+      createdAt: string;
+      updatedAt: string;
+    };
   };
 }
 

@@ -731,8 +731,9 @@ export default function BrochureConfiguratorDialog({
       </DialogContent>
 
       {/* WYSIWYG editor — opens as a separate dialog with the current
-          theme seeded as a live document. Persists in memory only for
-          Phase 1; Supabase persistence lands in Phase 2. */}
+          theme seeded as a live document. Save flows back through
+          `onConfigChange` so the parent persists to Supabase via
+          `events.page_config.brochurePrefs.editorDocument`. */}
       {editorOpen && event && (selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold") && (
         <BrochureEditorDialog
           open={editorOpen}
@@ -754,6 +755,36 @@ export default function BrochureConfiguratorDialog({
             organizerLogoUrl: posterContent.organizerLogoUrl,
             coverTagline: posterContent.coverTagline,
             coverPills: posterContent.coverPills,
+            abstract: posterContent.abstract,
+            featured: posterContent.featured,
+            learningOutcomes: posterContent.learningOutcomes,
+            numberedItems:
+              selectedTheme.id === "corporate-bold"
+                ? posterContent.focusOfSummit
+                : posterContent.whySponsor,
+          }}
+          initialDocument={
+            eventPageConfig.brochurePrefs?.editorDocument
+              ? (eventPageConfig.brochurePrefs.editorDocument as unknown as import("@/lib/brochure/editor/editor-document").BrochureDocument)
+              : null
+          }
+          onSaveDocument={async (doc) => {
+            // Persist through the existing page-config path so autosave
+            // reuses the same debounced update pipeline the rest of the
+            // dialog uses.
+            onConfigChange({
+              ...eventPageConfig,
+              brochurePrefs: {
+                ...(eventPageConfig.brochurePrefs ?? {}),
+                editorDocument: {
+                  id: doc.id,
+                  title: doc.title,
+                  pages: doc.pages as unknown[],
+                  createdAt: doc.createdAt,
+                  updatedAt: doc.updatedAt,
+                },
+              },
+            });
           }}
         />
       )}
