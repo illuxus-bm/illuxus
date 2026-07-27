@@ -391,14 +391,10 @@ export default function EventRsvpCard({
               <div className="text-[12.5px] text-muted-foreground mt-0.5">
                 Your registration is subject to host approval.
               </div>
-              {hasCapacity && remaining !== null && remaining > 0 && (
-                <div className="text-[11.5px] font-medium text-foreground/80 mt-1.5">
-                  {remaining} {remaining === 1 ? "spot" : "spots"} left
-                  <span className="text-muted-foreground font-normal">
-                    {" "}· {goingCount}/{event.capacity} registered
-                  </span>
-                </div>
-              )}
+              {/* Capacity / spots-left indicator intentionally removed —
+                  organizers asked us not to surface remaining-seats
+                  numbers to public attendees. Capacity is still enforced
+                  server-side; it just isn't advertised. */}
             </div>
           </div>
         )}
@@ -414,15 +410,10 @@ export default function EventRsvpCard({
               <div className="text-[12.5px] text-muted-foreground mt-0.5">
                 Welcome! To join the event, please register below.
               </div>
-              {/* Capacity indicator — only when the organizer set a hard cap. */}
-              {hasCapacity && remaining !== null && remaining > 0 && (
-                <div className="text-[11.5px] font-medium text-foreground/80 mt-1.5">
-                  {remaining} {remaining === 1 ? "ticket" : "tickets"} left
-                  <span className="text-muted-foreground font-normal">
-                    {" "}· {goingCount}/{event.capacity} registered
-                  </span>
-                </div>
-              )}
+              {/* Capacity / tickets-left indicator intentionally removed —
+                  organizers asked us not to surface remaining-seats
+                  numbers to public attendees. Capacity is still enforced
+                  server-side; it just isn't advertised. */}
             </div>
           </div>
         )}

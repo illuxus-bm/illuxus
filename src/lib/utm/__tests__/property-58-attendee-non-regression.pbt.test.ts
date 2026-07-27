@@ -42,7 +42,16 @@ import { resolve } from "node:path";
 const ATTENDEE_FILES = [
   {
     path: "src/components/EventRsvpCard.tsx",
-    hash: "13f02d8950080841e21622f5c060112b9ec95efe815a583e693cd19cf9214d18",
+    // Bumped after removing the "N spots left · X/Y registered" capacity
+    // indicator from the approval-flow and free-registration idle states.
+    // Manually re-audited against Requirements 6.1, 6.2, 6.3: the
+    // first-touch UTM stamping onto the registration row, the five
+    // utm_source/medium/campaign/content/term columns, and the
+    // clearStoredUtm() call on successful submit are all intact
+    // (see the `first_touch_utm attribution` block in the submit
+    // handler). The edit is display-only and does not touch any UTM
+    // code path.
+    hash: "b6dd2208a5de70ae4f645021a7f543f3b76a0aba4800cee5642da7b2dd0b51dc",
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",

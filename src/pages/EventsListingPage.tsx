@@ -436,23 +436,25 @@ function EventQuickView({
                 </div>
               </div>
             )}
-            {seatsLeft !== null && (
+            {/* Capacity indicator — organizers don't want the exact
+                remaining-spot count shown to public attendees, so we
+                only surface the "Sold out" state (which users still
+                need to know so they don't click through to a dead
+                registration). The exact number is hidden but capacity
+                is still enforced server-side. */}
+            {seatsLeft !== null && seatsLeft === 0 ? (
               <div className="flex items-center gap-3">
                 <div className="shrink-0 h-9 w-9 rounded-lg border border-border bg-card flex items-center justify-center">
                   <Users className="h-4 w-4 text-foreground" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[13px] font-medium leading-tight">
-                    {seatsLeft > 0
-                      ? `${seatsLeft} ${seatsLeft === 1 ? "spot" : "spots"} left`
-                      : "Sold out"}
-                  </div>
+                  <div className="text-[13px] font-medium leading-tight">Sold out</div>
                   <div className="text-[12px] text-muted-foreground mt-0.5">
                     {formatPriceOrFree(event.price, event.currency || undefined)}
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
 
           {event.description && (
