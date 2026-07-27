@@ -88,6 +88,18 @@ export default function EventPagePreview({
   const showTickets = sectionEnabled("tickets");
   const showAbout = sectionEnabled("about");
 
+  // Pull the About section's `highlights` list — the inline About block
+  // below renders both `event.description` (markdown body) AND the
+  // highlights grid, since we tell PublicEventRenderer to skip the
+  // About section entirely (`excludeIds={["about"]}`) to avoid a
+  // duplicate heading. Without pulling the highlights up here they'd
+  // never render on the public event page. Matches the grid shape
+  // used by `AboutSec` in PublicEventRenderer.tsx.
+  const aboutSection = config.sections.find((sec) => sec.id === "about");
+  const aboutHighlights =
+    (aboutSection?.data as { highlights?: { label: string; value: string }[] } | undefined)
+      ?.highlights ?? [];
+
   return (
     <div
       className="min-h-full w-full max-w-full overflow-x-hidden"
@@ -192,6 +204,27 @@ export default function EventPagePreview({
                 />
               ) : (
                 <p className="mt-4 text-[16px] leading-[1.65] opacity-40 italic">No description added yet.</p>
+              )}
+              {aboutHighlights.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-8">
+                  {aboutHighlights
+                    .filter((h) => (h.value || "").trim() || (h.label || "").trim())
+                    .map((h, i) => (
+                      <div
+                        key={i}
+                        className="p-4 rounded-xl border"
+                        style={{ borderColor: `${config.theme.primaryColor}20` }}
+                      >
+                        <p
+                          className="text-2xl font-bold"
+                          style={{ color: config.theme.primaryColor, fontFamily: DISPLAY }}
+                        >
+                          {h.value}
+                        </p>
+                        <p className="text-xs opacity-60 mt-1">{h.label}</p>
+                      </div>
+                    ))}
+                </div>
               )}
             </section>
             )}
