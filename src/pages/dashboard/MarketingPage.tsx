@@ -618,7 +618,7 @@ function SocialSharingTab() {
             Publish an event to generate shareable links.
           </p>
           <Button size="sm" asChild variant="outline">
-            <Link to="/dashboard"><ArrowRight className="h-3.5 w-3.5 mr-1.5" /> Go to Events</Link>
+            <Link to="/dashboard/events"><ArrowRight className="h-3.5 w-3.5 mr-1.5" /> Go to Events</Link>
           </Button>
         </div>
       ) : (
@@ -814,7 +814,7 @@ function LandingPagesTab() {
         </p>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" className="h-8 text-[13px] gap-1.5" asChild>
-            <Link to="/dashboard">
+            <Link to="/dashboard/events">
               <ArrowRight className="h-3.5 w-3.5" /> Go to Events
             </Link>
           </Button>

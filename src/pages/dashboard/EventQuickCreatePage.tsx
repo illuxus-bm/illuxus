@@ -13,7 +13,10 @@ import { CalendarDays, MapPin, ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 import EventBannerPicker from "@/components/event/EventBannerPicker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Radio, Globe2, MapPinned, Sparkles } from "lucide-react";
+import { Radio, Globe2, MapPinned, Sparkles, Building2, X } from "lucide-react";
+import { VenueMarketplacePicker } from "@/components/event/VenueMarketplacePicker";
+import { useSelectVenueVendor } from "@/hooks/useSelectVenueVendor";
+import type { VenueVendor } from "@/hooks/useVenueVendors";
 import { SUPPORTED_CURRENCIES, formatMoney, formatPriceOrFree } from "@/lib/currency";
 import { COMMON_TIMEZONES, detectBrowserTimezone, isValidTimezone } from "@/lib/timezones";
 import { formatEventDateTime } from "@/lib/datetime";
@@ -46,6 +49,11 @@ export default function EventQuickCreatePage() {
   const [createCommunity, setCreateCommunity] = useState(true);
   const communityCategory = "other"; // Default silently
   const [pastEvents, setPastEvents] = useState<Array<{ id: string; title: string; date: string }>>([]);
+
+  // Venue-from-marketplace picker state
+  const [venueVendor, setVenueVendor] = useState<VenueVendor | null>(null);
+  const [venuePickerOpen, setVenuePickerOpen] = useState(false);
+  const selectVenueVendor = useSelectVenueVendor();
 
   // Load this org's previous events so the user can mark this one as a follow-up.
   useEffect(() => {
@@ -113,14 +121,37 @@ export default function EventQuickCreatePage() {
         body: { event_id: data.id, record_enabled: false },
       }).catch(() => {});
     }
-    toast({ title: "Draft created", description: "Add details, then publish." });
+
+    // If a marketplace venue was selected, record + notify the vendor.
+    // Failure here is non-fatal — the event itself is already created.
+    if (venueVendor && org?.id) {
+      try {
+        await selectVenueVendor.mutateAsync({
+          eventId: data.id,
+          vendorId: venueVendor.id,
+          orgId: org.id,
+        });
+        toast({
+          title: "Venue selected",
+          description: `${venueVendor.business_name} has been notified by email.`,
+        });
+      } catch (err) {
+        toast({
+          title: "Event created — venue notification failed",
+          description: err instanceof Error ? err.message : "The vendor was not notified. Try again from the event dashboard.",
+          variant: "destructive",
+        });
+      }
+    } else {
+      toast({ title: "Draft created", description: "Add details, then publish." });
+    }
     navigate(`/dashboard/events/${data.slug || data.id}`);
   };
 
   return (
     <DashboardLayout>
       <div className="max-w-2xl mx-auto">
-        <Link to="/dashboard" className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground mb-3">
+        <Link to="/dashboard/events" className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground mb-3">
           <ArrowLeft className="h-3.5 w-3.5" /> All events
         </Link>
         <h1 className="text-xl font-semibold tracking-tight mb-1">Create event</h1>
@@ -260,16 +291,96 @@ export default function EventQuickCreatePage() {
           </div>
 
           {eventFormat !== "virtual" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="text-[12px] inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> Venue</Label>
-                <Input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Studio 23" className="h-9 mt-1 text-sm" />
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-[12px] inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> Venue</Label>
+                  <Input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Studio 23" className="h-9 mt-1 text-sm" />
+                </div>
+                <div>
+                  <Label className="text-[12px]">Location</Label>
+                  <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Bengaluru, India" className="h-9 mt-1 text-sm" />
+                </div>
               </div>
-              <div>
-                <Label className="text-[12px]">Location</Label>
-                <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Bengaluru, India" className="h-9 mt-1 text-sm" />
+
+              {/* Marketplace venue picker — connects to shared Vendor Connect DB */}
+              <div className="rounded-md border border-dashed border-border p-3 bg-background/50">
+                <div className="flex items-start gap-3">
+                  <Building2 className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    {venueVendor ? (
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-[13px] font-semibold truncate">{venueVendor.business_name}</p>
+                            <p className="text-[11px] text-muted-foreground truncate">
+                              {venueVendor.city}
+                              {venueVendor.country ? `, ${venueVendor.country}` : ""}
+                              {" · "}From Illuxus vendor marketplace
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-[11px]"
+                              onClick={() => setVenuePickerOpen(true)}
+                            >
+                              Change
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => setVenueVendor(null)}
+                              aria-label="Remove venue selection"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-2">
+                          On save, this venue's owner will get an email notification with your event details.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-medium">Pick from vendor marketplace</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Browse verified venues and notify the owner in one click.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px] shrink-0"
+                          onClick={() => setVenuePickerOpen(true)}
+                        >
+                          Browse venues
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
+
+              <VenueMarketplacePicker
+                open={venuePickerOpen}
+                onOpenChange={setVenuePickerOpen}
+                selectedVendorId={venueVendor?.id ?? null}
+                onSelect={(v) => {
+                  setVenueVendor(v);
+                  // Auto-fill venue text field with the vendor's business name
+                  // if the organizer hadn't typed anything yet.
+                  if (!venue) setVenue(v.business_name);
+                  if (!location && v.city) setLocation(`${v.city}${v.country ? `, ${v.country}` : ""}`);
+                }}
+              />
+            </>
           )}
 
           <div>
@@ -392,7 +503,7 @@ export default function EventQuickCreatePage() {
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-1">
-            <Button asChild type="button" variant="ghost" size="sm" className="h-9 text-[13px]"><Link to="/dashboard">Cancel</Link></Button>
+            <Button asChild type="button" variant="ghost" size="sm" className="h-9 text-[13px]"><Link to="/dashboard/events">Cancel</Link></Button>
             <Button type="submit" size="sm" className="h-9 text-[13px]" disabled={saving}>{saving ? "Creating…" : "Create draft"}</Button>
           </div>
           </div>
