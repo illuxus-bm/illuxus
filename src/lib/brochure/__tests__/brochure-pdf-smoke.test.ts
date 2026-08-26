@@ -122,4 +122,57 @@ describe("generateBrochurePdf (smoke)", () => {
     expect(onProgress).toHaveBeenCalledWith(2, 3);
     expect(onProgress).toHaveBeenCalledWith(3, 3);
   });
+
+  it("draws a Sponsorship_Packages comparison table (autoTable + vector check/cross glyphs) without throwing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("not found", { status: 404 }))
+    );
+
+    const input: BrochureGenerationInput = {
+      event: {
+        title: "Annual Tech Summit",
+        date: "2026-03-01T09:00:00.000Z",
+      },
+      sessions: [],
+      speakers: [],
+      sponsors: [],
+      venueLogistics: {},
+      theme: BROCHURE_THEMES[0],
+      eventTheme: {},
+      sectionLayout: [
+        { id: "cover", included: true },
+        { id: "sponsorshipPackages", included: true },
+      ],
+      posterContent: {
+        sponsorshipPackages: {
+          title: "Premium Partnership Packages",
+          benefits: [
+            "Chairperson's Opening Remark",
+            "Exhibit Table Space",
+            "Curated 1:1 Meetings",
+            "Company Profile",
+          ],
+          tiers: [
+            {
+              name: "Presenting Partner",
+              price: "INR 8,00,000 + GST",
+              cells: [false, true, "10 meetings", "350 words"],
+            },
+            {
+              name: "Knowledge Partner",
+              price: "INR 5,00,000 + GST",
+              cells: [false, true, "4 meetings", null],
+            },
+          ],
+        },
+      },
+    };
+
+    const blob = await generateBrochurePdf(input);
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.type).toBe("application/pdf");
+    expect(blob.size).toBeGreaterThan(0);
+  });
 });

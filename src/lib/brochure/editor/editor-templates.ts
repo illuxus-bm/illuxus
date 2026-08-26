@@ -34,11 +34,13 @@ import {
 import {
   buildAgendaSectionContent,
   buildSpeakerRows,
+  buildSponsorshipPackagesContent,
   buildVenueLogisticsContent,
   groupSponsorsByTierOrdered,
   type AgendaSessionInput,
   type SpeakerInput,
   type SponsorInput,
+  type SponsorshipPackagesInput,
   type VenueLogisticsInput,
 } from "../brochure-sections";
 
@@ -89,6 +91,10 @@ export interface TemplateSeedInput {
   speakers?: SpeakerInput[];
   sponsors?: SponsorInput[];
   venueLogistics?: VenueLogisticsInput;
+  /** Benefits × tiers sponsorship comparison table — same source as the
+   *  jsPDF preview's `sponsorshipPackages` section content. Omitted
+   *  (undefined/null benefits or tiers) means the page is skipped. */
+  sponsorshipPackages?: SponsorshipPackagesInput;
 }
 
 // ─── Poster Bold seed (white bg, orange accent) ─────────────────────────────
@@ -186,6 +192,16 @@ export function seedClassicBrochure(input: TemplateSeedInput): BrochureDocument 
   // Page 5 — Venue & Logistics.
   const venuePage = buildVenuePage(input.venueLogistics, input.eventTitle, input.dateText, accent, titleColor);
   if (venuePage) pages.push(venuePage);
+
+  // Page 6 — Sponsorship Packages (benefits × tiers comparison table).
+  const sponsorshipPage = buildSponsorshipPackagesPage(
+    input.sponsorshipPackages,
+    input.eventTitle,
+    input.dateText,
+    accent,
+    titleColor
+  );
+  if (sponsorshipPage) pages.push(sponsorshipPage);
 
   return { ...doc, pages };
 }
@@ -1334,6 +1350,213 @@ function buildVenuePage(
 
   return {
     id: `page-venue-${Math.random().toString(36).slice(2, 8)}`,
+    width: A4_WIDTH_MM,
+    height: A4_HEIGHT_MM,
+    background: { type: "solid", color: "#ffffff" },
+    elements,
+  };
+}
+
+/** Builds the Sponsorship Packages page — a benefits × tiers comparison
+ *  grid matching the reference "Premium Partnership Packages" deck
+ *  brochures. Every header cell, benefit label, and value cell is an
+ *  independent editable text/shape element (not a locked table widget),
+ *  so the organizer can restyle, move, or delete any single cell exactly
+ *  like every other element on the canvas. Returns `null` when there's
+ *  no content to show (mirrors the jsPDF renderer's `buildSponsorship
+ *  PackagesContent` null-return contract). */
+function buildSponsorshipPackagesPage(
+  input: SponsorshipPackagesInput | undefined,
+  eventTitle: string,
+  dateText: string,
+  accent: string,
+  titleColor: string
+): BrochurePage | null {
+  if (!input) return null;
+  const content = buildSponsorshipPackagesContent(input);
+  if (!content) return null;
+
+  const pageW = A4_WIDTH_MM;
+  const elements: BrochureElement[] = [];
+  const push = (el: BrochureElement) => {
+    el.zIndex = elements.length;
+    elements.push(el);
+  };
+
+  pushClassicPageHeader(elements, push, eventTitle, dateText, accent, titleColor);
+  pushClassicSectionHeading(push, 40, content.title, accent, titleColor);
+
+  const bodyLeft = 20;
+  const bodyRight = pageW - 20;
+  const bodyW = bodyRight - bodyLeft;
+  const benefitColW = 46;
+  const tierCount = Math.max(1, content.tiers.length);
+  const tierColW = (bodyW - benefitColW) / tierCount;
+  const headerRowH = 10;
+  const rowH = 8;
+  const startY = 62;
+
+  // Header row — benefit column left blank, one cell per tier name.
+  push(
+    newShapeElement({
+      x: bodyLeft,
+      y: startY,
+      width: benefitColW,
+      height: headerRowH,
+      shape: "rect",
+      fill: accent,
+      stroke: "transparent",
+      strokeWidth: 0,
+      cornerRadius: 0,
+    })
+  );
+  for (let c = 0; c < content.tiers.length; c += 1) {
+    const x = bodyLeft + benefitColW + c * tierColW;
+    push(
+      newShapeElement({
+        x,
+        y: startY,
+        width: tierColW,
+        height: headerRowH,
+        shape: "rect",
+        fill: accent,
+        stroke: "#ffffff",
+        strokeWidth: 0.2,
+        cornerRadius: 0,
+      })
+    );
+    push(
+      newTextElement({
+        x: x + 1,
+        y: startY + headerRowH / 2 - 4,
+        width: tierColW - 2,
+        height: 8,
+        content: content.tiers[c].name,
+        fontFamily: "Poppins",
+        fontSize: 9,
+        fontWeight: "bold",
+        color: "#ffffff",
+        align: "center",
+        lineHeight: 1.05,
+      })
+    );
+  }
+
+  // Benefit rows — alternating row background for readability, one
+  // label cell + one value cell per tier.
+  const maxRows = 14; // keep the page from overflowing on very long lists
+  const benefitRows = content.benefits.slice(0, maxRows);
+  for (let r = 0; r < benefitRows.length; r += 1) {
+    const y = startY + headerRowH + r * rowH;
+    const rowBg = r % 2 === 0 ? "#f9fafb" : "#ffffff";
+
+    push(
+      newShapeElement({
+        x: bodyLeft,
+        y,
+        width: bodyW,
+        height: rowH,
+        shape: "rect",
+        fill: rowBg,
+        stroke: "#e5e7eb",
+        strokeWidth: 0.15,
+        cornerRadius: 0,
+      })
+    );
+    push(
+      newTextElement({
+        x: bodyLeft + 1.5,
+        y: y + rowH / 2 - 3,
+        width: benefitColW - 3,
+        height: rowH - 1,
+        content: benefitRows[r],
+        fontFamily: "Poppins",
+        fontSize: 7,
+        fontWeight: "bold",
+        color: titleColor,
+        align: "left",
+        lineHeight: 1.05,
+      })
+    );
+
+    for (let c = 0; c < content.tiers.length; c += 1) {
+      const x = bodyLeft + benefitColW + c * tierColW;
+      const cell = content.tiers[c].cells[r];
+      const label =
+        cell?.kind === "check" ? "✓" : cell?.kind === "cross" ? "✗" : cell?.kind === "text" ? cell.value : "—";
+      const cellColor = cell?.kind === "check" ? "#16a34a" : cell?.kind === "cross" ? "#dc2626" : titleColor;
+      push(
+        newTextElement({
+          x: x + 1,
+          y: y + rowH / 2 - 3,
+          width: tierColW - 2,
+          height: rowH - 1,
+          content: label,
+          fontFamily: "Poppins",
+          fontSize: 7,
+          fontWeight: cell?.kind === "check" || cell?.kind === "cross" ? "bold" : "normal",
+          color: cellColor,
+          align: "center",
+          lineHeight: 1.05,
+        })
+      );
+    }
+  }
+
+  // Cost row — bold, accent-colored, at the bottom of the table.
+  const hasCost = content.tiers.some((t) => t.price);
+  if (hasCost) {
+    const y = startY + headerRowH + benefitRows.length * rowH;
+    push(
+      newShapeElement({
+        x: bodyLeft,
+        y,
+        width: bodyW,
+        height: rowH + 2,
+        shape: "rect",
+        fill: "#111111",
+        stroke: "transparent",
+        strokeWidth: 0,
+        cornerRadius: 0,
+      })
+    );
+    push(
+      newTextElement({
+        x: bodyLeft + 1.5,
+        y: y + (rowH + 2) / 2 - 3,
+        width: benefitColW - 3,
+        height: rowH,
+        content: "Cost",
+        fontFamily: "Poppins",
+        fontSize: 8,
+        fontWeight: "bold",
+        color: "#ffffff",
+        align: "left",
+        lineHeight: 1.05,
+      })
+    );
+    for (let c = 0; c < content.tiers.length; c += 1) {
+      const x = bodyLeft + benefitColW + c * tierColW;
+      push(
+        newTextElement({
+          x: x + 1,
+          y: y + (rowH + 2) / 2 - 3,
+          width: tierColW - 2,
+          height: rowH,
+          content: content.tiers[c].price ?? "—",
+          fontFamily: "Poppins",
+          fontSize: 7.5,
+          fontWeight: "bold",
+          color: "#ffffff",
+          align: "center",
+          lineHeight: 1.05,
+        })
+      );
+    }
+  }
+
+  return {
+    id: `page-sponsorship-${Math.random().toString(36).slice(2, 8)}`,
     width: A4_WIDTH_MM,
     height: A4_HEIGHT_MM,
     background: { type: "solid", color: "#ffffff" },

@@ -58,6 +58,8 @@ import {
   type WhoShouldAttendInput,
   type WhySponsorSectionContent,
   type WhySponsorSectionInput,
+  type SponsorshipPackagesContent,
+  type SponsorshipPackagesInput,
   buildAbstractSectionContent,
   buildAgendaSectionContent,
   buildCoverContent,
@@ -65,6 +67,7 @@ import {
   buildHighlightsContent,
   buildPricingSectionContent,
   buildSolutionProvidersContent,
+  buildSponsorshipPackagesContent,
   buildSpeakerRows,
   buildVenueLogisticsContent,
   buildWhoShouldAttendContent,
@@ -167,6 +170,12 @@ export interface BrochureGenerationInput {
     whoShouldAttend?: WhoShouldAttendInput;
     solutionProviders?: SolutionProvidersInput;
     highlights?: HighlightsInput;
+    /** Benefits × tiers sponsorship comparison table. Unlike the other
+     *  `posterContent` fields, this one renders on EVERY theme, not
+     *  just Poster_Bold / Corporate_Bold — organizers on the Classic
+     *  theme can include a "Premium Partnership Packages"-style page
+     *  too. */
+    sponsorshipPackages?: SponsorshipPackagesInput;
   };
   /** Fires once per included section as it finishes drawing, for the
    *  Brochure_Configurator's progress indicator (Requirement 9.3). */
@@ -910,6 +919,7 @@ async function buildBrochureDocument(input: BrochureGenerationInput): Promise<js
   const whoShouldAttendContent = buildWhoShouldAttendContent(input.posterContent?.whoShouldAttend ?? {});
   const solutionProvidersContent = buildSolutionProvidersContent(input.posterContent?.solutionProviders ?? {});
   const highlightsContent = buildHighlightsContent(input.posterContent?.highlights ?? {});
+  const sponsorshipPackagesContent = buildSponsorshipPackagesContent(input.posterContent?.sponsorshipPackages ?? {});
 
   // Poster_Bold-only sections (`abstract`, `whySponsor`, `pricing`) render
   // only under the `poster-bold` theme; Corporate_Bold-only sections
@@ -935,6 +945,9 @@ async function buildBrochureDocument(input: BrochureGenerationInput): Promise<js
     if (id === "whoShouldAttend") return isCorporateBold && whoShouldAttendContent !== null;
     if (id === "solutionProviders") return isCorporateBold && solutionProvidersContent !== null;
     if (id === "highlights") return isCorporateBold && highlightsContent !== null;
+    // Sponsorship_Packages table renders on ANY theme — no isPosterFamily
+    // gate, unlike the Poster_Bold/Corporate_Bold-only sections above.
+    if (id === "sponsorshipPackages") return sponsorshipPackagesContent !== null;
     return true;
   });
 
@@ -1026,6 +1039,12 @@ async function buildBrochureDocument(input: BrochureGenerationInput): Promise<js
       case "highlights": {
         if (highlightsContent) {
           await drawHighlightsSection(doc, highlightsContent, theme, colors, input);
+        }
+        break;
+      }
+      case "sponsorshipPackages": {
+        if (sponsorshipPackagesContent) {
+          drawSponsorshipPackagesSection(doc, sponsorshipPackagesContent, theme, colors);
         }
         break;
       }
@@ -1722,6 +1741,164 @@ async function drawPricingSection(
   }
 }
 
+
+// ─── SponsorshipPackages_Section (any theme) ────────────────────────────────
+
+/**
+ * Draws a vector checkmark (two strokes) centered in `box`, sized to
+ * `box`'s shorter side. Avoids relying on a Unicode "✓" glyph being
+ * present in jsPDF's base-14 fonts (`helvetica`/`times`/`courier` don't
+ * reliably render check/cross glyphs across every jsPDF build), matching
+ * the existing pattern of vector-drawing glyphs (`drawPlaceholder`'s
+ * initials, `drawPosterHeaderLogo`'s fallback arrow) rather than trusting
+ * font coverage.
+ */
+function drawCheckGlyph(doc: jsPDF, cx: number, cy: number, size: number, colorHex: string): void {
+  const [r, g, b] = hexToRgb(colorHex);
+  doc.setDrawColor(r, g, b);
+  doc.setLineWidth(Math.max(0.4, size * 0.14));
+  const half = size / 2;
+  doc.line(cx - half * 0.9, cy, cx - half * 0.2, cy + half * 0.7);
+  doc.line(cx - half * 0.2, cy + half * 0.7, cx + half * 0.9, cy - half * 0.6);
+}
+
+/** Draws a vector cross (X) centered in `box`, sized to `box`'s shorter
+ *  side. See `drawCheckGlyph`'s doc comment for why this is vector-drawn
+ *  rather than a Unicode glyph. */
+function drawCrossGlyph(doc: jsPDF, cx: number, cy: number, size: number, colorHex: string): void {
+  const [r, g, b] = hexToRgb(colorHex);
+  doc.setDrawColor(r, g, b);
+  doc.setLineWidth(Math.max(0.4, size * 0.12));
+  const half = size / 2;
+  doc.line(cx - half * 0.7, cy - half * 0.7, cx + half * 0.7, cy + half * 0.7);
+  doc.line(cx - half * 0.7, cy + half * 0.7, cx + half * 0.7, cy - half * 0.7);
+}
+
+/**
+ * Draws the SponsorshipPackages_Section: a benefits × tiers comparison
+ * table matching reference sponsorship-deck brochures ("Premium
+ * Partnership Packages" with Presenting/Co-Presenting/Knowledge Partner
+ * columns). Renders on ANY theme (not gated to Poster_Bold/Corporate_Bold
+ * like the other posterContent-sourced sections) since a tiered
+ * sponsorship table is a common ask across every event type.
+ *
+ * Layout: title + accent underline, then a single `autoTable` whose
+ * first column is the benefit label and whose remaining columns are one
+ * per tier, followed by a final "Cost" row using each tier's `price`.
+ * Wide tables (many tiers) can exceed the page width — `autoTable`'s
+ * `overflow: "linebreak"` plus explicit narrow tier-column widths keep
+ * it printable up to ~5 tiers on A4 landscape-equivalent margins; beyond
+ * that, `autoTable`'s own horizontal scaling keeps every column
+ * proportionally narrower rather than clipping content, matching how
+ * jsPDF-autotable degrades on any other wide table in this file.
+ */
+function drawSponsorshipPackagesSection(
+  doc: jsPDF,
+  content: SponsorshipPackagesContent,
+  theme: BrochureTheme,
+  colors: ResolvedBrochureColors
+): void {
+  const margin = theme.margins.left;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const fontFamily = resolveFontFamilyForPdf(colors.fontFamily);
+  const [ar, ag, ab] = hexToRgb(colors.accentColor);
+
+  doc.setFont(fontFamily, "bold");
+  doc.setFontSize(theme.heading.fontSizePt);
+  doc.setTextColor(0, 0, 0);
+  doc.text(content.title, margin, margin);
+  drawHeadingUnderline(doc, theme, colors, margin, margin + 2, 24);
+  const startY = margin + 10;
+
+  const benefitColWidth = 46;
+  const contentWidth = pageWidth - margin - theme.margins.right;
+  const tierColWidth = (contentWidth - benefitColWidth) / Math.max(1, content.tiers.length);
+
+  // Body rows: one per benefit, plus a trailing "Cost" row when at least
+  // one tier has a price. Each cell's DRAWABLE value is a plain string
+  // placeholder ("" for check/cross, since those are vector-drawn in
+  // `didDrawCell`) — the actual glyph kind is looked up by [row, col]
+  // from `content` inside the hook rather than encoded in the string.
+  const hasCostRow = content.tiers.some((t) => t.price);
+  const body: string[][] = content.benefits.map((benefit, rowIndex) => [
+    benefit,
+    ...content.tiers.map((tier) => {
+      const cell = tier.cells[rowIndex];
+      return cell?.kind === "text" ? cell.value : "";
+    }),
+  ]);
+  if (hasCostRow) {
+    body.push(["Cost", ...content.tiers.map((t) => t.price ?? "—")]);
+  }
+
+  const columnStyles: Record<number, { cellWidth: number }> = { 0: { cellWidth: benefitColWidth } };
+  for (let i = 0; i < content.tiers.length; i += 1) {
+    columnStyles[i + 1] = { cellWidth: tierColWidth };
+  }
+
+  autoTable(doc, {
+    startY,
+    head: [["", ...content.tiers.map((t) => t.name)]],
+    body,
+    theme: theme.table.theme,
+    styles: {
+      fontSize: Math.max(7, theme.table.fontSizePt - 1),
+      cellPadding: theme.table.cellPaddingMm,
+      overflow: "linebreak",
+      valign: "middle",
+      halign: "center",
+    },
+    headStyles: {
+      fillColor: [ar, ag, ab],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      halign: "center",
+    },
+    columnStyles: {
+      ...columnStyles,
+      0: { ...columnStyles[0], halign: "left", fontStyle: "bold" },
+    },
+    margin: { left: margin, right: theme.margins.right },
+    // The last row (when present) is the Cost row — bold + accent text
+    // so it stands out from the benefit rows above it, mirroring the
+    // reference brochure's black "Cost" band.
+    didParseCell: (data) => {
+      if (hasCostRow && data.row.section === "body" && data.row.index === body.length - 1) {
+        data.cell.styles.fontStyle = "bold";
+        if (data.column.index > 0) {
+          data.cell.styles.textColor = [ar, ag, ab];
+        }
+      }
+    },
+    // Vector-draws a check/cross glyph over cells whose resolved kind is
+    // "check"/"cross" — the autoTable body string for those cells is
+    // deliberately empty (see `body` construction above) so there's no
+    // text to clear first.
+    didDrawCell: (data) => {
+      if (data.row.section !== "body" || data.column.index === 0) return;
+      if (hasCostRow && data.row.index === body.length - 1) return; // Cost row has no glyphs.
+      const tier = content.tiers[data.column.index - 1];
+      const cell = tier?.cells[data.row.index];
+      if (!cell) return;
+      const cx = data.cell.x + data.cell.width / 2;
+      const cy = data.cell.y + data.cell.height / 2;
+      const glyphSize = Math.min(data.cell.height, 6);
+      if (cell.kind === "check") {
+        drawCheckGlyph(doc, cx, cy, glyphSize, "#16a34a");
+      } else if (cell.kind === "cross") {
+        drawCrossGlyph(doc, cx, cy, glyphSize, "#dc2626");
+      } else if (cell.kind === "empty") {
+        // Em-dash for an explicitly-empty cell (distinct from "not yet
+        // filled in" — the organizer chose to leave this benefit blank
+        // for this tier).
+        doc.setTextColor(180, 180, 180);
+        doc.setFont(fontFamily, "normal");
+        doc.setFontSize(9);
+        doc.text("—", cx, cy, { align: "center", baseline: "middle" });
+      }
+    },
+  });
+}
 
 // ─── Corporate_Bold shared helpers ──────────────────────────────────────────
 

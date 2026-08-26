@@ -576,6 +576,119 @@ export function buildPricingSectionContent(
 }
 
 
+// ─── SponsorshipPackages_Section (Classic + Poster_Bold + Corporate_Bold) ───
+//
+// Renders a tiered comparison table matching reference sponsorship-deck
+// brochures: one row per benefit, one column per package tier, with a
+// bottom "Cost" row. Any cell can be a checkmark/cross, plain text, or
+// absent (renders as an em-dash). Fully dynamic — organizers can add or
+// remove tiers and benefit rows freely; nothing here is hard-coded to a
+// fixed tier count or benefit list, unlike the previous Poster_Bold
+// "Why Sponsor" numbered list which only supported free-text bullets.
+
+/** One package tier (a column in the comparison table), e.g. "Presenting
+ *  Partner" or "Gold Partner". */
+export interface SponsorshipTierInput {
+  /** Column header, e.g. "Presenting Partner". */
+  name: string;
+  /** Headline price shown in the bottom row, e.g. "INR 8,00,000 + GST". */
+  price?: string | null;
+  /** One cell value per benefit row, in the same order as
+   *  `SponsorshipPackagesInput.benefits`. A `true`/`false` boolean
+   *  renders as a checkmark/cross glyph; a string renders verbatim
+   *  (e.g. "10 meetings", "Top Position"); `null`/omitted renders as
+   *  an em-dash so every column has a value for every row without the
+   *  organizer needing to type a placeholder. */
+  cells?: Array<string | boolean | null>;
+}
+
+/** Raw content for the SponsorshipPackages_Section. */
+export interface SponsorshipPackagesInput {
+  /** Optional heading shown above the table, e.g. "Premium Partnership
+   *  Packages". Falls back to "Sponsorship Packages" when omitted. */
+  title?: string | null;
+  /** Row labels, e.g. ["Chairperson's Opening Remark", "Exhibit Table
+   *  Space", ...] — the left-most column of the table. */
+  benefits?: string[] | null;
+  tiers?: SponsorshipTierInput[] | null;
+}
+
+/** One resolved comparison-table cell. `"check"`/`"cross"` render as
+ *  glyphs; `"text"` renders the given string; `"empty"` renders an
+ *  em-dash. */
+export type SponsorshipCell =
+  | { kind: "check" }
+  | { kind: "cross" }
+  | { kind: "text"; value: string }
+  | { kind: "empty" };
+
+/** Fully resolved, drawable sponsorship tier column. */
+export interface SponsorshipTier {
+  name: string;
+  price?: string;
+  /** Exactly `benefits.length` entries, one per row, in row order. */
+  cells: SponsorshipCell[];
+}
+
+/** Fully resolved, drawable SponsorshipPackages_Section content. */
+export interface SponsorshipPackagesContent {
+  title: string;
+  benefits: string[];
+  tiers: SponsorshipTier[];
+}
+
+const DEFAULT_SPONSORSHIP_TITLE = "Sponsorship Packages";
+
+/** Resolves one raw cell value to a drawable `SponsorshipCell`. Pure. */
+function resolveSponsorshipCell(raw: string | boolean | null | undefined): SponsorshipCell {
+  if (raw === true) return { kind: "check" };
+  if (raw === false) return { kind: "cross" };
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    return { kind: "text", value: raw.trim() };
+  }
+  return { kind: "empty" };
+}
+
+/**
+ * Builds the SponsorshipPackages_Section content structure: a benefits ×
+ * tiers comparison table. Returns `null` when there are zero benefit rows
+ * OR zero tiers with a non-empty name — a table needs both an axis of rows
+ * and an axis of columns to mean anything. Every tier's `cells` array is
+ * padded/truncated to exactly `benefits.length` entries (missing cells
+ * resolve to `{ kind: "empty" }`, extra cells are dropped) so the pure
+ * renderer downstream never needs to guard against a jagged table. Pure.
+ */
+export function buildSponsorshipPackagesContent(
+  input: SponsorshipPackagesInput
+): SponsorshipPackagesContent | null {
+  const benefits = (input.benefits ?? [])
+    .map((b) => (typeof b === "string" ? b.trim() : ""))
+    .filter((b) => b.length > 0);
+
+  const tiers: SponsorshipTier[] = [];
+  for (const raw of input.tiers ?? []) {
+    if (!raw) continue;
+    const name = typeof raw.name === "string" ? raw.name.trim() : "";
+    if (name.length === 0) continue;
+
+    const cells = benefits.map((_, i) => resolveSponsorshipCell(raw.cells?.[i]));
+    const tier: SponsorshipTier = { name, cells };
+    if (typeof raw.price === "string" && raw.price.trim().length > 0) {
+      tier.price = raw.price.trim();
+    }
+    tiers.push(tier);
+  }
+
+  if (benefits.length === 0 || tiers.length === 0) return null;
+
+  const title =
+    typeof input.title === "string" && input.title.trim().length > 0
+      ? input.title.trim()
+      : DEFAULT_SPONSORSHIP_TITLE;
+
+  return { title, benefits, tiers };
+}
+
 // ─── FocusOfSummit_Section (Corporate_Bold) ────────────────────────────────
 
 export interface FocusOfSummitInput {

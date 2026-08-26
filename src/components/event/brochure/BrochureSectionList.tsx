@@ -35,6 +35,7 @@ const SECTION_LABELS: Record<BrochureSectionId, string> = {
   whoShouldAttend: "Who Should Attend",
   solutionProviders: "Solution Providers",
   highlights: "Why It Matters & What You'll Gain",
+  sponsorshipPackages: "Sponsorship Packages",
 };
 
 /**

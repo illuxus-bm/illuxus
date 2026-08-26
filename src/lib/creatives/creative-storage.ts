@@ -172,6 +172,9 @@ export function buildCreativeAssetRecord(input: CreativeAssetInput): CreativeAss
   if (creativeType === "combo" && (!speakerId || !sponsorId)) {
     throw new Error("Combo creative records require both speaker_id and sponsor_id.");
   }
+  if (creativeType === "event" && (speakerId || sponsorId)) {
+    throw new Error("Event creative records require neither speaker_id nor sponsor_id.");
+  }
 
   return {
     event_id: input.eventId,

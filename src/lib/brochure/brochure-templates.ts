@@ -60,7 +60,13 @@ export type BrochureSectionId =
   | "focusOfSummit"
   | "whoShouldAttend"
   | "solutionProviders"
-  | "highlights";
+  | "highlights"
+  /** Benefits × tiers sponsorship comparison table (e.g. "Presenting
+   *  Partner" / "Gold Partner" / "Exhibit Partner" columns against a
+   *  shared benefit-row axis) — matches the reference "Premium
+   *  Partnership Packages" deck brochures. Available on every theme,
+   *  sourced from `brochurePrefs.posterContent.sponsorshipPackages`. */
+  | "sponsorshipPackages";
 
 /** Cover_Section layout style. Five code-defined presets ship today:
  *  the three original variants plus `poster-bold` (DevOps-Connect white
@@ -465,6 +471,12 @@ export const DEFAULT_SECTION_LAYOUT: SectionLayout = [
   { id: "speakers", included: true },
   { id: "sponsors", included: true },
   { id: "venueLogistics", included: true },
+  // Off by default — an organizer opts in once they've filled in the
+  // sponsorship tiers panel; `buildSponsorshipPackagesContent` returns
+  // `null` (skipping the page) until at least one benefit row and one
+  // named tier exist, so toggling this on with no content is a no-op
+  // either way.
+  { id: "sponsorshipPackages", included: false },
 ];
 
 /**

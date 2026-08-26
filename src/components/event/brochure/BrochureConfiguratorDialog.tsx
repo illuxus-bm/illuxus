@@ -454,12 +454,15 @@ export default function BrochureConfiguratorDialog({
       eventTheme,
       themeOverride,
       sectionLayout,
-      // Only pass Poster_Bold content when the Poster_Bold theme is
-      // active; keeping the field undefined on other themes lets the
-      // renderer short-circuit cleanly without checking the theme id
-      // twice.
-      posterContent:
-        selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold"
+      // Poster_Bold / Corporate_Bold-only fields are only populated when
+      // one of those themes is active; the Sponsorship_Packages table
+      // below is always populated regardless of theme since it's not
+      // gated to a specific theme in the renderer (Requirement: renders
+      // on any theme). `undefined` on any individual field is safe —
+      // every content builder treats an empty/absent field as "no
+      // content" and the section is skipped.
+      posterContent: {
+        ...(selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold"
           ? {
               logoUrl: posterContent.logoUrl ?? null,
               organizerLogoUrl: posterContent.organizerLogoUrl ?? null,
@@ -491,7 +494,13 @@ export default function BrochureConfiguratorDialog({
                 rightItems: posterContent.whatYouWillGainItems,
               },
             }
-          : undefined,
+          : {}),
+        sponsorshipPackages: {
+          title: posterContent.sponsorshipPackagesTitle,
+          benefits: posterContent.sponsorshipBenefits,
+          tiers: posterContent.sponsorshipTiers,
+        },
+      },
     }),
     [event, sessions, speakers, sponsors, venueLogistics, selectedTheme, eventTheme, themeOverride, sectionLayout, posterContent]
   );
@@ -659,6 +668,16 @@ export default function BrochureConfiguratorDialog({
                 />
               )}
 
+              {/* Sponsorship Packages — a benefits × tiers comparison
+                  table available on EVERY theme, unlike the Poster_Bold /
+                  Corporate_Bold panel above. Only shown once the
+                  organizer has toggled the "Sponsorship Packages" row on
+                  in the Sections list, so the editor doesn't clutter the
+                  panel for organizers who don't need this page. */}
+              {sectionLayout.some((s) => s.id === "sponsorshipPackages" && s.included) && (
+                <SponsorshipPackagesEditor value={posterContent} onChange={setPosterContent} />
+              )}
+
               {/* PROGRESS */}
               {isGenerating && progress && (
                 <section className="space-y-1.5">
@@ -776,6 +795,11 @@ export default function BrochureConfiguratorDialog({
             speakers,
             sponsors,
             venueLogistics,
+            sponsorshipPackages: {
+              title: posterContent.sponsorshipPackagesTitle,
+              benefits: posterContent.sponsorshipBenefits,
+              tiers: posterContent.sponsorshipTiers,
+            },
           }}
           initialDocument={
             eventPageConfig.brochurePrefs?.editorDocument
@@ -1275,5 +1299,235 @@ function PricingCardsEditor({
         ))
       )}
     </div>
+  );
+}
+
+// ─── SponsorshipPackagesEditor ───────────────────────────────────────────────
+
+/**
+ * Organizer form for the Sponsorship_Packages comparison table — matches
+ * reference sponsorship-deck brochures ("Premium Partnership Packages"
+ * with Presenting/Co-Presenting/Knowledge Partner columns). Unlike
+ * `PosterBoldContentPanel`, this editor is available on EVERY theme.
+ *
+ * The table is authored as a shared list of benefit row labels plus a
+ * list of tier columns, each carrying one cell value per benefit row
+ * (aligned by index). A cell's value cycles through four states via a
+ * single click: empty → check → cross → free text → empty — matching
+ * how the reference brochures mix checkmarks, crosses, and short text
+ * values ("10 meetings", "Top Position") in the same table.
+ */
+function SponsorshipPackagesEditor({
+  value,
+  onChange,
+}: {
+  value: NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>;
+  onChange: (v: NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>) => void;
+}) {
+  const title = value.sponsorshipPackagesTitle ?? "";
+  const benefits = value.sponsorshipBenefits ?? [];
+  const tiers = value.sponsorshipTiers ?? [];
+
+  const setTitle = (v: string) => onChange({ ...value, sponsorshipPackagesTitle: v || undefined });
+
+  const setBenefits = (next: string[]) => onChange({ ...value, sponsorshipBenefits: next });
+
+  const addBenefit = () => setBenefits([...benefits, ""]);
+  const updateBenefit = (idx: number, text: string) => {
+    const next = benefits.slice();
+    next[idx] = text;
+    setBenefits(next);
+  };
+  const removeBenefit = (idx: number) => {
+    setBenefits(benefits.filter((_, i) => i !== idx));
+    // Keep every tier's cells aligned to the new (shorter) benefit list.
+    onChange({
+      ...value,
+      sponsorshipBenefits: benefits.filter((_, i) => i !== idx),
+      sponsorshipTiers: tiers.map((t) => ({
+        ...t,
+        cells: (t.cells ?? []).filter((_, i) => i !== idx),
+      })),
+    });
+  };
+
+  const setTiers = (next: typeof tiers) => onChange({ ...value, sponsorshipTiers: next });
+
+  const addTier = () =>
+    setTiers([...tiers, { name: "", price: "", cells: benefits.map(() => null) }]);
+  const updateTierField = (idx: number, patch: Partial<{ name: string; price: string }>) => {
+    const next = tiers.slice();
+    next[idx] = { ...next[idx], ...patch };
+    setTiers(next);
+  };
+  const removeTier = (idx: number) => setTiers(tiers.filter((_, i) => i !== idx));
+
+  /** Cycles one cell's value: empty (null) → check (true) → cross
+   *  (false) → back to empty. Free-text values are entered via the
+   *  small inline input that appears when a cell is in "text" mode
+   *  (toggled by a long-press-free right-click-free affordance: a
+   *  small "Aa" button next to the cell). */
+  const cycleCell = (tierIdx: number, benefitIdx: number) => {
+    const next = tiers.slice();
+    const tier = { ...next[tierIdx] };
+    const cells = (tier.cells ?? []).slice();
+    while (cells.length <= benefitIdx) cells.push(null);
+    const current = cells[benefitIdx];
+    cells[benefitIdx] = current === null || current === undefined ? true : current === true ? false : null;
+    tier.cells = cells;
+    next[tierIdx] = tier;
+    setTiers(next);
+  };
+
+  const setCellText = (tierIdx: number, benefitIdx: number, text: string) => {
+    const next = tiers.slice();
+    const tier = { ...next[tierIdx] };
+    const cells = (tier.cells ?? []).slice();
+    while (cells.length <= benefitIdx) cells.push(null);
+    cells[benefitIdx] = text;
+    tier.cells = cells;
+    next[tierIdx] = tier;
+    setTiers(next);
+  };
+
+  const cellLabel = (v: string | boolean | null | undefined): string =>
+    v === true ? "✓" : v === false ? "✗" : typeof v === "string" && v.length > 0 ? v : "—";
+  const cellClass = (v: string | boolean | null | undefined): string =>
+    v === true
+      ? "text-emerald-600 font-semibold"
+      : v === false
+        ? "text-destructive font-semibold"
+        : typeof v === "string" && v.length > 0
+          ? "text-foreground"
+          : "text-muted-foreground/50";
+
+  return (
+    <section className="space-y-3 border border-dashed border-primary/40 rounded-lg p-3 bg-primary/5">
+      <div className="flex items-center justify-between">
+        <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          Sponsorship packages
+        </Label>
+        <span className="text-[10px] text-muted-foreground">Available on any theme</span>
+      </div>
+
+      <div className="space-y-1">
+        <Label className="text-[11px]">Table title</Label>
+        <Input
+          className="h-8 text-[12px]"
+          value={title}
+          placeholder="Premium Partnership Packages"
+          onChange={(e) => setTitle(e.target.value)}
+        />
+      </div>
+
+      {/* Benefit rows */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <Label className="text-[11px]">Benefit rows</Label>
+          <button type="button" onClick={addBenefit} className="text-[11px] text-primary hover:underline">
+            + Add row
+          </button>
+        </div>
+        {benefits.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            No benefit rows yet. Add one to start building the table.
+          </p>
+        ) : (
+          <div className="space-y-1">
+            {benefits.map((b, idx) => (
+              <div key={idx} className="flex items-center gap-1.5">
+                <Input
+                  className="h-7 text-[12px] flex-1"
+                  value={b}
+                  placeholder="e.g. Exhibit Table Space"
+                  onChange={(e) => updateBenefit(idx, e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => removeBenefit(idx)}
+                  className="text-[11px] text-destructive hover:underline shrink-0"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Tier columns */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label className="text-[11px]">Package tiers (columns)</Label>
+          <button type="button" onClick={addTier} className="text-[11px] text-primary hover:underline">
+            + Add tier
+          </button>
+        </div>
+        {tiers.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            No tiers yet. Add one (e.g. "Presenting Partner") to enable the table.
+          </p>
+        ) : (
+          tiers.map((tier, tierIdx) => (
+            <div key={tierIdx} className="border border-border rounded-md p-2 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-muted-foreground">Tier {tierIdx + 1}</span>
+                <button
+                  type="button"
+                  onClick={() => removeTier(tierIdx)}
+                  className="text-[11px] text-destructive hover:underline"
+                >
+                  Remove
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  className="h-8 text-[12px]"
+                  placeholder="Tier name (e.g. Presenting Partner)"
+                  value={tier.name}
+                  onChange={(e) => updateTierField(tierIdx, { name: e.target.value })}
+                />
+                <Input
+                  className="h-8 text-[12px]"
+                  placeholder="Price (e.g. INR 8,00,000 + GST)"
+                  value={tier.price ?? ""}
+                  onChange={(e) => updateTierField(tierIdx, { price: e.target.value })}
+                />
+              </div>
+              {benefits.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <p className="text-[10px] text-muted-foreground">
+                    Click a cell to cycle ✓ / ✗ / blank, or type text for a custom value.
+                  </p>
+                  {benefits.map((b, benefitIdx) => (
+                    <div key={benefitIdx} className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-muted-foreground flex-1 truncate" title={b}>
+                        {b || `Row ${benefitIdx + 1}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => cycleCell(tierIdx, benefitIdx)}
+                        className={`h-6 w-8 shrink-0 border border-border rounded text-[11px] ${cellClass(
+                          tier.cells?.[benefitIdx]
+                        )}`}
+                        title="Click to cycle ✓ / ✗ / blank"
+                      >
+                        {cellLabel(tier.cells?.[benefitIdx])}
+                      </button>
+                      <Input
+                        className="h-6 w-24 text-[10px] shrink-0"
+                        placeholder="or text…"
+                        value={typeof tier.cells?.[benefitIdx] === "string" ? (tier.cells?.[benefitIdx] as string) : ""}
+                        onChange={(e) => setCellText(tierIdx, benefitIdx, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </section>
   );
 }

@@ -69,6 +69,9 @@ export type SlotKey =
   | "logo"
   | "speakerPhoto"
   | "sponsorLogo"
+  | "wordmark"
+  | "datePill"
+  | "ctaButton"
   | `custom:${string}`;
 
 /** One of the five `type` labels a Custom_Prompt_Slot can carry (Requirement 1.2). */

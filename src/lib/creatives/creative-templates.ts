@@ -22,8 +22,15 @@
  * later tasks per the design document.
  */
 
-/** Which kind of entity a Creative_Template / rendered Creative represents. */
-export type CreativeType = "speaker" | "sponsor" | "combo";
+/** Which kind of entity a Creative_Template / rendered Creative represents.
+ *
+ *  `"event"` is an event-level promo creative (no specific speaker or
+ *  sponsor) — a Canva-style stats banner or invite card announcing the
+ *  event itself (title, date, headline stats like attendee/speaker
+ *  counts, a CTA button). Unlike `speaker`/`sponsor`/`combo`, an event
+ *  creative has no `EntityPicker` step — the "entity" is the event row
+ *  itself, whose data (`EventPromoLike`) the caller already has loaded. */
+export type CreativeType = "speaker" | "sponsor" | "combo" | "event";
 
 /** Named output specification matching a target social/email surface. */
 /** The five preset `Platform_Format` ids shipped by the registry.
@@ -124,9 +131,30 @@ export interface ImageSlot {
   shape: "circle" | "rounded-rect" | "rect";
 }
 
-/** Text placement — mirrors ElementPlacement in badge-design.ts. */
+/** Text placement — mirrors ElementPlacement in badge-design.ts.
+ *
+ *  The `eventTitle`/`eventTagline`/`ctaLabel`/`statValueN`/`statLabelN`
+ *  keys (N = 1..4) are Event_Promo-only, used by `EVENT_TEMPLATES`. */
 export interface TextSlot {
-  key: "name" | "title" | "company" | "tierBadge" | "presentedBy" | "sponsorName";
+  key:
+    | "name"
+    | "title"
+    | "company"
+    | "tierBadge"
+    | "presentedBy"
+    | "sponsorName"
+    | "eventTitle"
+    | "eventTagline"
+    | "dateLabel"
+    | "ctaLabel"
+    | "statValue1"
+    | "statLabel1"
+    | "statValue2"
+    | "statLabel2"
+    | "statValue3"
+    | "statLabel3"
+    | "statValue4"
+    | "statLabel4";
   xPct: number;
   yPct: number;
   maxWidthPct: number;
@@ -137,6 +165,33 @@ export interface TextSlot {
   color: string;
   align: "left" | "center" | "right";
   transform?: "none" | "uppercase";
+}
+
+/**
+ * A pill/badge/CTA-button-shaped element — a rounded capsule filled with
+ * `fillColor` and centered text, used by Event_Promo templates for the
+ * date chip and the CTA button (matching the reference "23rd July,
+ * 2026" date pill and "Register for FREE" button). Geometry is %-based
+ * against the template's authored canvas, resolved by `reflowTemplate`
+ * the same way `ImageSlot`/`TextSlot` boxes are. `key` doubles as the
+ * `PlanElement`'s stable identifier for logging/debugging, mirroring
+ * `TextSlot.key`'s role.
+ */
+export interface PillSlot {
+  key: "datePill" | "ctaButton";
+  xPct: number;
+  yPct: number;
+  widthPct: number;
+  heightPct: number;
+  fillColor: string;
+  textColor: string;
+  fontFamily: string;
+  fontWeight: number;
+  baseSizePx: number;
+  /** Corner radius as a fraction of the pill's height, 0..0.5. `0.5`
+   *  (the default every Event_Promo template uses) produces a true
+   *  capsule with semicircular ends. */
+  cornerRadiusFactor: number;
 }
 
 export interface CreativeTemplate {
@@ -150,10 +205,16 @@ export interface CreativeTemplate {
   background: CreativeBgStyle;
   /**
    * Element slots, keyed by role. Combo templates use `speakerPhoto`/
-   * `sponsorLogo` prefixes; speaker/sponsor templates use their own subset.
+   * `sponsorLogo` prefixes; speaker/sponsor templates use their own
+   * subset; Event_Promo templates use `wordmark` for a small
+   * organizer/event logo.
    */
-  imageSlots: Partial<Record<"photo" | "logo" | "speakerPhoto" | "sponsorLogo", ImageSlot>>;
+  imageSlots: Partial<Record<"photo" | "logo" | "speakerPhoto" | "sponsorLogo" | "wordmark", ImageSlot>>;
   textSlots: TextSlot[];
+  /** Pill/CTA-button elements — Event_Promo templates only (the date
+   *  chip and the CTA button). Every other Creative type leaves this
+   *  empty/omitted. */
+  pillSlots?: PillSlot[];
   /** Divider/"presented by" marker — combo templates only. */
   divider?: { xPct: number; yPct1: number; yPct2: number; color: string };
   /**
@@ -390,6 +451,127 @@ export const COMBO_TEMPLATES: CreativeTemplate[] = [
   },
 ];
 
+/** Event_Promo presets: "Stats Banner", "Invite Card" (event-level, no
+ *  speaker/sponsor entity). Authored to match reference promo creatives:
+ *  a dark-gradient wide banner with a wordmark, big bold title, a row of
+ *  up to 4 stat value/label pairs, a date pill, and a CTA button; and a
+ *  light invite-card layout with a script-style "You're Invited"
+ *  headline, bold event title, date, and CTA button. */
+export const EVENT_TEMPLATES: CreativeTemplate[] = [
+  {
+    id: "event-stats-banner",
+    type: "event",
+    name: "Stats Banner",
+    description: "Dark gradient banner: wordmark, bold title, a row of headline stats, date pill, and a CTA button.",
+    authoredWidth: AUTHORED_SIZE,
+    authoredHeight: AUTHORED_SIZE,
+    background: { type: "gradient", from: "#1a0730", to: "#2d1454", angle: 165 },
+    imageSlots: {
+      wordmark: { xPct: 50, yPct: 14, widthPct: 34, heightPct: 8, shape: "rect" },
+    },
+    textSlots: [
+      {
+        key: "eventTitle", xPct: 50, yPct: 30, maxWidthPct: 82, maxHeightPct: 12,
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 58, color: "#ffffff",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statValue1", xPct: 18, yPct: 47, maxWidthPct: 18, maxHeightPct: 6,
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 34, color: "#a78bfa",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statLabel1", xPct: 18, yPct: 52, maxWidthPct: 18, maxHeightPct: 4,
+        fontFamily: "Poppins", fontWeight: 500, baseSizePx: 18, color: "#e0e7ff",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statValue2", xPct: 39, yPct: 47, maxWidthPct: 18, maxHeightPct: 6,
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 34, color: "#a78bfa",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statLabel2", xPct: 39, yPct: 52, maxWidthPct: 18, maxHeightPct: 4,
+        fontFamily: "Poppins", fontWeight: 500, baseSizePx: 18, color: "#e0e7ff",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statValue3", xPct: 61, yPct: 47, maxWidthPct: 18, maxHeightPct: 6,
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 34, color: "#a78bfa",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statLabel3", xPct: 61, yPct: 52, maxWidthPct: 18, maxHeightPct: 4,
+        fontFamily: "Poppins", fontWeight: 500, baseSizePx: 18, color: "#e0e7ff",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statValue4", xPct: 82, yPct: 47, maxWidthPct: 18, maxHeightPct: 6,
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 34, color: "#a78bfa",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statLabel4", xPct: 82, yPct: 52, maxWidthPct: 18, maxHeightPct: 4,
+        fontFamily: "Poppins", fontWeight: 500, baseSizePx: 18, color: "#e0e7ff",
+        align: "center", transform: "none",
+      },
+    ],
+    pillSlots: [
+      {
+        key: "datePill", xPct: 50, yPct: 66, widthPct: 30, heightPct: 6,
+        fillColor: "transparent", textColor: "#ffffff",
+        fontFamily: "Poppins", fontWeight: 500, baseSizePx: 20,
+        cornerRadiusFactor: 0.5,
+      },
+      {
+        key: "ctaButton", xPct: 50, yPct: 80, widthPct: 32, heightPct: 8,
+        fillColor: "#7c3aed", textColor: "#ffffff",
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 24,
+        cornerRadiusFactor: 0.35,
+      },
+    ],
+    themeOverridable: { background: true, accentTextKeys: ["statValue1", "statValue2", "statValue3", "statValue4"] },
+  },
+  {
+    id: "event-invite-card",
+    type: "event",
+    name: "Invite Card",
+    description: "Light invite layout: script \"You're Invited\" headline, bold event title, date, and a CTA button.",
+    authoredWidth: AUTHORED_SIZE,
+    authoredHeight: AUTHORED_SIZE,
+    background: { type: "solid", color: "#2d1454" },
+    imageSlots: {
+      wordmark: { xPct: 50, yPct: 9, widthPct: 34, heightPct: 7, shape: "rect" },
+    },
+    textSlots: [
+      {
+        key: "eventTagline", xPct: 50, yPct: 34, maxWidthPct: 70, maxHeightPct: 8,
+        fontFamily: "Playfair Display", fontWeight: 700, baseSizePx: 46, color: "#4c1d95",
+        align: "center", transform: "none",
+      },
+      {
+        key: "eventTitle", xPct: 50, yPct: 47, maxWidthPct: 76, maxHeightPct: 14,
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 38, color: "#111827",
+        align: "center", transform: "none",
+      },
+      {
+        key: "dateLabel", xPct: 50, yPct: 60, maxWidthPct: 60, maxHeightPct: 6,
+        fontFamily: "Poppins", fontWeight: 600, baseSizePx: 22, color: "#374151",
+        align: "center", transform: "none",
+      },
+    ],
+    pillSlots: [
+      {
+        key: "ctaButton", xPct: 50, yPct: 72, widthPct: 36, heightPct: 8,
+        fillColor: "#b91c1c", textColor: "#ffffff",
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 24,
+        cornerRadiusFactor: 0.25,
+      },
+    ],
+    themeOverridable: { background: false, accentTextKeys: ["eventTagline"] },
+  },
+];
+
 /** Returns the static preset registry matching the given Creative type (Requirement 1.1). */
 export function templatesFor(type: CreativeType): CreativeTemplate[] {
   switch (type) {
@@ -399,6 +581,8 @@ export function templatesFor(type: CreativeType): CreativeTemplate[] {
       return SPONSOR_TEMPLATES;
     case "combo":
       return COMBO_TEMPLATES;
+    case "event":
+      return EVENT_TEMPLATES;
   }
 }
 
@@ -590,7 +774,11 @@ function reflowBox(
 export function reflowTemplate(
   template: CreativeTemplate,
   format: PlatformFormat
-): { imageSlots: Record<string, ResolvedBox>; textSlots: Record<string, ResolvedBox> } {
+): {
+  imageSlots: Record<string, ResolvedBox>;
+  textSlots: Record<string, ResolvedBox>;
+  pillSlots: Record<string, ResolvedBox>;
+} {
   const imageSlots: Record<string, ResolvedBox> = {};
   for (const [role, slot] of Object.entries(template.imageSlots)) {
     if (!slot) continue;
@@ -621,7 +809,19 @@ export function reflowTemplate(
     );
   }
 
-  return { imageSlots, textSlots };
+  const pillSlots: Record<string, ResolvedBox> = {};
+  for (const slot of template.pillSlots ?? []) {
+    pillSlots[slot.key] = reflowBox(
+      slot.xPct,
+      slot.yPct,
+      slot.widthPct,
+      slot.heightPct,
+      format.width,
+      format.height
+    );
+  }
+
+  return { imageSlots, textSlots, pillSlots };
 }
 
 // ─── Template selection persistence (Requirement 1.4) ───────────────────────

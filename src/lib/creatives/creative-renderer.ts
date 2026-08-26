@@ -69,6 +69,35 @@ export interface SponsorLike {
 }
 
 /**
+ * Minimal event-level data an Event_Promo creative renders from — no
+ * speaker/sponsor entity, since the "subject" of the creative is the
+ * event itself. `stats` is an ordered list of up to 4 value/label pairs
+ * (e.g. `{ value: "6000+", label: "Attendees" }`) rendered into the
+ * template's `statValueN`/`statLabelN` text slots in array order; extra
+ * entries beyond 4 are ignored, and a template with fewer stat slots
+ * than the caller supplied simply doesn't render the excess (mirrors
+ * every other builder's "extra input, unused slot" tolerance).
+ */
+export interface EventPromoLike {
+  id: string;
+  title: string;
+  /** Optional secondary line — script-style headline on Invite Card
+   *  templates ("You're Invited"), omitted entirely when absent. */
+  tagline?: string | null;
+  /** Human-readable date/time line, e.g. "23rd July, 2026". Omitted
+   *  entirely when absent/empty rather than rendering a blank pill. */
+  dateLabel?: string | null;
+  /** CTA button label, e.g. "Register for FREE". Falls back to
+   *  "Register Now" when absent so the button never renders empty. */
+  ctaLabel?: string | null;
+  /** Small wordmark/organizer logo shown near the top. Omitted entirely
+   *  (no image element) when absent, mirroring `photo_url`/`logo_url`'s
+   *  optional-omission convention elsewhere in this module. */
+  wordmarkUrl?: string | null;
+  stats?: Array<{ value: string; label: string }>;
+}
+
+/**
  * One resolved, drawable unit. Produced by the plan builders (pure);
  * consumed by `drawPlan` (canvas-only).
  */
@@ -76,7 +105,7 @@ export type PlanElement =
   | { kind: "background"; style: CreativeBgStyle }
   | {
       kind: "image";
-      role: "photo" | "logo";
+      role: "photo" | "logo" | "wordmark";
       url: string | null;
       box: ResolvedBox;
       shape: ImageSlot["shape"];
@@ -102,6 +131,24 @@ export type PlanElement =
       align: TextSlot["align"];
     }
   | { kind: "divider"; x: number; y1: number; y2: number; color: string }
+  | {
+      /** A rounded capsule filled with `fillColor` and centered text —
+       *  used by Event_Promo templates for the date chip and the CTA
+       *  button (Requirement: Event_Promo pill/CTA elements). Drawn
+       *  after every image/text element in plan order (base plans push
+       *  pills last), so a pill always sits on top of the background. */
+      kind: "pill";
+      key: "datePill" | "ctaButton";
+      box: ResolvedBox;
+      fillColor: string;
+      text: string;
+      textColor: string;
+      fontFamily: string;
+      fontWeight: number;
+      baseSizePx: number;
+      /** 0..1 fraction of `box.height`, mirrors `PillSlot.cornerRadiusFactor`. */
+      cornerRadiusFactor: number;
+    }
   // ─── Creative_Customization variants (Task 5) ──────────────────────────
   // Every base-spec variant above remains byte-identical; the variants
   // below are only emitted by `decoratePlanWithCustomization` in
@@ -518,6 +565,127 @@ export function buildComboPlan(
 }
 
 /**
+ * Builds a pure `RenderPlan` for an Event_Promo creative: resolves the
+ * template's background against the event theme, reflows every slot
+ * (image/text/pill) to the target `Platform_Format`'s pixel dimensions,
+ * and emits an optional wordmark image element, the event title / tagline
+ * / date-label text elements (each omitted when the corresponding
+ * `EventPromoLike` field is absent, matching every other builder's
+ * omit-when-empty convention), up to 4 stat value/label text pairs (in
+ * `promo.stats` array order, matched to the template's `statValueN`/
+ * `statLabelN` slots), and pill elements for the date chip and CTA
+ * button. Never throws on missing optional fields. Pure — no DOM, no
+ * image loading, no side effects.
+ */
+export function buildEventPlan(
+  promo: EventPromoLike,
+  template: CreativeTemplate,
+  format: PlatformFormat,
+  theme: EventTheme
+): RenderPlan {
+  const reflowed = reflowTemplate(template, format);
+  const resolvedBackground = resolveBackground(template, theme);
+
+  const elements: PlanElement[] = [{ kind: "background", style: resolvedBackground }];
+
+  const wordmarkSlot = template.imageSlots.wordmark;
+  if (wordmarkSlot && promo.wordmarkUrl) {
+    elements.push({
+      kind: "image",
+      role: "wordmark",
+      url: promo.wordmarkUrl,
+      box: reflowed.imageSlots.wordmark,
+      shape: wordmarkSlot.shape,
+    });
+  }
+
+  const textValues: Partial<Record<TextSlot["key"], string | null | undefined>> = {
+    eventTitle: promo.title,
+    eventTagline: promo.tagline,
+    dateLabel: promo.dateLabel,
+  };
+  const stats = promo.stats ?? [];
+  for (let i = 0; i < Math.min(4, stats.length); i += 1) {
+    const n = i + 1;
+    textValues[`statValue${n}` as TextSlot["key"]] = stats[i].value;
+    textValues[`statLabel${n}` as TextSlot["key"]] = stats[i].label;
+  }
+
+  const textKeys: TextSlot["key"][] = [
+    "eventTitle",
+    "eventTagline",
+    "dateLabel",
+    "statValue1",
+    "statLabel1",
+    "statValue2",
+    "statLabel2",
+    "statValue3",
+    "statLabel3",
+    "statValue4",
+    "statLabel4",
+  ];
+  for (const key of textKeys) {
+    const slot = template.textSlots.find((s) => s.key === key);
+    if (!slot) continue;
+
+    const value = textValues[key];
+    if (!value) continue;
+
+    elements.push({
+      kind: "text",
+      key,
+      text: applyTransform(value, slot.transform),
+      box: reflowed.textSlots[key],
+      fontFamily: slot.fontFamily,
+      fontWeight: slot.fontWeight,
+      baseSizePx: scaleTextSize(slot.baseSizePx, template.authoredWidth, template.authoredHeight, format),
+      color: resolveAccentColor(template, key, theme),
+      align: slot.align,
+    });
+  }
+
+  // Date pill — only when the template defines the slot AND the promo
+  // has a date label; an empty pill would just be a floating colored
+  // capsule with nothing in it.
+  const datePillSlot = template.pillSlots?.find((p) => p.key === "datePill");
+  if (datePillSlot && promo.dateLabel) {
+    elements.push({
+      kind: "pill",
+      key: "datePill",
+      box: reflowed.pillSlots.datePill,
+      fillColor: datePillSlot.fillColor,
+      text: promo.dateLabel,
+      textColor: datePillSlot.textColor,
+      fontFamily: datePillSlot.fontFamily,
+      fontWeight: datePillSlot.fontWeight,
+      baseSizePx: scaleTextSize(datePillSlot.baseSizePx, template.authoredWidth, template.authoredHeight, format),
+      cornerRadiusFactor: datePillSlot.cornerRadiusFactor,
+    });
+  }
+
+  // CTA button — always rendered when the template defines the slot;
+  // falls back to "Register Now" so the button is never empty (a promo
+  // creative's whole point is to drive a registration action).
+  const ctaSlot = template.pillSlots?.find((p) => p.key === "ctaButton");
+  if (ctaSlot) {
+    elements.push({
+      kind: "pill",
+      key: "ctaButton",
+      box: reflowed.pillSlots.ctaButton,
+      fillColor: ctaSlot.fillColor,
+      text: promo.ctaLabel || "Register Now",
+      textColor: ctaSlot.textColor,
+      fontFamily: ctaSlot.fontFamily,
+      fontWeight: ctaSlot.fontWeight,
+      baseSizePx: scaleTextSize(ctaSlot.baseSizePx, template.authoredWidth, template.authoredHeight, format),
+      cornerRadiusFactor: ctaSlot.cornerRadiusFactor,
+    });
+  }
+
+  return { format, elements };
+}
+
+/**
  * Given a slot's anchor+max box and an image's native pixel size, computes
  * the final draw box: uniformly scaled to FIT within the slot while
  * preserving aspect ratio (upscaling small logos so they actually fill the
@@ -877,10 +1045,14 @@ function drawImageCropped(
 function drawImagePlaceholder(
   ctx: CanvasRenderingContext2D,
   box: ResolvedBox,
-  role: "photo" | "logo",
+  role: "photo" | "logo" | "wordmark",
   placeholderInitial: string | undefined
 ): void {
-  if (role === "logo" || !placeholderInitial) {
+  // Only "photo" elements ever carry a placeholderInitial (see
+  // `buildPhotoElement`) — logos/wordmarks without a URL are represented
+  // as text-fallback elements upstream, never reach this path with a
+  // missing image, so this stays a no-op for both roles.
+  if (role !== "photo" || !placeholderInitial) {
     return;
   }
 
@@ -1067,6 +1239,54 @@ function drawDividerElement(ctx: CanvasRenderingContext2D, el: Extract<PlanEleme
   ctx.moveTo(el.x, el.y1);
   ctx.lineTo(el.x, el.y2);
   ctx.stroke();
+}
+
+/**
+ * Draws a `pill` element: a rounded capsule filled with `el.fillColor`
+ * and centered text — the date chip / CTA button used by Event_Promo
+ * templates. Reuses `drawImageCropped`'s manual arcTo rounded-rect
+ * fallback shape (via a local path build, since a pill isn't an image)
+ * for engines without `ctx.roundRect`. A `fillColor` of `"transparent"`
+ * skips the capsule fill entirely — used by the Stats Banner's date
+ * pill, which the reference design renders as an outlined/borderless
+ * chip rather than a solid button.
+ */
+function drawPillElement(ctx: CanvasRenderingContext2D, el: Extract<PlanElement, { kind: "pill" }>): void {
+  const { x, y, width, height } = el.box;
+  const radius = Math.max(0, Math.min(0.5, el.cornerRadiusFactor)) * height;
+
+  if (el.fillColor !== "transparent") {
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(x, y, width, height, radius);
+    } else {
+      ctx.moveTo(x + radius, y);
+      ctx.arcTo(x + width, y, x + width, y + height, radius);
+      ctx.arcTo(x + width, y + height, x, y + height, radius);
+      ctx.arcTo(x, y + height, x, y, radius);
+      ctx.arcTo(x, y, x + width, y, radius);
+    }
+    ctx.fillStyle = el.fillColor;
+    ctx.fill();
+  }
+
+  if (!el.text) return;
+
+  const measure = (text: string, fontSizePx: number): number => {
+    ctx.font = `${el.fontWeight} ${fontSizePx}px ${el.fontFamily}, sans-serif`;
+    return ctx.measureText(text).width;
+  };
+  // Pills are single-line by design — shrink-to-fit via `fitText`, but
+  // only ever draw the first line even if wrapping somehow occurs
+  // (extremely long CTA text), since a wrapped pill would look broken.
+  const fit = fitText(el.text, { x, y, width: width * 0.92, height }, el.baseSizePx, measure);
+  if (fit.lines.length === 0) return;
+
+  ctx.font = `${el.fontWeight} ${fit.fontSizePx}px ${el.fontFamily}, sans-serif`;
+  ctx.fillStyle = el.textColor;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(fit.lines[0], x + width / 2, y + height / 2);
 }
 
 // ─── Creative_Customization drawing helpers (Task 5) ────────────────────────
@@ -1416,6 +1636,9 @@ export async function drawPlan(ctx: CanvasRenderingContext2D, plan: RenderPlan):
       case "divider":
         drawDividerElement(ctx, el);
         break;
+      case "pill":
+        drawPillElement(ctx, el);
+        break;
       case "overlay-dim":
         drawOverlayDim(ctx, el, plan.format);
         break;
@@ -1516,5 +1739,21 @@ export async function renderComboCreative(
   theme: EventTheme
 ): Promise<Blob> {
   const plan = buildComboPlan(speaker, sponsor, template, format, theme);
+  return renderPlanToPngBlob(plan);
+}
+
+/**
+ * Renders an Event_Promo creative for `promo` at `format`, resolving
+ * `template` against `theme`, and returns the exported PNG blob.
+ * Composes `buildEventPlan` + an off-screen canvas + `drawPlan` +
+ * `canvas.toBlob()` (Requirement 5.2).
+ */
+export async function renderEventCreative(
+  promo: EventPromoLike,
+  template: CreativeTemplate,
+  format: PlatformFormat,
+  theme: EventTheme
+): Promise<Blob> {
+  const plan = buildEventPlan(promo, template, format, theme);
   return renderPlanToPngBlob(plan);
 }

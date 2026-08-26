@@ -225,7 +225,7 @@ export interface EventPageConfig {
    * `@/lib/creatives/creative-templates`; the clear path deletes the key
    * (rather than storing null) so the map stays minimal (Requirement 10.5).
    */
-  creativeTemplatePrefs?: Partial<Record<"speaker" | "sponsor" | "combo", string>> & {
+  creativeTemplatePrefs?: Partial<Record<"speaker" | "sponsor" | "combo" | "event", string>> & {
     perEntity?: Record<string, string>;
   };
   /**
@@ -249,7 +249,7 @@ export interface EventPageConfig {
     id: string;
     name: string;
     basedOn: string | null;
-    type: "speaker" | "sponsor" | "combo";
+    type: "speaker" | "sponsor" | "combo" | "event";
     [key: string]: unknown;
   }>;
   /**
@@ -282,7 +282,8 @@ export interface EventPageConfig {
         | "focusOfSummit"
         | "whoShouldAttend"
         | "solutionProviders"
-        | "highlights";
+        | "highlights"
+        | "sponsorshipPackages";
       included: boolean;
     }[];
     /**
@@ -373,6 +374,28 @@ export interface EventPageConfig {
       whyMattersItems?: string[];
       whatYouWillGainTitle?: string;
       whatYouWillGainItems?: string[];
+
+      /* ── Sponsorship_Packages table (any theme) ────────────────────
+       * A benefits × tiers comparison table matching reference
+       * sponsorship-deck brochures (e.g. "Premium Partnership
+       * Packages" with Presenting / Co-Presenting / Knowledge Partner
+       * columns). Fully organizer-authored — no fixed tier count or
+       * benefit list. See `buildSponsorshipPackagesContent` in
+       * `@/lib/brochure/brochure-sections.ts` for the resolution
+       * rules (a row/column with an empty name is dropped; a cell
+       * left blank renders as an em-dash). */
+      sponsorshipPackagesTitle?: string;
+      /** Row labels — the left-most column of the table. */
+      sponsorshipBenefits?: string[];
+      sponsorshipTiers?: Array<{
+        name: string;
+        price?: string;
+        /** One entry per row, aligned by index to
+         *  `sponsorshipBenefits`. `true`/`false` render as a
+         *  checkmark/cross; a string renders verbatim; `null`/absent
+         *  renders as an em-dash. */
+        cells?: Array<string | boolean | null>;
+      }>;
     };
     /**
      * Serialized WYSIWYG editor document. When present, the editor
