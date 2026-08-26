@@ -71,6 +71,8 @@ import {
   DEFAULT_SECTION_LAYOUT,
   POSTER_BOLD_SECTION_LAYOUT,
   readBrochurePrefs,
+  resolveBrochureTheme,
+  resolveSectionLayout,
   saveBrochurePrefs,
   type BrochureTheme,
   type BrochureThemeOverride,
@@ -446,6 +448,23 @@ export default function BrochureConfiguratorDialog({
     [eventPageConfig.theme?.primaryColor, eventPageConfig.theme?.accentColor, eventPageConfig.theme?.fontFamily]
   );
 
+  // Resolved colors (theme default -> event theme -> organizer override),
+  // exactly the same precedence `buildBrochureDocument` applies via
+  // `resolveBrochureTheme` for the PDF export. Passed into the editor's
+  // seed so "Open in Editor" reflects the SAME accent/font the live
+  // preview is currently showing, instead of the theme's raw defaults
+  // (Requirement: editor/preview parity).
+  const resolvedColors = useMemo(
+    () => resolveBrochureTheme(selectedTheme, eventTheme, themeOverride),
+    [selectedTheme, eventTheme, themeOverride]
+  );
+
+  // The resolved (included, in render order) section id list — computed
+  // via the SAME `resolveSectionLayout` the PDF export uses, so the
+  // editor's seed builds exactly the pages the live preview is showing,
+  // in the same order.
+  const resolvedSectionIds = useMemo(() => resolveSectionLayout(sectionLayout), [sectionLayout]);
+
   // The full resolved generation input — recomputed whenever any selection
   // or fetched entity changes, and passed unchanged to BOTH
   // BrochurePreviewFrame (live preview) and downloadBrochurePdf (export),
@@ -794,11 +813,11 @@ export default function BrochureConfiguratorDialog({
         <BrochureEditorDialog
           open={editorOpen}
           onOpenChange={setEditorOpen}
-          // Seed the editor from whichever theme is currently selected —
-          // the editor's template seed dispatch already supports
-          // "poster-bold" (and "corporate-bold" for legacy saved
-          // selections), routing anything else to the Classic seed.
-          templateId={selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold" ? selectedTheme.id : "classic"}
+          // Seed the editor from the SAME theme + resolved section list +
+          // resolved colors the live preview is currently showing, so the
+          // two can never diverge (Requirement: editor/preview parity).
+          theme={selectedTheme}
+          resolvedSectionIds={resolvedSectionIds}
           seed={{
             eventTitle: event.title,
             dateText: (() => {
@@ -827,7 +846,11 @@ export default function BrochureConfiguratorDialog({
               selectedTheme.id === "corporate-bold"
                 ? posterContent.focusOfSummit
                 : posterContent.whySponsor,
-            // Content-page data — the Classic seed uses these to build
+            pricingCards: posterContent.pricingCards,
+            showRegistrationForm: posterContent.registrationForm,
+            accentColor: resolvedColors.accentColor,
+            fontFamily: resolvedColors.fontFamily,
+            // Content-page data — the shared seed uses these to build
             // Agenda / Speakers / Sponsors / Venue pages that match the
             // preview one-to-one so the editor and the live preview
             // show the SAME set of pages.

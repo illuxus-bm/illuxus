@@ -23,14 +23,15 @@ import {
   A4_WIDTH_MM,
   newDocument,
   newImageElement,
+  newPage,
   newPillElement,
   newShapeElement,
   newTextElement,
   type BrochureDocument,
   type BrochureElement,
   type BrochurePage,
-  type PageBackground,
 } from "./editor-document";
+import type { BrochureSectionId, BrochureTheme } from "../brochure-templates";
 import {
   buildAgendaSectionContent,
   buildSpeakerRows,
@@ -45,7 +46,10 @@ import {
 } from "../brochure-sections";
 
 /** Input for template pre-loading. Mirrors the essential fields the
- *  jsPDF renderer already receives via `BrochureGenerationInput`. */
+ *  jsPDF renderer already receives via `BrochureGenerationInput`, so a
+ *  seed built from the SAME source data produces a document matching
+ *  the live preview page-for-page (Requirement: editor/preview parity).
+ */
 export interface TemplateSeedInput {
   eventTitle: string;
   /** Human-readable date range, e.g. "12 Aug 2026 | 09:00 AM onwards". */
@@ -72,11 +76,22 @@ export interface TemplateSeedInput {
   /** Optional numbered value-prop items for the "Why Sponsor?" or
    *  "Focus of the Summit" page. */
   numberedItems?: string[];
-  /** Accent color hex — drives pill fills, accent bars. Defaults to
-   *  Poster Bold orange. */
+  /** Pricing cards for the Poster_Bold Pricing page — same source as
+   *  `brochure-pdf.ts`'s `posterContent.pricing.cards`. */
+  pricingCards?: Array<{ title: string; subtitle?: string | null; price: string; discounts?: string[] | null }>;
+  /** Whether to render the blank registration-form grid below the
+   *  pricing cards — same source as `posterContent.pricing.showRegistrationForm`. */
+  showRegistrationForm?: boolean;
+  /** Resolved accent color (theme default with any organizer override
+   *  already applied) — callers MUST pass `resolveBrochureTheme(...)`'s
+   *  `accentColor`, not a raw theme default, so an organizer's color
+   *  override is reflected in the editor exactly like the live preview. */
   accentColor?: string;
   /** Primary text color for cover title (contrasting the background). */
   titleColor?: string;
+  /** Resolved font family (theme default with any organizer override
+   *  already applied) — same precedence note as `accentColor`. */
+  fontFamily?: string;
 
   // ── Content pages (Classic seed) ────────────────────────────────
   //
@@ -97,113 +112,88 @@ export interface TemplateSeedInput {
   sponsorshipPackages?: SponsorshipPackagesInput;
 }
 
-// ─── Poster Bold seed (white bg, orange accent) ─────────────────────────────
-
-export function seedPosterBoldFullBrochure(input: TemplateSeedInput): BrochureDocument {
-  const accent = input.accentColor ?? "#ff5722";
-  const titleColor = input.titleColor ?? "#000000";
-  const doc = newDocument(input.eventTitle);
-
-  const cover = buildPosterBoldCoverPage(input, accent, titleColor, "#ffffff", true);
-  const abstract = buildAbstractPage(input, accent, "#ffffff", "#000000");
-  const whySponsor = buildNumberedListPage(
-    input.numberedItems ?? [],
-    "Why Sponsor?",
-    accent,
-    "#000000",
-    "#ffffff",
-    "#111111"
-  );
-
-  return {
-    ...doc,
-    pages: [cover, abstract, whySponsor].filter(Boolean) as BrochurePage[],
-  };
-}
-
-// ─── Corporate Bold seed (purple gradient, black pages) ─────────────────────
-
-export function seedCorporateBoldFullBrochure(input: TemplateSeedInput): BrochureDocument {
-  const accent = input.accentColor ?? "#a259e6";
-  const titleColor = input.titleColor ?? "#ffffff";
-  const doc = newDocument(input.eventTitle);
-
-  const cover = buildCorporateBoldCoverPage(input, accent, titleColor);
-  const abstract = buildAbstractPage(input, accent, "#000000", "#ffffff");
-  const focus = buildNumberedListPage(
-    input.numberedItems ?? [],
-    "Focus of the Summit",
-    accent,
-    "#000000",
-    "#ffffff",
-    "#dddddd"
-  );
-
-  return {
-    ...doc,
-    pages: [cover, abstract, focus].filter(Boolean) as BrochurePage[],
-  };
-}
-
-// Backwards-compatible aliases — earlier commits referenced these
-// single-page seed names.
-export const seedPosterBoldCover = seedPosterBoldFullBrochure;
-export const seedCorporateBoldCover = seedCorporateBoldFullBrochure;
-
-/** Classic seed — the only theme shipped after the mass theme trim.
- *  Builds an editable Brochure_Document whose pages match the jsPDF
- *  preview's Section_Layout one-to-one: Cover → Agenda → Speakers →
- *  Sponsors → Venue & Logistics. Every page is composed of ordinary
- *  editable elements (text, shape, image), so the organizer can
- *  select, drag, resize, restyle, or delete any part of any page
- *  Canva-style — including the cover banner image and the speaker
- *  photos — with no hidden or read-only content.
- *
- *  When an event has no sessions / speakers / sponsors / venue data,
- *  the corresponding page is skipped entirely so the editor doesn't
- *  ship pages with only a heading. The organizer can add a fresh
- *  page at any time via the pages bar. */
-export function seedClassicBrochure(input: TemplateSeedInput): BrochureDocument {
-  // Classic editorial defaults: navy accent, black title text.
-  const accent = input.accentColor ?? "#1e3a8a";
-  const titleColor = input.titleColor ?? "#0a1429";
+// ─── Unified section-driven seed (editor/preview parity) ────────────────────
+//
+// `seedBrochureDocument` is the ONE seed entry point used by
+// `BrochureEditorDialog`. It walks the SAME resolved section id list the
+// jsPDF preview walks (`resolveSectionLayout(sectionLayout)` in the
+// caller), building one editable page per section — so the editor can
+// never show a different set of pages than the preview/export, and a
+// section that yields no content is skipped exactly like
+// `buildBrochureDocument` skips it. Unsupported section ids
+// (`whoShouldAttend`, `solutionProviders`, `highlights` — Corporate_Bold-
+// only pages with no editor page builder yet) are skipped rather than
+// throwing, so a legacy Corporate_Bold config still opens with whatever
+// subset of its pages the editor can represent.
+export function seedBrochureDocument(
+  input: TemplateSeedInput,
+  theme: BrochureTheme,
+  resolvedSectionIds: BrochureSectionId[]
+): BrochureDocument {
+  const accent = input.accentColor ?? theme.defaultColors.accentColor;
+  const fontFamily = input.fontFamily ?? theme.defaultColors.fontFamily ?? "Poppins";
+  // Cover title color is genuinely theme-dependent (poster-bold's cover
+  // page is always white-bg/black-text; corporate-bold's is always a
+  // dark gradient/white-text) — mirrors `drawPosterBoldCover` /
+  // `drawCorporateBoldCover`'s hardcoded choices exactly.
+  const isCorporateBold = theme.id === "corporate-bold";
+  const coverTitleColor = input.titleColor ?? (isCorporateBold ? "#ffffff" : "#0a1429");
 
   const doc = newDocument(input.eventTitle || "Untitled Brochure");
   const pages: BrochurePage[] = [];
 
-  // Page 1 — Cover. Full-page portrait banner when a cover image is
-  // available; text-only editorial fallback otherwise. This reuses
-  // the existing cover builder (with the recent full-page banner
-  // fix) so cover behavior stays consistent across seeds.
-  pages.push(buildPosterBoldCoverPage(input, accent, titleColor, "#ffffff", false));
+  for (const id of resolvedSectionIds) {
+    const page = buildEditorPageForSection(id, input, theme, accent, fontFamily, coverTitleColor, isCorporateBold);
+    if (page) pages.push(page);
+  }
 
-  // Page 2 — Agenda.
-  const agendaPage = buildAgendaPage(input.sessions ?? [], input.eventTitle, input.dateText, accent, titleColor);
-  if (agendaPage) pages.push(agendaPage);
+  return { ...doc, pages: pages.length > 0 ? pages : [newPage()] };
+}
 
-  // Page 3 — Speakers.
-  const speakersPage = buildSpeakersPage(input.speakers ?? [], input.eventTitle, input.dateText, accent, titleColor);
-  if (speakersPage) pages.push(speakersPage);
-
-  // Page 4 — Sponsors.
-  const sponsorsPage = buildSponsorsPage(input.sponsors ?? [], input.eventTitle, input.dateText, accent, titleColor);
-  if (sponsorsPage) pages.push(sponsorsPage);
-
-  // Page 5 — Venue & Logistics.
-  const venuePage = buildVenuePage(input.venueLogistics, input.eventTitle, input.dateText, accent, titleColor);
-  if (venuePage) pages.push(venuePage);
-
-  // Page 6 — Sponsorship Packages (benefits × tiers comparison table).
-  const sponsorshipPage = buildSponsorshipPackagesPage(
-    input.sponsorshipPackages,
-    input.eventTitle,
-    input.dateText,
-    accent,
-    titleColor
-  );
-  if (sponsorshipPage) pages.push(sponsorshipPage);
-
-  return { ...doc, pages };
+function buildEditorPageForSection(
+  id: BrochureSectionId,
+  input: TemplateSeedInput,
+  theme: BrochureTheme,
+  accent: string,
+  fontFamily: string,
+  coverTitleColor: string,
+  isCorporateBold: boolean
+): BrochurePage | null {
+  switch (id) {
+    case "cover":
+      return isCorporateBold
+        ? buildCorporateBoldCoverPage(input, accent, coverTitleColor, fontFamily)
+        : buildPosterBoldCoverPage(input, accent, coverTitleColor, fontFamily);
+    case "agenda":
+      return theme.agenda.layout === "timetable-cards"
+        ? buildAgendaTimetableCardsPage(input, accent, fontFamily)
+        : buildAgendaPage(input, accent, fontFamily);
+    case "speakers":
+      return buildSpeakersPage(input.speakers ?? [], accent, fontFamily);
+    case "sponsors":
+      return buildSponsorsPage(input.sponsors ?? [], accent, fontFamily);
+    case "venueLogistics":
+      return buildVenuePage(input.venueLogistics, accent, fontFamily);
+    case "abstract":
+      return buildAbstractPage(input, accent, fontFamily);
+    case "whySponsor":
+      return buildNumberedListPage(input.numberedItems ?? [], "Why Sponsor?", accent, fontFamily);
+    case "pricing":
+      return buildPricingPage(input, accent, fontFamily);
+    case "focusOfSummit":
+      return buildNumberedListPage(input.numberedItems ?? [], "Focus of the Summit", accent, fontFamily);
+    case "sponsorshipPackages":
+      return buildSponsorshipPackagesPage(input.sponsorshipPackages, accent, fontFamily);
+    // Corporate_Bold-only sections with no editor page builder yet —
+    // skip rather than throw, matching the jsPDF renderer's own
+    // null-content skip contract.
+    case "whoShouldAttend":
+    case "solutionProviders":
+    case "highlights":
+      return null;
+    default:
+      return null;
+  }
 }
 
 // ─── Cover page builders ───────────────────────────────────────────────────
@@ -212,8 +202,7 @@ function buildPosterBoldCoverPage(
   input: TemplateSeedInput,
   accent: string,
   titleColor: string,
-  bgColor: string,
-  showFooter: boolean
+  fontFamily: string
 ): BrochurePage {
   const pageW = A4_WIDTH_MM;
   const pageH = A4_HEIGHT_MM;
@@ -249,175 +238,184 @@ function buildPosterBoldCoverPage(
         cornerRadius: 0,
       })
     );
-    return {
-      id: `page-cover-${Math.random().toString(36).slice(2, 8)}`,
-      width: A4_WIDTH_MM,
-      height: A4_HEIGHT_MM,
-      background: { type: "solid", color: bgColor },
-      elements,
-    };
-  }
+  } else {
+    // ── Fallback layout: no banner uploaded yet ────────────────────
+    //
+    // When the event has no banner_portrait_url / image_url /
+    // banner_landscape_url configured, seed a text-only cover with the
+    // wordmark, title, tagline pill, chip row, and date/venue line so
+    // the editor still shows something meaningful. The organizer can
+    // add an image via the palette once they've uploaded one.
+    let cursorY = pageH * 0.15;
 
-  // ── Fallback layout: no banner uploaded yet ──────────────────────
-  //
-  // When the event has no banner_portrait_url / image_url /
-  // banner_landscape_url configured, seed a text-only cover with the
-  // wordmark, title, tagline pill, chip row, date/venue line, and
-  // footer so the editor still shows something meaningful. The
-  // organizer can add an image via the palette once they've uploaded
-  // one.
-  let cursorY = pageH * 0.15;
-
-  // Optional wordmark logo above the title (centered).
-  if (input.logoUrl) {
-    push(
-      newImageElement({
-        x: pageW / 2 - 30,
-        y: cursorY,
-        width: 60,
-        height: 16,
-        src: input.logoUrl,
-        fit: "contain",
-      })
-    );
-    cursorY += 20;
-  }
-
-  // Title.
-  push(
-    newTextElement({
-      x: 12,
-      y: cursorY,
-      width: pageW - 24,
-      height: 40,
-      content: input.eventTitle,
-      fontFamily: "Poppins",
-      fontSize: 40,
-      fontWeight: "bold",
-      color: titleColor,
-      align: "center",
-      lineHeight: 1.05,
-    })
-  );
-  cursorY += 48;
-
-  // Optional tagline pill.
-  if (input.coverTagline?.trim()) {
-    push(
-      newPillElement({
-        x: pageW / 2 - 45,
-        y: cursorY,
-        width: 90,
-        height: 12,
-        text: input.coverTagline.trim(),
-        fontFamily: "Poppins",
-        fontSize: 12,
-        textColor: accent,
-        fillColor: "#ffffff",
-        strokeColor: accent,
-        strokeWidth: 0.6,
-      })
-    );
-    cursorY += 16;
-  }
-
-  // Optional pill chip row.
-  const pills = (input.coverPills ?? []).filter((p) => p && p.trim().length > 0);
-  if (pills.length > 0) {
-    const pillH = 9;
-    const pillGap = 4;
-    const pillW = 32;
-    const totalW = pills.length * pillW + (pills.length - 1) * pillGap;
-    let x = pageW / 2 - totalW / 2;
-    for (const label of pills) {
-      push(
-        newPillElement({
-          x,
-          y: cursorY,
-          width: pillW,
-          height: pillH,
-          text: label,
-          fontFamily: "Poppins",
-          fontSize: 9,
-          textColor: titleColor,
-          fillColor: "transparent",
-          strokeColor: titleColor,
-          strokeWidth: 0.4,
-        })
-      );
-      x += pillW + pillGap;
-    }
-    cursorY += pillH + 6;
-  }
-
-  // Date + venue line.
-  push(
-    newTextElement({
-      x: 12,
-      y: cursorY,
-      width: pageW - 24,
-      height: 8,
-      content: `${input.dateText}${input.venueText ? "  |  " + input.venueText : ""}`,
-      fontFamily: "Poppins",
-      fontSize: 12,
-      fontWeight: "normal",
-      color: titleColor,
-      align: "center",
-      lineHeight: 1.1,
-    })
-  );
-
-  // Footer.
-  if (showFooter) {
-    push(
-      newTextElement({
-        x: 12,
-        y: pageH - 22,
-        width: 90,
-        height: 5,
-        content: "Conceptualized & Organized by",
-        fontFamily: "Poppins",
-        fontSize: 8,
-        fontWeight: "bold",
-        color: "#111111",
-        align: "left",
-        lineHeight: 1,
-      })
-    );
-    if (input.organizerLogoUrl) {
+    // Optional wordmark logo above the title (centered).
+    if (input.logoUrl) {
       push(
         newImageElement({
-          x: 12,
-          y: pageH - 16,
-          width: 40,
-          height: 14,
-          src: input.organizerLogoUrl,
+          x: pageW / 2 - 30,
+          y: cursorY,
+          width: 60,
+          height: 16,
+          src: input.logoUrl,
           fit: "contain",
         })
       );
+      cursorY += 20;
     }
+
+    // Title.
     push(
       newTextElement({
-        x: pageW - 12 - 60,
-        y: pageH - 22,
-        width: 60,
-        height: 5,
-        content: "Follow us on social media",
-        fontFamily: "Poppins",
-        fontSize: 8,
+        x: 12,
+        y: cursorY,
+        width: pageW - 24,
+        height: 40,
+        content: input.eventTitle,
+        fontFamily,
+        fontSize: 40,
         fontWeight: "bold",
-        color: "#111111",
-        align: "right",
-        lineHeight: 1,
+        color: titleColor,
+        align: "center",
+        lineHeight: 1.05,
+      })
+    );
+    cursorY += 48;
+
+    // Optional tagline pill.
+    if (input.coverTagline?.trim()) {
+      push(
+        newPillElement({
+          x: pageW / 2 - 45,
+          y: cursorY,
+          width: 90,
+          height: 12,
+          text: input.coverTagline.trim(),
+          fontFamily,
+          fontSize: 12,
+          textColor: accent,
+          fillColor: "#ffffff",
+          strokeColor: accent,
+          strokeWidth: 0.6,
+        })
+      );
+      cursorY += 16;
+    }
+
+    // Optional pill chip row.
+    const pills = (input.coverPills ?? []).filter((p) => p && p.trim().length > 0);
+    if (pills.length > 0) {
+      const pillH = 9;
+      const pillGap = 4;
+      const pillW = 32;
+      const totalW = pills.length * pillW + (pills.length - 1) * pillGap;
+      let x = pageW / 2 - totalW / 2;
+      for (const label of pills) {
+        push(
+          newPillElement({
+            x,
+            y: cursorY,
+            width: pillW,
+            height: pillH,
+            text: label,
+            fontFamily,
+            fontSize: 9,
+            textColor: titleColor,
+            fillColor: "transparent",
+            strokeColor: titleColor,
+            strokeWidth: 0.4,
+          })
+        );
+        x += pillW + pillGap;
+      }
+      cursorY += pillH + 6;
+    }
+
+    // Date + venue line.
+    push(
+      newTextElement({
+        x: 12,
+        y: cursorY,
+        width: pageW - 24,
+        height: 8,
+        content: `${input.dateText}${input.venueText ? "  |  " + input.venueText : ""}`,
+        fontFamily,
+        fontSize: 12,
+        fontWeight: "normal",
+        color: titleColor,
+        align: "center",
+        lineHeight: 1.1,
       })
     );
   }
+
+  // ── Footer band ───────────────────────────────────────────────────
+  //
+  // Always drawn (matches `drawPosterBoldCover`'s unconditional footer
+  // band, Requirement: editor/preview parity) — a white strip along the
+  // bottom carrying the organizer credit + social icons regardless of
+  // whether the cover has a banner image or the text-only fallback.
+  const footerTop = pageH - 28;
+  push(
+    newShapeElement({
+      x: 0,
+      y: footerTop,
+      width: pageW,
+      height: 28,
+      shape: "rect",
+      fill: "#ffffff",
+      stroke: "transparent",
+      strokeWidth: 0,
+      cornerRadius: 0,
+    })
+  );
+  push(
+    newTextElement({
+      x: 12,
+      y: footerTop + 6,
+      width: 90,
+      height: 5,
+      content: "Conceptualized & Organized by",
+      fontFamily,
+      fontSize: 8,
+      fontWeight: "bold",
+      color: "#111111",
+      align: "left",
+      lineHeight: 1,
+    })
+  );
+  if (input.organizerLogoUrl) {
+    push(
+      newImageElement({
+        x: 12,
+        y: footerTop + 12,
+        width: 40,
+        height: 14,
+        src: input.organizerLogoUrl,
+        fit: "contain",
+      })
+    );
+  }
+  push(
+    newTextElement({
+      x: pageW - 12 - 60,
+      y: footerTop + 6,
+      width: 60,
+      height: 5,
+      content: "Follow us on social media",
+      fontFamily,
+      fontSize: 8,
+      fontWeight: "bold",
+      color: "#111111",
+      align: "right",
+      lineHeight: 1,
+    })
+  );
 
   return {
     id: `page-cover-${Math.random().toString(36).slice(2, 8)}`,
     width: A4_WIDTH_MM,
     height: A4_HEIGHT_MM,
-    background: { type: "solid", color: bgColor },
+    background: { type: "solid", color: "#ffffff" },
     elements,
   };
 }
@@ -425,28 +423,34 @@ function buildPosterBoldCoverPage(
 function buildCorporateBoldCoverPage(
   input: TemplateSeedInput,
   accent: string,
-  titleColor: string
+  titleColor: string,
+  fontFamily: string
 ): BrochurePage {
   // Reuse the Poster Bold cover geometry but with a gradient bg + white text.
-  const page = buildPosterBoldCoverPage(input, accent, titleColor, "#1a0730", false);
+  const page = buildPosterBoldCoverPage(input, accent, titleColor, fontFamily);
   page.background = { type: "gradient", top: "#1a0730", bottom: "#3a1152" };
   return page;
 }
 
 // ─── Abstract page (used by both themes) ───────────────────────────────────
 
-function buildAbstractPage(
-  input: TemplateSeedInput,
-  accent: string,
-  bgColor: string,
-  textColor: string
-): BrochurePage {
+function buildAbstractPage(input: TemplateSeedInput, accent: string, fontFamily: string): BrochurePage | null {
+  const abstractText = input.abstract?.trim();
+  const featuredText = input.featured?.trim();
+  const outcomes = (input.learningOutcomes ?? []).filter((s) => s && s.trim());
+  if (!abstractText && !featuredText && outcomes.length === 0) return null;
+
   const pageW = A4_WIDTH_MM;
   const elements: BrochureElement[] = [];
   const push = (el: BrochureElement) => {
     el.zIndex = elements.length;
     elements.push(el);
   };
+  const textColor = "#ffffff";
+
+  // Full-bleed accent-colored background, matching `drawAbstractSection`'s
+  // orange (or theme-accent) full-page fill.
+  const bgColor = accent;
 
   // Small event-title wordmark top-left, date top-right, thin accent divider.
   push(
@@ -456,7 +460,7 @@ function buildAbstractPage(
       width: 100,
       height: 8,
       content: input.eventTitle,
-      fontFamily: "Poppins",
+      fontFamily,
       fontSize: 14,
       fontWeight: "bold",
       color: textColor,
@@ -471,7 +475,7 @@ function buildAbstractPage(
       width: 100,
       height: 8,
       content: `${input.dateText}${input.venueText ? "  |  " + input.venueText : ""}`,
-      fontFamily: "Poppins",
+      fontFamily,
       fontSize: 9,
       fontWeight: "bold",
       color: textColor,
@@ -486,67 +490,91 @@ function buildAbstractPage(
       width: pageW - 40,
       height: 0.4,
       shape: "rect",
-      fill: accent,
+      fill: "#ffffff",
       stroke: "transparent",
       strokeWidth: 0,
       cornerRadius: 0,
     })
   );
 
-  // Big "ABSTRACT" heading.
-  push(
-    newTextElement({
-      x: 20,
-      y: 44,
-      width: 90,
-      height: 20,
-      content: "ABSTRACT",
-      fontFamily: "Poppins",
-      fontSize: 30,
-      fontWeight: "bold",
-      color: accent,
-      align: "left",
-      lineHeight: 1,
-    })
-  );
-
-  // Body copy.
-  if (input.abstract?.trim()) {
+  // Card renderer shared by the Abstract/Featured blocks — matches
+  // `drawAbstractSection`'s `drawCardBlock`: a black heading pill
+  // floating above a white body card.
+  let cursorY = 52;
+  const pushCardBlock = (heading: string, body: string) => {
+    const cardX = 20;
+    const cardW = pageW - 40;
+    const headingPillW = 42;
+    const headingPillH = 10;
     push(
-      newTextElement({
-        x: 20,
-        y: 68,
-        width: pageW - 40,
-        height: 90,
-        content: input.abstract,
-        fontFamily: "Poppins",
-        fontSize: 11,
-        fontWeight: "normal",
-        color: textColor,
-        align: "left",
-        lineHeight: 1.5,
+      newPillElement({
+        x: pageW / 2 - headingPillW / 2,
+        y: cursorY,
+        width: headingPillW,
+        height: headingPillH,
+        text: heading,
+        fontFamily,
+        fontSize: 9,
+        textColor: "#ffffff",
+        fillColor: "#000000",
+        strokeColor: "transparent",
+        strokeWidth: 0,
       })
     );
-  }
+    const cardY = cursorY + headingPillH / 2;
+    const cardH = 46;
+    push(
+      newShapeElement({
+        x: cardX,
+        y: cardY,
+        width: cardW,
+        height: cardH,
+        shape: "rect",
+        fill: "#ffffff",
+        stroke: "transparent",
+        strokeWidth: 0,
+        cornerRadius: 6,
+      })
+    );
+    push(
+      newTextElement({
+        x: cardX + 8,
+        y: cardY + headingPillH / 2 + 6,
+        width: cardW - 16,
+        height: cardH - headingPillH / 2 - 10,
+        content: body,
+        fontFamily,
+        fontSize: 10.5,
+        fontWeight: "normal",
+        color: "#000000",
+        align: "center",
+        lineHeight: 1.35,
+      })
+    );
+    cursorY = cardY + cardH + 8;
+  };
 
-  // Learning outcomes grid.
-  const outcomes = (input.learningOutcomes ?? []).filter((s) => s && s.trim());
+  if (abstractText) pushCardBlock("ABSTRACT", abstractText);
+  if (featuredText) pushCardBlock("Featured", featuredText);
+
+  // Learning outcomes grid — two-column dark rounded chips.
   if (outcomes.length > 0) {
     push(
       newTextElement({
         x: 20,
-        y: 175,
+        y: cursorY,
         width: pageW - 40,
         height: 10,
         content: "LEARNING OUTCOMES",
-        fontFamily: "Poppins",
+        fontFamily,
         fontSize: 16,
         fontWeight: "bold",
-        color: textColor,
+        color: "#000000",
         align: "center",
         lineHeight: 1,
       })
     );
+    const gridTop = cursorY + 12;
     const cols = 2;
     const gap = 4;
     const chipW = (pageW - 40 - gap * (cols - 1)) / cols;
@@ -555,7 +583,7 @@ function buildAbstractPage(
       const col = i % cols;
       const row = Math.floor(i / cols);
       const x = 20 + col * (chipW + gap);
-      const y = 190 + row * (chipH + gap);
+      const y = gridTop + row * (chipH + gap);
       push(
         newShapeElement({
           x,
@@ -563,7 +591,7 @@ function buildAbstractPage(
           width: chipW,
           height: chipH,
           shape: "rect",
-          fill: "#0a0a0a",
+          fill: "#000000",
           stroke: "transparent",
           strokeWidth: 0,
           cornerRadius: 4,
@@ -576,7 +604,7 @@ function buildAbstractPage(
           width: chipW,
           height: chipH,
           content: outcomes[i],
-          fontFamily: "Poppins",
+          fontFamily,
           fontSize: 10,
           fontWeight: "bold",
           color: "#ffffff",
@@ -597,15 +625,17 @@ function buildAbstractPage(
 }
 
 // ─── Numbered list page (Why Sponsor / Focus of Summit) ────────────────────
+//
+// Matches `drawWhySponsorSection`: full-bleed black background, huge
+// white title, numbered rows = full-height accent-colored number badge
+// + an outlined (accent stroke, no fill) body row with white text.
+// Returns `null` when there are zero non-empty items, mirroring
+// `buildWhySponsorSectionContent`'s null-return contract.
 
-function buildNumberedListPage(
-  items: string[],
-  title: string,
-  accent: string,
-  bgColor: string,
-  titleColor: string,
-  bodyColor: string
-): BrochurePage {
+function buildNumberedListPage(items: string[], title: string, accent: string, fontFamily: string): BrochurePage | null {
+  const clean = items.filter((s) => s && s.trim().length > 0);
+  if (clean.length === 0) return null;
+
   const pageW = A4_WIDTH_MM;
   const elements: BrochureElement[] = [];
   const push = (el: BrochureElement) => {
@@ -620,16 +650,15 @@ function buildNumberedListPage(
       width: pageW - 40,
       height: 20,
       content: title.toUpperCase(),
-      fontFamily: "Poppins",
+      fontFamily,
       fontSize: 32,
       fontWeight: "bold",
-      color: titleColor,
+      color: "#ffffff",
       align: "center",
       lineHeight: 1,
     })
   );
 
-  const clean = items.filter((s) => s && s.trim().length > 0);
   const rowH = 24;
   const rowGap = 4;
   const badgeW = 18;
@@ -658,7 +687,7 @@ function buildNumberedListPage(
         width: badgeW,
         height: rowH,
         content: String(i + 1),
-        fontFamily: "Poppins",
+        fontFamily,
         fontSize: 16,
         fontWeight: "bold",
         color: "#ffffff",
@@ -687,10 +716,10 @@ function buildNumberedListPage(
         width: pageW - 40 - badgeW - 8,
         height: rowH - 6,
         content: clean[i],
-        fontFamily: "Poppins",
+        fontFamily,
         fontSize: 10,
         fontWeight: "normal",
-        color: bodyColor,
+        color: "#ffffff",
         align: "left",
         lineHeight: 1.35,
       })
@@ -701,7 +730,233 @@ function buildNumberedListPage(
     id: `page-list-${Math.random().toString(36).slice(2, 8)}`,
     width: A4_WIDTH_MM,
     height: A4_HEIGHT_MM,
-    background: { type: "solid", color: bgColor },
+    background: { type: "solid", color: "#000000" },
+    elements,
+  };
+}
+
+// ─── Pricing page (Poster_Bold, page 5) ─────────────────────────────────────
+//
+// Matches `drawPricingSection`: full-bleed accent-colored background,
+// one or two columns of white pricing cards (title, subtitle, huge
+// price, discount bullets), plus an optional blank registration-form
+// grid. Returns `null` when there are zero cards AND the registration
+// form is off, mirroring `buildPricingSectionContent`'s null-return
+// contract.
+
+function buildPricingPage(input: TemplateSeedInput, accent: string, fontFamily: string): BrochurePage | null {
+  const cards = (input.pricingCards ?? []).filter(
+    (c) => c && c.title?.trim() && c.price?.trim()
+  ) as Array<{ title: string; subtitle?: string | null; price: string; discounts?: string[] | null }>;
+  const showForm = input.showRegistrationForm === true;
+  if (cards.length === 0 && !showForm) return null;
+
+  const pageW = A4_WIDTH_MM;
+  const pageH = A4_HEIGHT_MM;
+  const elements: BrochureElement[] = [];
+  const push = (el: BrochureElement) => {
+    el.zIndex = elements.length;
+    elements.push(el);
+  };
+
+  const bodyLeft = 20;
+  const bodyW = pageW - 40;
+  let cursorY = 24;
+
+  if (cards.length > 0) {
+    const cardH = 66;
+    const gap = 6;
+    const cols = Math.min(cards.length, 2);
+    const cardW = (bodyW - gap * (cols - 1)) / cols;
+    for (let i = 0; i < cards.length; i += 1) {
+      const card = cards[i];
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const cx = bodyLeft + col * (cardW + gap);
+      const cy = cursorY + row * (cardH + gap);
+
+      push(
+        newShapeElement({
+          x: cx,
+          y: cy,
+          width: cardW,
+          height: cardH,
+          shape: "rect",
+          fill: "#ffffff",
+          stroke: "transparent",
+          strokeWidth: 0,
+          cornerRadius: 8,
+        })
+      );
+      push(
+        newTextElement({
+          x: cx + 8,
+          y: cy + 6,
+          width: cardW - 16,
+          height: 10,
+          content: card.title.toUpperCase(),
+          fontFamily,
+          fontSize: 13,
+          fontWeight: "bold",
+          color: "#000000",
+          align: "left",
+          lineHeight: 1,
+        })
+      );
+      if (card.subtitle) {
+        push(
+          newTextElement({
+            x: cx + 8,
+            y: cy + 15,
+            width: cardW - 16,
+            height: 6,
+            content: card.subtitle,
+            fontFamily,
+            fontSize: 9,
+            fontWeight: "normal",
+            color: "#505050",
+            align: "left",
+            lineHeight: 1,
+          })
+        );
+      }
+      push(
+        newTextElement({
+          x: cx,
+          y: cy + 24,
+          width: cardW,
+          height: 14,
+          content: card.price,
+          fontFamily,
+          fontSize: 22,
+          fontWeight: "bold",
+          color: "#000000",
+          align: "center",
+          lineHeight: 1,
+        })
+      );
+      const discounts = (card.discounts ?? []).filter((d) => d && d.trim());
+      if (discounts.length > 0) {
+        push(
+          newTextElement({
+            x: cx + 8,
+            y: cy + 42,
+            width: cardW - 16,
+            height: 5,
+            content: "Group Discounts",
+            fontFamily,
+            fontSize: 8.5,
+            fontWeight: "bold",
+            color: "#3c3c3c",
+            align: "left",
+            lineHeight: 1,
+          })
+        );
+        push(
+          newTextElement({
+            x: cx + 8,
+            y: cy + 48,
+            width: cardW - 16,
+            height: 16,
+            content: discounts.join("\n"),
+            fontFamily,
+            fontSize: 8,
+            fontWeight: "normal",
+            color: "#3c3c3c",
+            align: "left",
+            lineHeight: 1.4,
+          })
+        );
+      }
+    }
+    const rowCount = Math.ceil(cards.length / cols);
+    cursorY += rowCount * (cardH + gap);
+  }
+
+  if (showForm) {
+    const labels: Array<[string, string]> = [
+      ["Name", "Designation"],
+      ["Mobile", "Email"],
+    ];
+    const cellGap = 6;
+    const cellW = (bodyW - cellGap) / 2;
+    const inputH = 8;
+    const rowCount = 3;
+    cursorY += 6;
+    for (let r = 0; r < rowCount; r += 1) {
+      if (cursorY + 26 > pageH - 20) break;
+      for (const [left, right] of labels) {
+        push(
+          newTextElement({
+            x: bodyLeft,
+            y: cursorY,
+            width: cellW,
+            height: 4,
+            content: left,
+            fontFamily,
+            fontSize: 7.5,
+            fontWeight: "normal",
+            color: "#ffffff",
+            align: "center",
+            lineHeight: 1,
+          })
+        );
+        push(
+          newPillElement({
+            x: bodyLeft,
+            y: cursorY + 4,
+            width: cellW,
+            height: inputH,
+            text: "",
+            fontFamily,
+            fontSize: 8,
+            textColor: "#000000",
+            fillColor: "#ffffff",
+            strokeColor: "transparent",
+            strokeWidth: 0,
+          })
+        );
+        push(
+          newTextElement({
+            x: bodyLeft + cellW + cellGap,
+            y: cursorY,
+            width: cellW,
+            height: 4,
+            content: right,
+            fontFamily,
+            fontSize: 7.5,
+            fontWeight: "normal",
+            color: "#ffffff",
+            align: "center",
+            lineHeight: 1,
+          })
+        );
+        push(
+          newPillElement({
+            x: bodyLeft + cellW + cellGap,
+            y: cursorY + 4,
+            width: cellW,
+            height: inputH,
+            text: "",
+            fontFamily,
+            fontSize: 8,
+            textColor: "#000000",
+            fillColor: "#ffffff",
+            strokeColor: "transparent",
+            strokeWidth: 0,
+          })
+        );
+        cursorY += inputH + 6;
+      }
+      cursorY += 2;
+    }
+  }
+
+  return {
+    id: `page-pricing-${Math.random().toString(36).slice(2, 8)}`,
+    width: A4_WIDTH_MM,
+    height: A4_HEIGHT_MM,
+    background: { type: "solid", color: accent },
     elements,
   };
 }
@@ -717,12 +972,11 @@ function buildNumberedListPage(
  *  accent divider). Every content page starts with this so the editor
  *  and preview both carry the same identity across pages. */
 function pushClassicPageHeader(
-  elements: BrochureElement[],
   push: (el: BrochureElement) => void,
   eventTitle: string,
   dateText: string,
   accent: string,
-  titleColor: string
+  fontFamily: string
 ): void {
   const pageW = A4_WIDTH_MM;
   push(
@@ -732,10 +986,10 @@ function pushClassicPageHeader(
       width: 100,
       height: 6,
       content: eventTitle,
-      fontFamily: "Playfair Display",
+      fontFamily,
       fontSize: 12,
       fontWeight: "bold",
-      color: titleColor,
+      color: "#0a1429",
       align: "left",
       lineHeight: 1,
     })
@@ -747,10 +1001,10 @@ function pushClassicPageHeader(
       width: 100,
       height: 6,
       content: dateText,
-      fontFamily: "Poppins",
+      fontFamily,
       fontSize: 9,
       fontWeight: "normal",
-      color: titleColor,
+      color: "#0a1429",
       align: "right",
       lineHeight: 1,
     })
@@ -768,17 +1022,18 @@ function pushClassicPageHeader(
       cornerRadius: 0,
     })
   );
-  void elements; // just to signal the push closure is the intended sink
 }
 
 /** Shared section-heading (large bold title + short accent underline
- *  beneath). */
+ *  beneath). Mirrors `drawHeadingUnderline`'s black-text convention —
+ *  every base-5-section content page uses black headings regardless of
+ *  theme (only the underline is accent-colored). */
 function pushClassicSectionHeading(
   push: (el: BrochureElement) => void,
   y: number,
   text: string,
   accent: string,
-  titleColor: string
+  fontFamily: string
 ): void {
   push(
     newTextElement({
@@ -787,10 +1042,10 @@ function pushClassicSectionHeading(
       width: 150,
       height: 10,
       content: text,
-      fontFamily: "Playfair Display",
+      fontFamily,
       fontSize: 22,
       fontWeight: "bold",
-      color: titleColor,
+      color: "#0a1429",
       align: "left",
       lineHeight: 1,
     })
@@ -810,18 +1065,12 @@ function pushClassicSectionHeading(
   );
 }
 
-/** Builds the Agenda page — one row per session (time • title • speakers)
- *  as separate editable text elements inside a bordered row container.
- *  Returns `null` when there are no sessions so the page isn't seeded
- *  with an empty heading. */
-function buildAgendaPage(
-  sessions: AgendaSessionInput[],
-  eventTitle: string,
-  dateText: string,
-  accent: string,
-  titleColor: string
-): BrochurePage | null {
-  const content = buildAgendaSectionContent(sessions);
+/** Builds the Agenda page's `"table"` layout — one row per session
+ *  (time • title • speakers) as separate editable text elements inside
+ *  a bordered row container. Returns `null` when there are no sessions
+ *  so the page isn't seeded with an empty heading. */
+function buildAgendaPage(input: TemplateSeedInput, accent: string, fontFamily: string): BrochurePage | null {
+  const content = buildAgendaSectionContent(input.sessions ?? []);
   if (content.rows.length === 0) return null;
 
   const pageW = A4_WIDTH_MM;
@@ -831,15 +1080,14 @@ function buildAgendaPage(
     elements.push(el);
   };
 
-  pushClassicPageHeader(elements, push, eventTitle, dateText, accent, titleColor);
-  pushClassicSectionHeading(push, 40, "Agenda", accent, titleColor);
+  pushClassicSectionHeading(push, 24, "Agenda", accent, fontFamily);
 
   // Column layout: time (28mm) | title (rest) | speakers (48mm).
   const timeColW = 28;
   const speakersColW = 48;
   const rowGap = 3;
   const rowH = 16;
-  const startY = 62;
+  const startY = 46;
   const bodyLeft = 20;
   const bodyRight = pageW - 20;
   const titleColX = bodyLeft + timeColW + 4;
@@ -868,7 +1116,7 @@ function buildAgendaPage(
       width: timeColW,
       height: 5,
       content: "Time",
-      fontFamily: "Poppins",
+      fontFamily,
       fontSize: 9,
       fontWeight: "bold",
       color: "#ffffff",
@@ -883,7 +1131,7 @@ function buildAgendaPage(
       width: titleColW,
       height: 5,
       content: "Session",
-      fontFamily: "Poppins",
+      fontFamily,
       fontSize: 9,
       fontWeight: "bold",
       color: "#ffffff",
@@ -898,7 +1146,7 @@ function buildAgendaPage(
       width: speakersColW - 2,
       height: 5,
       content: "Speaker(s)",
-      fontFamily: "Poppins",
+      fontFamily,
       fontSize: 9,
       fontWeight: "bold",
       color: "#ffffff",
@@ -934,10 +1182,10 @@ function buildAgendaPage(
         width: timeColW,
         height: rowH - 2,
         content: row.timeRangeText,
-        fontFamily: "Poppins",
+        fontFamily,
         fontSize: 9,
         fontWeight: "bold",
-        color: titleColor,
+        color: "#0a1429",
         align: "left",
         lineHeight: 1.15,
       })
@@ -949,10 +1197,10 @@ function buildAgendaPage(
         width: titleColW,
         height: rowH - 2,
         content: row.title,
-        fontFamily: "Poppins",
+        fontFamily,
         fontSize: 10,
         fontWeight: "normal",
-        color: titleColor,
+        color: "#0a1429",
         align: "left",
         lineHeight: 1.2,
       })
@@ -965,7 +1213,7 @@ function buildAgendaPage(
           width: speakersColW - 2,
           height: rowH - 2,
           content: row.speakerLine,
-          fontFamily: "Poppins",
+          fontFamily,
           fontSize: 9,
           fontWeight: "normal",
           color: "#4b5563",
@@ -985,17 +1233,150 @@ function buildAgendaPage(
   };
 }
 
+/**
+ * Builds the Agenda page's `"timetable-cards"` layout — two side-by-side
+ * columns of session cards (accent-colored time chip, title, description,
+ * speaker line), matching `drawAgendaTimetableCardsLayout`'s jsPDF output.
+ * Returns `null` when there are no sessions.
+ */
+function buildAgendaTimetableCardsPage(input: TemplateSeedInput, accent: string, fontFamily: string): BrochurePage | null {
+  const content = buildAgendaSectionContent(input.sessions ?? []);
+  if (content.rows.length === 0) return null;
+
+  const pageW = A4_WIDTH_MM;
+  const elements: BrochureElement[] = [];
+  const push = (el: BrochureElement) => {
+    el.zIndex = elements.length;
+    elements.push(el);
+  };
+
+  pushClassicSectionHeading(push, 24, "Agenda", accent, fontFamily);
+
+  const startY = 44;
+  const bodyLeft = 20;
+  const bodyRight = pageW - 20;
+  const colGap = 6;
+  const colWidth = (bodyRight - bodyLeft - colGap) / 2;
+  const cardPad = 4;
+  const timeChipH = 7;
+  const cardMinH = 34;
+  const maxCards = 8; // 4 rows × 2 cols — keeps the seeded page from overflowing
+  const rows = content.rows.slice(0, maxCards);
+  const colTopY = [startY, startY];
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    const col = i % 2;
+    const colX = bodyLeft + col * (colWidth + colGap);
+    const cardY = colTopY[col];
+
+    // Card height grows with description length (rough estimate: ~28
+    // chars per line at this column width, 4mm per wrapped line).
+    const descLineEstimate = row.description ? Math.ceil(row.description.length / 30) : 0;
+    const cardHeight = Math.max(cardMinH, timeChipH + 14 + descLineEstimate * 4 + (row.speakerLine ? 6 : 0));
+
+    push(
+      newShapeElement({
+        x: colX,
+        y: cardY,
+        width: colWidth,
+        height: cardHeight,
+        shape: "rect",
+        fill: "#f9fafb",
+        stroke: "#e5e7eb",
+        strokeWidth: 0.3,
+        cornerRadius: 2,
+      })
+    );
+
+    push(
+      newPillElement({
+        x: colX + cardPad,
+        y: cardY + cardPad,
+        width: Math.min(colWidth - cardPad * 2, 30),
+        height: timeChipH,
+        text: row.timeRangeText,
+        fontFamily,
+        fontSize: 8,
+        textColor: "#ffffff",
+        fillColor: accent,
+        strokeColor: "transparent",
+        strokeWidth: 0,
+      })
+    );
+
+    let textY = cardY + cardPad + timeChipH + 4;
+    push(
+      newTextElement({
+        x: colX + cardPad,
+        y: textY,
+        width: colWidth - cardPad * 2,
+        height: 10,
+        content: row.title,
+        fontFamily,
+        fontSize: 10.5,
+        fontWeight: "bold",
+        color: "#0a1429",
+        align: "left",
+        lineHeight: 1.2,
+      })
+    );
+    textY += 10;
+
+    if (row.description) {
+      push(
+        newTextElement({
+          x: colX + cardPad,
+          y: textY,
+          width: colWidth - cardPad * 2,
+          height: descLineEstimate * 4 + 2,
+          content: row.description,
+          fontFamily,
+          fontSize: 8.5,
+          fontWeight: "normal",
+          color: "#5a5a5a",
+          align: "left",
+          lineHeight: 1.3,
+        })
+      );
+      textY += descLineEstimate * 4 + 2;
+    }
+
+    if (row.speakerLine) {
+      push(
+        newTextElement({
+          x: colX + cardPad,
+          y: textY,
+          width: colWidth - cardPad * 2,
+          height: 5,
+          content: row.speakerLine,
+          fontFamily,
+          fontSize: 8,
+          fontWeight: "normal",
+          color: "#787878",
+          align: "left",
+          lineHeight: 1.2,
+        })
+      );
+    }
+
+    colTopY[col] = cardY + cardHeight + 6;
+  }
+
+  return {
+    id: `page-agenda-${Math.random().toString(36).slice(2, 8)}`,
+    width: A4_WIDTH_MM,
+    height: A4_HEIGHT_MM,
+    background: { type: "solid", color: "#ffffff" },
+    elements,
+  };
+}
+
 /** Builds the Speakers page — 2-column grid of speaker cards
  *  (photo + name + subtitle + company). Each field is a separate
  *  element so the organizer can retitle or remove any of them.
  *  Returns `null` when there are no speakers. */
-function buildSpeakersPage(
-  speakers: SpeakerInput[],
-  eventTitle: string,
-  dateText: string,
-  accent: string,
-  titleColor: string
-): BrochurePage | null {
+function buildSpeakersPage(speakers: SpeakerInput[], accent: string, fontFamily: string): BrochurePage | null {
   const rows = buildSpeakerRows(speakers);
   if (rows.length === 0) return null;
 
@@ -1006,12 +1387,11 @@ function buildSpeakersPage(
     elements.push(el);
   };
 
-  pushClassicPageHeader(elements, push, eventTitle, dateText, accent, titleColor);
-  pushClassicSectionHeading(push, 40, "Speakers", accent, titleColor);
+  pushClassicSectionHeading(push, 24, "Speakers", accent, fontFamily);
 
   const cols = 2;
   const gap = 8;
-  const startY = 64;
+  const startY = 48;
   const bodyLeft = 20;
   const cardW = (pageW - 40 - gap * (cols - 1)) / cols;
   const photoH = 44;
@@ -1076,7 +1456,7 @@ function buildSpeakersPage(
           width: cardW,
           height: 16,
           content: row.photo.initial,
-          fontFamily: "Poppins",
+          fontFamily,
           fontSize: 32,
           fontWeight: "bold",
           color: "#ffffff",
@@ -1094,10 +1474,10 @@ function buildSpeakersPage(
         width: cardW - 4,
         height: 6,
         content: row.name,
-        fontFamily: "Poppins",
+        fontFamily,
         fontSize: 11,
         fontWeight: "bold",
-        color: titleColor,
+        color: "#0a1429",
         align: "center",
         lineHeight: 1.1,
       })
@@ -1111,7 +1491,7 @@ function buildSpeakersPage(
           width: cardW - 4,
           height: 5,
           content: row.subtitleLine,
-          fontFamily: "Poppins",
+          fontFamily,
           fontSize: 8.5,
           fontWeight: "normal",
           color: "#4b5563",
@@ -1129,7 +1509,7 @@ function buildSpeakersPage(
           width: cardW - 4,
           height: 5,
           content: row.companyLine,
-          fontFamily: "Poppins",
+          fontFamily,
           fontSize: 8.5,
           fontWeight: "normal",
           color: accent,
@@ -1152,13 +1532,7 @@ function buildSpeakersPage(
 /** Builds the Sponsors page — tier headings followed by sponsor
  *  logos (or name text when no logo URL). Returns `null` when there
  *  are no sponsors. */
-function buildSponsorsPage(
-  sponsors: SponsorInput[],
-  eventTitle: string,
-  dateText: string,
-  accent: string,
-  titleColor: string
-): BrochurePage | null {
+function buildSponsorsPage(sponsors: SponsorInput[], accent: string, fontFamily: string): BrochurePage | null {
   if (sponsors.length === 0) return null;
   const groups = groupSponsorsByTierOrdered(sponsors);
 
@@ -1169,8 +1543,7 @@ function buildSponsorsPage(
     elements.push(el);
   };
 
-  pushClassicPageHeader(elements, push, eventTitle, dateText, accent, titleColor);
-  pushClassicSectionHeading(push, 40, "Sponsors", accent, titleColor);
+  pushClassicSectionHeading(push, 24, "Sponsors", accent, fontFamily);
 
   const bodyLeft = 20;
   const bodyW = pageW - 40;
@@ -1179,7 +1552,7 @@ function buildSponsorsPage(
   const logoW = (bodyW - logoGap * (perRow - 1)) / perRow;
   const logoH = 22;
 
-  let cursorY = 62;
+  let cursorY = 46;
 
   for (const group of groups) {
     // Tier heading (colored by tier accent).
@@ -1190,7 +1563,7 @@ function buildSponsorsPage(
         width: bodyW,
         height: 7,
         content: group.label.toUpperCase(),
-        fontFamily: "Poppins",
+        fontFamily,
         fontSize: 12,
         fontWeight: "bold",
         color: group.accentColor,
@@ -1256,10 +1629,10 @@ function buildSponsorsPage(
             width: logoW - 4,
             height: 6,
             content: sponsor.logo.text,
-            fontFamily: "Poppins",
+            fontFamily,
             fontSize: 10,
             fontWeight: "bold",
-            color: titleColor,
+            color: "#0a1429",
             align: "center",
             lineHeight: 1.1,
           })
@@ -1283,13 +1656,7 @@ function buildSponsorsPage(
 /** Builds the Venue & Logistics page — venue name, address, transit
  *  notes, parking notes. Returns `null` when there's no meaningful
  *  content to show. */
-function buildVenuePage(
-  input: VenueLogisticsInput | undefined,
-  eventTitle: string,
-  dateText: string,
-  accent: string,
-  titleColor: string
-): BrochurePage | null {
+function buildVenuePage(input: VenueLogisticsInput | undefined, accent: string, fontFamily: string): BrochurePage | null {
   if (!input) return null;
   const content = buildVenueLogisticsContent(input);
   if (!content) return null;
@@ -1301,12 +1668,11 @@ function buildVenuePage(
     elements.push(el);
   };
 
-  pushClassicPageHeader(elements, push, eventTitle, dateText, accent, titleColor);
-  pushClassicSectionHeading(push, 40, "Venue & Logistics", accent, titleColor);
+  pushClassicSectionHeading(push, 24, "Venue & Logistics", accent, fontFamily);
 
   const bodyLeft = 20;
   const bodyW = pageW - 40;
-  let cursorY = 62;
+  let cursorY = 46;
 
   const addSection = (label: string, body: string): void => {
     push(
@@ -1316,7 +1682,7 @@ function buildVenuePage(
         width: bodyW,
         height: 6,
         content: label.toUpperCase(),
-        fontFamily: "Poppins",
+        fontFamily,
         fontSize: 10,
         fontWeight: "bold",
         color: accent,
@@ -1332,10 +1698,10 @@ function buildVenuePage(
         width: bodyW,
         height: 24,
         content: body,
-        fontFamily: "Poppins",
+        fontFamily,
         fontSize: 11,
         fontWeight: "normal",
-        color: titleColor,
+        color: "#0a1429",
         align: "left",
         lineHeight: 1.35,
       })
@@ -1367,10 +1733,8 @@ function buildVenuePage(
  *  PackagesContent` null-return contract). */
 function buildSponsorshipPackagesPage(
   input: SponsorshipPackagesInput | undefined,
-  eventTitle: string,
-  dateText: string,
   accent: string,
-  titleColor: string
+  fontFamily: string
 ): BrochurePage | null {
   if (!input) return null;
   const content = buildSponsorshipPackagesContent(input);
@@ -1383,8 +1747,7 @@ function buildSponsorshipPackagesPage(
     elements.push(el);
   };
 
-  pushClassicPageHeader(elements, push, eventTitle, dateText, accent, titleColor);
-  pushClassicSectionHeading(push, 40, content.title, accent, titleColor);
+  pushClassicSectionHeading(push, 24, content.title, accent, fontFamily);
 
   const bodyLeft = 20;
   const bodyRight = pageW - 20;
@@ -1394,7 +1757,7 @@ function buildSponsorshipPackagesPage(
   const tierColW = (bodyW - benefitColW) / tierCount;
   const headerRowH = 10;
   const rowH = 8;
-  const startY = 62;
+  const startY = 46;
 
   // Header row — benefit column left blank, one cell per tier name.
   push(
@@ -1432,7 +1795,7 @@ function buildSponsorshipPackagesPage(
         width: tierColW - 2,
         height: 8,
         content: content.tiers[c].name,
-        fontFamily: "Poppins",
+        fontFamily,
         fontSize: 9,
         fontWeight: "bold",
         color: "#ffffff",
@@ -1470,10 +1833,10 @@ function buildSponsorshipPackagesPage(
         width: benefitColW - 3,
         height: rowH - 1,
         content: benefitRows[r],
-        fontFamily: "Poppins",
+        fontFamily,
         fontSize: 7,
         fontWeight: "bold",
-        color: titleColor,
+        color: "#0a1429",
         align: "left",
         lineHeight: 1.05,
       })
@@ -1484,7 +1847,7 @@ function buildSponsorshipPackagesPage(
       const cell = content.tiers[c].cells[r];
       const label =
         cell?.kind === "check" ? "✓" : cell?.kind === "cross" ? "✗" : cell?.kind === "text" ? cell.value : "—";
-      const cellColor = cell?.kind === "check" ? "#16a34a" : cell?.kind === "cross" ? "#dc2626" : titleColor;
+      const cellColor = cell?.kind === "check" ? "#16a34a" : cell?.kind === "cross" ? "#dc2626" : "#0a1429";
       push(
         newTextElement({
           x: x + 1,
@@ -1492,7 +1855,7 @@ function buildSponsorshipPackagesPage(
           width: tierColW - 2,
           height: rowH - 1,
           content: label,
-          fontFamily: "Poppins",
+          fontFamily,
           fontSize: 7,
           fontWeight: cell?.kind === "check" || cell?.kind === "cross" ? "bold" : "normal",
           color: cellColor,
@@ -1527,7 +1890,7 @@ function buildSponsorshipPackagesPage(
         width: benefitColW - 3,
         height: rowH,
         content: "Cost",
-        fontFamily: "Poppins",
+        fontFamily,
         fontSize: 8,
         fontWeight: "bold",
         color: "#ffffff",
@@ -1544,7 +1907,7 @@ function buildSponsorshipPackagesPage(
           width: tierColW - 2,
           height: rowH,
           content: content.tiers[c].price ?? "—",
-          fontFamily: "Poppins",
+          fontFamily,
           fontSize: 7.5,
           fontWeight: "bold",
           color: "#ffffff",

@@ -44,12 +44,8 @@ import BrochureEditorCanvas from "@/lib/brochure/editor/BrochureEditorCanvas";
 import BrochureEditorProperties from "@/lib/brochure/editor/BrochureEditorProperties";
 import BrochureEditorPalette from "@/lib/brochure/editor/BrochureEditorPalette";
 import BrochureEditorPages from "@/lib/brochure/editor/BrochureEditorPages";
-import {
-  seedClassicBrochure,
-  seedCorporateBoldFullBrochure,
-  seedPosterBoldFullBrochure,
-  type TemplateSeedInput,
-} from "@/lib/brochure/editor/editor-templates";
+import { seedBrochureDocument, type TemplateSeedInput } from "@/lib/brochure/editor/editor-templates";
+import type { BrochureSectionId, BrochureTheme } from "@/lib/brochure/brochure-templates";
 import {
   addElement,
   addPage,
@@ -68,13 +64,16 @@ import { downloadDocumentAsPdf } from "@/lib/brochure/editor/editor-pdf";
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Which template to seed the document from on first open. Ignored
-   *  when `initialDocument` is provided. `"classic"` is the only
-   *  supported id after the theme trim; the older `"poster-bold"` /
-   *  `"corporate-bold"` values are still accepted so previously saved
-   *  configurator selections don't break, and all route to the same
-   *  Classic seed. */
-  templateId: "classic" | "poster-bold" | "corporate-bold";
+  /** The Brochure_Theme currently selected in the configurator — drives
+   *  the cover style, accent/font resolution, and which agenda layout
+   *  the seed uses, so the editor opens with the SAME visual theme the
+   *  live preview shows (Requirement: editor/preview parity). */
+  theme: BrochureTheme;
+  /** The resolved (included, in render order) Section_Layout ids the
+   *  live preview is currently showing — the seed builds exactly one
+   *  editor page per id here, in this order, so the editor can never
+   *  show a different set/order of pages than the preview/export. */
+  resolvedSectionIds: BrochureSectionId[];
   seed: TemplateSeedInput;
   /** Load an existing document (from Supabase) instead of seeding from
    *  a template. `null` triggers the template seed. */
@@ -87,7 +86,8 @@ interface Props {
 export default function BrochureEditorDialog({
   open,
   onOpenChange,
-  templateId,
+  theme,
+  resolvedSectionIds,
   seed,
   initialDocument,
   onSaveDocument,
@@ -97,16 +97,20 @@ export default function BrochureEditorDialog({
   const initial = useMemo<BrochureDocument | null>(() => {
     if (initialDocument) return initialDocument;
     if (!open) return null;
-    // Route to the Classic seed for the classic id; keep the legacy
-    // Poster_Bold / Corporate_Bold seed callable so any previously
-    // saved template selection continues to open in the same layout.
-    if (templateId === "corporate-bold") return seedCorporateBoldFullBrochure(seed);
-    if (templateId === "poster-bold") return seedPosterBoldFullBrochure(seed);
-    return seedClassicBrochure(seed);
-    // Only re-seed when the template or seed shape changes; ignore
-    // `open` toggling so mid-session close→reopen keeps user edits.
+    return seedBrochureDocument(seed, theme, resolvedSectionIds);
+    // Only re-seed when the theme, section list, or seed shape changes;
+    // ignore `open` toggling so mid-session close→reopen keeps user
+    // edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateId, seed.eventTitle, seed.coverImageUrl, seed.logoUrl, seed.organizerLogoUrl, initialDocument]);
+  }, [
+    theme,
+    resolvedSectionIds,
+    seed.eventTitle,
+    seed.coverImageUrl,
+    seed.logoUrl,
+    seed.organizerLogoUrl,
+    initialDocument,
+  ]);
 
   const history = useHistory<BrochureDocument | null>(initial);
   const doc = history.value;
