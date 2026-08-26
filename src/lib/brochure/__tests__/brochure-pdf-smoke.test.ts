@@ -176,3 +176,81 @@ describe("generateBrochurePdf (smoke)", () => {
     expect(blob.size).toBeGreaterThan(0);
   });
 });
+
+describe("generateBrochurePdf (Poster Bold theme, smoke)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("draws the Poster_Bold cover, Abstract, Why Sponsor, timetable-cards Agenda, and Pricing sections without throwing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("not found", { status: 404 }))
+    );
+
+    const posterBoldTheme = BROCHURE_THEMES.find((t) => t.id === "poster-bold");
+    expect(posterBoldTheme).toBeDefined();
+    expect(posterBoldTheme?.agenda.layout).toBe("timetable-cards");
+
+    const input: BrochureGenerationInput = {
+      event: {
+        title: "DevOps Connect",
+        date: "2026-08-12T09:00:00.000Z",
+        venue: "Bangalore",
+        image_url: "https://example.com/cover.png",
+      },
+      sessions: [
+        {
+          id: "s1",
+          title: "Panel Discussion 1: Agentic AI, AIOps & The Future of Autonomous Software Delivery",
+          description:
+            "AI is reshaping the software delivery lifecycle, enabling organizations to move from automation to intelligent, autonomous operations.",
+          start_time: "2026-08-12T09:40:00.000Z",
+          end_time: "2026-08-12T10:20:00.000Z",
+          speakerNames: ["Jane Doe"],
+        },
+        {
+          id: "s2",
+          title: "Panel Discussion 2: Platform Engineering, DevEx & Engineering Productivity at Scale",
+          description: "Platform engineering is becoming a key enabler of developer productivity and business agility.",
+          start_time: "2026-08-12T10:40:00.000Z",
+          end_time: "2026-08-12T11:20:00.000Z",
+          speakerNames: [],
+        },
+      ],
+      speakers: [],
+      sponsors: [],
+      venueLogistics: {},
+      theme: posterBoldTheme!,
+      eventTheme: {},
+      sectionLayout: [
+        { id: "cover", included: true },
+        { id: "abstract", included: true },
+        { id: "whySponsor", included: true },
+        { id: "agenda", included: true },
+        { id: "pricing", included: true },
+      ],
+      posterContent: {
+        coverTagline: "You're Invited",
+        abstract: {
+          abstract: "DevOps Connect is a premier conference bringing together technology leaders.",
+          featured: "Keynotes, panel discussions, & expert-led sessions.",
+          learningOutcomes: ["Master AI-Driven DevOps", "Optimize Cloud Costs with FinOps"],
+        },
+        whySponsor: {
+          items: ["Connect with CIOs, CTOs, DevOps leaders.", "Showcase your solutions in automation."],
+        },
+        pricing: {
+          cards: [{ title: "Individual", price: "₹15,000/-", discounts: ["10% on 2 or more participants"] }],
+          showRegistrationForm: true,
+        },
+      },
+    };
+
+    const blob = await generateBrochurePdf(input);
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.type).toBe("application/pdf");
+    expect(blob.size).toBeGreaterThan(0);
+  });
+});

@@ -36,7 +36,16 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { buildSpeakerPlan, buildSponsorPlan, buildComboPlan, drawPlan, type SpeakerLike, type SponsorLike } from "@/lib/creatives/creative-renderer";
+import {
+  buildSpeakerPlan,
+  buildSponsorPlan,
+  buildComboPlan,
+  buildEventPlan,
+  drawPlan,
+  type SpeakerLike,
+  type SponsorLike,
+  type EventPromoLike,
+} from "@/lib/creatives/creative-renderer";
 import type { CreativeTemplate, CreativeType, EventTheme, PlatformFormat } from "@/lib/creatives/creative-templates";
 import {
   decoratePlanWithCustomization,
@@ -50,6 +59,11 @@ interface CreativePreviewCanvasProps {
   theme: EventTheme;
   speaker?: SpeakerLike | null;
   sponsor?: SponsorLike | null;
+  /** Used only when `mode === "event"` — the organizer's Event_Promo form
+   *  values (title, tagline, date label, CTA, wordmark, stats). Falls back
+   *  to a documented sample promo when omitted, mirroring
+   *  `SAMPLE_SPEAKER`/`SAMPLE_SPONSOR`'s stand-in convention. */
+  eventPromo?: EventPromoLike | null;
   /**
    * Optional Creative_Customization payload. When provided, the built plan is
    * routed through `decoratePlanWithCustomization` before drawing so the
@@ -88,6 +102,21 @@ const SAMPLE_SPONSOR: SponsorLike = {
   tier: "gold",
 };
 
+/** Stand-in Event_Promo used while the organizer's form is empty — same
+ *  rationale as `SAMPLE_SPEAKER`/`SAMPLE_SPONSOR`. */
+const SAMPLE_EVENT_PROMO: EventPromoLike = {
+  id: "sample",
+  title: "Annual Tech Summit",
+  tagline: "You're Invited",
+  dateLabel: "23rd July, 2026",
+  ctaLabel: "Register for FREE",
+  wordmarkUrl: null,
+  stats: [
+    { value: "6000+", label: "Attendees" },
+    { value: "30+", label: "Speakers" },
+  ],
+};
+
 /** Preview canvases are shrunk to roughly this max width (px) so they render
  *  quickly and fit comfortably inside a dialog pane, regardless of how large
  *  the target `Platform_Format` is (e.g. a 1600x900 Twitter/X post). */
@@ -100,6 +129,7 @@ export default function CreativePreviewCanvas({
   theme,
   speaker,
   sponsor,
+  eventPromo,
   customization,
   effectiveFontFamily,
   effectiveWatermarkLogoUrl,
@@ -127,12 +157,15 @@ export default function CreativePreviewCanvas({
 
         const usedSpeaker = speaker ?? SAMPLE_SPEAKER;
         const usedSponsor = sponsor ?? SAMPLE_SPONSOR;
+        const usedEventPromo = eventPromo ?? SAMPLE_EVENT_PROMO;
         const basePlan =
           mode === "speaker"
             ? buildSpeakerPlan(usedSpeaker, template, format, theme)
             : mode === "sponsor"
               ? buildSponsorPlan(usedSponsor, template, format, theme)
-              : buildComboPlan(usedSpeaker, usedSponsor, template, format, theme);
+              : mode === "event"
+                ? buildEventPlan(usedEventPromo, template, format, theme)
+                : buildComboPlan(usedSpeaker, usedSponsor, template, format, theme);
 
         // Route through the decorator when a Customization_Config is
         // provided so the preview and the exported PNG share the exact
@@ -161,6 +194,7 @@ export default function CreativePreviewCanvas({
       theme,
       speaker,
       sponsor,
+      eventPromo,
       customization,
       effectiveFontFamily,
       effectiveWatermarkLogoUrl,

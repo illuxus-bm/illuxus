@@ -72,6 +72,7 @@ import {
   buildSpeakerPlan,
   buildSponsorPlan,
   buildComboPlan,
+  buildEventPlan,
   drawPlan,
   assertComboEligible,
   creativeFilename,
@@ -79,6 +80,7 @@ import {
   type RenderPlan,
   type SpeakerLike,
   type SponsorLike,
+  type EventPromoLike,
 } from "@/lib/creatives/creative-renderer";
 import {
   uploadCreativeAsset,
@@ -106,6 +108,7 @@ const TYPE_OPTIONS: { v: CreativeType; label: string; sub: string }[] = [
   { v: "speaker", label: "Speaker", sub: "Announce a speaker" },
   { v: "sponsor", label: "Sponsor", sub: "Promote a sponsor" },
   { v: "combo", label: "Combo", sub: "Speaker + sponsor" },
+  { v: "event", label: "Event", sub: "Promote the event itself" },
 ];
 
 /** Where a Creative's rendered background comes from (Requirement 1.1, 1.4). */
@@ -208,9 +211,33 @@ export default function CreativeGeneratorDialog({
   // section to pre-populate `eventDate` slots (Requirement 1.7). Fetched
   // once per dialog open — a small denormalized fetch rather than
   // extending the parent's prop surface.
-  const [eventMeta, setEventMeta] = useState<{ date: string | null; timezone: string | null }>({
+  const [eventMeta, setEventMeta] = useState<{ date: string | null; timezone: string | null; title: string | null }>({
     date: null,
     timezone: null,
+    title: null,
+  });
+
+  // ─── Event_Promo form state (Requirement: Event_Promo creative type) ─────
+  // The "event" CreativeType has no entity to pick — the organizer fills in
+  // a small promo form instead. `title` defaults to the fetched event
+  // title but stays editable so the organizer can shorten/rephrase it for
+  // a promo graphic; `dateLabel` defaults to a human-readable rendering of
+  // the event's date once `eventMeta.date` loads. Reset whenever the
+  // dialog re-opens, mirroring every other transient selection above.
+  const [eventPromoForm, setEventPromoForm] = useState<{
+    title: string;
+    tagline: string;
+    dateLabel: string;
+    ctaLabel: string;
+    wordmarkUrl: string;
+    stats: { value: string; label: string }[];
+  }>({
+    title: "",
+    tagline: "",
+    dateLabel: "",
+    ctaLabel: "",
+    wordmarkUrl: "",
+    stats: [{ value: "", label: "" }],
   });
 
   const { org } = useOrg();
@@ -240,6 +267,7 @@ export default function CreativeGeneratorDialog({
     setAiBackground(null);
     setCustomization({});
     setAppliedBrandKit(undefined);
+    setEventPromoForm({ title: "", tagline: "", dateLabel: "", ctaLabel: "", wordmarkUrl: "", stats: [{ value: "", label: "" }] });
   }, [open]);
 
   // Clear any selected AI background whenever the organizer switches back to
@@ -297,7 +325,7 @@ export default function CreativeGeneratorDialog({
     let mounted = true;
     supabase
       .from("events")
-      .select("date, timezone")
+      .select("date, timezone, title")
       .eq("id", eventId)
       .single()
       .then(({ data, error }) => {
@@ -309,7 +337,19 @@ export default function CreativeGeneratorDialog({
           });
           return;
         }
-        setEventMeta({ date: data?.date ?? null, timezone: data?.timezone ?? null });
+        setEventMeta({ date: data?.date ?? null, timezone: data?.timezone ?? null, title: data?.title ?? null });
+        // Seed the Event_Promo form's title/date once, without clobbering
+        // an organizer's in-progress edits on subsequent fetches within
+        // the same dialog session.
+        setEventPromoForm((prev) => ({
+          ...prev,
+          title: prev.title || data?.title || "",
+          dateLabel:
+            prev.dateLabel ||
+            (data?.date
+              ? new Date(data.date).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" })
+              : ""),
+        }));
       });
     return () => {
       mounted = false;
@@ -418,6 +458,25 @@ export default function CreativeGeneratorDialog({
     return effective.template;
   }, [effective.template, backgroundSource, aiBackground]);
 
+  // Live-preview counterpart of `handleGenerate`'s `eventPromo` construction
+  // — used only when `type === "event"` (Requirement: Event_Promo creative
+  // type). Recomputed on every form edit so the preview stays in sync.
+  const eventPromoPreview = useMemo<EventPromoLike>(
+    () => ({
+      id: eventId,
+      title: eventPromoForm.title.trim() || "Event Title",
+      tagline: eventPromoForm.tagline.trim() || null,
+      dateLabel: eventPromoForm.dateLabel.trim() || null,
+      ctaLabel: eventPromoForm.ctaLabel.trim() || null,
+      wordmarkUrl: eventPromoForm.wordmarkUrl.trim() || null,
+      stats: eventPromoForm.stats
+        .filter((s) => s.value.trim().length > 0 && s.label.trim().length > 0)
+        .slice(0, 4)
+        .map((s) => ({ value: s.value.trim(), label: s.label.trim() })),
+    }),
+    [eventId, eventPromoForm],
+  );
+
   const toggleFormat = (id: string) => {
     setSelectedFormats((prev) => {
       const next = new Set(prev);
@@ -429,7 +488,13 @@ export default function CreativeGeneratorDialog({
 
   const canGenerate =
     formatsList.length > 0 &&
-    (type === "speaker" ? !!speaker : type === "sponsor" ? !!sponsor : !!speaker && !!sponsor);
+    (type === "speaker"
+      ? !!speaker
+      : type === "sponsor"
+        ? !!sponsor
+        : type === "event"
+          ? eventPromoForm.title.trim().length > 0
+          : !!speaker && !!sponsor);
 
   const handleGenerate = async () => {
     if (!canGenerate) return;
@@ -475,7 +540,27 @@ export default function CreativeGeneratorDialog({
           ? speaker?.name ?? "speaker"
           : type === "sponsor"
             ? sponsor?.name ?? "sponsor"
-            : `${speaker?.name ?? "speaker"}-${sponsor?.name ?? "sponsor"}`;
+            : type === "event"
+              ? eventPromoForm.title.trim() || "event"
+              : `${speaker?.name ?? "speaker"}-${sponsor?.name ?? "sponsor"}`;
+
+      // Built once for the "event" type — the render pipeline needs no
+      // Supabase-fetched entity, just the organizer's promo form values
+      // (Requirement: Event_Promo creative type). Up to 4 non-empty
+      // stat pairs are passed through; blank rows are dropped so the
+      // organizer can leave unused stat slots empty.
+      const eventPromo: EventPromoLike = {
+        id: eventId,
+        title: eventPromoForm.title.trim(),
+        tagline: eventPromoForm.tagline.trim() || null,
+        dateLabel: eventPromoForm.dateLabel.trim() || null,
+        ctaLabel: eventPromoForm.ctaLabel.trim() || null,
+        wordmarkUrl: eventPromoForm.wordmarkUrl.trim() || null,
+        stats: eventPromoForm.stats
+          .filter((s) => s.value.trim().length > 0 && s.label.trim().length > 0)
+          .slice(0, 4)
+          .map((s) => ({ value: s.value.trim(), label: s.label.trim() })),
+      };
 
       // Whether the effective template came from `customCreativeTemplates`
       // — used at persistence time to bake a `snapshotTemplate` into the
@@ -530,6 +615,8 @@ export default function CreativeGeneratorDialog({
           } else if (type === "sponsor") {
             if (!sponsor) continue;
             basePlan = buildSponsorPlan(sponsor, templateForRender, format, effective.theme);
+          } else if (type === "event") {
+            basePlan = buildEventPlan(eventPromo, templateForRender, format, effective.theme);
           } else {
             if (!speaker || !sponsor) continue;
             basePlan = buildComboPlan(speaker, sponsor, templateForRender, format, effective.theme);
@@ -625,7 +712,7 @@ export default function CreativeGeneratorDialog({
                   <RadioGroup
                     value={type}
                     onValueChange={(v) => setType(v as CreativeType)}
-                    className="grid grid-cols-3 gap-2"
+                    className="grid grid-cols-2 gap-2"
                   >
                     {TYPE_OPTIONS.map((opt) => (
                       <label
@@ -685,20 +772,133 @@ export default function CreativeGeneratorDialog({
               )}
             </section>
 
-            {/* ENTITY */}
-            <section>
-              <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">
-                {type === "combo" ? "Speaker & sponsor" : type === "speaker" ? "Speaker" : "Sponsor"}
-              </Label>
-              <EntityPicker
-                eventId={eventId}
-                mode={type}
-                speakerId={speaker?.id ?? null}
-                sponsorId={sponsor?.id ?? null}
-                onSpeakerChange={setSpeaker}
-                onSponsorChange={setSponsor}
-              />
-            </section>
+            {/* ENTITY — the "event" type has no entity picker; it uses the
+                Event_Promo form below instead. */}
+            {type !== "event" && (
+              <section>
+                <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">
+                  {type === "combo" ? "Speaker & sponsor" : type === "speaker" ? "Speaker" : "Sponsor"}
+                </Label>
+                <EntityPicker
+                  eventId={eventId}
+                  mode={type}
+                  speakerId={speaker?.id ?? null}
+                  sponsorId={sponsor?.id ?? null}
+                  onSpeakerChange={setSpeaker}
+                  onSponsorChange={setSponsor}
+                />
+              </section>
+            )}
+
+            {/* EVENT PROMO FORM — "event" type only */}
+            {type === "event" && (
+              <section>
+                <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">
+                  Event details
+                </Label>
+                <div className="space-y-2.5">
+                  <div className="space-y-1">
+                    <Label className="text-[11px] text-muted-foreground">Title</Label>
+                    <Input
+                      value={eventPromoForm.title}
+                      onChange={(e) => setEventPromoForm((p) => ({ ...p, title: e.target.value }))}
+                      placeholder="India's Largest Virtual HR Summit"
+                      className="h-8 text-[13px]"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] text-muted-foreground">Tagline (optional)</Label>
+                    <Input
+                      value={eventPromoForm.tagline}
+                      onChange={(e) => setEventPromoForm((p) => ({ ...p, tagline: e.target.value }))}
+                      placeholder="You're Invited"
+                      className="h-8 text-[13px]"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">Date label</Label>
+                      <Input
+                        value={eventPromoForm.dateLabel}
+                        onChange={(e) => setEventPromoForm((p) => ({ ...p, dateLabel: e.target.value }))}
+                        placeholder="23rd July, 2026"
+                        className="h-8 text-[13px]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">CTA label</Label>
+                      <Input
+                        value={eventPromoForm.ctaLabel}
+                        onChange={(e) => setEventPromoForm((p) => ({ ...p, ctaLabel: e.target.value }))}
+                        placeholder="Register for FREE"
+                        className="h-8 text-[13px]"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] text-muted-foreground">Wordmark / logo URL (optional)</Label>
+                    <Input
+                      value={eventPromoForm.wordmarkUrl}
+                      onChange={(e) => setEventPromoForm((p) => ({ ...p, wordmarkUrl: e.target.value }))}
+                      placeholder="https://…/logo.png"
+                      className="h-8 text-[13px]"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] text-muted-foreground">Headline stats (up to 4)</Label>
+                    {eventPromoForm.stats.map((stat, i) => (
+                      <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-1.5">
+                        <Input
+                          value={stat.value}
+                          onChange={(e) =>
+                            setEventPromoForm((p) => ({
+                              ...p,
+                              stats: p.stats.map((s, si) => (si === i ? { ...s, value: e.target.value } : s)),
+                            }))
+                          }
+                          placeholder="6000+"
+                          className="h-8 text-[13px]"
+                        />
+                        <Input
+                          value={stat.label}
+                          onChange={(e) =>
+                            setEventPromoForm((p) => ({
+                              ...p,
+                              stats: p.stats.map((s, si) => (si === i ? { ...s, label: e.target.value } : s)),
+                            }))
+                          }
+                          placeholder="Attendees"
+                          className="h-8 text-[13px]"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                          onClick={() =>
+                            setEventPromoForm((p) => ({ ...p, stats: p.stats.filter((_, si) => si !== i) }))
+                          }
+                          aria-label="Remove stat"
+                        >
+                          ×
+                        </Button>
+                      </div>
+                    ))}
+                    {eventPromoForm.stats.length < 4 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[12px]"
+                        onClick={() =>
+                          setEventPromoForm((p) => ({ ...p, stats: [...p.stats, { value: "", label: "" }] }))
+                        }
+                      >
+                        + Add stat
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
 
             {/* FORMATS */}
             <section>
@@ -800,6 +1000,7 @@ export default function CreativeGeneratorDialog({
                 theme={effective.theme}
                 speaker={speaker}
                 sponsor={sponsor}
+                eventPromo={eventPromoPreview}
                 customization={customization}
                 effectiveFontFamily={effective.effectiveFontFamily}
                 effectiveWatermarkLogoUrl={effective.effectiveWatermarkLogoUrl}

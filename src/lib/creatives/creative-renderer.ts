@@ -34,6 +34,7 @@ import type {
   ImageSlot,
   PlatformFormat,
   ResolvedBox,
+  ShapeSlot,
   TextSlot,
 } from "./creative-templates";
 
@@ -131,6 +132,21 @@ export type PlanElement =
       align: TextSlot["align"];
     }
   | { kind: "divider"; x: number; y1: number; y2: number; color: string }
+  | {
+      /** A decorative filled/stroked shape (card, divider bar) — drawn
+       *  from an Event_Promo template's `shapeSlots`, right after the
+       *  background and before any image/text element (Requirement:
+       *  Event_Promo decorative shapes). Never carries entity data. */
+      kind: "shape";
+      key: string;
+      shape: ShapeSlot["shape"];
+      box: ResolvedBox;
+      fillColor: string;
+      strokeColor?: string;
+      strokeWidthPx?: number;
+      cornerRadiusFactor: number;
+      opacity: number;
+    }
   | {
       /** A rounded capsule filled with `fillColor` and centered text —
        *  used by Event_Promo templates for the date chip and the CTA
@@ -587,6 +603,26 @@ export function buildEventPlan(
   const resolvedBackground = resolveBackground(template, theme);
 
   const elements: PlanElement[] = [{ kind: "background", style: resolvedBackground }];
+
+  // Decorative shapes (cards, divider bars) draw immediately after the
+  // background and before any image/text element, so they read as part
+  // of the backdrop rather than sitting on top of a photo/logo. Shapes
+  // are unconditional — a template that defines shapeSlots always draws
+  // them, since they carry no entity data to be "missing" (Requirement:
+  // Event_Promo decorative shapes).
+  for (const shapeSlot of template.shapeSlots ?? []) {
+    elements.push({
+      kind: "shape",
+      key: shapeSlot.key,
+      shape: shapeSlot.shape,
+      box: reflowed.shapeSlots[shapeSlot.key],
+      fillColor: shapeSlot.fillColor,
+      strokeColor: shapeSlot.strokeColor,
+      strokeWidthPx: shapeSlot.strokeWidthPx,
+      cornerRadiusFactor: shapeSlot.cornerRadiusFactor ?? 0,
+      opacity: shapeSlot.opacity ?? 1,
+    });
+  }
 
   const wordmarkSlot = template.imageSlots.wordmark;
   if (wordmarkSlot && promo.wordmarkUrl) {
@@ -1242,6 +1278,55 @@ function drawDividerElement(ctx: CanvasRenderingContext2D, el: Extract<PlanEleme
 }
 
 /**
+ * Draws a `shape` element: a filled and/or stroked rect/rounded-rect/
+ * circle at `el.box`, per an Event_Promo template's `shapeSlots`
+ * (decorative cards, divider bars). Reuses the same manual `arcTo`
+ * rounded-rect fallback pattern as `drawImageCropped`/`drawBorder` for
+ * engines without `ctx.roundRect`. A `fillColor` of `"transparent"`
+ * skips the fill (stroke-only shapes, e.g. an outlined card).
+ */
+function drawShapeElement(ctx: CanvasRenderingContext2D, el: Extract<PlanElement, { kind: "shape" }>): void {
+  const { x, y, width, height } = el.box;
+  if (width <= 0 || height <= 0) return;
+
+  ctx.save();
+  ctx.globalAlpha = el.opacity;
+
+  ctx.beginPath();
+  if (el.shape === "circle") {
+    const cx = x + width / 2;
+    const cy = y + height / 2;
+    const radius = Math.min(width, height) / 2;
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  } else if (el.shape === "rounded-rect") {
+    const radius = Math.max(0, Math.min(0.5, el.cornerRadiusFactor)) * Math.min(width, height);
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(x, y, width, height, radius);
+    } else {
+      ctx.moveTo(x + radius, y);
+      ctx.arcTo(x + width, y, x + width, y + height, radius);
+      ctx.arcTo(x + width, y + height, x, y + height, radius);
+      ctx.arcTo(x, y + height, x, y, radius);
+      ctx.arcTo(x, y, x + width, y, radius);
+    }
+  } else {
+    ctx.rect(x, y, width, height);
+  }
+
+  if (el.fillColor !== "transparent") {
+    ctx.fillStyle = el.fillColor;
+    ctx.fill();
+  }
+  if (el.strokeColor && el.strokeWidthPx && el.strokeWidthPx > 0) {
+    ctx.strokeStyle = el.strokeColor;
+    ctx.lineWidth = el.strokeWidthPx;
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+/**
  * Draws a `pill` element: a rounded capsule filled with `el.fillColor`
  * and centered text — the date chip / CTA button used by Event_Promo
  * templates. Reuses `drawImageCropped`'s manual arcTo rounded-rect
@@ -1635,6 +1720,9 @@ export async function drawPlan(ctx: CanvasRenderingContext2D, plan: RenderPlan):
         break;
       case "divider":
         drawDividerElement(ctx, el);
+        break;
+      case "shape":
+        drawShapeElement(ctx, el);
         break;
       case "pill":
         drawPillElement(ctx, el);

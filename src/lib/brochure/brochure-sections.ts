@@ -131,6 +131,11 @@ export interface AgendaSessionInput {
   /** ISO datetime string. */
   end_time: string;
   speakerNames: string[];
+  /** Session abstract/description (`sessions.description`), used only by
+   *  the `"timetable-cards"` agenda layout's description block. Optional
+   *  so older callers that don't fetch `sessions.description` keep
+   *  working unchanged (the `"table"` layout never reads this field). */
+  description?: string | null;
 }
 
 /** One drawable agenda row. */
@@ -139,6 +144,9 @@ export interface AgendaRow {
   timeRangeText: string;
   /** Omitted (never an empty string) when the session has no speakers. */
   speakerLine?: string;
+  /** Omitted (never an empty string) when the session has no description
+   *  (post-trim). Only consumed by the `"timetable-cards"` agenda layout. */
+  description?: string;
 }
 
 /** Fully resolved, drawable Agenda_Section content. */
@@ -165,6 +173,10 @@ function buildAgendaRow(session: AgendaSessionInput): AgendaRow {
 
   if (session.speakerNames.length > 0) {
     row.speakerLine = session.speakerNames.join(", ");
+  }
+
+  if (typeof session.description === "string" && session.description.trim().length > 0) {
+    row.description = session.description.trim();
   }
 
   return row;

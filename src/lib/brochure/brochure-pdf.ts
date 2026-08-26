@@ -524,13 +524,13 @@ function drawHeadingUnderline(
   doc.rect(xStart, y, widthMm, 1.4, "F");
 }
 
-/** Draws the Agenda_Section: a single `autoTable` call (or the
- *  empty-message fallback), returning the Y-cursor position it ended at.
- *  Column widths are set explicitly so the Time column stays narrow,
- *  Session takes the remainder, and Speakers gets a stable middle band —
- *  auto-distributed widths made speaker names get squished and wrap to
- *  many tiny lines. */
-function drawAgendaSection(
+/** Draws the Agenda_Section's `"table"` layout: a single `autoTable` call
+ *  (or the empty-message fallback), returning the Y-cursor position it
+ *  ended at. Column widths are set explicitly so the Time column stays
+ *  narrow, Session takes the remainder, and Speakers gets a stable middle
+ *  band — auto-distributed widths made speaker names get squished and
+ *  wrap to many tiny lines. */
+function drawAgendaTableLayout(
   doc: jsPDF,
   content: AgendaSectionContent,
   theme: BrochureTheme,
@@ -541,21 +541,6 @@ function drawAgendaSection(
   const pageWidth = doc.internal.pageSize.getWidth();
   const contentWidth = pageWidth - margin - theme.margins.right;
 
-  doc.setFont(resolveFontFamilyForPdf(colors.fontFamily), "bold");
-  doc.setFontSize(theme.heading.fontSizePt);
-  doc.setTextColor(0, 0, 0);
-  doc.text("Agenda", margin, startY);
-  drawHeadingUnderline(doc, theme, colors, margin, startY + 2, 24);
-  const y = startY + 10;
-
-  if (content.emptyMessage) {
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(theme.table.fontSizePt);
-    doc.setTextColor(120, 120, 120);
-    doc.text(content.emptyMessage, margin, y);
-    return y + 8;
-  }
-
   const [ar, ag, ab] = hexToRgb(colors.accentColor);
   // Fixed proportions: time is narrow (5-6 chars), session takes about
   // half, speakers gets the rest. Prevents equal-width squishing.
@@ -564,7 +549,7 @@ function drawAgendaSection(
   const sessionColWidth = contentWidth - timeColWidth - speakersColWidth;
 
   autoTable(doc, {
-    startY: y,
+    startY,
     head: [["Time", "Session", "Speaker(s)"]],
     body: content.rows.map((row) => [row.timeRangeText, row.title, row.speakerLine ?? ""]),
     theme: theme.table.theme,
@@ -592,7 +577,165 @@ function drawAgendaSection(
   // mirrors `reports/pdf.ts`'s documented escape hatch exactly since
   // `jspdf-autotable` doesn't augment jsPDF's own type declarations.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((doc as any).lastAutoTable?.finalY ?? y) + 8;
+  return ((doc as any).lastAutoTable?.finalY ?? startY) + 8;
+}
+
+/**
+ * Draws the Agenda_Section's `"timetable-cards"` layout: two side-by-side
+ * columns of session cards (time chip, title, description, speaker line),
+ * matching reference conference-brochure agenda pages (e.g. "Panel
+ * Discussion 1: ..." cards with a multi-line abstract underneath).
+ *
+ * Manual pagination, following the same running-Y-cursor +
+ * `doc.addPage()`-on-overflow pattern documented for the Speakers_Section
+ * (no `autoTable` involved, since each card's height varies with its
+ * description length — a data-table model doesn't fit this content).
+ * Sessions are laid out in reading order (left column top-to-bottom, then
+ * right column top-to-bottom) two at a time, matching how the reference
+ * brochure interleaves its two-column session grid.
+ */
+function drawAgendaTimetableCardsLayout(
+  doc: jsPDF,
+  content: AgendaSectionContent,
+  theme: BrochureTheme,
+  colors: ResolvedBrochureColors,
+  startY: number
+): number {
+  const margin = theme.margins.left;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const contentWidth = pageWidth - margin - theme.margins.right;
+  const fontFamily = resolveFontFamilyForPdf(colors.fontFamily);
+  const bottomLimit = pageHeight - theme.margins.bottom;
+
+  const colGap = 6;
+  const colWidth = (contentWidth - colGap) / 2;
+  const cardPad = 4;
+  const timeChipH = 7;
+  const bodyLineHeight = 4.3;
+
+  const colTopY = [startY, startY];
+
+  for (let i = 0; i < content.rows.length; i += 1) {
+    const row = content.rows[i];
+    const col = i % 2;
+    const colX = margin + col * (colWidth + colGap);
+
+    // Measure this card's height before drawing so the page-break check
+    // happens up front (mirrors the Speakers_Section's overflow guard).
+    doc.setFont(fontFamily, "normal");
+    doc.setFontSize(theme.table.fontSizePt - 1);
+    const titleLines = doc.splitTextToSize(row.title, colWidth - cardPad * 2) as string[];
+    const descLines = row.description
+      ? (doc.splitTextToSize(row.description, colWidth - cardPad * 2) as string[])
+      : [];
+    const speakerLines = row.speakerLine
+      ? (doc.splitTextToSize(row.speakerLine, colWidth - cardPad * 2) as string[])
+      : [];
+    const cardHeight =
+      timeChipH +
+      3 +
+      titleLines.length * (bodyLineHeight + 0.6) +
+      2 +
+      descLines.length * bodyLineHeight +
+      (speakerLines.length > 0 ? speakerLines.length * bodyLineHeight + 2 : 0) +
+      cardPad * 2;
+
+    let cardY = colTopY[col];
+    if (cardY + cardHeight > bottomLimit) {
+      // Overflow: start a fresh page and reset BOTH columns so the next
+      // card pair begins level again at the new page's top margin.
+      doc.addPage();
+      colTopY[0] = theme.margins.top;
+      colTopY[1] = theme.margins.top;
+      cardY = theme.margins.top;
+    }
+
+    // Card container — light background + thin border, mirroring the
+    // Speakers_Section card chrome for visual consistency across sections.
+    doc.setFillColor(249, 250, 251);
+    doc.rect(colX, cardY, colWidth, cardHeight, "F");
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.2);
+    doc.rect(colX, cardY, colWidth, cardHeight, "S");
+
+    let textY = cardY + cardPad;
+
+    // Time chip — small accent-colored pill at the top-left of the card.
+    const timeChipW = Math.min(colWidth - cardPad * 2, doc.getTextWidth(row.timeRangeText) + 8);
+    doc.setFont(fontFamily, "bold");
+    doc.setFontSize(8);
+    drawPill(doc, colX + cardPad, textY, timeChipW, timeChipH, colors.accentColor);
+    doc.setTextColor(255, 255, 255);
+    doc.text(row.timeRangeText, colX + cardPad + timeChipW / 2, textY + timeChipH / 2 + 0.4, {
+      align: "center",
+      baseline: "middle",
+    });
+    textY += timeChipH + 3;
+
+    // Title.
+    doc.setFont(fontFamily, "bold");
+    doc.setFontSize(theme.table.fontSizePt);
+    doc.setTextColor(0, 0, 0);
+    doc.text(titleLines, colX + cardPad, textY);
+    textY += titleLines.length * (bodyLineHeight + 0.6) + 2;
+
+    // Description.
+    if (descLines.length > 0) {
+      doc.setFont(fontFamily, "normal");
+      doc.setFontSize(theme.table.fontSizePt - 1);
+      doc.setTextColor(90, 90, 90);
+      doc.text(descLines, colX + cardPad, textY);
+      textY += descLines.length * bodyLineHeight;
+    }
+
+    // Speaker line.
+    if (speakerLines.length > 0) {
+      textY += 2;
+      doc.setFont(fontFamily, "italic");
+      doc.setFontSize(theme.table.fontSizePt - 1);
+      doc.setTextColor(120, 120, 120);
+      doc.text(speakerLines, colX + cardPad, textY);
+    }
+
+    colTopY[col] = cardY + cardHeight + colGap;
+  }
+
+  return Math.max(colTopY[0], colTopY[1]);
+}
+
+/** Draws the Agenda_Section: dispatches to the theme's configured
+ *  `agenda.layout` (`"table"` or `"timetable-cards"`), or renders the
+ *  empty-message fallback when there are zero sessions — never a
+ *  zero-row table/card grid regardless of layout. Returns the Y-cursor
+ *  position it ended at. */
+function drawAgendaSection(
+  doc: jsPDF,
+  content: AgendaSectionContent,
+  theme: BrochureTheme,
+  colors: ResolvedBrochureColors,
+  startY: number
+): number {
+  const margin = theme.margins.left;
+
+  doc.setFont(resolveFontFamilyForPdf(colors.fontFamily), "bold");
+  doc.setFontSize(theme.heading.fontSizePt);
+  doc.setTextColor(0, 0, 0);
+  doc.text("Agenda", margin, startY);
+  drawHeadingUnderline(doc, theme, colors, margin, startY + 2, 24);
+  const y = startY + 10;
+
+  if (content.emptyMessage) {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(theme.table.fontSizePt);
+    doc.setTextColor(120, 120, 120);
+    doc.text(content.emptyMessage, margin, y);
+    return y + 8;
+  }
+
+  return theme.agenda.layout === "timetable-cards"
+    ? drawAgendaTimetableCardsLayout(doc, content, theme, colors, y)
+    : drawAgendaTableLayout(doc, content, theme, colors, y);
 }
 
 // ─── Sponsors_Section (Requirement 5) ────────────────────────────────────────

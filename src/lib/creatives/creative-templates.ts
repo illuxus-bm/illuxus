@@ -194,6 +194,39 @@ export interface PillSlot {
   cornerRadiusFactor: number;
 }
 
+/**
+ * A decorative filled/stroked shape — a rounded card, a divider bar, a
+ * background panel — used to add non-photographic structure to a
+ * template (e.g. the rounded "stats card" behind an Event_Promo's stat
+ * row, or a thin vertical divider between stat columns) without needing
+ * a raster asset. Purely decorative: never carries entity data, so a
+ * template's `shapeSlots` are drawn unconditionally whenever the
+ * template defines them (same convention as `divider`). Geometry is
+ * %-based against the template's authored canvas, resolved by
+ * `reflowTemplate` exactly like `ImageSlot`/`TextSlot`/`PillSlot` boxes.
+ */
+export interface ShapeSlot {
+  /** Stable label — used as the `PlanElement`'s key for logging/debugging
+   *  and as the React key when multiple shapes are rendered. */
+  key: string;
+  shape: "rect" | "rounded-rect" | "circle";
+  xPct: number;
+  yPct: number;
+  widthPct: number;
+  heightPct: number;
+  /** Any valid canvas `fillStyle` string (hex, rgba(), etc.), or
+   *  `"transparent"` to skip the fill and draw only a stroke. */
+  fillColor: string;
+  strokeColor?: string;
+  strokeWidthPx?: number;
+  /** Corner radius as a fraction of the shape's shorter side, 0..0.5.
+   *  Ignored for `"circle"`. Defaults to `0` (a plain rect) when
+   *  `shape === "rounded-rect"` and this is omitted. */
+  cornerRadiusFactor?: number;
+  /** 0..1. Defaults to `1` (fully opaque) when omitted. */
+  opacity?: number;
+}
+
 export interface CreativeTemplate {
   id: string;
   type: CreativeType;
@@ -215,6 +248,10 @@ export interface CreativeTemplate {
    *  chip and the CTA button). Every other Creative type leaves this
    *  empty/omitted. */
   pillSlots?: PillSlot[];
+  /** Decorative filled/stroked shapes (cards, divider bars) —
+   *  Event_Promo templates only, drawn unconditionally right after the
+   *  background. Every other Creative type leaves this empty/omitted. */
+  shapeSlots?: ShapeSlot[];
   /** Divider/"presented by" marker — combo templates only. */
   divider?: { xPct: number; yPct1: number; yPct2: number; color: string };
   /**
@@ -570,6 +607,153 @@ export const EVENT_TEMPLATES: CreativeTemplate[] = [
     ],
     themeOverridable: { background: false, accentTextKeys: ["eventTagline"] },
   },
+  {
+    id: "event-invitation-envelope",
+    type: "event",
+    name: "Invitation Envelope",
+    description: "Cream invitation card peeking out of an open envelope on a deep purple background, with script tagline and a red wax-seal CTA button.",
+    authoredWidth: AUTHORED_SIZE,
+    authoredHeight: AUTHORED_SIZE,
+    background: { type: "solid", color: "#2a1454" },
+    imageSlots: {
+      wordmark: { xPct: 50, yPct: 8, widthPct: 40, heightPct: 6, shape: "rect" },
+    },
+    // The envelope illustration is built entirely from shapes (no raster
+    // asset) so it reflows cleanly to every Platform_Format: a triangular
+    // flap (two crossed rect "flaps" simulated by a wide low triangle-ish
+    // rounded-rect pair reads close enough at this scale) behind a cream
+    // card, drawn back-to-front: envelope body -> flap -> card.
+    shapeSlots: [
+      // Envelope body (wide, sits behind the card).
+      { key: "envelopeBody", shape: "rounded-rect", xPct: 50, yPct: 62, widthPct: 74, heightPct: 34,
+        fillColor: "#e7ddc8", cornerRadiusFactor: 0.06 },
+      // Envelope flap — a shorter, narrower rounded-rect anchored at the
+      // top of the envelope body, standing in for the open triangular
+      // flap silhouette.
+      { key: "envelopeFlap", shape: "rounded-rect", xPct: 50, yPct: 48, widthPct: 56, heightPct: 14,
+        fillColor: "#d8cbaa", cornerRadiusFactor: 0.15 },
+      // Invitation card — the cream card peeking up out of the envelope,
+      // narrower and taller than the envelope body so it visually
+      // protrudes from the opening.
+      { key: "invitationCard", shape: "rounded-rect", xPct: 50, yPct: 46, widthPct: 62, heightPct: 46,
+        fillColor: "#f5f1e6", cornerRadiusFactor: 0.03,
+        strokeColor: "#00000014", strokeWidthPx: 1 },
+    ],
+    textSlots: [
+      {
+        key: "eventTagline", xPct: 50, yPct: 33, maxWidthPct: 50, maxHeightPct: 9,
+        fontFamily: "Playfair Display", fontWeight: 700, baseSizePx: 44, color: "#4c1d95",
+        align: "center", transform: "none",
+      },
+      {
+        key: "eventTitle", xPct: 50, yPct: 45, maxWidthPct: 50, maxHeightPct: 12,
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 30, color: "#111827",
+        align: "center", transform: "none",
+      },
+      {
+        key: "dateLabel", xPct: 50, yPct: 58, maxWidthPct: 44, maxHeightPct: 6,
+        fontFamily: "Poppins", fontWeight: 600, baseSizePx: 20, color: "#374151",
+        align: "center", transform: "none",
+      },
+    ],
+    pillSlots: [
+      {
+        key: "ctaButton", xPct: 50, yPct: 78, widthPct: 34, heightPct: 8,
+        fillColor: "#b91c1c", textColor: "#ffffff",
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 22,
+        cornerRadiusFactor: 0.2,
+      },
+    ],
+    themeOverridable: { background: false, accentTextKeys: ["eventTagline"] },
+  },
+  {
+    id: "event-stats-hero",
+    type: "event",
+    name: "Stats Hero",
+    description: "Purple-gradient hero with a bold title and a dark stat-row card underneath (4 headline metrics), date line, and a solid CTA button.",
+    authoredWidth: AUTHORED_SIZE,
+    authoredHeight: AUTHORED_SIZE,
+    background: { type: "gradient", from: "#241154", to: "#120a2e", angle: 180 },
+    imageSlots: {
+      wordmark: { xPct: 50, yPct: 12, widthPct: 32, heightPct: 7, shape: "rect" },
+    },
+    // Rounded dark "stats card" panel that the 4 stat pairs sit inside,
+    // giving the stat row a visually distinct band (matching the
+    // reference's dark rounded-rect containing the metrics row) without
+    // needing an image asset.
+    shapeSlots: [
+      { key: "statsCard", shape: "rounded-rect", xPct: 50, yPct: 50, widthPct: 82, heightPct: 20,
+        fillColor: "#ffffff0f", cornerRadiusFactor: 0.18,
+        strokeColor: "#ffffff26", strokeWidthPx: 1 },
+      { key: "statDivider1", shape: "rect", xPct: 25, yPct: 50, widthPct: 0.15, heightPct: 12,
+        fillColor: "#ffffff26" },
+      { key: "statDivider2", shape: "rect", xPct: 50, yPct: 50, widthPct: 0.15, heightPct: 12,
+        fillColor: "#ffffff26" },
+      { key: "statDivider3", shape: "rect", xPct: 75, yPct: 50, widthPct: 0.15, heightPct: 12,
+        fillColor: "#ffffff26" },
+    ],
+    textSlots: [
+      {
+        key: "eventTitle", xPct: 50, yPct: 27, maxWidthPct: 84, maxHeightPct: 13,
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 54, color: "#ffffff",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statValue1", xPct: 12.5, yPct: 46, maxWidthPct: 20, maxHeightPct: 6,
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 30, color: "#c4b5fd",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statLabel1", xPct: 12.5, yPct: 52, maxWidthPct: 20, maxHeightPct: 4,
+        fontFamily: "Poppins", fontWeight: 500, baseSizePx: 16, color: "#e0e7ff",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statValue2", xPct: 37.5, yPct: 46, maxWidthPct: 20, maxHeightPct: 6,
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 30, color: "#c4b5fd",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statLabel2", xPct: 37.5, yPct: 52, maxWidthPct: 20, maxHeightPct: 4,
+        fontFamily: "Poppins", fontWeight: 500, baseSizePx: 16, color: "#e0e7ff",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statValue3", xPct: 62.5, yPct: 46, maxWidthPct: 20, maxHeightPct: 6,
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 30, color: "#c4b5fd",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statLabel3", xPct: 62.5, yPct: 52, maxWidthPct: 20, maxHeightPct: 4,
+        fontFamily: "Poppins", fontWeight: 500, baseSizePx: 16, color: "#e0e7ff",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statValue4", xPct: 87.5, yPct: 46, maxWidthPct: 20, maxHeightPct: 6,
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 30, color: "#c4b5fd",
+        align: "center", transform: "none",
+      },
+      {
+        key: "statLabel4", xPct: 87.5, yPct: 52, maxWidthPct: 20, maxHeightPct: 4,
+        fontFamily: "Poppins", fontWeight: 500, baseSizePx: 16, color: "#e0e7ff",
+        align: "center", transform: "none",
+      },
+      {
+        key: "dateLabel", xPct: 50, yPct: 68, maxWidthPct: 60, maxHeightPct: 6,
+        fontFamily: "Poppins", fontWeight: 500, baseSizePx: 20, color: "#ffffff",
+        align: "center", transform: "none",
+      },
+    ],
+    pillSlots: [
+      {
+        key: "ctaButton", xPct: 50, yPct: 82, widthPct: 34, heightPct: 8,
+        fillColor: "#7c3aed", textColor: "#ffffff",
+        fontFamily: "Poppins", fontWeight: 700, baseSizePx: 24,
+        cornerRadiusFactor: 0.5,
+      },
+    ],
+    themeOverridable: { background: true, accentTextKeys: ["statValue1", "statValue2", "statValue3", "statValue4"] },
+  },
 ];
 
 /** Returns the static preset registry matching the given Creative type (Requirement 1.1). */
@@ -778,6 +962,7 @@ export function reflowTemplate(
   imageSlots: Record<string, ResolvedBox>;
   textSlots: Record<string, ResolvedBox>;
   pillSlots: Record<string, ResolvedBox>;
+  shapeSlots: Record<string, ResolvedBox>;
 } {
   const imageSlots: Record<string, ResolvedBox> = {};
   for (const [role, slot] of Object.entries(template.imageSlots)) {
@@ -821,7 +1006,19 @@ export function reflowTemplate(
     );
   }
 
-  return { imageSlots, textSlots, pillSlots };
+  const shapeSlots: Record<string, ResolvedBox> = {};
+  for (const slot of template.shapeSlots ?? []) {
+    shapeSlots[slot.key] = reflowBox(
+      slot.xPct,
+      slot.yPct,
+      slot.widthPct,
+      slot.heightPct,
+      format.width,
+      format.height
+    );
+  }
+
+  return { imageSlots, textSlots, pillSlots, shapeSlots };
 }
 
 // ─── Template selection persistence (Requirement 1.4) ───────────────────────

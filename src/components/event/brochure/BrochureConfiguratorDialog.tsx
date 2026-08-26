@@ -113,6 +113,7 @@ interface BrochureEventRow {
 interface SessionRow {
   id: string;
   title: string;
+  description: string | null;
   start_time: string;
   end_time: string;
   speaker_id: string | null;
@@ -147,7 +148,7 @@ async function fetchBrochureData(eventId: string): Promise<{
       .single(),
     supabase
       .from("sessions")
-      .select("id, title, start_time, end_time, speaker_id")
+      .select("id, title, description, start_time, end_time, speaker_id")
       .eq("event_id", eventId)
       .order("start_time"),
     supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
@@ -233,6 +234,7 @@ async function fetchBrochureData(eventId: string): Promise<{
   const sessions: AgendaSessionInput[] = sessionSpeakerIds.map(({ session, speakerIds }) => ({
     id: session.id,
     title: session.title,
+    description: session.description,
     start_time: session.start_time,
     end_time: session.end_time,
     speakerNames: speakerIds
@@ -389,6 +391,25 @@ export default function BrochureConfiguratorDialog({
     setPosterContent(prefs?.posterContent ?? {});
     hydratedRef.current = true;
   }, [open, eventPageConfig]);
+
+  // Explicit theme-picker handler (distinct from the hydration effect
+  // above): when the organizer picks a new theme from the RadioGroup,
+  // switch to that theme's matching section-layout preset so its
+  // theme-specific pages (Poster_Bold's Abstract / Why Sponsor / Pricing)
+  // are on by default — mirroring the same preset-seeding rule the
+  // hydration effect applies on first open. Color/font overrides and
+  // posterContent copy are preserved across the switch so re-picking a
+  // theme doesn't discard anything the organizer already typed in.
+  const handleThemeChange = (next: BrochureTheme) => {
+    setSelectedTheme(next);
+    setSectionLayout(
+      next.id === "poster-bold"
+        ? POSTER_BOLD_SECTION_LAYOUT
+        : next.id === "corporate-bold"
+          ? CORPORATE_BOLD_SECTION_LAYOUT
+          : DEFAULT_SECTION_LAYOUT,
+    );
+  };
 
   // Reset purely transient (non-persisted) state whenever the dialog
   // re-opens — mirrors CreativeGeneratorDialog's open-reset effect. The
@@ -564,25 +585,42 @@ export default function BrochureConfiguratorDialog({
           <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
             {/* LEFT — settings (scrollable) */}
             <div className="overflow-y-auto px-5 py-4 space-y-5 md:border-r border-border min-h-0">
-              {/* BROCHURE THEME — single-theme world; retained as an
-                  info card that surfaces the theme name and description
-                  without asking the organizer to pick one. Every look
-                  the Poster_Bold / Corporate_Bold themes produced is
-                  reachable through the editor from the Classic seed. */}
+              {/* BROCHURE THEME — Classic Editorial and Poster Bold ship
+                  today; picking a theme also seeds the matching section
+                  layout preset (see the theme-change effect below) so an
+                  organizer switching to Poster Bold gets its Abstract /
+                  Why Sponsor / Pricing pages on by default. Any further
+                  custom look — fonts, colors, layout — remains available
+                  in the editor from either seed. */}
               <section>
                 <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">
                   Brochure theme
                 </Label>
-                <div className="border border-border rounded-lg px-3 py-2 bg-muted/30">
-                  <div className="text-[13px] font-medium leading-tight">
-                    {selectedTheme.name}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                    {selectedTheme.description}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground/80 mt-1.5">
-                    Any custom look — fonts, colors, layout — is available in the editor.
-                  </div>
+                <RadioGroup
+                  value={selectedTheme.id}
+                  onValueChange={(id) => {
+                    const next = BROCHURE_THEMES.find((t) => t.id === id);
+                    if (next) handleThemeChange(next);
+                  }}
+                  className="grid grid-cols-2 gap-2"
+                >
+                  {BROCHURE_THEMES.map((t) => (
+                    <label
+                      key={t.id}
+                      className={`border rounded-lg px-3 py-2 cursor-pointer transition-colors ${
+                        selectedTheme.id === t.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+                      }`}
+                    >
+                      <RadioGroupItem value={t.id} className="sr-only" />
+                      <div className="text-[13px] font-medium leading-tight">{t.name}</div>
+                      <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                        {t.description}
+                      </div>
+                    </label>
+                  ))}
+                </RadioGroup>
+                <div className="text-[10px] text-muted-foreground/80 mt-1.5">
+                  Any custom look — fonts, colors, layout — is also available in the editor.
                 </div>
               </section>
 
@@ -756,9 +794,11 @@ export default function BrochureConfiguratorDialog({
         <BrochureEditorDialog
           open={editorOpen}
           onOpenChange={setEditorOpen}
-          // Only "classic" ships now; the editor's template seed dispatch
-          // routes anything unrecognized to the Classic seed anyway.
-          templateId="classic"
+          // Seed the editor from whichever theme is currently selected —
+          // the editor's template seed dispatch already supports
+          // "poster-bold" (and "corporate-bold" for legacy saved
+          // selections), routing anything else to the Classic seed.
+          templateId={selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold" ? selectedTheme.id : "classic"}
           seed={{
             eventTitle: event.title,
             dateText: (() => {

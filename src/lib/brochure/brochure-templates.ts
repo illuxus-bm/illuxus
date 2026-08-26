@@ -109,6 +109,15 @@ export interface BrochureTheme {
     /** Fallback header fill when no accent color is resolved. */
     headFillDefault: string;
   };
+  agenda: {
+    /** `"table"` (default): the original single continuous `autoTable`
+     *  time/session/speaker grid. `"timetable-cards"`: two side-by-side
+     *  columns of session cards (time chip + title + description +
+     *  speaker line), matching reference conference-brochure agenda
+     *  pages that show a fuller session abstract per slot rather than
+     *  a dense table row. */
+    layout: "table" | "timetable-cards";
+  };
   /** Built-in defaults used by `resolveBrochureTheme` when the event's
    *  Event_Theme doesn't define a color (Requirement 1.3). */
   defaultColors: { primaryColor: string; accentColor: string; fontFamily: string };
@@ -146,16 +155,61 @@ export const BROCHURE_THEMES: BrochureTheme[] = [
       cellPaddingMm: 3,
       headFillDefault: "#0a1429",
     },
+    agenda: { layout: "table" },
     defaultColors: {
       primaryColor: "#1e3a8a", // navy
       accentColor: "#eab308", // gold
       fontFamily: "Playfair Display",
     },
   },
-  // Themes below (Modern Minimal, Bold Conference, Corporate Bold,
-  // Poster Bold) were removed — Classic is the only shipped theme now.
-  // The editor lets an organizer produce any of those looks by
-  // starting from the Classic template and editing freely.
+  {
+    // Poster_Bold theme — the DevOps-Connect-style brochure format
+    // (bright orange + solid-black + white poster pages, pill-chip
+    // date/venue on the cover, rounded card content sections, orange
+    // numbered value props, card-based agenda). Enables three extra
+    // sections (`abstract`, `whySponsor`, `pricing`) that pull their
+    // content from `brochurePrefs.posterContent` on the event's page
+    // config. Every color/font here is still resolved through
+    // `resolveBrochureTheme`'s override precedence — organizers can
+    // fully recolor/refont this theme from the configurator's
+    // color/font override controls, matching the fully-customizable
+    // requirement for the reference DevOps Connect brochure.
+    id: "poster-bold",
+    name: "Poster Bold",
+    description:
+      "Big-format poster: pill-chip cover, orange & black solid-color pages, card-based agenda, numbered value props, pricing cards.",
+    margins: { top: 22, right: 20, bottom: 22, left: 20 },
+    cover: {
+      style: "poster-bold",
+      defaultBackgroundColor: "#ffffff",
+      titleFontSizePt: 44,
+      accentBarHeightMm: 0,
+    },
+    heading: {
+      fontSizePt: 26,
+      fontStyle: "bold",
+      showAccentUnderline: false,
+    },
+    table: {
+      theme: "plain",
+      fontSizePt: 10.5,
+      cellPaddingMm: 3,
+      headFillDefault: "#ff5722",
+    },
+    // Two-column session cards (time chip + title + description block +
+    // speaker line) matching the reference DevOps Connect agenda page,
+    // rather than a dense table row per session.
+    agenda: { layout: "timetable-cards" },
+    defaultColors: {
+      primaryColor: "#000000",
+      accentColor: "#ff5722", // brand-forward orange
+      fontFamily: "Poppins",
+    },
+  },
+  // Themes below (Modern Minimal, Bold Conference, Corporate Bold) stay
+  // removed — Classic Editorial and Poster Bold are the two shipped
+  // themes now. The editor lets an organizer produce any of the removed
+  // looks by starting from the Classic template and editing freely.
   //
   // Retained the removed entries as inline comments so the diff
   // history is easy to trace; if you need one back, the shape is

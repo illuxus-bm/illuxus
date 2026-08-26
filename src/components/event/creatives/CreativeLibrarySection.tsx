@@ -40,6 +40,7 @@ const CREATIVE_TYPE_LABELS: Record<string, string> = {
   speaker: "Speaker",
   sponsor: "Sponsor",
   combo: "Combo",
+  event: "Event",
 };
 
 function platformFormatLabel(id: string): string {

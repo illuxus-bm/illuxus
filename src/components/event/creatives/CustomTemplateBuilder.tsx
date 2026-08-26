@@ -140,9 +140,11 @@ import { genId } from "@/components/event/page-form/types";
 import type { EventPageConfig } from "@/components/event/page-form/types";
 import {
   buildComboPlan,
+  buildEventPlan,
   buildSpeakerPlan,
   buildSponsorPlan,
   drawPlan,
+  type EventPromoLike,
   type SpeakerLike,
   type SponsorLike,
 } from "@/lib/creatives/creative-renderer";
@@ -243,6 +245,19 @@ const SAMPLE_SPONSOR: SponsorLike = {
   name: "Preview Sponsor",
   tier: "gold",
   logo_url: null,
+};
+
+const SAMPLE_EVENT_PROMO: EventPromoLike = {
+  id: "preview",
+  title: "Preview Event Title",
+  tagline: "You're Invited",
+  dateLabel: "23rd July, 2026",
+  ctaLabel: "Register for FREE",
+  wordmarkUrl: null,
+  stats: [
+    { value: "6000+", label: "Attendees" },
+    { value: "30+", label: "Speakers" },
+  ],
 };
 
 // ─── Pure helpers ───────────────────────────────────────────────────────────
@@ -1312,7 +1327,9 @@ function TemplatePreviewCanvas({
           ? buildSpeakerPlan(speaker, template, format, theme)
           : creativeType === "sponsor"
             ? buildSponsorPlan(sponsor, template, format, theme)
-            : buildComboPlan(speaker, sponsor, template, format, theme);
+            : creativeType === "event"
+              ? buildEventPlan(SAMPLE_EVENT_PROMO, template, format, theme)
+              : buildComboPlan(speaker, sponsor, template, format, theme);
 
       void drawPlan(ctx, plan)
         .catch((err) => {

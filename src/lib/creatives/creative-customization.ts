@@ -669,16 +669,18 @@ export interface DecorateContext {
  * Element ordering after decoration (Property 43):
  *
  *   1. background            (from the base plan)
- *   2. overlay-dim           (if configured)
- *   3. overlay-gradient      (if configured)
- *   4. overlay-blur-region   (if configured)
- *   5. images (base)         (photo / logo / speakerPhoto / sponsorLogo)
- *   6. texts (base)          (name / title / company / tierBadge / ...
+ *   2. shapes (base)         (Event_Promo decorative cards/dividers)
+ *   3. overlay-dim           (if configured)
+ *   4. overlay-gradient      (if configured)
+ *   5. overlay-blur-region   (if configured)
+ *   6. images (base)         (photo / logo / speakerPhoto / sponsorLogo)
+ *   7. texts (base)          (name / title / company / tierBadge / ...
  *                             with slotOverrides + positionNudges applied)
- *   7. custom-prompt texts   (in author order — Property 41)
- *   8. divider (base)        (if the template defines one)
- *   9. watermark             (if a resolved watermark URL exists)
- *  10. border                (last — Property 42.4)
+ *   8. custom-prompt texts   (in author order — Property 41)
+ *   9. divider (base)        (if the template defines one)
+ *  10. pills (base)          (Event_Promo date chip / CTA button)
+ *  11. watermark             (if a resolved watermark URL exists)
+ *  12. border                (last — Property 42.4)
  *
  * When `config` is empty per `isEmptyCustomization`, returns the input
  * plan reference unchanged. This is the structural anchor for Property 45
@@ -699,14 +701,19 @@ export function decoratePlanWithCustomization(
   const format = plan.format;
 
   const backgrounds: PlanElement[] = [];
+  const shapes: PlanElement[] = [];
   const images: PlanElement[] = [];
   const texts: Extract<PlanElement, { kind: "text" }>[] = [];
   const dividers: PlanElement[] = [];
+  const pills: PlanElement[] = [];
 
   for (const el of plan.elements) {
     switch (el.kind) {
       case "background":
         backgrounds.push(el);
+        break;
+      case "shape":
+        shapes.push(el);
         break;
       case "image":
         images.push(el);
@@ -716,6 +723,9 @@ export function decoratePlanWithCustomization(
         break;
       case "divider":
         dividers.push(el);
+        break;
+      case "pill":
+        pills.push(el);
         break;
     }
   }
@@ -764,11 +774,13 @@ export function decoratePlanWithCustomization(
 
   const elements: ExtendedPlanElement[] = [
     ...backgrounds,
+    ...shapes,
     ...overlayElements,
     ...images,
     ...decoratedTexts,
     ...customPromptTexts,
     ...dividers,
+    ...pills,
     ...watermarkElements,
     ...borderElements,
   ];

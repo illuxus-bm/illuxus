@@ -44,6 +44,30 @@ describe("brochure-sections edge cases", () => {
     expect(row.speakerLine).toBe("Jane Doe, John Smith");
   });
 
+  it("includes a trimmed description when present, omits it when absent/empty", () => {
+    const withDescription: AgendaSessionInput = {
+      id: "s3",
+      title: "Panel Discussion 1",
+      description: "  AI is reshaping the software delivery lifecycle.  ",
+      start_time: "2025-06-01T11:00:00.000Z",
+      end_time: "2025-06-01T12:00:00.000Z",
+      speakerNames: [],
+    };
+    const withoutDescription: AgendaSessionInput = {
+      id: "s4",
+      title: "Networking Break",
+      description: "   ",
+      start_time: "2025-06-01T12:00:00.000Z",
+      end_time: "2025-06-01T12:30:00.000Z",
+      speakerNames: [],
+    };
+
+    const [row1, row2] = buildAgendaRows([withDescription, withoutDescription]);
+
+    expect(row1.description).toBe("AI is reshaping the software delivery lifecycle.");
+    expect(row2.description).toBeUndefined();
+  });
+
   it("groups a sponsor whose tier doesn't match any known literal into 'custom'", () => {
     const sponsors: SponsorInput[] = [
       { id: "sp1", name: "Acme Corp", tier: "diamond", display_order: 0 },
