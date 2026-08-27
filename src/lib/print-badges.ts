@@ -42,6 +42,24 @@ export type PrintOptions = {
   design?: BadgeDesign;
   /** When true, strip background images/colours so a black-and-white thermal printer renders cleanly. */
   thermalMode?: boolean;
+  /**
+   * Thermal print head resolution in dots-per-inch. Common values are
+   * 203 (8 dots/mm — most affordable 4×6 label printers including the
+   * helett H30C, Dymo LabelWriter, Zebra ZP450) and 300 (11.8 dots/mm —
+   * higher-end Zebra ZD421, TSC TX300).
+   *
+   * When set, QR codes are generated at the EXACT pixel count the print
+   * head needs — `mm × dpi / 25.4` pixels per side — so the printer
+   * renders each dot 1-to-1 instead of the browser resampling from a
+   * fixed 320px source down to whatever the head requires. Resampling
+   * causes visible aliasing on the QR modules that some scanners
+   * refuse to read; matching the head resolution eliminates it.
+   *
+   * Only applied when `thermalMode` is also true (or the size is one of
+   * the thermal-* presets). Default: not set — QR falls back to the
+   * previous fixed 320px generation.
+   */
+  thermalDpi?: 203 | 300;
   /** Name-only design variant to apply when mode === "name". */
   nameDesign?: NameDesignId;
   /** Custom font style applied to name-only labels. Overrides the preset typography. */
@@ -81,6 +99,31 @@ const SHEET_CSS: Record<Exclude<PrintSize, "custom">, { page: string; cols: numb
 function fmtSize(w: number, h: number) { return `${w.toFixed(2)}mm ${h.toFixed(2)}mm`; }
 
 /**
+ * Compute the ideal QR-code source pixel dimension for a target mm size.
+ *
+ * Thermal print heads render one physical dot per source pixel when the
+ * source resolution exactly matches the head DPI (203 or 300); anything
+ * else forces the browser (or driver) to resample, which introduces
+ * anti-aliased edges on the QR's black/white modules that some
+ * lower-tolerance scanners refuse to decode. Returning the exact head-
+ * resolution pixel count for the requested mm size keeps every module
+ * a clean 1×N or N×N dot rectangle.
+ *
+ * Falls back to a fixed 320px source when `thermalDpi` is unset —
+ * matches the previous hardcoded behavior, so laser and inkjet paths
+ * are unchanged.
+ */
+function qrPixelSizeForMm(mm: number, thermalDpi: number | undefined): number {
+  if (!thermalDpi) return 320;
+  // pixels = mm × (dots/inch) / (mm/inch) = mm × dpi / 25.4
+  const px = Math.round(mm * (thermalDpi / 25.4));
+  // Never emit less than 120 px — a QR smaller than that on a slow-
+  // scanning phone camera is unreliable regardless of dot-perfect
+  // alignment.
+  return Math.max(120, px);
+}
+
+/**
  * Build the complete print HTML for the given badges and options.
  * Exported so the dialog can render it in an iframe for live preview.
  */
@@ -96,6 +139,10 @@ export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {
   // because they target thermal/label printers that have no printable margin.
   // Named thermal sizes already set fullBleed; custom inherits the same rule.
   const fullBleed = isThermal || size === "custom" || !!(mode === "badge" && opts.design?.fullBleed);
+  // Only pass the print-head DPI through when we're actually targeting
+  // a thermal printer. On laser / inkjet paths, keep the historical
+  // 320-px QR source so nothing regresses.
+  const thermalDpi = thermalMode ? opts.thermalDpi : undefined;
 
   const expanded: BadgeData[] = [];
   for (const b of badges) for (let i = 0; i < copies; i++) expanded.push(b);
@@ -104,9 +151,9 @@ export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {
 
   const cards = await Promise.all(
     expanded.map(async (b) => {
-      if (isDesigned) return await renderDesigned(b, opts.design!, dims, fullBleed);
+      if (isDesigned) return await renderDesigned(b, opts.design!, dims, fullBleed, thermalDpi);
       if (mode === "name") return renderName(b, dims, eventTitle, opts.nameDesign, opts.font);
-      return await renderDefaultBadge(b, dims, eventTitle, opts.font);
+      return await renderDefaultBadge(b, dims, eventTitle, opts.font, thermalDpi);
     })
   );
 
@@ -131,14 +178,30 @@ export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {
   <style>
     ${pageCss}
     *{box-sizing:border-box}
-    html,body{margin:0;padding:0;background:#fff;color:#111}
-    body{font-family:Poppins,system-ui,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    html,body{margin:0;padding:0;background:#fff;color:#111;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    body{font-family:Poppins,system-ui,sans-serif}
     .sheet{${sheetCss}}
     .card{
       width:${dims.w}mm;height:${dims.h}mm;position:relative;overflow:hidden;background:#fff;
       border:none;
       page-break-inside:avoid;break-inside:avoid;
+      /* Force background colors + images to actually print. Chromium
+       * inherits this from body, but Firefox and Safari require it
+       * declared on every printable block (Safari's WebKit engine
+       * ignores inheritance for print-color-adjust). Without this,
+       * cards with a colored background print as white on those
+       * browsers, which is one of the reported "formatting doesn't
+       * work" symptoms on thermal printers. */
+      -webkit-print-color-adjust:exact;print-color-adjust:exact;
     }
+    /* Force one label per page in full-bleed (thermal / custom) mode.
+     * Without an explicit page break, some drivers try to squeeze two
+     * consecutive labels onto one sheet whenever there is any sub-mm
+     * rounding gap between the CSS card size and the physical label
+     * size, silently overlapping badges. The break-after rule on
+     * every card except the last one keeps each badge on its own
+     * label. */
+    ${fullBleed ? `.card:not(:last-child){page-break-after:always;break-after:page}` : ""}
     .card.page-break{page-break-before:always;break-before:page}
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
@@ -171,6 +234,150 @@ export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {
     ` : ""}
   </style></head>
   <body><div class="sheet">${cards.join("")}</div></body></html>`;
+}
+
+/**
+ * Builds a printable calibration sheet: a filled black outer frame the
+ * exact size of the configured label, a 50mm horizontal ruler with 10mm
+ * ticks, a 25mm × 25mm reference QR, and font-size samples at 8pt /
+ * 12pt / 20pt.
+ *
+ * Use case: the organizer can print this once with their thermal
+ * printer, measure the physical output with a ruler, and instantly
+ * know whether the printer is:
+ *  - Truthfully outputting the requested label size (frame is exactly
+ *    the label dimensions — if it prints as e.g. 95mm on a 100mm label,
+ *    the driver is scaling to ~95%; set browser print scale to 105.3%
+ *    to compensate).
+ *  - Missing content on any side (the frame's outer edge should touch
+ *    all 4 physical label edges — if there's white space, the printer
+ *    has a hardware margin the driver isn't accounting for).
+ *  - Rendering the QR sharp enough to scan (the 25mm QR encodes the
+ *    literal string "CALIBRATION"; if a scanner reads it, the DPI
+ *    settings are OK).
+ *
+ * Called by `printCalibration()` below.
+ */
+export async function buildCalibrationHtml(opts: {
+  size: PrintSize;
+  custom?: { width: number; height: number; unit: PrintUnit };
+  thermalDpi?: 203 | 300;
+} = { size: "thermal-4x6" }): Promise<string> {
+  const dims = badgeSizeMm(opts.size, opts.custom);
+  const thermalDpi = opts.thermalDpi;
+  const isThermal =
+    opts.size === "thermal-50" || opts.size === "thermal-58" ||
+    opts.size === "thermal-80" || opts.size === "thermal-100" ||
+    opts.size === "thermal-4x6" || opts.size === "custom";
+  const pageCss = isThermal
+    ? `@page { size: ${dims.w.toFixed(2)}mm ${dims.h.toFixed(2)}mm; margin: 0 }`
+    : "@page { size: A4 portrait; margin: 10mm }";
+
+  // 50mm horizontal ruler with 10mm ticks + labels.
+  const rulerTicks: string[] = [];
+  for (let mm = 0; mm <= 50; mm += 10) {
+    const isEnd = mm === 0 || mm === 50;
+    rulerTicks.push(
+      `<div style="position:absolute;left:${mm}mm;top:0;width:0.3mm;height:${isEnd ? 4 : 2.5}mm;background:#000"></div>`
+    );
+    rulerTicks.push(
+      `<div style="position:absolute;left:${mm}mm;top:4.5mm;transform:translateX(-50%);font-size:6pt;color:#000">${mm}</div>`
+    );
+  }
+
+  // QR at exactly 25mm × 25mm — sized at head DPI when known so the
+  // rendered dot pitch is 1:1 with the printer.
+  const qrPx = thermalDpi ? qrPixelSizeForMm(25, thermalDpi) : 200;
+  const qr = await QRCode.toDataURL("CALIBRATION", { width: qrPx, margin: 1 });
+
+  return `<!doctype html><html><head><meta charset="utf-8"/>
+<title>Print calibration</title>
+<style>
+  ${pageCss}
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#fff;color:#000;font-family:system-ui,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .frame{
+    position:relative;
+    width:${dims.w}mm;height:${dims.h}mm;
+    border:0.5mm solid #000;
+    overflow:hidden;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;
+  }
+  .frame::before,.frame::after{content:"";position:absolute;background:#000}
+  /* Corner marks — 3mm inward on each side so the user can spot any
+   * hardware-margin trim (if the corner marks are cut off, the
+   * printer has a physical safe-zone). */
+  .cmark{position:absolute;width:3mm;height:0.3mm;background:#000}
+  .cmark-v{position:absolute;width:0.3mm;height:3mm;background:#000}
+</style></head>
+<body>
+<div class="frame">
+  <!-- corner marks -->
+  <div class="cmark" style="left:0;top:0"></div>
+  <div class="cmark-v" style="left:0;top:0"></div>
+  <div class="cmark" style="right:0;top:0"></div>
+  <div class="cmark-v" style="right:0;top:0"></div>
+  <div class="cmark" style="left:0;bottom:0"></div>
+  <div class="cmark-v" style="left:0;bottom:0"></div>
+  <div class="cmark" style="right:0;bottom:0"></div>
+  <div class="cmark-v" style="right:0;bottom:0"></div>
+
+  <!-- title -->
+  <div style="position:absolute;left:4mm;top:4mm;font-size:10pt;font-weight:700">Print calibration</div>
+  <div style="position:absolute;left:4mm;top:9mm;font-size:7pt">
+    Requested: ${dims.w.toFixed(1)} × ${dims.h.toFixed(1)} mm${thermalDpi ? ` · QR at ${thermalDpi} DPI` : ""}
+  </div>
+  <div style="position:absolute;left:4mm;top:13mm;font-size:7pt;color:#444">
+    Measure the outer frame — the two sides should be exactly the requested dimensions.
+  </div>
+
+  <!-- 50mm horizontal ruler -->
+  <div style="position:absolute;left:4mm;top:22mm;width:50mm;height:8mm">
+    <div style="position:absolute;left:0;top:0;width:50mm;height:0.3mm;background:#000"></div>
+    ${rulerTicks.join("")}
+    <div style="position:absolute;left:0;top:9mm;font-size:6.5pt;font-weight:600;color:#000">50 mm ruler (each tick = 10 mm)</div>
+  </div>
+
+  <!-- font-size samples -->
+  <div style="position:absolute;left:4mm;top:40mm;font-size:8pt">Sample text at 8 pt — this should be readable but small.</div>
+  <div style="position:absolute;left:4mm;top:48mm;font-size:12pt">Sample text at 12 pt — comfortable body copy.</div>
+  <div style="position:absolute;left:4mm;top:58mm;font-size:20pt;font-weight:700">20 pt heading</div>
+
+  <!-- 25mm QR -->
+  <div style="position:absolute;left:4mm;top:74mm;width:25mm;height:25mm">
+    <img src="${qr}" style="width:25mm;height:25mm;display:block" alt="Calibration QR" />
+    <div style="position:absolute;left:27mm;top:2mm;font-size:7pt;width:${Math.max(20, dims.w - 34)}mm">
+      <strong>QR test</strong> — 25 × 25 mm, encodes "CALIBRATION". A scanner should
+      decode this instantly. If not, lower the DPI or check the label
+      surface / ribbon.
+    </div>
+  </div>
+</div>
+</body></html>`;
+}
+
+/**
+ * Opens a print dialog for the calibration sheet. Wraps the same
+ * popup-and-print pipeline `printBadges` uses so any pop-up-blocked
+ * error surfaces identically.
+ */
+export async function printCalibration(opts: Parameters<typeof buildCalibrationHtml>[0] = { size: "thermal-4x6" }) {
+  const html = await buildCalibrationHtml(opts);
+  const w = window.open("", "_blank", "width=900,height=1000");
+  if (!w) throw new Error("popup-blocked");
+  w.document.open();
+  w.document.write(html.replace("</body>", `
+  <script>
+    (function(){
+      window.addEventListener('load', function(){
+        (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(function(){
+          setTimeout(function(){ window.focus(); window.print(); }, 200);
+        });
+      });
+    })();
+  </script>
+  </body>`));
+  w.document.close();
 }
 
 export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) {
@@ -210,12 +417,14 @@ async function renderDesigned(
   b: BadgeData,
   d: BadgeDesign,
   dims: { w: number; h: number },
-  fullBleed: boolean
+  fullBleed: boolean,
+  thermalDpi: number | undefined
 ): Promise<string> {
-  const front = await renderDesignedFace(b, d, true);
+  void dims;
+  const front = await renderDesignedFace(b, d, true, false, thermalDpi);
   if (d.back === "none") return front;
   const backHtml = d.back === "same"
-    ? await renderDesignedFace(b, d, true, true)
+    ? await renderDesignedFace(b, d, true, true, thermalDpi)
     : renderStaticBack(d);
   return front + backHtml;  function renderStaticBack(des: BadgeDesign) {
     const bg = des.backBg
@@ -225,7 +434,13 @@ async function renderDesigned(
   }
 }
 
-async function renderDesignedFace(b: BadgeData, d: BadgeDesign, _isFront: boolean, asBack = false): Promise<string> {
+async function renderDesignedFace(
+  b: BadgeData,
+  d: BadgeDesign,
+  _isFront: boolean,
+  asBack = false,
+  thermalDpi?: number
+): Promise<string> {
   const e = d.elements;
   let bgEl = "";
   if (d.frontBg) {
@@ -267,9 +482,13 @@ async function renderDesignedFace(b: BadgeData, d: BadgeDesign, _isFront: boolea
     els.push(renderTextElement(el, text));
   }
 
-  // QR last so it sits on top
+  // QR last so it sits on top. Source pixel size matches the thermal
+  // head DPI when configured (see `qrPixelSizeForMm`) so the printer
+  // renders modules dot-for-dot without downsampling artifacts that
+  // some scanners refuse to decode.
   if (e.qr?.enabled) {
-    const qr = await QRCode.toDataURL(b.qr_payload, { width: 320, margin: 1 });
+    const qrPx = qrPixelSizeForMm(e.qr.size, thermalDpi);
+    const qr = await QRCode.toDataURL(b.qr_payload, { width: qrPx, margin: 1 });
     els.push(`<div class="el qr" style="left:${e.qr.x}%;top:${e.qr.y}%"><img src="${qr}" style="width:${e.qr.size}mm;height:${e.qr.size}mm" alt="QR" /></div>`);
   }
   const pageBreak = asBack && d.fullBleed ? " page-break" : "";
@@ -392,6 +611,7 @@ async function renderDefaultBadge(
   dims: { w: number; h: number },
   eventTitle: string,
   fontOverride?: PrintOptions["font"],
+  thermalDpi?: number,
 ): Promise<string> {
   // Compute layout sizes proportional to the badge dimensions so the same
   // template scales cleanly from a 63×34mm Avery cell up to A6 / A4-2up.
@@ -411,7 +631,13 @@ async function renderDefaultBadge(
     : baseNamePt;
   const gapMm = clamp(0.8, dims.h * 0.015, 2.5);
 
-  const qrPxTarget = Math.max(160, Math.round(qrMm * 12));
+  // On a thermal printer with a known DPI, generate the QR at exactly
+  // the print-head resolution so modules land dot-for-dot without
+  // resampling. On laser / inkjet paths (`thermalDpi` unset), keep the
+  // previous derived target so the visual quality is unchanged.
+  const qrPxTarget = thermalDpi
+    ? qrPixelSizeForMm(qrMm, thermalDpi)
+    : Math.max(160, Math.round(qrMm * 12));
   const qr = await QRCode.toDataURL(b.qr_payload, { width: qrPxTarget, margin: 1 });
 
   const title = (eventTitle || b.event_title || "").trim();

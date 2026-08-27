@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  buildPrintHtml, printBadges,
+  buildPrintHtml, printBadges, printCalibration,
   type BadgeData, type PrintMode, type PrintSize, type PrintUnit,
 } from "@/lib/print-badges";
 import { loadSizes, saveSizes, badgeSizeMm, type SavedSize } from "@/lib/badge-design";
@@ -76,6 +76,10 @@ type Prefs = {
   ch: number;
   cu: PrintUnit;
   thermalMode: boolean;
+  /** Thermal print-head DPI — see `PrintOptions.thermalDpi` in
+   *  `print-badges.ts`. Persisted per browser so an organizer with a
+   *  specific printer doesn't re-pick it every session. */
+  thermalDpi: 203 | 300;
   font: FontStyle;
 };
 
@@ -301,6 +305,7 @@ export default function PrintBadgesDialog({
   const [ch,          setCh         ] = useState<number    >(p.ch          ?? 3);
   const [cu,          setCu         ] = useState<PrintUnit >(p.cu          ?? "in");
   const [thermalMode, setThermalMode] = useState<boolean   >(p.thermalMode ?? false);
+  const [thermalDpi,  setThermalDpi ] = useState<203 | 300 >(p.thermalDpi  ?? 203);
   const [sizes,       setSizes      ] = useState<SavedSize[]>(() => loadSizes());
   const [font,        setFont       ] = useState<FontStyle >(p.font        ?? defaultFontStyle());
 
@@ -325,15 +330,16 @@ export default function PrintBadgesDialog({
     setCh(pCh); setChStr(String(pCh));
     setCu(pCu);
     setThermalMode(prefs.thermalMode ?? false);
+    setThermalDpi(prefs.thermalDpi ?? 203);
     setFont(prefs.font ?? defaultFontStyle());
     setSizes(loadSizes());
   }, [open, defaultMode]);
 
   useEffect(() => {
     localStorage.setItem(PREF_KEY, JSON.stringify({
-      mode, size, copies, cw, ch, cu, thermalMode, font,
+      mode, size, copies, cw, ch, cu, thermalMode, thermalDpi, font,
     }));
-  }, [mode, size, copies, cw, ch, cu, thermalMode, font]);
+  }, [mode, size, copies, cw, ch, cu, thermalMode, thermalDpi, font]);
 
   const dims = useMemo(
     () => badgeSizeMm(size, { width: cw, height: ch, unit: cu }),
@@ -350,6 +356,7 @@ export default function PrintBadgesDialog({
         mode, size, copies, eventTitle,
         custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
         thermalMode: thermalMode || isThermalSize,
+        thermalDpi: (thermalMode || isThermalSize) ? thermalDpi : undefined,
         font,
       });
     } catch (err) {
@@ -357,6 +364,22 @@ export default function PrintBadgesDialog({
         toast.error("Pop-up blocked", { description: "Allow pop-ups for this site to print badges." });
       } else {
         toast.error("Failed to open print preview");
+      }
+    }
+  };
+
+  const handleCalibrationPrint = async () => {
+    try {
+      await printCalibration({
+        size,
+        custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
+        thermalDpi: (thermalMode || isThermalSize) ? thermalDpi : undefined,
+      });
+    } catch (err) {
+      if ((err as Error).message === "popup-blocked") {
+        toast.error("Pop-up blocked", { description: "Allow pop-ups for this site to print the calibration sheet." });
+      } else {
+        toast.error("Failed to open calibration print");
       }
     }
   };
@@ -411,6 +434,7 @@ export default function PrintBadgesDialog({
           mode, size, copies: 1, eventTitle,
           custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
           thermalMode: thermalMode || isThermalSize,
+          thermalDpi: (thermalMode || isThermalSize) ? thermalDpi : undefined,
           font,
         });
         setPreviewHtml(html);
@@ -419,7 +443,7 @@ export default function PrintBadgesDialog({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mode, size, cw, ch, cu, thermalMode, isThermalSize, font, eventTitle, badges],
+    [mode, size, cw, ch, cu, thermalMode, thermalDpi, isThermalSize, font, eventTitle, badges],
   );
 
   // Refresh preview when key settings change (debounced 400ms)
@@ -571,11 +595,67 @@ export default function PrintBadgesDialog({
                 </div>
               </div>
             </label>
+
             {(thermalMode || isThermalSize) && (
-              <p className="text-[10.5px] text-muted-foreground leading-relaxed border-t border-border/50 pt-2">
-                <strong className="text-foreground">In the browser print dialog:</strong>{" "}
-                select your thermal printer, set Margins to <em>None</em>, Scale to <em>100%</em>, disable Headers and footers, and confirm the paper size matches your label (e.g. <em>4×6 in</em> for the helett H30C).
-              </p>
+              <>
+                {/* PRINT-HEAD DPI (thermal only). Matching this to the printer's
+                    physical head resolution makes QR codes render dot-for-dot
+                    without downsampling, which fixes the most common "QR won't
+                    scan" and blurry-text symptoms on 4×6 direct-thermal
+                    printers. */}
+                <div className="border-t border-border/50 pt-2 space-y-1">
+                  <Label className="text-[10.5px] font-medium">Print-head DPI</Label>
+                  <RadioGroup
+                    value={String(thermalDpi)}
+                    onValueChange={(v) => setThermalDpi(Number(v) as 203 | 300)}
+                    className="grid grid-cols-2 gap-2"
+                  >
+                    <label
+                      className={`border rounded-lg px-3 py-1.5 cursor-pointer transition-colors ${thermalDpi === 203 ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}
+                    >
+                      <RadioGroupItem value="203" className="sr-only" />
+                      <div className="text-[12px] font-medium leading-tight">203 DPI</div>
+                      <div className="text-[10.5px] text-muted-foreground leading-tight">helett H30C, Dymo, Zebra ZP450</div>
+                    </label>
+                    <label
+                      className={`border rounded-lg px-3 py-1.5 cursor-pointer transition-colors ${thermalDpi === 300 ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}
+                    >
+                      <RadioGroupItem value="300" className="sr-only" />
+                      <div className="text-[12px] font-medium leading-tight">300 DPI</div>
+                      <div className="text-[10.5px] text-muted-foreground leading-tight">Zebra ZD421, TSC TX300</div>
+                    </label>
+                  </RadioGroup>
+                </div>
+
+                <p className="text-[10.5px] text-muted-foreground leading-relaxed border-t border-border/50 pt-2">
+                  <strong className="text-foreground">In the browser print dialog:</strong>{" "}
+                  select your thermal printer, set Margins to <em>None</em>, Scale to <em>100%</em>, disable Headers and footers, and confirm the paper size matches your label (e.g. <em>4×6 in</em> for the helett H30C).
+                </p>
+
+                {/* CALIBRATION — prints a known-dimension test sheet so the
+                    organizer can measure their actual output vs. requested. */}
+                <div className="border-t border-border/50 pt-2 space-y-1.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-[11px] font-medium">Not printing at the right size?</div>
+                      <div className="text-[10.5px] text-muted-foreground leading-snug mt-0.5">
+                        Print a calibration sheet, measure the outer frame with a ruler, and
+                        set the browser print dialog's <em>Scale</em> to <em>(requested ÷ measured) × 100%</em>.
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleCalibrationPrint}
+                      className="h-8 gap-1.5 text-[11px] shrink-0"
+                      title="Prints a labelled 50mm ruler + 25mm reference QR so you can verify the printer output"
+                    >
+                      <FlaskConical className="h-3.5 w-3.5" />
+                      Calibration print
+                    </Button>
+                  </div>
+                </div>
+              </>
             )}
           </section>
 

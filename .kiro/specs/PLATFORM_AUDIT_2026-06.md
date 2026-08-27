@@ -1,6 +1,6 @@
 # illuxus — Platform Audit (Capacity, Realtime, Security)
 
-_Audit date: 2026-06. Verified against `main` at HEAD `5888515` plus a live introspection of the production Supabase project `xhjdcimginceibzcwzlk` and a fresh `bun audit --prod` run. This report supersedes the headline numbers in `PROD_READINESS_AUDIT.md`; the older doc remains useful for full background but several of its "must-fix" items are still open and are re-stated here with current line references._
+_Audit date: 2026-08-27. Updated from 2026-06 audit to reflect current codebase state and verification of all previously flagged issues. Verified against `main` and live Supabase project `xhjdcimginceibzcwzlk`. This report supersedes the headline numbers in `PROD_READINESS_AUDIT.md`; the older doc remains useful for full background but several of its "must-fix" items are re-stated here with current line references and status._
 
 ---
 
@@ -391,5 +391,134 @@ If someone asks "how secure is illuxus":
 - Closing the seven Critical items in section 3.1 puts the platform in the "ship to ten thousand users with confidence" bracket.
 
 ---
+
+_End of report. Re-run `bun audit --prod` + `pg_policies` introspection quarterly; that will catch most regressions without a full re-audit._
+## Audit Trail (changes since 2026-06)
+
+- `2026-08-27` — Comprehensive codebase audit completed. All previously flagged "critical" issues (S1–S7) remain **open and verified live in DB**. New findings: confirmed 12 Realtime channels per attendee (verified in `EventLivePage.tsx`, `WebinarSidebar.tsx`, `StageOverlays.tsx`, `SiteHeader.tsx`), confirmed `REPLICA IDENTITY FULL` on 12 tables, confirmed 29 npm advisories with `bun audit --prod`. Updated cost estimates with current pricing. Added "recommended next steps" section.
+
+- `2026-06-23` — Added per-attendee tracked join links feature (`attendee-link.ts` utility with UTM support) and badge customization with 8 element types and 6 layout presets.
+
+- `2026-06-21` — Previous audit completed with partial fixes for SEC-001 (CORS), SEC-003 (DOMPurify), SCALE-005 (FK indexes), LINT-005 (supabaseRpc wrapper), SEC-004 (env-mode), LINT-001 (edge-logger), SCALE-003 (useOrgPeopleSearch), SCALE-007 (Vercel cache headers).
+
+---
+
+## Recommended Next Steps (as of 2026-08-27)
+
+### Immediate (Critical Fixes — ~11.5 hours)
+
+1. **Lock `webinar_reactions` insert** + add per-session rate trigger (2h)
+   - File: `supabase/migrations/000_full_schema.sql:6866`
+   - Policy currently allows `INSERT TO authenticated, anon WITH CHECK (true)`
+
+2. **Add owner check to `site-assets` UPDATE/DELETE** (1h)
+   - File: `supabase/migrations/000_full_schema.sql:3723-3742`
+   - Policy currently allows `UPDATE/DELETE TO authenticated` without owner check
+
+3. **Create `registrations(event_id)` index** (0.5h)
+   ```sql
+   CREATE INDEX CONCURRENTLY idx_registrations_event_id ON public.registrations(event_id);
+   CREATE INDEX CONCURRENTLY idx_registrations_event_user ON public.registrations(event_id, user_id) WHERE user_id IS NOT NULL;
+   ```
+
+4. **Add edge function rate limiting** (4h)
+   - File: `supabase/functions/_shared/rate-limit.ts`
+   - Pattern: `rate_limits(user_id, fn, window_start, count)` table
+
+5. **Replace `auth.admin.listUsers()`** in `create-participant-account` (1h)
+   - File: `supabase/functions/create-participant-account/index.ts:84`
+   - Create SECURITY DEFINER RPC `find_user_id_by_email(_email text) RETURNS uuid`
+
+6. **Update `react-router-dom`, `dompurify`** (2h)
+   - Run `bun update react-router-dom@^6.30.2 dompurify@latest`
+   - Verify 11 high-severity advisories resolved
+
+7. **Verify Meta HMAC in `whatsapp-webhook`** (1h)
+   - File: `supabase/functions/whatsapp-webhook/index.ts`
+   - Verify `X-Hub-Signature-256` against `WHATSAPP_APP_SECRET`
+
+### Short-Term (High Priority — ~28 hours)
+
+1. **Drop `REPLICA IDENTITY FULL`** from chat/reactions tables (1h)
+   - 12 tables affected: `webinar_sessions`, `webinar_qa`, `webinar_polls`, `webinar_poll_votes`, `webinar_chat`, `webinar_stage_requests`, `community_posts`, `community_comments`, `community_reactions`, `community_messages`, `community_poll_votes`, `community_connections`
+
+2. **Move reactions to Agora RTM** (8h)
+   - File: `src/pages/EventLivePage.tsx:474`
+   - Persist 1-min rollup to `webinar_reactions_summary` for analytics
+
+3. **Consolidate Realtime channels** (4h)
+   - Merge `sidebar-counts` into `chat`/`qa` channels
+   - Reduce 12 channels per attendee toward 6–8
+
+4. **Paginate `EventDetailPage` registrations** (2h)
+   - File: `src/pages/dashboard/EventDetailPage.tsx:148`
+   - Use `event_summary(_event_id)` RPC for aggregate counts
+
+5. **Add Vite manual chunks** (2h)
+   - File: `vite.config.ts`
+   - Split `react-vendor`, `supabase`, `radix`, `observability`
+
+6. **Lazy-load listing images** (1h)
+   - File: `src/components/EventCardLuma.tsx:84`
+   - Add `loading="lazy" decoding="async"`
+
+7. **Front everything with Cloudflare** ($20/mo infra)
+   - WAF + rate limiting at edge
+
+### Medium-Term
+
+1. **Per-recipient idempotent email delivery** (4h)
+   - Add `event_email_recipients` join table
+   - Change SMTP to Resend batch API (6h total)
+
+2. **Retention policies** (1h)
+   - `pg_cron` cleanup after 90 days for chat/reactions/messages
+
+3. **Audit `eslint-disable react-hooks/exhaustive-deps`** (2h)
+   - Extract dependencies or wrap handlers in `useCallback`
+
+4. **Singleton subscription for `useEventCheckinCounters`** (1h)
+   - File: `src/hooks/useEventCheckinCounters.ts:76`
+   - Key by `eventId`
+
+5. **Sign or replace `EventLivePage` fingerprint** (1h)
+   - File: `src/pages/EventLivePage.tsx:78`
+   - Use `browser_session_id` or server-side signing
+
+---
+
+## Capacity Numbers (After Critical Fixes)
+
+| Surface | Before | After Critical | After All High |
+|---------|--------|----------------|----------------|
+| Live event attendees | ~500 | ~2,000 | ~5,000 (Team tier) |
+| Concurrent Realtime connections | 500 | 2,000 | 5,000 |
+| Daily active users | ~1,000 | ~10,000 | ~50,000 |
+
+---
+
+## Cost Estimates (10k DAU)
+
+| Service | Estimate |
+|---------|----------|
+| Supabase Pro + add-ons | $400–$800 |
+| Vercel Pro | $70 |
+| Agora (RTC) | $300–$2,000 |
+| Resend (email) | $20–$200 |
+| Meta WhatsApp | $50–$400 |
+| Sentry | $50–$200 |
+| Cloudflare | $20 |
+
+**Total**: **$1,100–$3,500/month**
+
+---
+
+## Summary
+
+illuxus has a **production-grade foundation** with observability, property-tested business logic, and thoughtful architecture. However, it **cannot safely scale to 10,000 DAU** without fixing the 7 critical security issues first.
+
+**Estimated effort to reach 10k DAU**: ~40 engineering hours (1.5 weeks full-time).
+
+**Recommended action**: Fix critical security items S1–S7, then proceed with high-priority scalability items. Front with Cloudflare for WAF + rate limiting at $20/mo.
 
 _End of report. Re-run `bun audit --prod` + `pg_policies` introspection quarterly; that will catch most regressions without a full re-audit._
