@@ -6,9 +6,9 @@ events. Built with a strong bias toward observability, property-based testing,
 security-first architecture, and production-grade scalability.
 
 > **For AI agents and vibecoding:** start at
-> [`.kiro/steering/project-overview.md`](./.kiro/steering/project-overview.md) for
+> [`steering/project-overview.md`](./steering/project-overview.md) for
 > architecture and conventions, [`ROADMAP.md`](./ROADMAP.md) for product trajectory,
-> then specs under [`.kiro/specs/`](./.kiro/specs) for in-flight work.
+> then specs under [`specs/`](./.kiro/specs) for in-flight work.
 
 ---
 
@@ -215,8 +215,8 @@ supabase/
 └── config.toml
 
 docs/                           observability + agora setup docs
-.kiro/specs/                    in-flight specs (kiro spec-driven dev)
-.kiro/steering/                 always-included project context for AI agents
+specs/                    in-flight specs (kiro spec-driven dev)
+steering/                 always-included project context for AI agents
 tests/                          Playwright e2e + visual regression
 scripts/                        token audit, slug check
 ```
@@ -469,7 +469,7 @@ const { data, error, correlationId } = await supabaseRpc('set_attendance', { p_r
 | Single live event page (12 channels/user) | ~500 simultaneous attendees | ~1,000 | WAL volume from REPLICA IDENTITY FULL |
 | LiveKit / Agora video | 3,000 viewers / room | 10,000 viewers / room | Bandwidth + license tier |
 
-### Capacity After Critical Fixes (See [Audit Report](.kiro/specs/PLATFORM_AUDIT_2026-06.md))
+### Capacity After Critical Fixes (See [Audit Report](specs/PLATFORM_AUDIT_2026-06.md))
 
 | Surface | Before | After Critical | After All High |
 |---------|--------|----------------|----------------|
@@ -602,7 +602,7 @@ Source map upload at build time requires these secrets:
 
 - **Comprehensive codebase audit**: Identified 40+ ESLint errors, 29 npm advisories (11 high, 15 moderate, 3 low)
   including DOMPurify XSS bypasses, lodash prototype pollution, brace-expansion ReDoS
-  - See [PLATFORM_AUDIT_2026-06.md](.kiro/specs/PLATFORM_AUDIT_2026-06.md) for full details
+  - See [PLATFORM_AUDIT_2026-06.md](specs/PLATFORM_AUDIT_2026-06.md) for full details
 - **Audit report updated**: Added remediation roadmap with ~12 hours to fix code quality issues
 - **README updated**: Comprehensive feature documentation, security & observability sections
 
@@ -637,10 +637,10 @@ Public links and bookmarks should remain stable forever — both the legacy
 ## Additional Resources
 
 - **[ROADMAP.md](./ROADMAP.md)**: Product trajectory, Now/Next/Later, epics
-- **[`.kiro/specs/`](./.kiro/specs/)**: In-flight feature specs
+- **[`specs/`](./specs/)**: In-flight feature specs
 - **[`docs/`](./docs/)**: Technical documentation (observability, agora setup)
-- **[`.kiro/steering/`](./.kiro/steering/)**: AI agent steering rules and conventions
-- **[PLATFORM_AUDIT_2026-06.md](.kiro/specs/PLATFORM_AUDIT_2026-06.md)**: Comprehensive platform audit
+- **[`steering/`](./steering/)**: AI agent steering rules and conventions
+- **[PLATFORM_AUDIT_2026-06.md](specs/PLATFORM_AUDIT_2026-06.md)**: Comprehensive platform audit
   with security issues, scalability analysis, and remediation roadmap
 
 ---

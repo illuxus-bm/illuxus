@@ -193,7 +193,7 @@ comment documents this explicitly.
 
 ## Reference specs
 
-- [`.kiro/specs/utm-attribution-coverage/`](../.kiro/specs/utm-attribution-coverage/)
+- [`.kiro/specs/utm-attribution-coverage/`](specs/utm-attribution-coverage/)
   — the spec that added Speaker_Application, Sponsor_Application, and
   User_Profile attribution to the existing attendee flow. See
   `requirements.md` for the full acceptance criteria, `design.md` for

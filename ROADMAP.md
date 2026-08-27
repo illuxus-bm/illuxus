@@ -206,8 +206,8 @@ are live in `main`.
 | ------------------------------ | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | Observability Foundation       | Phases A–E shipped; Phase F (prod Remote Sink + canary rollout) pending                 | `src/lib/observability/`, `eslint.config.js`, `docs/observability*.md` |
 | Check-in / Check-out tabs      | DB, state machine + 13 PBTs, client UI, cleanup done; component/integration tests open  | `src/components/event/registrations/QRScannerDialog.tsx`, `src/lib/attendance/`, consolidated migration |
-| Agora migration                | Phase 1 (stage, reactions, participants, refresh) shipped; recording + edge-function parity with the LiveKit suite still in flight | `src/components/webinar/AgoraWebinarStage.tsx`, edge functions, `.kiro/specs/agora-migration/` |
-| Security & scale spec          | Hardening backlog scoped; not yet broken into shipping phases                            | `.kiro/specs/security-and-scale/`                                      |
+| Agora migration                | Phase 1 (stage, reactions, participants, refresh) shipped; recording + edge-function parity with the LiveKit suite still in flight | `src/components/webinar/AgoraWebinarStage.tsx`, edge functions, `specs/agora-migration/` |
+| Security & scale spec          | Hardening backlog scoped; not yet broken into shipping phases                            | `specs/security-and-scale/`                                      |
 
 ### Next (clear, scoped follow-ups)
 
@@ -279,7 +279,7 @@ flowchart LR
 ```
 
 - Code: `src/lib/observability/`
-- Specs: `.kiro/specs/observability-foundation/`
+- Specs: `specs/observability-foundation/`
 - Open work: Phase F (prod DSN + canary), monitoring of the offline queue cap.
 
 ### Epic B — Attendance
@@ -292,7 +292,7 @@ provable via property-based tests.
   `src/components/event/attendance/`
 - DB: included in `000_full_schema.sql` (apply_attendance helper, set_attendance
   RPC, bulk_set_attendance, self check-in/out)
-- Specs: `.kiro/specs/checkin-checkout-tabs/`
+- Specs: `specs/checkin-checkout-tabs/`
 - Open work: integration tests for the dialog and live updates.
 
 ### Epic C — Community
@@ -315,7 +315,7 @@ recordings stored in Supabase Storage.
 - Edge: `livekit-token`, `livekit-room-create`, `livekit-room-end`,
   `livekit-go-live`, `livekit-promote`, `livekit-webhook`,
   `recording-start`, `recording-stop`, plus Agora helpers
-- Specs: `.kiro/specs/agora-migration/`
+- Specs: `specs/agora-migration/`
 - Open work: chapters, breakout rooms, simulcast, retire the LiveKit stage once
   Agora reaches feature parity.
 
@@ -384,7 +384,7 @@ UI, or hidden actions.
 - Theme tokens + design system (`src/index.css`, `tailwind.config.ts`).
 - Title size + Body size sliders for per-event landing-page typography.
 - Property-based testing as a first-class citizen.
-- Steering files (`.kiro/steering/`) as the always-on AI context layer.
+- Steering files (`steering/`) as the always-on AI context layer.
 - Schema consolidation (`supabase/migrations/000_full_schema.sql`) — one
   idempotent file is the canonical schema; new changes are appended in place.
 
@@ -395,10 +395,10 @@ UI, or hidden actions.
 When asking an AI to scope or build something:
 
 1. Point it at the relevant **Epic** so it picks up the correct code paths.
-2. If creating a new spec, drop a `.kiro/specs/<feature-name>/` and let the spec
+2. If creating a new spec, drop a `specs/<feature-name>/` and let the spec
    workflow drive Requirements → Design → Tasks.
 3. If vibecoding, prefer additive changes inside the epic's listed files first;
    only widen the surface when the change demands it.
 4. Re-read [`README.md`](./README.md) for conventions and
-   [`.kiro/steering/project-overview.md`](./.kiro/steering/project-overview.md) for
+   [`steering/project-overview.md`](./steering/project-overview.md) for
    architectural guardrails before any non-trivial change.
