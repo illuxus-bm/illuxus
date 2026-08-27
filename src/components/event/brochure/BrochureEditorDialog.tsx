@@ -31,7 +31,7 @@
  * writes to `events.page_config.brochureDocument`).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { X, Undo2, Redo2, Download, Loader2, Save } from "lucide-react";
+import { X, Undo2, Redo2, Download, Loader2, Save, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { preloadAllEditorFonts } from "@/lib/brochure/editor/editor-fonts";
@@ -332,6 +332,31 @@ export default function BrochureEditorDialog({
     }
   }, [doc, onSaveDocument]);
 
+  // ─── Reset to template ─────────────────────────────────────────────────
+  //
+  // When an organizer saved a brochure document in an EARLIER release
+  // (before the current seed layout was authored), reopening the editor
+  // silently loads that stale saved document via `initialDocument` —
+  // producing visible drift between the live preview (always re-generated
+  // from current code) and the editor canvas (loaded from disk).
+  //
+  // This handler discards whatever's currently in the editor and rebuilds
+  // a fresh document from the CURRENT seed + theme + resolved section
+  // list, then commits it through the history stack so the previous
+  // state is still undoable. It doesn't auto-save — the organizer has to
+  // click "Save" to persist the reset. That's deliberate: an accidental
+  // reset click shouldn't blow away weeks of edits without a chance to
+  // undo.
+  const handleResetToTemplate = useCallback(() => {
+    const fresh = seedBrochureDocument(seed, theme, resolvedSectionIds);
+    history.set(fresh);
+    setActivePageId(fresh.pages[0]?.id ?? null);
+    setSelectedElementId(null);
+    toast.success("Reset to template", {
+      description: "Save to keep the fresh layout, or Undo to restore your edits.",
+    });
+  }, [seed, theme, resolvedSectionIds, history]);
+
   const activePage = useMemo(
     () => (doc && activePageId ? doc.pages.find((p) => p.id === activePageId) : null),
     [doc, activePageId]
@@ -368,6 +393,18 @@ export default function BrochureEditorDialog({
               title="Redo (Ctrl+Shift+Z)"
             >
               <Redo2 className="h-3.5 w-3.5" />
+            </Button>
+            <div className="w-px h-6 bg-border mx-1" />
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleResetToTemplate}
+              disabled={!doc}
+              className="h-8 gap-1.5 text-[12px]"
+              title="Rebuild the current page from the live preview template. Undoable."
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Reset to template
             </Button>
             <div className="w-px h-6 bg-border mx-1" />
             {onSaveDocument && (

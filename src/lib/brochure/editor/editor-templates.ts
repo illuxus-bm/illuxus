@@ -166,14 +166,14 @@ function buildEditorPageForSection(
         : buildPosterBoldCoverPage(input, accent, coverTitleColor, fontFamily);
     case "agenda":
       return theme.agenda.layout === "timetable-cards"
-        ? buildAgendaTimetableCardsPage(input, accent, fontFamily)
-        : buildAgendaPage(input, accent, fontFamily);
+        ? buildAgendaTimetableCardsPage(input, theme, accent, fontFamily)
+        : buildAgendaPage(input, theme, accent, fontFamily);
     case "speakers":
-      return buildSpeakersPage(input.speakers ?? [], accent, fontFamily);
+      return buildSpeakersPage(input.speakers ?? [], theme, accent, fontFamily);
     case "sponsors":
-      return buildSponsorsPage(input.sponsors ?? [], accent, fontFamily);
+      return buildSponsorsPage(input.sponsors ?? [], theme, accent, fontFamily);
     case "venueLogistics":
-      return buildVenuePage(input.venueLogistics, accent, fontFamily);
+      return buildVenuePage(input.venueLogistics, theme, accent, fontFamily);
     case "abstract":
       return buildAbstractPage(input, accent, fontFamily);
     case "whySponsor":
@@ -183,7 +183,7 @@ function buildEditorPageForSection(
     case "focusOfSummit":
       return buildNumberedListPage(input.numberedItems ?? [], "Focus of the Summit", accent, fontFamily);
     case "sponsorshipPackages":
-      return buildSponsorshipPackagesPage(input.sponsorshipPackages, accent, fontFamily);
+      return buildSponsorshipPackagesPage(input.sponsorshipPackages, theme, accent, fontFamily);
     // Corporate_Bold-only sections with no editor page builder yet —
     // skip rather than throw, matching the jsPDF renderer's own
     // null-content skip contract.
@@ -968,108 +968,87 @@ function buildPricingPage(input: TemplateSeedInput, accent: string, fontFamily: 
 // editable elements so the editor and the preview render matching
 // content by construction. Layout numbers are in mm.
 
-/** Shared page-header (small event title top-left, date/venue top-right,
- *  accent divider). Every content page starts with this so the editor
- *  and preview both carry the same identity across pages. */
-function pushClassicPageHeader(
-  push: (el: BrochureElement) => void,
-  eventTitle: string,
-  dateText: string,
-  accent: string,
-  fontFamily: string
-): void {
-  const pageW = A4_WIDTH_MM;
-  push(
-    newTextElement({
-      x: 20,
-      y: 18,
-      width: 100,
-      height: 6,
-      content: eventTitle,
-      fontFamily,
-      fontSize: 12,
-      fontWeight: "bold",
-      color: "#0a1429",
-      align: "left",
-      lineHeight: 1,
-    })
-  );
-  push(
-    newTextElement({
-      x: pageW - 120,
-      y: 18,
-      width: 100,
-      height: 6,
-      content: dateText,
-      fontFamily,
-      fontSize: 9,
-      fontWeight: "normal",
-      color: "#0a1429",
-      align: "right",
-      lineHeight: 1,
-    })
-  );
-  push(
-    newShapeElement({
-      x: 20,
-      y: 28,
-      width: pageW - 40,
-      height: 0.4,
-      shape: "rect",
-      fill: accent,
-      stroke: "transparent",
-      strokeWidth: 0,
-      cornerRadius: 0,
-    })
-  );
-}
-
-/** Shared section-heading (large bold title + short accent underline
- *  beneath). Mirrors `drawHeadingUnderline`'s black-text convention —
- *  every base-5-section content page uses black headings regardless of
- *  theme (only the underline is accent-colored). */
+/**
+ * Shared section-heading (bold black title + short accent underline
+ * beneath). Mirrors `drawHeadingUnderline` in `brochure-pdf.ts` exactly:
+ *
+ *   - Title text at `(theme.margins.left, theme.margins.top)`
+ *   - Font size = `theme.heading.fontSizePt` (NOT a hardcoded 22pt —
+ *     Classic Editorial uses 15pt, so hardcoding 22 made the editor's
+ *     heading ~47% larger than the preview's, one of the visible
+ *     differences reported by the organizer)
+ *   - Accent underline only if `theme.heading.showAccentUnderline` is
+ *     true; drawn at `y + 2` (relative to heading Y, matches the
+ *     `startY + 2` offset used in `drawAgendaSection`,
+ *     `drawSpeakersSection`, and `drawVenueLogisticsSection` in the
+ *     preview)
+ *
+ * Returns the Y-cursor position where the content below the heading
+ * should start, matching the preview's `y = startY + 10` / `+ 12`
+ * convention so section content is vertically aligned in both
+ * pipelines.
+ */
 function pushClassicSectionHeading(
   push: (el: BrochureElement) => void,
-  y: number,
+  theme: BrochureTheme,
   text: string,
   accent: string,
-  fontFamily: string
-): void {
+  fontFamily: string,
+  /** Underline width in mm. Matches the widths hardcoded per section
+   *  in `brochure-pdf.ts`: 24 for Agenda/Speakers/Sponsors, 40 for
+   *  Venue & Logistics. */
+  underlineWidthMm: number,
+  /** Content Y-cursor offset from the heading baseline. Matches the
+   *  preview's `+ 10` for Agenda/Speakers/Sponsors and `+ 12` for
+   *  Venue. */
+  contentOffsetMm: number
+): number {
+  const headingY = theme.margins.top;
+  const headingX = theme.margins.left;
   push(
     newTextElement({
-      x: 20,
-      y,
+      x: headingX,
+      y: headingY,
       width: 150,
       height: 10,
       content: text,
       fontFamily,
-      fontSize: 22,
-      fontWeight: "bold",
-      color: "#0a1429",
+      fontSize: theme.heading.fontSizePt,
+      fontWeight: theme.heading.fontStyle === "bold" ? "bold" : "normal",
+      color: "#000000",
       align: "left",
       lineHeight: 1,
     })
   );
-  push(
-    newShapeElement({
-      x: 20,
-      y: y + 10,
-      width: 24,
-      height: 1.4,
-      shape: "rect",
-      fill: accent,
-      stroke: "transparent",
-      strokeWidth: 0,
-      cornerRadius: 0,
-    })
-  );
+  if (theme.heading.showAccentUnderline) {
+    push(
+      newShapeElement({
+        // Preview draws at `startY + 2`, but jsPDF's `doc.text` uses
+        // baseline-y whereas our newTextElement uses top-left-y — the
+        // heading font's baseline sits roughly at `fontSize` mm below
+        // the top-left. Positioning the underline slightly below the
+        // heading text (`+ 2` from the text bottom) matches the
+        // preview's visual gap between text and underline.
+        x: headingX,
+        y: headingY + (theme.heading.fontSizePt * 0.35),
+        width: underlineWidthMm,
+        height: 1.4,
+        shape: "rect",
+        fill: accent,
+        stroke: "transparent",
+        strokeWidth: 0,
+        cornerRadius: 0,
+      })
+    );
+  }
+  return headingY + contentOffsetMm;
 }
 
 /** Builds the Agenda page's `"table"` layout — one row per session
  *  (time • title • speakers) as separate editable text elements inside
  *  a bordered row container. Returns `null` when there are no sessions
  *  so the page isn't seeded with an empty heading. */
-function buildAgendaPage(input: TemplateSeedInput, accent: string, fontFamily: string): BrochurePage | null {
+function buildAgendaPage(input: TemplateSeedInput, theme: BrochureTheme, accent: string, fontFamily: string): BrochurePage | null {
   const content = buildAgendaSectionContent(input.sessions ?? []);
   if (content.rows.length === 0) return null;
 
@@ -1080,27 +1059,52 @@ function buildAgendaPage(input: TemplateSeedInput, accent: string, fontFamily: s
     elements.push(el);
   };
 
-  pushClassicSectionHeading(push, 24, "Agenda", accent, fontFamily);
+  // Heading with accent underline (width=24mm, contentOffset=10mm) —
+  // matches `drawAgendaSection`'s `drawHeadingUnderline(..., 24)` and
+  // `y = startY + 10` in `brochure-pdf.ts`.
+  const contentStartY = pushClassicSectionHeading(push, theme, "Agenda", accent, fontFamily, 24, 10);
 
-  // Column layout: time (28mm) | title (rest) | speakers (48mm).
+  // Column widths mirror `drawAgendaTableLayout` exactly:
+  //   time = 28mm (fixed)
+  //   speakers = max(38, contentWidth * 0.28)
+  //   session = whatever's left
+  const bodyLeft = theme.margins.left;
+  const bodyRight = pageW - theme.margins.right;
+  const contentWidth = bodyRight - bodyLeft;
   const timeColW = 28;
-  const speakersColW = 48;
-  const rowGap = 3;
-  const rowH = 16;
-  const startY = 46;
-  const bodyLeft = 20;
-  const bodyRight = pageW - 20;
-  const titleColX = bodyLeft + timeColW + 4;
-  const titleColW = bodyRight - titleColX - speakersColW - 4;
-  const speakersColX = bodyRight - speakersColW;
+  const speakersColW = Math.max(38, contentWidth * 0.28);
+  const sessionColW = contentWidth - timeColW - speakersColW;
+  const titleColX = bodyLeft + timeColW;
+  const speakersColX = titleColX + sessionColW;
 
-  // Column header strip.
+  const cellPad = 2; // matches `theme.table.cellPaddingMm`
+  const headerRowH = 8;
+  const bodyFontSize = 10;
+  const bodyLineHeight = 1.3;
+  const rowLineHeightMm = (bodyFontSize / 72) * 25.4 * bodyLineHeight; // pt -> mm
+  const gridLineW = 0.15;
+  const gridColor = "#d4d4d4"; // mirrors autoTable's default grid stroke
+
+  const maxRows = 12;
+  const rows = content.rows.slice(0, maxRows);
+
+  // Rough row-height estimate: session titles are the most likely to
+  // wrap, so we size each row to hold the wrapped title. Estimate ~30
+  // chars per line at this column width for a rough guess (matches the
+  // guess used elsewhere in the seed).
+  const rowHeights = rows.map((row) => {
+    const titleLines = Math.max(1, Math.ceil(row.title.length / 30));
+    return Math.max(headerRowH, cellPad * 2 + titleLines * rowLineHeightMm);
+  });
+  const tableH = headerRowH + rowHeights.reduce((sum, h) => sum + h, 0);
+
+  // ── Header row ─────────────────────────────────────────────────────
   push(
     newShapeElement({
       x: bodyLeft,
-      y: startY - 8,
-      width: pageW - 40,
-      height: 6.5,
+      y: contentStartY,
+      width: contentWidth,
+      height: headerRowH,
       shape: "rect",
       fill: accent,
       stroke: "transparent",
@@ -1108,120 +1112,125 @@ function buildAgendaPage(input: TemplateSeedInput, accent: string, fontFamily: s
       cornerRadius: 0,
     })
   );
-  const headerY = startY - 6.5;
-  push(
-    newTextElement({
-      x: bodyLeft + 2,
-      y: headerY,
-      width: timeColW,
-      height: 5,
-      content: "Time",
-      fontFamily,
-      fontSize: 9,
-      fontWeight: "bold",
-      color: "#ffffff",
-      align: "left",
-      lineHeight: 1,
-    })
-  );
-  push(
-    newTextElement({
-      x: titleColX,
-      y: headerY,
-      width: titleColW,
-      height: 5,
-      content: "Session",
-      fontFamily,
-      fontSize: 9,
-      fontWeight: "bold",
-      color: "#ffffff",
-      align: "left",
-      lineHeight: 1,
-    })
-  );
-  push(
-    newTextElement({
-      x: speakersColX,
-      y: headerY,
-      width: speakersColW - 2,
-      height: 5,
-      content: "Speaker(s)",
-      fontFamily,
-      fontSize: 9,
-      fontWeight: "bold",
-      color: "#ffffff",
-      align: "left",
-      lineHeight: 1,
-    })
-  );
+  const headerCells: Array<{ x: number; w: number; text: string }> = [
+    { x: bodyLeft, w: timeColW, text: "Time" },
+    { x: titleColX, w: sessionColW, text: "Session" },
+    { x: speakersColX, w: speakersColW, text: "Speaker(s)" },
+  ];
+  for (const cell of headerCells) {
+    push(
+      newTextElement({
+        x: cell.x + cellPad,
+        y: contentStartY + (headerRowH - bodyFontSize * 0.35) / 2,
+        width: cell.w - cellPad * 2,
+        height: headerRowH - cellPad,
+        content: cell.text,
+        fontFamily,
+        fontSize: bodyFontSize,
+        fontWeight: "bold",
+        color: "#ffffff",
+        align: "left",
+        lineHeight: 1,
+      })
+    );
+  }
 
-  const maxRows = 12;
-  const rows = content.rows.slice(0, maxRows);
+  // ── Body rows ──────────────────────────────────────────────────────
+  let cursorY = contentStartY + headerRowH;
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
-    const y = startY + i * (rowH + rowGap);
-
-    // Row divider line.
-    push(
-      newShapeElement({
-        x: bodyLeft,
-        y: y + rowH,
-        width: pageW - 40,
-        height: 0.2,
-        shape: "rect",
-        fill: "#e5e7eb",
-        stroke: "transparent",
-        strokeWidth: 0,
-        cornerRadius: 0,
-      })
-    );
+    const rowH = rowHeights[i];
+    // Time cell (bold black)
     push(
       newTextElement({
-        x: bodyLeft + 2,
-        y: y + 1,
-        width: timeColW,
-        height: rowH - 2,
+        x: bodyLeft + cellPad,
+        y: cursorY + cellPad,
+        width: timeColW - cellPad * 2,
+        height: rowH - cellPad * 2,
         content: row.timeRangeText,
         fontFamily,
-        fontSize: 9,
+        fontSize: bodyFontSize,
         fontWeight: "bold",
-        color: "#0a1429",
+        color: "#000000",
         align: "left",
-        lineHeight: 1.15,
+        lineHeight: bodyLineHeight,
       })
     );
+    // Session cell (normal black)
     push(
       newTextElement({
-        x: titleColX,
-        y: y + 1,
-        width: titleColW,
-        height: rowH - 2,
+        x: titleColX + cellPad,
+        y: cursorY + cellPad,
+        width: sessionColW - cellPad * 2,
+        height: rowH - cellPad * 2,
         content: row.title,
         fontFamily,
-        fontSize: 10,
+        fontSize: bodyFontSize,
         fontWeight: "normal",
-        color: "#0a1429",
+        color: "#000000",
         align: "left",
-        lineHeight: 1.2,
+        lineHeight: bodyLineHeight,
       })
     );
+    // Speakers cell (normal gray — matches autoTable's `textColor:
+    // [90, 90, 90]` for the speakers column)
     if (row.speakerLine) {
       push(
         newTextElement({
-          x: speakersColX,
-          y: y + 1,
-          width: speakersColW - 2,
-          height: rowH - 2,
+          x: speakersColX + cellPad,
+          y: cursorY + cellPad,
+          width: speakersColW - cellPad * 2,
+          height: rowH - cellPad * 2,
           content: row.speakerLine,
           fontFamily,
-          fontSize: 9,
+          fontSize: bodyFontSize,
           fontWeight: "normal",
-          color: "#4b5563",
+          color: "#5a5a5a",
           align: "left",
-          lineHeight: 1.2,
+          lineHeight: bodyLineHeight,
         })
       );
     }
+    cursorY += rowH;
+  }
+
+  // ── Grid lines (autoTable's `grid` theme) ─────────────────────────
+  // Bottom of every row (horizontal lines) — includes the top of the
+  // header + bottom of every row + top of body.
+  const tableBottom = contentStartY + tableH;
+  // Horizontal lines: top of header, bottom of header/each row.
+  let hy = contentStartY;
+  push(
+    newShapeElement({
+      x: bodyLeft, y: hy, width: contentWidth, height: gridLineW,
+      shape: "rect", fill: gridColor, stroke: "transparent", strokeWidth: 0, cornerRadius: 0,
+    })
+  );
+  hy += headerRowH;
+  push(
+    newShapeElement({
+      x: bodyLeft, y: hy, width: contentWidth, height: gridLineW,
+      shape: "rect", fill: gridColor, stroke: "transparent", strokeWidth: 0, cornerRadius: 0,
+    })
+  );
+  for (const h of rowHeights) {
+    hy += h;
+    push(
+      newShapeElement({
+        x: bodyLeft, y: hy, width: contentWidth, height: gridLineW,
+        shape: "rect", fill: gridColor, stroke: "transparent", strokeWidth: 0, cornerRadius: 0,
+      })
+    );
+  }
+  // Vertical lines: left of table, between each column, right of table.
+  const vxes = [bodyLeft, titleColX, speakersColX, bodyRight];
+  for (const vx of vxes) {
+    push(
+      newShapeElement({
+        x: vx, y: contentStartY, width: gridLineW, height: tableBottom - contentStartY,
+        shape: "rect", fill: gridColor, stroke: "transparent", strokeWidth: 0, cornerRadius: 0,
+      })
+    );
   }
 
   return {
@@ -1239,7 +1248,7 @@ function buildAgendaPage(input: TemplateSeedInput, accent: string, fontFamily: s
  * speaker line), matching `drawAgendaTimetableCardsLayout`'s jsPDF output.
  * Returns `null` when there are no sessions.
  */
-function buildAgendaTimetableCardsPage(input: TemplateSeedInput, accent: string, fontFamily: string): BrochurePage | null {
+function buildAgendaTimetableCardsPage(input: TemplateSeedInput, theme: BrochureTheme, accent: string, fontFamily: string): BrochurePage | null {
   const content = buildAgendaSectionContent(input.sessions ?? []);
   if (content.rows.length === 0) return null;
 
@@ -1250,9 +1259,7 @@ function buildAgendaTimetableCardsPage(input: TemplateSeedInput, accent: string,
     elements.push(el);
   };
 
-  pushClassicSectionHeading(push, 24, "Agenda", accent, fontFamily);
-
-  const startY = 44;
+  const startY = pushClassicSectionHeading(push, theme, "Agenda", accent, fontFamily, 24, 10);
   const bodyLeft = 20;
   const bodyRight = pageW - 20;
   const colGap = 6;
@@ -1376,7 +1383,7 @@ function buildAgendaTimetableCardsPage(input: TemplateSeedInput, accent: string,
  *  (photo + name + subtitle + company). Each field is a separate
  *  element so the organizer can retitle or remove any of them.
  *  Returns `null` when there are no speakers. */
-function buildSpeakersPage(speakers: SpeakerInput[], accent: string, fontFamily: string): BrochurePage | null {
+function buildSpeakersPage(speakers: SpeakerInput[], theme: BrochureTheme, accent: string, fontFamily: string): BrochurePage | null {
   const rows = buildSpeakerRows(speakers);
   if (rows.length === 0) return null;
 
@@ -1387,11 +1394,10 @@ function buildSpeakersPage(speakers: SpeakerInput[], accent: string, fontFamily:
     elements.push(el);
   };
 
-  pushClassicSectionHeading(push, 24, "Speakers", accent, fontFamily);
+  const startY = pushClassicSectionHeading(push, theme, "Speakers", accent, fontFamily, 24, 12) + 2;
 
   const cols = 2;
   const gap = 8;
-  const startY = 48;
   const bodyLeft = 20;
   const cardW = (pageW - 40 - gap * (cols - 1)) / cols;
   const photoH = 44;
@@ -1532,7 +1538,7 @@ function buildSpeakersPage(speakers: SpeakerInput[], accent: string, fontFamily:
 /** Builds the Sponsors page — tier headings followed by sponsor
  *  logos (or name text when no logo URL). Returns `null` when there
  *  are no sponsors. */
-function buildSponsorsPage(sponsors: SponsorInput[], accent: string, fontFamily: string): BrochurePage | null {
+function buildSponsorsPage(sponsors: SponsorInput[], theme: BrochureTheme, accent: string, fontFamily: string): BrochurePage | null {
   if (sponsors.length === 0) return null;
   const groups = groupSponsorsByTierOrdered(sponsors);
 
@@ -1543,16 +1549,14 @@ function buildSponsorsPage(sponsors: SponsorInput[], accent: string, fontFamily:
     elements.push(el);
   };
 
-  pushClassicSectionHeading(push, 24, "Sponsors", accent, fontFamily);
+  let cursorY = pushClassicSectionHeading(push, theme, "Sponsors", accent, fontFamily, 24, 12);
 
-  const bodyLeft = 20;
-  const bodyW = pageW - 40;
+  const bodyLeft = theme.margins.left;
+  const bodyW = pageW - theme.margins.left - theme.margins.right;
   const perRow = 3;
   const logoGap = 4;
   const logoW = (bodyW - logoGap * (perRow - 1)) / perRow;
   const logoH = 22;
-
-  let cursorY = 46;
 
   for (const group of groups) {
     // Tier heading (colored by tier accent).
@@ -1656,7 +1660,7 @@ function buildSponsorsPage(sponsors: SponsorInput[], accent: string, fontFamily:
 /** Builds the Venue & Logistics page — venue name, address, transit
  *  notes, parking notes. Returns `null` when there's no meaningful
  *  content to show. */
-function buildVenuePage(input: VenueLogisticsInput | undefined, accent: string, fontFamily: string): BrochurePage | null {
+function buildVenuePage(input: VenueLogisticsInput | undefined, theme: BrochureTheme, accent: string, fontFamily: string): BrochurePage | null {
   if (!input) return null;
   const content = buildVenueLogisticsContent(input);
   if (!content) return null;
@@ -1668,29 +1672,45 @@ function buildVenuePage(input: VenueLogisticsInput | undefined, accent: string, 
     elements.push(el);
   };
 
-  pushClassicSectionHeading(push, 24, "Venue & Logistics", accent, fontFamily);
+  // Heading with wider (40mm) accent underline and 12mm content offset —
+  // matches `drawVenueLogisticsSection`'s
+  // `drawHeadingUnderline(..., 40)` and `y = startY + 12` exactly.
+  let cursorY = pushClassicSectionHeading(push, theme, "Venue & Logistics", accent, fontFamily, 40, 12);
 
-  const bodyLeft = 20;
-  const bodyW = pageW - 40;
-  let cursorY = 46;
+  const bodyLeft = theme.margins.left;
+  const bodyW = pageW - theme.margins.left - theme.margins.right;
 
-  const addSection = (label: string, body: string): void => {
+  // ── Field rows ─────────────────────────────────────────────────────
+  //
+  // Mirrors `drawVenueLogisticsSection`'s loop exactly:
+  //   - Label rendered as "Label:" (Title case + colon), bold black, 11pt
+  //   - Value rendered normal, gray (rgb 60,60,60), 10pt
+  //   - Field order: Venue → Address → Parking → Transit
+  //
+  // Previous editor implementation used UPPERCASE labels in accent
+  // color (10pt) with normal-black value (11pt) — visually diverged
+  // from the preview by both size, casing, and color.
+  const addField = (label: string, body: string): void => {
     push(
       newTextElement({
         x: bodyLeft,
         y: cursorY,
         width: bodyW,
-        height: 6,
-        content: label.toUpperCase(),
+        height: 5,
+        content: `${label}:`,
         fontFamily,
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: "bold",
-        color: accent,
+        color: "#000000",
         align: "left",
         lineHeight: 1,
       })
     );
-    cursorY += 8;
+    cursorY += 5;
+    // Rough estimate: ~90 chars per line at this width and font size.
+    // Multi-line text auto-wraps inside its box in Konva, so the height
+    // is just a container hint — a generous 24mm accommodates ~4 wrapped
+    // lines without truncation for typical venue text.
     push(
       newTextElement({
         x: bodyLeft,
@@ -1699,20 +1719,25 @@ function buildVenuePage(input: VenueLogisticsInput | undefined, accent: string, 
         height: 24,
         content: body,
         fontFamily,
-        fontSize: 11,
+        fontSize: 10,
         fontWeight: "normal",
-        color: "#0a1429",
+        color: "#3c3c3c", // rgb(60, 60, 60), same as preview's `setTextColor(60, 60, 60)`
         align: "left",
-        lineHeight: 1.35,
+        lineHeight: 1.4,
       })
     );
-    cursorY += 28;
+    // Match preview's `y += lines.length * 5 + 3` — assume ~2 lines of
+    // wrapping for a typical field, plus the 3mm gap before the next
+    // label. Keeps the editor's vertical spacing close to the PDF's.
+    cursorY += 13;
   };
 
-  if (content.venueName) addSection("Venue", content.venueName);
-  if (content.address) addSection("Address", content.address);
-  if (content.transitNotes) addSection("Getting there", content.transitNotes);
-  if (content.parkingNotes) addSection("Parking", content.parkingNotes);
+  // Field order matches `drawVenueLogisticsSection`'s textFields array:
+  // Venue → Address → Parking → Transit.
+  if (content.venueName) addField("Venue", content.venueName);
+  if (content.address) addField("Address", content.address);
+  if (content.parkingNotes) addField("Parking", content.parkingNotes);
+  if (content.transitNotes) addField("Transit", content.transitNotes);
 
   return {
     id: `page-venue-${Math.random().toString(36).slice(2, 8)}`,
@@ -1733,6 +1758,7 @@ function buildVenuePage(input: VenueLogisticsInput | undefined, accent: string, 
  *  PackagesContent` null-return contract). */
 function buildSponsorshipPackagesPage(
   input: SponsorshipPackagesInput | undefined,
+  theme: BrochureTheme,
   accent: string,
   fontFamily: string
 ): BrochurePage | null {
@@ -1747,17 +1773,16 @@ function buildSponsorshipPackagesPage(
     elements.push(el);
   };
 
-  pushClassicSectionHeading(push, 24, content.title, accent, fontFamily);
+  const startY = pushClassicSectionHeading(push, theme, content.title, accent, fontFamily, 24, 12);
 
-  const bodyLeft = 20;
-  const bodyRight = pageW - 20;
+  const bodyLeft = theme.margins.left;
+  const bodyRight = pageW - theme.margins.right;
   const bodyW = bodyRight - bodyLeft;
   const benefitColW = 46;
   const tierCount = Math.max(1, content.tiers.length);
   const tierColW = (bodyW - benefitColW) / tierCount;
   const headerRowH = 10;
   const rowH = 8;
-  const startY = 46;
 
   // Header row — benefit column left blank, one cell per tier name.
   push(
