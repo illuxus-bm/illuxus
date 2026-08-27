@@ -411,6 +411,16 @@ export interface EventPageConfig {
       pages: unknown[];
       createdAt: string;
       updatedAt: string;
+      /**
+       * The `EDITOR_SEED_VERSION` (`@/lib/brochure/editor/editor-templates.ts`)
+       * active when this document was seeded. Absent on any document
+       * saved before this field was introduced — `BrochureEditorDialog`
+       * treats a missing/older version as stale and re-seeds instead of
+       * silently showing a layout that no longer matches the live
+       * preview. See `EDITOR_SEED_VERSION`'s doc comment for why this
+       * exists.
+       */
+      templateVersion?: number;
     };
   };
 }

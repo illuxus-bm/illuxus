@@ -873,6 +873,15 @@ export default function BrochureConfiguratorDialog({
             // Persist through the existing page-config path so autosave
             // reuses the same debounced update pipeline the rest of the
             // dialog uses.
+            //
+            // `templateVersion` MUST be carried through here — dropping
+            // it (as this used to) meant every saved document read back
+            // with `templateVersion: undefined` on the next open, which
+            // `BrochureEditorDialog`'s staleness check treats as
+            // "older than any real version" and re-seeds again. That
+            // silently discarded the very save the organizer just made,
+            // which is a worse bug than the staleness this whole
+            // mechanism exists to fix.
             onConfigChange({
               ...eventPageConfig,
               brochurePrefs: {
@@ -883,6 +892,7 @@ export default function BrochureConfiguratorDialog({
                   pages: doc.pages as unknown[],
                   createdAt: doc.createdAt,
                   updatedAt: doc.updatedAt,
+                  templateVersion: doc.templateVersion,
                 },
               },
             });

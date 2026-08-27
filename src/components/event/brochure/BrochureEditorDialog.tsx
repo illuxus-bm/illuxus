@@ -44,7 +44,7 @@ import BrochureEditorCanvas from "@/lib/brochure/editor/BrochureEditorCanvas";
 import BrochureEditorProperties from "@/lib/brochure/editor/BrochureEditorProperties";
 import BrochureEditorPalette from "@/lib/brochure/editor/BrochureEditorPalette";
 import BrochureEditorPages from "@/lib/brochure/editor/BrochureEditorPages";
-import { seedBrochureDocument, type TemplateSeedInput } from "@/lib/brochure/editor/editor-templates";
+import { EDITOR_SEED_VERSION, seedBrochureDocument, type TemplateSeedInput } from "@/lib/brochure/editor/editor-templates";
 import type { BrochureSectionId, BrochureTheme } from "@/lib/brochure/brochure-templates";
 import {
   addElement,
@@ -92,10 +92,31 @@ export default function BrochureEditorDialog({
   initialDocument,
   onSaveDocument,
 }: Props) {
+  // A saved document is "stale" when it was seeded by an OLDER version
+  // of `seedBrochureDocument` than what's running now (or has no
+  // `templateVersion` at all — every document saved before this
+  // versioning existed). This is the actual root-cause fix for a real
+  // bug: previously `initialDocument` unconditionally won over a fresh
+  // seed, forever — so every time the seed's layout was corrected to
+  // better match the live jsPDF preview, an organizer who'd already
+  // saved from the editor kept seeing the stale pre-fix layout
+  // indefinitely, with the live preview (always regenerated from
+  // current code) and the saved editor document (frozen at save time)
+  // silently and permanently diverging. There was no way for the
+  // organizer to know why, or to fix it themselves short of a manual
+  // "Reset to template" click they'd have no reason to make.
+  const isStaleSavedDocument =
+    !!initialDocument &&
+    (initialDocument.templateVersion === undefined ||
+      initialDocument.templateVersion < EDITOR_SEED_VERSION);
+
   // Initial document is computed once when the dialog first opens.
   // Re-opening resets to a fresh copy so switching templates works.
+  // A stale saved document (see above) is treated the same as "no
+  // saved document" — always re-seeded from current code rather than
+  // trusted verbatim.
   const initial = useMemo<BrochureDocument | null>(() => {
-    if (initialDocument) return initialDocument;
+    if (initialDocument && !isStaleSavedDocument) return initialDocument;
     if (!open) return null;
     return seedBrochureDocument(seed, theme, resolvedSectionIds);
     // Only re-seed when the theme, section list, or seed shape changes;
@@ -110,7 +131,29 @@ export default function BrochureEditorDialog({
     seed.logoUrl,
     seed.organizerLogoUrl,
     initialDocument,
+    isStaleSavedDocument,
   ]);
+
+  // Surface the auto-reseed to the organizer once per dialog open —
+  // silently discarding a previously-saved layout without any
+  // explanation would be confusing (and indistinguishable from a bug)
+  // if they'd made custom edits on top of the old seed they wanted to
+  // keep. They can still Undo back to nothing (there's nothing to undo
+  // TO here since this IS the initial state) — practically, this is a
+  // one-time notice: Save afterwards to adopt the corrected layout, or
+  // manually rebuild anything from their old version they want to
+  // preserve.
+  useEffect(() => {
+    if (open && isStaleSavedDocument) {
+      toast.info("Brochure layout updated", {
+        description:
+          "This brochure was last edited with an older layout. We've refreshed it to match the current live preview — Save to keep it.",
+      });
+    }
+    // Fire once per dialog open, not on every dep change within an
+    // open session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const history = useHistory<BrochureDocument | null>(initial);
   const doc = history.value;
