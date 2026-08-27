@@ -17,7 +17,7 @@
  * queries stay out of the initial creatives bundle until the organizer
  * clicks the tab.
  */
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
@@ -28,6 +28,8 @@ import CreativeGeneratorDialog from "@/components/event/creatives/CreativeGenera
 import BatchCreativeGeneratorDialog from "@/components/event/creatives/BatchCreativeGeneratorDialog";
 import AiBackgroundLibrary from "@/components/event/creatives/AiBackgroundLibrary";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { applyAiDraft, type AiCopyDraft } from "@/lib/creatives/creative-ai";
+import type { CreativeType } from "@/lib/creatives/creative-templates";
 
 const BrandKitLibraryLazy = lazy(
   () => import("@/components/event/creatives/BrandKitLibrary"),
@@ -41,6 +43,12 @@ export default function CreativesSection({ eventId }: { eventId: string }) {
   const [batchSpeakerOpen, setBatchSpeakerOpen] = useState(false);
   const [batchSponsorOpen, setBatchSponsorOpen] = useState(false);
   const [libraryKey, setLibraryKey] = useState(0);
+  // Prefill state for the "Apply AI draft" flow. When set, the
+  // CreativeGeneratorDialog opens on the Event_Promo tab with the
+  // draft's tagline / CTA / stats already populated. Cleared after the
+  // dialog closes so a subsequent "Generate creative" click falls
+  // through to the historical defaults.
+  const [prefillDraft, setPrefillDraft] = useState<AiCopyDraft | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -85,6 +93,49 @@ export default function CreativesSection({ eventId }: { eventId: string }) {
     if (!open) setLibraryKey((k) => k + 1);
   };
 
+  // Opens the generator prefilled from an AI-drafted event promo. Marks
+  // the draft `applied` optimistically so it drops out of the review
+  // banner immediately; if the organizer bails on the dialog without
+  // generating, the draft simply won't re-appear (they can always
+  // regenerate from the composer). Ignores non-event drafts — the
+  // review banner only surfaces event-level drafts today, but the
+  // guard keeps future speaker/sponsor drafts from silently
+  // mis-routing into the event composer.
+  const handleApplyAiDraft = (draft: AiCopyDraft) => {
+    if (draft.entity_type !== "event") {
+      logger.warn("apply ai draft called with non-event draft", {
+        draft_id: draft.id,
+        entity_type: draft.entity_type,
+      });
+      return;
+    }
+    setPrefillDraft(draft);
+    setGeneratorOpen(true);
+    void applyAiDraft(draft.id);
+  };
+
+  // Memoize the initialEventPromo shape so the dialog's reset useEffect
+  // (which lists it in its dep array) only re-fires when the identity
+  // truly changes. Without this the object literal would allocate on
+  // every parent render and the composer state would reset mid-edit.
+  const initialEventPromo = useMemo(
+    () =>
+      prefillDraft
+        ? {
+            tagline: prefillDraft.copy.tagline,
+            ctaLabel: prefillDraft.copy.ctaLabel,
+            stats: prefillDraft.copy.stats ?? [],
+          }
+        : undefined,
+    [prefillDraft],
+  );
+  const initialType: CreativeType | undefined = prefillDraft ? "event" : undefined;
+
+  const handleGeneratorOpenChange = (open: boolean) => {
+    closeAndRefresh(setGeneratorOpen)(open);
+    if (!open) setPrefillDraft(null);
+  };
+
   if (!config) {
     return (
       <div className="flex items-center justify-center py-16 text-[13px] text-muted-foreground">
@@ -112,6 +163,7 @@ export default function CreativesSection({ eventId }: { eventId: string }) {
             onGenerateClick={() => setGeneratorOpen(true)}
             onBatchSpeakerClick={() => setBatchSpeakerOpen(true)}
             onBatchSponsorClick={() => setBatchSponsorOpen(true)}
+            onApplyAiDraft={handleApplyAiDraft}
           />
         </TabsContent>
 
@@ -139,10 +191,12 @@ export default function CreativesSection({ eventId }: { eventId: string }) {
 
       <CreativeGeneratorDialog
         open={generatorOpen}
-        onOpenChange={closeAndRefresh(setGeneratorOpen)}
+        onOpenChange={handleGeneratorOpenChange}
         eventId={eventId}
         eventPageConfig={config}
         onConfigChange={handleConfigChange}
+        initialType={initialType}
+        initialEventPromo={initialEventPromo}
       />
       <BatchCreativeGeneratorDialog
         open={batchSpeakerOpen}

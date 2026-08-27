@@ -18,7 +18,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
-import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+import { createEdgeLogger } from "../_shared/edge-logger.ts";
 
 const log = createEdgeLogger("send-whatsapp");
 
@@ -154,7 +154,15 @@ Deno.serve(async (req) => {
     step = "send-loop";
     let sent = 0;
     let failed = 0;
+    let skippedAlreadyClaimed = 0;
     const errors: Array<{ recipient_id: string; error: string }> = [];
+
+    // Per-message timeout for the Meta API call. Without this, a slow
+    // Meta endpoint would hang the entire edge function until Supabase
+    // kills it (~150s), and every subsequent recipient in the batch
+    // gets stranded. 15s per message gives Meta plenty of headroom
+    // while capping the worst-case runtime.
+    const META_FETCH_TIMEOUT_MS = 15_000;
 
     for (const row of rows) {
       const to = normalisePhone(row.phone);
@@ -167,10 +175,33 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Mark sending so a second invocation won't double-send.
-      await supabase.rpc("_whatsapp_recipient_update" as never, {
-        _recipient_id: row.id, _status: "sending",
-      } as never);
+      // ── Atomic claim ──────────────────────────────────────────────
+      // Only proceed if this row is STILL 'pending'. The conditional
+      // `.eq("whatsapp_status", "pending")` on the update turns the
+      // read-then-write into a single atomic transition — a concurrent
+      // invocation (e.g. scheduled worker + manual retry firing at the
+      // same time) will only see `claimed.length === 0` because the
+      // first one already flipped this row to 'sending'. Meta bills
+      // per template message; double-sending is a real dollar leak.
+      const { data: claimed, error: claimErr } = await supabase
+        .from("communication_recipients")
+        .update({ whatsapp_status: "sending" })
+        .eq("id", row.id)
+        .eq("whatsapp_status", "pending")
+        .select("id");
+      if (claimErr) {
+        log.error("claim failed", { recipient_id: row.id, error_message: claimErr.message });
+        failed += 1;
+        errors.push({ recipient_id: row.id, error: `Claim: ${claimErr.message}` });
+        continue;
+      }
+      if (!claimed || claimed.length === 0) {
+        // Another worker got here first. Log at debug so we can see
+        // whether this happens often in prod without spamming errors.
+        log.debug("recipient already claimed by another worker", { recipient_id: row.id });
+        skippedAlreadyClaimed += 1;
+        continue;
+      }
 
       const payload = {
         messaging_product: "whatsapp",
@@ -184,6 +215,8 @@ Deno.serve(async (req) => {
       };
 
       try {
+        // AbortSignal.timeout is Deno / modern browser standard and
+        // trips the fetch with an `AbortError` after the delay.
         const resp = await fetch(
           `https://graph.facebook.com/${version}/${phoneId}/messages`,
           {
@@ -193,6 +226,7 @@ Deno.serve(async (req) => {
               "Content-Type": "application/json",
             },
             body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(META_FETCH_TIMEOUT_MS),
           },
         );
 
@@ -219,16 +253,35 @@ Deno.serve(async (req) => {
         sent += 1;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        log.error("meta send threw", { recipient_id: row.id, error_message: msg });
+        // Timeout surfaces as `TimeoutError` (or `AbortError` on older
+        // runtimes) — flag it explicitly so operators can distinguish
+        // a slow Meta endpoint from an outright rejection.
+        const isTimeout =
+          err instanceof DOMException &&
+          (err.name === "TimeoutError" || err.name === "AbortError");
+        const label = isTimeout
+          ? `Meta call timed out after ${META_FETCH_TIMEOUT_MS}ms`
+          : msg;
+        log.error("meta send threw", {
+          recipient_id: row.id,
+          error_message: msg,
+          is_timeout: isTimeout,
+        });
         await supabase.rpc("_whatsapp_recipient_update" as never, {
-          _recipient_id: row.id, _status: "failed", _error: msg.slice(0, 500),
+          _recipient_id: row.id, _status: "failed", _error: label.slice(0, 500),
         } as never);
         failed += 1;
-        errors.push({ recipient_id: row.id, error: msg });
+        errors.push({ recipient_id: row.id, error: label });
       }
     }
 
-    return json({ sent, failed, errors });
+    log.info("send-loop complete", {
+      communication_id,
+      sent,
+      failed,
+      skipped_already_claimed: skippedAlreadyClaimed,
+    });
+    return json({ sent, failed, skipped: skippedAlreadyClaimed, errors });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;

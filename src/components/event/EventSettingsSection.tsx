@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
+import { autoGenerateEventDrafts } from "@/lib/creatives/auto-generate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,6 +51,13 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<EventForm | null>(null);
+  // Snapshot of the status the event had when the form loaded — used
+  // by the save flow to detect a draft → published transition and
+  // trigger `autoGenerateEventDrafts` once per publish (not on every
+  // save of an already-published event). Cleared and re-set on every
+  // reload; kept in a ref so it survives re-renders without being a
+  // React state that would trigger effects.
+  const initialStatusRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +73,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
         setLoading(false);
         return;
       }
+      initialStatusRef.current = data.status ?? "draft";
       setForm({
         title: data.title ?? "",
         description: data.description ?? "",
@@ -252,6 +261,41 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
     }
 
     toast({ title: "Event updated", description: "Your changes are live." });
+
+    // Auto-fire AI copy drafts on the draft → published transition
+    // (Option C — fully-autonomous AI seed set). Fires exactly once
+    // per publish, not on every save of an already-published event.
+    // Fire-and-forget so the save UX is never blocked by Gemini
+    // latency; failures surface as a non-blocking info toast, the
+    // event save itself has already succeeded above.
+    const wasDraft = initialStatusRef.current === "draft";
+    const isNowPublished = form.status === "published";
+    if (wasDraft && isNowPublished) {
+      // Move the snapshot forward BEFORE awaiting so a rapid double-
+      // save can't re-fire generation.
+      initialStatusRef.current = "published";
+      void autoGenerateEventDrafts(eventId).then((result) => {
+        if (result.ok) {
+          toast({
+            title: `AI drafted ${result.suggestionCount} creative variation${result.suggestionCount === 1 ? "" : "s"}`,
+            description: "Review them under Creatives → AI Drafts before publishing.",
+          });
+        } else if (result.error) {
+          // Non-fatal — event is published either way.
+          toast({
+            title: "AI drafts unavailable",
+            description: result.error,
+            variant: "destructive",
+          });
+        }
+      });
+    } else {
+      // Keep the ref in sync for future saves during this session so a
+      // draft → published → draft → published cycle correctly fires
+      // again the second time.
+      initialStatusRef.current = form.status;
+    }
+
     onSaved?.();
   };
 

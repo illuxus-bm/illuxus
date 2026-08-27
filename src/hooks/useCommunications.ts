@@ -256,15 +256,29 @@ export async function sendEmail(communicationId: string): Promise<{
  * sendWhatsApp — invokes the `send-whatsapp` edge function for the comm.
  * The edge function reads pending recipient rows and pushes them to Meta.
  * Call this AFTER `dispatchCommunication` returns successfully.
+ *
+ * The returned `skipped` count reports rows that were already claimed
+ * by a concurrent invocation of this function (scheduled worker vs.
+ * manual retry racing). Callers can surface it separately from
+ * `failed` so the operator understands the difference between
+ * "another worker got there first" and "genuinely broken".
  */
 export async function sendWhatsApp(communicationId: string): Promise<{
-  sent: number; failed: number; errors: Array<{ recipient_id: string; error: string }>;
+  sent: number;
+  failed: number;
+  skipped?: number;
+  errors: Array<{ recipient_id: string; error: string }>;
 }> {
   const { data, error } = await supabase.functions.invoke("send-whatsapp", {
     body: { communication_id: communicationId },
   });
   if (error) throw new Error(error.message);
-  return data as { sent: number; failed: number; errors: Array<{ recipient_id: string; error: string }> };
+  return data as {
+    sent: number;
+    failed: number;
+    skipped?: number;
+    errors: Array<{ recipient_id: string; error: string }>;
+  };
 }
 
 

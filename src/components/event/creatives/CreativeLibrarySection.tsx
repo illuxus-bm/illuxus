@@ -19,7 +19,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Sparkles, Layers, RefreshCw, Download, Trash2, Loader2, ImageOff } from "lucide-react";
+import { Sparkles, Layers, RefreshCw, Download, Trash2, Loader2, ImageOff, X, Wand2 } from "lucide-react";
 import { logger } from "@/lib/observability";
 import { PLATFORM_FORMATS } from "@/lib/creatives/creative-templates";
 import {
@@ -28,12 +28,23 @@ import {
   sortByCreatedAtDesc,
   type EventCreativeRow,
 } from "@/lib/creatives/creative-storage";
+import {
+  listPendingAutoDrafts,
+  dismissAiDraft,
+  type AiCopyDraft,
+} from "@/lib/creatives/creative-ai";
 
 interface CreativeLibrarySectionProps {
   eventId: string;
   onGenerateClick: () => void; // opens CreativeGeneratorDialog
   onBatchSpeakerClick: () => void; // opens BatchCreativeGeneratorDialog for speakers
   onBatchSponsorClick: () => void; // opens BatchCreativeGeneratorDialog for sponsors
+  /** Optional handler for "use this AI draft" click. When provided, the
+   *  AI Drafts banner shows an "Apply" button on each draft that calls
+   *  back with the draft's copy — the parent typically opens
+   *  `CreativeGeneratorDialog` prefilled from those values. When
+   *  omitted the banner still renders but only offers "Dismiss". */
+  onApplyAiDraft?: (draft: AiCopyDraft) => void;
 }
 
 const CREATIVE_TYPE_LABELS: Record<string, string> = {
@@ -52,11 +63,18 @@ export default function CreativeLibrarySection({
   onGenerateClick,
   onBatchSpeakerClick,
   onBatchSponsorClick,
+  onApplyAiDraft,
 }: CreativeLibrarySectionProps) {
   const [rows, setRows] = useState<EventCreativeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Pending AI drafts from the auto-publish path (event went draft →
+  // published). Rendered as a dismissable banner above the creatives
+  // grid — organizers see them the next time they visit the Creatives
+  // tab, click Apply to open the composer prefilled from a draft, or
+  // Dismiss to hide it (kept in the DB so the quota still counts it).
+  const [aiDrafts, setAiDrafts] = useState<AiCopyDraft[]>([]);
 
   const load = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -66,8 +84,20 @@ export default function CreativeLibrarySection({
         setLoading(true);
       }
       try {
-        const data = await fetchEventCreatives(eventId);
+        const [data, drafts] = await Promise.all([
+          fetchEventCreatives(eventId),
+          listPendingAutoDrafts(eventId).catch((err) => {
+            // Non-fatal — the creatives list is the main content. A
+            // failed drafts fetch just hides the banner.
+            logger.warn("ai drafts fetch failed", {
+              event_id: eventId,
+              error_message: (err as Error)?.message,
+            });
+            return [] as AiCopyDraft[];
+          }),
+        ]);
         setRows(sortByCreatedAtDesc(data));
+        setAiDrafts(drafts);
       } catch (err) {
         logger.error("creative library section fetch failed", {
           event_id: eventId,
@@ -81,6 +111,23 @@ export default function CreativeLibrarySection({
     },
     [eventId]
   );
+
+  const handleDismissDraft = async (draft: AiCopyDraft) => {
+    // Optimistic remove — the drafts state stays lean; server call is
+    // best-effort and non-blocking (the helper swallows errors and
+    // logs them itself).
+    setAiDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+    await dismissAiDraft(draft.id);
+  };
+
+  const handleApplyDraft = async (draft: AiCopyDraft) => {
+    if (!onApplyAiDraft) {
+      toast.info("Applying an AI draft from here isn't wired up yet");
+      return;
+    }
+    setAiDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+    onApplyAiDraft(draft);
+  };
 
   useEffect(() => {
     load();
@@ -135,6 +182,33 @@ export default function CreativeLibrarySection({
           </Button>
         </div>
       </div>
+
+      {aiDrafts.length > 0 && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2.5">
+          <div className="flex items-center gap-2 text-[13px] font-medium">
+            <Wand2 className="h-4 w-4 text-primary" />
+            <span>
+              AI drafted {aiDrafts.length} marketing copy variation
+              {aiDrafts.length === 1 ? "" : "s"} — review before using
+            </span>
+          </div>
+          <p className="text-[11px] text-muted-foreground -mt-1">
+            Generated when this event was published. Apply one to prefill the
+            generator, or dismiss to hide.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            {aiDrafts.map((draft) => (
+              <AiDraftCard
+                key={draft.id}
+                draft={draft}
+                canApply={!!onApplyAiDraft}
+                onApply={() => handleApplyDraft(draft)}
+                onDismiss={() => handleDismissDraft(draft)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-16 text-muted-foreground">
@@ -238,6 +312,88 @@ function CreativeCard({
             {isDeleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Single AI-drafted marketing-copy card inside the review banner. Shows
+ * the tagline as a headline, the subtitle (if present) as muted body
+ * copy, a badge for the CTA label, and up to three tiny value/label
+ * stat chips.
+ *
+ * Two actions:
+ *   - "Apply" — routes back to the parent via `onApply`. Disabled with
+ *     a tooltip-friendly title when no `onApplyAiDraft` prop was passed
+ *     into `CreativeLibrarySection` (dev-safety — the banner still
+ *     renders in that case so organizers can at least dismiss stale
+ *     drafts).
+ *   - Dismiss (X) — calls `onDismiss`, which optimistically removes the
+ *     card and marks the row `status='dismissed'` in the DB. Dismissed
+ *     rows never re-surface (the review query filters to `pending`) but
+ *     stay on the row for quota accounting.
+ */
+function AiDraftCard({
+  draft,
+  canApply,
+  onApply,
+  onDismiss,
+}: {
+  draft: AiCopyDraft;
+  canApply: boolean;
+  onApply: () => void;
+  onDismiss: () => void;
+}) {
+  const { tagline, subtitle, ctaLabel, stats } = draft.copy;
+  return (
+    <div className="rounded-md border border-border bg-background p-2.5 space-y-1.5">
+      <div className="flex items-start justify-between gap-1.5">
+        <p className="text-[13px] font-semibold leading-snug line-clamp-2">
+          {tagline}
+        </p>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-6 w-6 -mr-1 -mt-0.5 shrink-0 text-muted-foreground hover:text-destructive"
+          aria-label="Dismiss draft"
+          onClick={onDismiss}
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      {subtitle && (
+        <p className="text-[11px] leading-snug text-muted-foreground line-clamp-2">
+          {subtitle}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-1 pt-0.5">
+        <Badge variant="outline" className="text-[10px] gap-1">
+          <Sparkles className="h-2.5 w-2.5" />
+          {ctaLabel}
+        </Badge>
+        {stats?.slice(0, 3).map((s, i) => (
+          <Badge key={`${i}-${s.value}`} variant="secondary" className="text-[10px]">
+            <span className="font-semibold">{s.value}</span>
+            <span className="ml-1 opacity-80">{s.label}</span>
+          </Badge>
+        ))}
+      </div>
+      <div className="flex items-center justify-between gap-1.5 pt-1">
+        <p className="text-[10px] text-muted-foreground">
+          {format(new Date(draft.created_at), "MMM d, h:mm a")}
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1.5 text-[12px]"
+          onClick={onApply}
+          disabled={!canApply}
+          title={canApply ? undefined : "Applying isn't wired up in this view"}
+        >
+          <Wand2 className="h-3 w-3" />
+          Apply
+        </Button>
       </div>
     </div>
   );

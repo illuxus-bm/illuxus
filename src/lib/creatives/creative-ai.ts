@@ -506,3 +506,240 @@ export async function callGenerateBackground(
 
   return data;
 }
+
+// ─── Creative_AI_Copy ────────────────────────────────────────────────────────
+//
+// Client surface for the sibling `generate-creative-copy` edge function.
+// That function calls Gemini's text model to draft short-form marketing
+// copy — tagline, subtitle, CTA button label, and (for event-level
+// promos) 3 punchy stats — given the event's real context. Returned
+// suggestions are persisted as `event_creative_ai_drafts` rows so
+// callers can apply them later, dismiss them, or browse a review UI.
+//
+// The types below MUST stay in sync with the ones in
+// `supabase/functions/generate-creative-copy/index.ts`. If you rename
+// a field here, rename it there too — the JSON contract is the only
+// coupling between the two files.
+
+/** Which creative type the copy targets. Matches `CopyKind` in the
+ *  edge function; the string values are used both as the request
+ *  discriminator AND as the `entity_type` column value on
+ *  `event_creative_ai_drafts`. */
+export type CreativeCopyKind = "event" | "speaker" | "sponsor" | "combo";
+
+/** Event + entity context passed to the LLM so it can produce copy that
+ *  references the actual event / speaker / sponsor rather than
+ *  generic placeholders. */
+export interface CreativeCopyContext {
+  eventTitle: string;
+  eventDescription?: string | null;
+  dateText?: string | null;
+  venueText?: string | null;
+  speakerName?: string | null;
+  speakerTitle?: string | null;
+  speakerCompany?: string | null;
+  sponsorName?: string | null;
+  sponsorTier?: string | null;
+}
+
+/** Request body posted to `generate-creative-copy`. */
+export interface CreativeCopyRequest {
+  eventId: string;
+  kind: CreativeCopyKind;
+  context: CreativeCopyContext;
+  /** How many alternatives to generate. Server clamps to 1..5, default 3. */
+  alternatives?: number;
+  /** `speakers.id` / `sponsors.id` this generation is for. Persisted
+   *  on the draft row so the review UI can group by entity. Null for
+   *  `kind='event'`. */
+  entityId?: string | null;
+  /** "on_demand" (default) — user clicked an AI-suggest button and
+   *  suggestions surface inline in the composer. "auto_publish" —
+   *  event went from draft to published, drafts show up in the
+   *  review panel. */
+  source?: "on_demand" | "auto_publish";
+}
+
+/** One parsed copy suggestion returned by the edge function. */
+export interface CreativeCopySuggestion {
+  /** The `event_creative_ai_drafts.id` row this suggestion is stored
+   *  as. Empty string if persistence failed (rare, but the suggestions
+   *  still render — just without an apply-and-track affordance). */
+  draftId: string;
+  tagline: string;
+  subtitle?: string;
+  ctaLabel: string;
+  /** Present only for `kind='event'` — 3 stats like
+   *  `[{ value: '30+', label: 'Speakers' }, ...]`. */
+  stats?: Array<{ value: string; label: string }>;
+}
+
+export interface CreativeCopyResponse {
+  suggestions: CreativeCopySuggestion[];
+}
+
+/** Same category enum as `AiBackgroundError.code`. Kept as a separate
+ *  type alias for readability at call sites. */
+export type CreativeCopyErrorCode = AiBackgroundErrorCode;
+
+export class CreativeCopyError extends Error {
+  code: CreativeCopyErrorCode;
+  constructor(message: string, code: CreativeCopyErrorCode) {
+    super(message);
+    this.name = "CreativeCopyError";
+    this.code = code;
+  }
+}
+
+/**
+ * Invokes the `generate-creative-copy` edge function and returns the
+ * parsed suggestions. Every call also persists rows into
+ * `event_creative_ai_drafts` (server-side, using the service role);
+ * the returned `draftId` on each suggestion is the row's primary key,
+ * usable with `applyAiDraft` / `dismissAiDraft` below to move the draft
+ * through the review lifecycle.
+ *
+ * Throws `CreativeCopyError` on any non-2xx response, mirroring the
+ * bg-generation client's error-shape convention so callers can pick
+ * a category-specific toast message from the `code`.
+ */
+export async function callGenerateCreativeCopy(
+  request: CreativeCopyRequest,
+): Promise<CreativeCopyResponse> {
+  const correlationId = newAiBackgroundCorrelationId();
+  logger.info("creative copy generation requested", {
+    event_id: request.eventId,
+    kind: request.kind,
+    correlation_id: correlationId,
+  });
+
+  const { data, error } = await supabase.functions.invoke<
+    CreativeCopyResponse & { error?: string; code?: CreativeCopyErrorCode }
+  >("generate-creative-copy", {
+    body: request,
+    headers: { "x-correlation-id": correlationId },
+  });
+
+  if (error) {
+    const errorName = (error as { name?: unknown }).name;
+    const rawMessage = (error as { message?: unknown }).message;
+    const initialMessage = typeof rawMessage === "string" && rawMessage.length > 0
+      ? rawMessage
+      : "Creative copy generation failed";
+
+    let resolvedMessage = initialMessage;
+    let resolvedCode: CreativeCopyErrorCode = "network";
+
+    // FunctionsHttpError shape mirrors the bg wrapper.
+    if (errorName === "FunctionsHttpError" && "context" in error) {
+      const context = (error as { context?: Response }).context;
+      if (context && typeof context.json === "function") {
+        try {
+          const parsed = (await context.json()) as {
+            error?: string;
+            code?: CreativeCopyErrorCode;
+          };
+          if (parsed?.error) resolvedMessage = parsed.error;
+          if (parsed?.code) resolvedCode = parsed.code;
+        } catch {
+          resolvedCode = "service_outage";
+        }
+      } else {
+        resolvedCode = "service_outage";
+      }
+    }
+
+    logger.error("creative copy generation failed", {
+      event_id: request.eventId,
+      correlation_id: correlationId,
+      code: resolvedCode,
+      error_message: resolvedMessage,
+    });
+    throw new CreativeCopyError(resolvedMessage, resolvedCode);
+  }
+
+  if (!data) {
+    logger.error("creative copy generation returned no data", {
+      event_id: request.eventId,
+      correlation_id: correlationId,
+    });
+    throw new CreativeCopyError("Empty response from generate-creative-copy", "service_outage");
+  }
+
+  return data;
+}
+
+/** Persistence row shape for `event_creative_ai_drafts`. */
+export interface AiCopyDraft {
+  id: string;
+  event_id: string;
+  entity_type: CreativeCopyKind;
+  entity_id: string | null;
+  copy: {
+    tagline: string;
+    subtitle?: string;
+    ctaLabel: string;
+    stats?: Array<{ value: string; label: string }>;
+  };
+  source: "on_demand" | "auto_publish";
+  status: "pending" | "applied" | "dismissed";
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Lists auto-publish drafts pending review for an event. On-demand
+ * drafts are deliberately excluded — those show inline in whichever
+ * composer requested them and don't belong in the shared review panel.
+ */
+export async function listPendingAutoDrafts(eventId: string): Promise<AiCopyDraft[]> {
+  const { data, error } = await supabase
+    .from("event_creative_ai_drafts")
+    .select("*")
+    .eq("event_id", eventId)
+    .eq("source", "auto_publish")
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+  if (error) {
+    logger.error("list ai drafts failed", {
+      event_id: eventId,
+      error_message: error.message,
+    });
+    throw new Error(error.message);
+  }
+  return (data ?? []) as AiCopyDraft[];
+}
+
+/** Marks a draft as applied. Used when the organizer opens the
+ *  composer prefilled from a draft, or picks an inline on-demand
+ *  suggestion. */
+export async function applyAiDraft(draftId: string): Promise<void> {
+  if (!draftId) return;
+  const { error } = await supabase
+    .from("event_creative_ai_drafts")
+    .update({ status: "applied" })
+    .eq("id", draftId);
+  if (error) {
+    logger.warn("apply ai draft failed", {
+      draft_id: draftId,
+      error_message: error.message,
+    });
+    // Non-fatal — the composer still shows the picked copy; provenance
+    // tracking just doesn't record it.
+  }
+}
+
+/** Marks a draft as dismissed so it drops out of the review UI. */
+export async function dismissAiDraft(draftId: string): Promise<void> {
+  if (!draftId) return;
+  const { error } = await supabase
+    .from("event_creative_ai_drafts")
+    .update({ status: "dismissed" })
+    .eq("id", draftId);
+  if (error) {
+    logger.warn("dismiss ai draft failed", {
+      draft_id: draftId,
+      error_message: error.message,
+    });
+  }
+}

@@ -509,16 +509,23 @@ export function ComposeMessageDialog({
       if (wantsWhatsapp) {
         try {
           const wa = await sendWhatsApp(id!);
+          const skipped = wa.skipped ?? 0;
+          // Skipped means "another worker already claimed this row" (typically a
+          // scheduled-send worker racing a manual click). Surface it separately
+          // so operators don't misread `0 delivered, 0 failed, 50 skipped` as a
+          // silent failure — those messages ARE going out, just via the other
+          // path.
+          const skippedNote = skipped > 0 ? `, ${skipped} already in progress` : "";
           if (wa.failed > 0) {
             toast.error(
               `Sent to ${result.recipient_count} recipient${result.recipient_count === 1 ? "" : "s"} — ` +
-              `${wa.sent} WhatsApp delivered, ${wa.failed} failed` +
+              `${wa.sent} WhatsApp delivered, ${wa.failed} failed${skippedNote}` +
               (wantsEmail ? `; ${emailSent} email delivered, ${emailFailed} failed` : ""),
             );
           } else {
             toast.success(
               `Sent to ${result.recipient_count} recipient${result.recipient_count === 1 ? "" : "s"} ` +
-              `(${wa.sent} via WhatsApp` +
+              `(${wa.sent} via WhatsApp${skippedNote}` +
               (wantsEmail ? `, ${emailSent} via email` : "") +
               ")",
             );

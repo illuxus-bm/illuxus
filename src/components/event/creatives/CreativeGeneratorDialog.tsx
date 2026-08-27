@@ -102,6 +102,27 @@ interface CreativeGeneratorDialogProps {
   eventId: string;
   eventPageConfig: EventPageConfig; // for reading/writing creativeTemplatePrefs and theme colors
   onConfigChange: (config: EventPageConfig) => void; // caller persists via supabase.from("events").update({ page_config })
+  /**
+   * Force the initial `CreativeType` when the dialog opens. Used by the
+   * "Apply AI draft" flow so the composer lands on the Event_Promo tab
+   * without the organizer having to click over. Falls back to
+   * `"speaker"` (the historical default) when omitted or when the
+   * dialog is opened directly from the "Generate creative" button.
+   */
+  initialType?: CreativeType;
+  /**
+   * Optional prefill values for the Event_Promo composer, applied ONCE
+   * each time the dialog transitions from closed to open. Fields default
+   * to `""` / `[]` when omitted, matching the historical reset behavior.
+   * The event's real title + date still auto-seed from the DB fetch
+   * whenever the corresponding field is empty, so leaving `tagline` +
+   * `ctaLabel` + `stats` as the only prefill is safe.
+   */
+  initialEventPromo?: {
+    tagline?: string;
+    ctaLabel?: string;
+    stats?: { value: string; label: string }[];
+  };
 }
 
 const TYPE_OPTIONS: { v: CreativeType; label: string; sub: string }[] = [
@@ -172,12 +193,16 @@ export default function CreativeGeneratorDialog({
   eventId,
   eventPageConfig,
   onConfigChange,
+  initialType,
+  initialEventPromo,
 }: CreativeGeneratorDialogProps) {
   const { user } = useAuth();
 
-  const [type, setType] = useState<CreativeType>("speaker");
+  const [type, setType] = useState<CreativeType>(initialType ?? "speaker");
   const [templateId, setTemplateId] = useState<string>(
-    () => readCreativeTemplatePref(eventPageConfig, "speaker") ?? templatesFor("speaker")[0].id
+    () =>
+      readCreativeTemplatePref(eventPageConfig, initialType ?? "speaker") ??
+      templatesFor(initialType ?? "speaker")[0].id
   );
   const [speaker, setSpeaker] = useState<SpeakerLike | null>(null);
   const [sponsor, setSponsor] = useState<SponsorLike | null>(null);
@@ -256,8 +281,14 @@ export default function CreativeGeneratorDialog({
   }, [type]);
 
   // Reset transient (non-persisted) selections whenever the dialog re-opens.
+  // `initialType` and `initialEventPromo` are consumed once per open — they
+  // seed the composer state so an "Apply AI draft" click lands on the
+  // Event_Promo tab with the drafted tagline / CTA / stats already filled
+  // in. Omitting them falls back to the historical defaults so the
+  // "Generate creative" button behavior stays unchanged.
   useEffect(() => {
     if (!open) return;
+    if (initialType) setType(initialType);
     setSelectedFormats(new Set());
     setCustomEnabled(false);
     setCustomWidth(1080);
@@ -267,8 +298,18 @@ export default function CreativeGeneratorDialog({
     setAiBackground(null);
     setCustomization({});
     setAppliedBrandKit(undefined);
-    setEventPromoForm({ title: "", tagline: "", dateLabel: "", ctaLabel: "", wordmarkUrl: "", stats: [{ value: "", label: "" }] });
-  }, [open]);
+    setEventPromoForm({
+      title: "",
+      tagline: initialEventPromo?.tagline ?? "",
+      dateLabel: "",
+      ctaLabel: initialEventPromo?.ctaLabel ?? "",
+      wordmarkUrl: "",
+      stats:
+        initialEventPromo?.stats && initialEventPromo.stats.length > 0
+          ? initialEventPromo.stats.slice(0, 4).map((s) => ({ value: s.value, label: s.label }))
+          : [{ value: "", label: "" }],
+    });
+  }, [open, initialType, initialEventPromo]);
 
   // Clear any selected AI background whenever the organizer switches back to
   // the template background source, so a stale `aiBackground` never lingers
