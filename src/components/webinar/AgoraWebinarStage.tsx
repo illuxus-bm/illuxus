@@ -23,6 +23,7 @@ import AgoraRTC from "agora-rtc-sdk-ng";
 import type {
   IAgoraRTCRemoteUser,
   ICameraVideoTrack,
+  ILocalVideoTrack,
   IMicrophoneAudioTrack,
 } from "agora-rtc-sdk-ng";
 import {
@@ -92,8 +93,21 @@ export function AgoraWebinarStage({
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [screenOn, setScreenOn] = useState(false);
-  const [localScreenTrack, setLocalScreenTrack] = useState<any>(null);
-  const localScreenRef = useRef<any>(null);
+  // A screen-share track from `AgoraRTC.createScreenVideoTrack` is
+  // either a single `ILocalVideoTrack` or a `[ILocalVideoTrack,
+  // ILocalAudioTrack]` tuple when the user grants system-audio
+  // capture. We hold whichever shape we get so `stopScreenShare` can
+  // unpublish the same object we published.
+  type ScreenTrack = ICameraVideoTrack | [ICameraVideoTrack, IMicrophoneAudioTrack];
+  const [localScreenTrack, setLocalScreenTrack] = useState<ScreenTrack | null>(null);
+  const localScreenRef = useRef<ScreenTrack | null>(null);
+  // Refs that hold the latest local mute state so the auto-publish
+  // effect below can apply the pre-join choice immediately without
+  // relying on stale render-time closures.
+  const micOnRef = useRef(micOn);
+  const camOnRef = useRef(camOn);
+  useEffect(() => { micOnRef.current = micOn; }, [micOn]);
+  useEffect(() => { camOnRef.current = camOn; }, [camOn]);
 
   const activeLocalVideoTrack = useMemo(() => {
     if (!localScreenTrack) return client.localVideo;
@@ -103,83 +117,179 @@ export function AgoraWebinarStage({
     return localScreenTrack;
   }, [localScreenTrack, client.localVideo]);
 
-  const toggleScreenShare = async () => {
-    if (!canPublish || !client.client) return;
-
-    if (!screenOn) {
+  const closeScreenTrack = (track: ScreenTrack): void => {
+    // Close every underlying MediaStreamTrack. Skipping close (as the
+    // previous try/catch swallow did) leaves the browser's screen-
+    // capture indicator on after the user thinks they've stopped
+    // sharing, which was one of the reported "not working properly"
+    // symptoms. Wrap each close call individually so one failing track
+    // doesn't stop the other from cleaning up.
+    const tracks = Array.isArray(track) ? track : [track];
+    for (const t of tracks) {
       try {
-        const screenTrack = await AgoraRTC.createScreenVideoTrack({
-          encoderConfig: "1080p_1"
-        }, "auto");
-
-        const videoTrack = Array.isArray(screenTrack) ? screenTrack[0] : screenTrack;
-
-        localScreenRef.current = screenTrack;
-        setLocalScreenTrack(screenTrack);
-
-        if (client.localVideo) {
-          await client.client.unpublish(client.localVideo);
-        }
-
-        await client.client.publish(screenTrack);
-        setScreenOn(true);
-
-        videoTrack.on("track-ended", () => {
-          stopScreenShare(screenTrack);
-        });
+        t.close();
       } catch (err) {
-        logger.warn("agora screen share failed", {
+        logger.debug("agora screen track close threw", {
           error_message: err instanceof Error ? err.message : String(err),
         });
-      }
-    } else {
-      if (localScreenRef.current) {
-        await stopScreenShare(localScreenRef.current);
       }
     }
   };
 
-  const stopScreenShare = async (track: any) => {
-    if (!client.client) return;
+  const stopScreenShare = async (track: ScreenTrack) => {
+    const c = client.client;
+    if (!c) return;
+    // Unpublish the exact screen track object we published — passing
+    // the wrong reference silently leaves the CDN slot occupied.
     try {
-      await client.client.unpublish(track);
-    } catch {}
-    try {
-      if (Array.isArray(track)) {
-        track.forEach((t) => t.close());
-      } else {
-        track.close();
-      }
-    } catch {}
-    
+      await c.unpublish(track as unknown as Parameters<typeof c.unpublish>[0]);
+    } catch (err) {
+      logger.warn("agora screen unpublish failed", {
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+    }
+    closeScreenTrack(track);
+
     localScreenRef.current = null;
     setLocalScreenTrack(null);
     setScreenOn(false);
 
-    if (client.localVideo && camOn) {
+    // Re-publish the camera track if the user's camera was on before
+    // sharing. `client.localVideo` is still valid because the earlier
+    // `client.unpublish(client.localVideo)` inside `toggleScreenShare`
+    // doesn't close the track — the hook's own `unpublish()` would
+    // have, but we bypassed it deliberately so the camera track is
+    // ready to re-publish here without re-requesting camera
+    // permission from the browser.
+    if (client.localVideo && camOnRef.current) {
       try {
-        await client.client.publish(client.localVideo);
-      } catch {}
+        await c.publish(client.localVideo);
+      } catch (err) {
+        logger.warn("agora camera re-publish after screen share failed", {
+          error_message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  };
+
+  const toggleScreenShare = async () => {
+    if (!canPublish || !client.client) return;
+
+    if (screenOn) {
+      // Stopping.
+      if (localScreenRef.current) {
+        await stopScreenShare(localScreenRef.current);
+      }
+      return;
+    }
+
+    // Starting. Any thrown error must not leave a partially-published
+    // screen track live, so wrap the entire start flow in try/finally
+    // and roll back if publish fails.
+    let screenTrack: ScreenTrack | null = null;
+    try {
+      // `withAudio: "auto"` returns an array [video, audio] when the
+      // user grants system-audio capture, or a single track otherwise.
+      const captured = await AgoraRTC.createScreenVideoTrack(
+        { encoderConfig: "1080p_1" },
+        "auto",
+      );
+      screenTrack = captured as ScreenTrack;
+      const videoTrack = Array.isArray(screenTrack) ? screenTrack[0] : screenTrack;
+
+      // Unpublish the camera BEFORE publishing screen so the CDN slot
+      // isn't briefly shared. Preserve `client.localVideo` (don't
+      // close) so we can re-publish it on stop without a re-permission
+      // prompt.
+      if (client.localVideo) {
+        await client.client.unpublish(client.localVideo);
+      }
+
+      // Publish both video (and system audio if captured).
+      await client.client.publish(screenTrack as unknown as Parameters<typeof client.client.publish>[0]);
+
+      localScreenRef.current = screenTrack;
+      setLocalScreenTrack(screenTrack);
+      setScreenOn(true);
+
+      // Browser's "Stop sharing" button fires this — treat as user-
+      // initiated stop so the UI catches up.
+      videoTrack.on("track-ended", () => {
+        void stopScreenShare(screenTrack as ScreenTrack);
+      });
+    } catch (err) {
+      logger.warn("agora screen share failed", {
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+      // Roll back — close any track we opened, and re-publish camera
+      // if we managed to unpublish it before failing.
+      if (screenTrack) closeScreenTrack(screenTrack);
+      if (client.localVideo && camOnRef.current) {
+        try {
+          await client.client.publish(client.localVideo);
+        } catch {
+          /* best-effort: camera was already unpublished */
+        }
+      }
     }
   };
 
   useEffect(() => {
     return () => {
+      // Ensure the browser's screen-capture indicator turns off when
+      // the component unmounts mid-share (route change, dialog close).
       if (localScreenRef.current) {
-        try {
-          localScreenRef.current.close();
-        } catch {}
+        closeScreenTrack(localScreenRef.current);
+        localScreenRef.current = null;
       }
     };
+    // Intentionally no deps — closure only reads a ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Mic toggle: mute if the track exists, otherwise create + publish
+  // it on demand. This makes "pre-mute → later unmute" actually turn
+  // the mic on (previously the toggle silently no-op'd because the
+  // audio track was never created, since the auto-publish flow above
+  // now skips pre-muted sides).
+  //
+  // Depends on specific `client.*` fields rather than the whole
+  // `client` object because the hook returns a fresh object every
+  // render (nothing memoizes it), and depending on the whole thing
+  // would re-run this effect on every parent render even when no
+  // relevant state changed. `client.publish` is stable via useCallback
+  // inside the hook, and the other fields are React state values that
+  // only change when they actually change.
   useEffect(() => {
-    if (client.localAudio) client.localAudio.setMuted(!micOn).catch(() => {});
-  }, [client.localAudio, micOn]);
+    if (!canPublish) return;
+    if (client.connectionState !== "CONNECTED") return;
+    if (micOn && !client.localAudio) {
+      void client.publish({ audio: true, video: false }).catch((err) => {
+        logger.warn("agora mic publish on toggle failed", {
+          error_message: err instanceof Error ? err.message : String(err),
+        });
+      });
+    } else if (client.localAudio) {
+      void client.localAudio.setMuted(!micOn).catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPublish, client.publish, client.localAudio, client.connectionState, micOn]);
 
+  // Camera toggle: same pattern as mic (see comment above).
   useEffect(() => {
-    if (client.localVideo) client.localVideo.setMuted(!camOn).catch(() => {});
-  }, [client.localVideo, camOn]);
+    if (!canPublish) return;
+    if (client.connectionState !== "CONNECTED") return;
+    if (camOn && !client.localVideo) {
+      void client.publish({ audio: false, video: true }).catch((err) => {
+        logger.warn("agora camera publish on toggle failed", {
+          error_message: err instanceof Error ? err.message : String(err),
+        });
+      });
+    } else if (client.localVideo) {
+      void client.localVideo.setMuted(!camOn).catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPublish, client.publish, client.localVideo, client.connectionState, camOn]);
 
   // Keep the latest tokenState.data accessible to the onTokenWillExpire
   // closure without putting tokenState in useAgoraClient's identity tuple.
@@ -189,13 +299,32 @@ export function AgoraWebinarStage({
   }, [tokenState]);
 
   // Auto-publish for hosts the moment we're connected.
+  //
+  // Respects the user's pre-mute state: if they toggled mic or camera
+  // off before joining (e.g. in the prejoin dialog on the host page),
+  // `publish()` is called WITHOUT that side, so the corresponding
+  // track is never created and the browser's permission indicator
+  // stays off. Previously the hook always created both tracks and
+  // then a separate effect muted them after the fact — which
+  // (a) briefly published the user unmuted before the mute effect
+  // ran, and (b) still lit up the camera/mic indicator lights even
+  // though the user meant to keep them off. Reading the pre-mute
+  // state through refs avoids capturing stale render-time values.
   const publishStartedRef = useRef(false);
   useEffect(() => {
     if (!canPublish) return;
     if (client.connectionState !== "CONNECTED") return;
     if (publishStartedRef.current) return;
     publishStartedRef.current = true;
-    client.publish().catch((err) => {
+    const startAudio = micOnRef.current;
+    const startVideo = camOnRef.current;
+    // If BOTH sides are pre-muted, defer publishing entirely — the
+    // toggle handlers will create tracks on demand when the user turns
+    // one on. This matches Zoom/Meet UX where "join with mic and
+    // camera off" doesn't hold hardware.
+    if (!startAudio && !startVideo) return;
+    client.publish({ audio: startAudio, video: startVideo }).catch((err) => {
+      publishStartedRef.current = false;
       logger.warn("agora auto-publish failed", {
         error_message: err instanceof Error ? err.message : String(err),
       });
@@ -260,11 +389,19 @@ export function AgoraWebinarStage({
     return null;
   }, [appId, tokenState.error, client.error]);
 
-  // Connecting overlay reasons.
+  // Connecting overlay reasons. Reconnect gets a distinct label so
+  // an organizer / attendee can tell "the network just blipped and
+  // we're rejoining" from "we haven't connected yet" — previously
+  // both states showed the same "Connecting…" spinner and users
+  // reported thinking the stream had frozen when it was actually
+  // recovering. `RECONNECTING` is Agora's SDK-emitted state name; it
+  // means the transport dropped and the client is auto-rejoining
+  // (typically resolves within 5-15s on a flaky link).
+  const isReconnecting = !!appId && client.connectionState === "RECONNECTING";
   const connecting =
     !appId
       ? false
-      : !tokenState.data || client.connectionState === "CONNECTING" || client.connectionState === "RECONNECTING";
+      : !isReconnecting && (!tokenState.data || client.connectionState === "CONNECTING");
 
   return (
     <div className="relative h-full w-full bg-black overflow-hidden">
@@ -296,6 +433,14 @@ export function AgoraWebinarStage({
         <Overlay>
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm">Connecting…</span>
+        </Overlay>
+      )}
+      {isReconnecting && !fatalError && (
+        <Overlay tone="warn">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">
+            Connection dropped — reconnecting automatically…
+          </span>
         </Overlay>
       )}
       {fatalError && (
@@ -345,7 +490,12 @@ function LocalTile({
   label,
   mirrored,
 }: {
-  videoTrack: any;
+  /** Either the camera track (mirrored) or the screen-share video
+   *  track (not mirrored). Both share the `play(container, opts)` and
+   *  `stop()` surface that this tile uses. `ILocalVideoTrack` is the
+   *  common base — `ICameraVideoTrack` and screen tracks both extend
+   *  from it. */
+  videoTrack: ILocalVideoTrack;
   muted: boolean;
   label: string;
   mirrored?: boolean;
@@ -618,12 +768,14 @@ function Overlay({
   tone = "info",
 }: {
   children: React.ReactNode;
-  tone?: "info" | "error";
+  tone?: "info" | "warn" | "error";
 }) {
   const cls =
     tone === "error"
       ? "bg-red-500/15 text-white ring-1 ring-red-500/40"
-      : "bg-black/55 text-white ring-1 ring-white/10";
+      : tone === "warn"
+        ? "bg-amber-500/15 text-white ring-1 ring-amber-500/40"
+        : "bg-black/55 text-white ring-1 ring-white/10";
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center">
       <div className={`max-w-md w-[calc(100%-2rem)] rounded-xl backdrop-blur-md px-4 py-3 flex items-center gap-3 ${cls}`}>

@@ -173,10 +173,40 @@ export function useAgoraClient(opts: UseAgoraClientOptions): UseAgoraClientRetur
       }
     };
     const onUserUnpublished = (user: IAgoraRTCRemoteUser) => {
-      setRemoteUsers((prev) => prev.map((u) => (u.uid === user.uid ? user : u)));
+      // Re-emit the array (fresh reference) so consumers with equality
+      // checks on `remoteUsers` re-render — otherwise the sibling
+      // participant-store bridge misses this event because the
+      // `IAgoraRTCRemoteUser` object identity doesn't change when its
+      // `audioTrack` / `videoTrack` fields go null.
+      setRemoteUsers((prev) => prev.map((u) => (u.uid === user.uid ? user : u)).slice());
     };
     const onUserLeft = (user: IAgoraRTCRemoteUser) => {
       setRemoteUsers((prev) => prev.filter((u) => u.uid !== user.uid));
+    };
+    // `user-info-updated` fires when a remote user mutes / unmutes their
+    // mic or camera (via SDK's setEnabled/setMuted). We need to re-emit
+    // `remoteUsers` with a fresh array reference here — Agora doesn't
+    // mutate the `IAgoraRTCRemoteUser` object identity, just its
+    // internal state, so React consumers keyed on `remoteUsers` never
+    // re-render without this manual re-emit. Symptom before this fix:
+    // the sidebar's mic/cam icons stayed frozen at the value they had
+    // when a remote user first joined.
+    //
+    // The `msg` payload includes:
+    //   "mute-audio" / "unmute-audio" / "mute-video" / "unmute-video"
+    //   "enable-local-video" / "disable-local-video"
+    //   "enable-local-audio" / "disable-local-audio"
+    // — we treat all of them the same way: re-emit and let the caller
+    // read the fresh audio/video state from the user object.
+    const onUserInfoUpdated = (
+      updatedUid: number | string,
+      msg: string,
+    ) => {
+      setRemoteUsers((prev) => prev.slice());
+      logger.debug("agora user info updated", {
+        peer_uid: String(updatedUid),
+        message: msg,
+      });
     };
     const onConnectionStateChange = (next: ConnectionState) => {
       setConnectionState(next);
@@ -214,6 +244,7 @@ export function useAgoraClient(opts: UseAgoraClientOptions): UseAgoraClientRetur
     client.on("user-published", onUserPublished);
     client.on("user-unpublished", onUserUnpublished);
     client.on("user-left", onUserLeft);
+    client.on("user-info-updated", onUserInfoUpdated);
     client.on("connection-state-change", onConnectionStateChange);
     client.on("network-quality", onNetworkQuality);
     client.on("exception", onException);
@@ -264,6 +295,7 @@ export function useAgoraClient(opts: UseAgoraClientOptions): UseAgoraClientRetur
       client.off("user-published", onUserPublished);
       client.off("user-unpublished", onUserUnpublished);
       client.off("user-left", onUserLeft);
+      client.off("user-info-updated", onUserInfoUpdated);
       client.off("connection-state-change", onConnectionStateChange);
       client.off("network-quality", onNetworkQuality);
       client.off("exception", onException);
@@ -289,15 +321,22 @@ export function useAgoraClient(opts: UseAgoraClientOptions): UseAgoraClientRetur
       setUid(null);
       setConnectionState("DISCONNECTED");
     };
-    // opts.token and opts.onTokenWillExpire are intentionally excluded
-    // from the dep array — we join with the token that's set when this
-    // effect runs and from then on rotate exclusively via the SDK's
-    // token-privilege-will-expire event so the channel never reconnects
-    // mid-session. To force a fresh join, change one of the identity
-    // props (appId, channel, uid, role) above. The
-    // `opts.onTokenWillExpire` callback is read through a ref via the
-    // closure inside `onTokenWillExpire`, so changes are picked up
-    // without the effect re-running.
+    // `opts.token` and `opts.onTokenWillExpire` are intentionally
+    // excluded from the dep array — we join with the token that's set
+    // when this effect runs and from then on rotate exclusively via
+    // the SDK's `token-privilege-will-expire` event, so the channel
+    // never reconnects mid-session. To force a fresh join, change one
+    // of the identity props (appId, channel, uid, role) above.
+    //
+    // Caveat about `opts.onTokenWillExpire`: the callback captured
+    // inside this effect is the one passed on the mount render, not
+    // whatever the caller most recently passed. Callers that need to
+    // read fresh state from inside `onTokenWillExpire` (e.g. the
+    // latest signed token from a companion hook) MUST hold that state
+    // in a `useRef` on their side and read `ref.current` inside their
+    // callback — the hook does not provide auto-refresh for the
+    // closure. `AgoraWebinarStage.tsx` demonstrates this pattern with
+    // `tokenStateRef`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     enabled,
