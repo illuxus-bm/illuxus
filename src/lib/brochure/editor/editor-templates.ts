@@ -38,6 +38,7 @@ import {
   buildSponsorshipPackagesContent,
   buildVenueLogisticsContent,
   groupSponsorsByTierOrdered,
+  type AgendaRow,
   type AgendaSessionInput,
   type SpeakerInput,
   type SponsorInput,
@@ -73,7 +74,21 @@ import {
  * stale), since every pre-versioning seed output is exactly the kind
  * of drift this mechanism exists to catch.
  */
-export const EDITOR_SEED_VERSION = 1;
+/**
+ * Version history:
+ *   1 — Initial versioned seed.
+ *   2 — Poster_Bold layout aligned to the DevOps Connect reference:
+ *       - Cover: top logo + huge title + subtitle + two outlined
+ *         date/venue pill-chips + hero image + orange "shoulder"
+ *         bleeds + white rounded footer band with producer credit +
+ *         social icons.
+ *       - Agenda ("timetable-cards" layout): two-column chronological
+ *         split, per-row colored bar (black for keynote/panel/fireside/
+ *         workshop, accent for everything else), full-width title bar,
+ *         description body directly below the row on white with dark
+ *         text. Big centered "Event Agenda" heading + top logo.
+ */
+export const EDITOR_SEED_VERSION = 2;
 
 /** Input for template pre-loading. Mirrors the essential fields the
  *  jsPDF renderer already receives via `BrochureGenerationInput`, so a
@@ -97,6 +112,13 @@ export interface TemplateSeedInput {
   coverTagline?: string;
   /** Optional short chip labels (e.g. ["Autonomy", "Governance", "Capital"]). */
   coverPills?: string[];
+  /** Optional cover-footer social icons — same shape as
+   *  `posterContent.socialLinks` on the jsPDF pipeline. Rendered as a
+   *  right-aligned row of colored circles on the cover's footer band. */
+  socialLinks?: Array<{
+    platform: "linkedin" | "instagram" | "facebook" | "twitter";
+    url?: string;
+  }>;
   /** Optional abstract body copy for the abstract page. */
   abstract?: string;
   /** Optional featured body copy for the abstract page. */
@@ -211,11 +233,11 @@ function buildEditorPageForSection(
     case "abstract":
       return buildAbstractPage(input, accent, fontFamily);
     case "whySponsor":
-      return buildNumberedListPage(input.numberedItems ?? [], "Why Sponsor?", accent, fontFamily);
+      return buildNumberedListPage(input.numberedItems ?? [], "Why Sponsor?", accent, fontFamily, input.logoUrl);
     case "pricing":
       return buildPricingPage(input, accent, fontFamily);
     case "focusOfSummit":
-      return buildNumberedListPage(input.numberedItems ?? [], "Focus of the Summit", accent, fontFamily);
+      return buildNumberedListPage(input.numberedItems ?? [], "Focus of the Summit", accent, fontFamily, input.logoUrl);
     case "sponsorshipPackages":
       return buildSponsorshipPackagesPage(input.sponsorshipPackages, theme, accent, fontFamily);
     // Corporate_Bold-only sections with no editor page builder yet —
@@ -238,181 +260,213 @@ function buildPosterBoldCoverPage(
   titleColor: string,
   fontFamily: string
 ): BrochurePage {
+  // Mirrors `drawPosterBoldCover` in `brochure-pdf.ts` structurally so
+  // the editor and the live preview render the same cover layout for
+  // every event, then lets the organizer pick / move / recolor any
+  // single element like Canva. Every text, chip, image, and shape is
+  // an independent editable element — no "locked" background image
+  // that hides the composition.
   const pageW = A4_WIDTH_MM;
   const pageH = A4_HEIGHT_MM;
+  const marginX = 20;
   const elements: BrochureElement[] = [];
   const push = (el: BrochureElement) => {
     el.zIndex = elements.length;
     elements.push(el);
   };
 
-  // ── Full-page portrait banner cover ──────────────────────────────
+  // ── 1. Top wordmark (centered) ────────────────────────────────────
+  let cursorY = 18;
+  if (input.logoUrl) {
+    const logoW = 60;
+    const logoH = 18;
+    push(
+      newImageElement({
+        x: pageW / 2 - logoW / 2,
+        y: cursorY,
+        width: logoW,
+        height: logoH,
+        src: input.logoUrl,
+        fit: "contain",
+      })
+    );
+    cursorY += logoH + 4;
+  } else {
+    cursorY += 4;
+  }
+
+  // ── 2. Huge two-line title ───────────────────────────────────────
+  const titleH = 40;
+  push(
+    newTextElement({
+      x: marginX,
+      y: cursorY,
+      width: pageW - marginX * 2,
+      height: titleH,
+      content: input.eventTitle,
+      fontFamily,
+      fontSize: 40,
+      fontWeight: "bold",
+      color: titleColor,
+      align: "center",
+      lineHeight: 1.05,
+    })
+  );
+  cursorY += titleH + 2;
+
+  // ── 3. Subtitle (from coverTagline) ─────────────────────────────
+  const subtitle = input.coverTagline?.trim();
+  if (subtitle) {
+    push(
+      newTextElement({
+        x: marginX,
+        y: cursorY,
+        width: pageW - marginX * 2,
+        height: 14,
+        content: subtitle,
+        fontFamily,
+        fontSize: 14,
+        fontWeight: "normal",
+        color: "#1e1e1e",
+        align: "center",
+        lineHeight: 1.2,
+      })
+    );
+    cursorY += 16;
+  }
+
+  // ── 4. Two outlined pill-chips side by side (date | venue) ──────
   //
-  // When a portrait banner (event.banner_portrait_url or any other
-  // cover image) is available, the entire cover IS that image. The
-  // banner is expected to already carry all the event branding —
-  // title, sponsors, date, imagery — so overlaying our own title /
-  // date / venue text on top would duplicate content and often
-  // collide with the banner's own layout.
+  // Both chips are centered as a horizontal row; venue chip is omitted
+  // when the event has no venue set. Chip widths are estimated from
+  // character count (~1.9mm per char at 10pt in a sans-serif with
+  // 6mm side-padding), close enough to visually match the jsPDF
+  // `doc.getTextWidth`-driven sizes without pulling a Canva-scale text
+  // measurement dependency into the editor seed.
+  const chipH = 10;
+  const chipPadX = 6;
+  const chipGap = 6;
+  const estimateChipWidth = (text: string): number =>
+    Math.max(28, text.length * 1.9 + chipPadX * 2);
+  const chips: string[] = [input.dateText];
+  if (input.venueText) chips.push(input.venueText);
+  const chipWidths = chips.map(estimateChipWidth);
+  const totalChipsW =
+    chipWidths.reduce((a, b) => a + b, 0) + chipGap * (chips.length - 1);
+  let chipX = pageW / 2 - totalChipsW / 2;
+  const chipY = cursorY + 2;
+  for (let i = 0; i < chips.length; i += 1) {
+    push(
+      newPillElement({
+        x: chipX,
+        y: chipY,
+        width: chipWidths[i],
+        height: chipH,
+        text: chips[i],
+        fontFamily,
+        fontSize: 10,
+        textColor: "#000000",
+        fillColor: "#ffffff",
+        strokeColor: "#000000",
+        strokeWidth: 0.4,
+      })
+    );
+    chipX += chipWidths[i] + chipGap;
+  }
+  cursorY = chipY + chipH + 6;
+
+  // ── 5. Hero image (fills middle of page) ────────────────────────
   //
-  // The image is placed at (0, 0) with full page dimensions and
-  // fit="cover" so it fills the page edge-to-edge. The organizer
-  // can still click the image in the editor to reposition, resize,
-  // or replace it — the geometry is not locked.
-  const hasCover = typeof input.coverImageUrl === "string" && input.coverImageUrl.trim().length > 0;
+  // Reserves the footer-band + shoulder height so the image doesn't
+  // spill into the "M" silhouette below.
+  const footerBandH = 30;
+  const shoulderH = 12;
+  const heroTop = cursorY;
+  const heroBottom = pageH - footerBandH - shoulderH * 0.4;
+  const heroH = Math.max(20, heroBottom - heroTop);
+  const hasCover =
+    typeof input.coverImageUrl === "string" && input.coverImageUrl.trim().length > 0;
   if (hasCover) {
     push(
       newImageElement({
         x: 0,
-        y: 0,
+        y: heroTop,
         width: pageW,
-        height: pageH,
+        height: heroH,
         src: input.coverImageUrl,
         fit: "cover",
         cornerRadius: 0,
       })
     );
   } else {
-    // ── Fallback layout: no banner uploaded yet ────────────────────
-    //
-    // When the event has no banner_portrait_url / image_url /
-    // banner_landscape_url configured, seed a text-only cover with the
-    // wordmark, title, tagline pill, chip row, and date/venue line so
-    // the editor still shows something meaningful. The organizer can
-    // add an image via the palette once they've uploaded one.
-    let cursorY = pageH * 0.15;
-
-    // Optional wordmark logo above the title (centered).
-    if (input.logoUrl) {
-      push(
-        newImageElement({
-          x: pageW / 2 - 30,
-          y: cursorY,
-          width: 60,
-          height: 16,
-          src: input.logoUrl,
-          fit: "contain",
-        })
-      );
-      cursorY += 20;
-    }
-
-    // Title.
+    // No banner uploaded — draw a placeholder image element so the
+    // organizer sees "click to add source" affordance right where the
+    // cover image will eventually live (same placeholder ImageBody
+    // renders on the Konva canvas for an empty `src`).
     push(
-      newTextElement({
-        x: 12,
-        y: cursorY,
-        width: pageW - 24,
-        height: 40,
-        content: input.eventTitle,
-        fontFamily,
-        fontSize: 40,
-        fontWeight: "bold",
-        color: titleColor,
-        align: "center",
-        lineHeight: 1.05,
-      })
-    );
-    cursorY += 48;
-
-    // Optional tagline pill.
-    if (input.coverTagline?.trim()) {
-      push(
-        newPillElement({
-          x: pageW / 2 - 45,
-          y: cursorY,
-          width: 90,
-          height: 12,
-          text: input.coverTagline.trim(),
-          fontFamily,
-          fontSize: 12,
-          textColor: accent,
-          fillColor: "#ffffff",
-          strokeColor: accent,
-          strokeWidth: 0.6,
-        })
-      );
-      cursorY += 16;
-    }
-
-    // Optional pill chip row.
-    const pills = (input.coverPills ?? []).filter((p) => p && p.trim().length > 0);
-    if (pills.length > 0) {
-      const pillH = 9;
-      const pillGap = 4;
-      const pillW = 32;
-      const totalW = pills.length * pillW + (pills.length - 1) * pillGap;
-      let x = pageW / 2 - totalW / 2;
-      for (const label of pills) {
-        push(
-          newPillElement({
-            x,
-            y: cursorY,
-            width: pillW,
-            height: pillH,
-            text: label,
-            fontFamily,
-            fontSize: 9,
-            textColor: titleColor,
-            fillColor: "transparent",
-            strokeColor: titleColor,
-            strokeWidth: 0.4,
-          })
-        );
-        x += pillW + pillGap;
-      }
-      cursorY += pillH + 6;
-    }
-
-    // Date + venue line.
-    push(
-      newTextElement({
-        x: 12,
-        y: cursorY,
-        width: pageW - 24,
-        height: 8,
-        content: `${input.dateText}${input.venueText ? "  |  " + input.venueText : ""}`,
-        fontFamily,
-        fontSize: 12,
-        fontWeight: "normal",
-        color: titleColor,
-        align: "center",
-        lineHeight: 1.1,
+      newImageElement({
+        x: 0,
+        y: heroTop,
+        width: pageW,
+        height: heroH,
+        src: "",
+        fit: "cover",
+        cornerRadius: 0,
       })
     );
   }
 
-  // ── Footer band ───────────────────────────────────────────────────
+  // ── 6. Orange "shoulder" bleeds + white rounded footer ─────────
   //
-  // Always drawn (matches `drawPosterBoldCover`'s unconditional footer
-  // band, Requirement: editor/preview parity) — a white strip along the
-  // bottom carrying the organizer credit + social icons regardless of
-  // whether the cover has a banner image or the text-only fallback.
-  const footerTop = pageH - 28;
+  // Draws a full-width accent-colored strip beneath the hero, then a
+  // white rounded rectangle on top of it with a large corner radius
+  // so the accent color forms two visible "shoulders" flanking the
+  // rounded white notch — matching the reference brochure's cover
+  // silhouette. Kept as separate editable shape elements (not a single
+  // baked path) so the organizer can restyle the accent color, tune
+  // the radius, or delete the effect entirely.
+  const shoulderTop = pageH - footerBandH - shoulderH;
   push(
     newShapeElement({
       x: 0,
-      y: footerTop,
+      y: shoulderTop,
       width: pageW,
-      height: 28,
+      height: shoulderH + footerBandH,
       shape: "rect",
-      fill: "#ffffff",
+      fill: accent,
       stroke: "transparent",
       strokeWidth: 0,
       cornerRadius: 0,
     })
   );
+  // White rounded overlay — corners curve UP into the accent band.
+  push(
+    newShapeElement({
+      x: 0,
+      y: pageH - footerBandH,
+      width: pageW,
+      height: footerBandH,
+      shape: "rect",
+      fill: "#ffffff",
+      stroke: "transparent",
+      strokeWidth: 0,
+      cornerRadius: shoulderH,
+    })
+  );
+
+  // ── 7. Footer content (left: producer credit + logo; right: social) ──
+  const footerTop = pageH - footerBandH;
   push(
     newTextElement({
-      x: 12,
+      x: marginX,
       y: footerTop + 6,
-      width: 90,
+      width: 100,
       height: 5,
       content: "Conceptualized & Organized by",
       fontFamily,
-      fontSize: 8,
+      fontSize: 9,
       fontWeight: "bold",
-      color: "#111111",
+      color: "#000000",
       align: "left",
       lineHeight: 1,
     })
@@ -420,10 +474,10 @@ function buildPosterBoldCoverPage(
   if (input.organizerLogoUrl) {
     push(
       newImageElement({
-        x: 12,
+        x: marginX,
         y: footerTop + 12,
-        width: 40,
-        height: 14,
+        width: 44,
+        height: 16,
         src: input.organizerLogoUrl,
         fit: "contain",
       })
@@ -431,19 +485,77 @@ function buildPosterBoldCoverPage(
   }
   push(
     newTextElement({
-      x: pageW - 12 - 60,
+      x: pageW - marginX - 70,
       y: footerTop + 6,
-      width: 60,
+      width: 70,
       height: 5,
       content: "Follow us on social media",
       fontFamily,
-      fontSize: 8,
+      fontSize: 9,
       fontWeight: "bold",
-      color: "#111111",
+      color: "#000000",
       align: "right",
       lineHeight: 1,
     })
   );
+
+  // Social icons — one small colored circle per configured platform,
+  // matching `drawPosterBoldCover`'s icon-strip layout. Uses tinted
+  // circles as a stand-in for real platform glyphs since the editor's
+  // canvas has no icon-font pipeline; the organizer can replace any
+  // circle with a real logo image element via the palette.
+  const socials = input.socialLinks ?? [];
+  if (socials.length > 0) {
+    const iconSize = 7;
+    const iconGap = 4;
+    const totalRowW = socials.length * iconSize + (socials.length - 1) * iconGap;
+    let iconX = pageW - marginX - totalRowW;
+    const iconY = footerTop + 14;
+    const brandColors: Record<string, string> = {
+      linkedin: "#0a66c2",
+      instagram: "#e1306c",
+      facebook: "#1877f2",
+      twitter: "#1da1f2",
+    };
+    const brandInitials: Record<string, string> = {
+      linkedin: "in",
+      instagram: "ig",
+      facebook: "f",
+      twitter: "x",
+    };
+    for (const s of socials) {
+      const bg = brandColors[s.platform] ?? "#000000";
+      push(
+        newShapeElement({
+          x: iconX,
+          y: iconY,
+          width: iconSize,
+          height: iconSize,
+          shape: "ellipse",
+          fill: bg,
+          stroke: "transparent",
+          strokeWidth: 0,
+          cornerRadius: 0,
+        })
+      );
+      push(
+        newTextElement({
+          x: iconX,
+          y: iconY + 1.5,
+          width: iconSize,
+          height: iconSize,
+          content: brandInitials[s.platform] ?? "•",
+          fontFamily,
+          fontSize: 5,
+          fontWeight: "bold",
+          color: "#ffffff",
+          align: "center",
+          lineHeight: 1,
+        })
+      );
+      iconX += iconSize + iconGap;
+    }
+  }
 
   return {
     id: `page-cover-${Math.random().toString(36).slice(2, 8)}`,
@@ -485,56 +597,34 @@ function buildAbstractPage(input: TemplateSeedInput, accent: string, fontFamily:
   // Full-bleed accent-colored background, matching `drawAbstractSection`'s
   // orange (or theme-accent) full-page fill.
   const bgColor = accent;
+  void textColor;
 
-  // Small event-title wordmark top-left, date top-right, thin accent divider.
-  push(
-    newTextElement({
-      x: 20,
-      y: 20,
-      width: 100,
-      height: 8,
-      content: input.eventTitle,
-      fontFamily,
-      fontSize: 14,
-      fontWeight: "bold",
-      color: textColor,
-      align: "left",
-      lineHeight: 1,
-    })
-  );
-  push(
-    newTextElement({
-      x: pageW - 120,
-      y: 20,
-      width: 100,
-      height: 8,
-      content: `${input.dateText}${input.venueText ? "  |  " + input.venueText : ""}`,
-      fontFamily,
-      fontSize: 9,
-      fontWeight: "bold",
-      color: textColor,
-      align: "right",
-      lineHeight: 1,
-    })
-  );
-  push(
-    newShapeElement({
-      x: 20,
-      y: 32,
-      width: pageW - 40,
-      height: 0.4,
-      shape: "rect",
-      fill: "#ffffff",
-      stroke: "transparent",
-      strokeWidth: 0,
-      cornerRadius: 0,
-    })
-  );
+  // Centered wordmark logo at the top (matches `drawPosterHeaderLogo`
+  // called from `drawAbstractSection` in `brochure-pdf.ts`). When no
+  // logo is configured, the header area collapses so the ABSTRACT pill
+  // still starts near the top of the page.
+  let cursorY = 20;
+  if (input.logoUrl) {
+    const logoW = 50;
+    const logoH = 16;
+    push(
+      newImageElement({
+        x: pageW / 2 - logoW / 2,
+        y: cursorY,
+        width: logoW,
+        height: logoH,
+        src: input.logoUrl,
+        fit: "contain",
+      })
+    );
+    cursorY += logoH + 8;
+  } else {
+    cursorY += 4;
+  }
 
   // Card renderer shared by the Abstract/Featured blocks — matches
   // `drawAbstractSection`'s `drawCardBlock`: a black heading pill
   // floating above a white body card.
-  let cursorY = 52;
   const pushCardBlock = (heading: string, body: string) => {
     const cardX = 20;
     const cardW = pageW - 40;
@@ -666,7 +756,13 @@ function buildAbstractPage(input: TemplateSeedInput, accent: string, fontFamily:
 // Returns `null` when there are zero non-empty items, mirroring
 // `buildWhySponsorSectionContent`'s null-return contract.
 
-function buildNumberedListPage(items: string[], title: string, accent: string, fontFamily: string): BrochurePage | null {
+function buildNumberedListPage(
+  items: string[],
+  title: string,
+  accent: string,
+  fontFamily: string,
+  logoUrl?: string,
+): BrochurePage | null {
   const clean = items.filter((s) => s && s.trim().length > 0);
   if (clean.length === 0) return null;
 
@@ -677,10 +773,32 @@ function buildNumberedListPage(items: string[], title: string, accent: string, f
     elements.push(el);
   };
 
+  // Top centered logo (white on the black background), matches
+  // `drawPosterHeaderLogo` called from `drawWhySponsorSection`. When
+  // no logo is configured, the title just starts a bit higher.
+  let headerBottom = 20;
+  if (logoUrl) {
+    const logoW = 50;
+    const logoH = 16;
+    push(
+      newImageElement({
+        x: pageW / 2 - logoW / 2,
+        y: headerBottom,
+        width: logoW,
+        height: logoH,
+        src: logoUrl,
+        fit: "contain",
+      })
+    );
+    headerBottom += logoH + 6;
+  } else {
+    headerBottom += 6;
+  }
+
   push(
     newTextElement({
       x: 20,
-      y: 30,
+      y: headerBottom,
       width: pageW - 40,
       height: 20,
       content: title.toUpperCase(),
@@ -696,7 +814,10 @@ function buildNumberedListPage(items: string[], title: string, accent: string, f
   const rowH = 24;
   const rowGap = 4;
   const badgeW = 18;
-  const startY = 68;
+  // Push the numbered rows below the header (logo + title) — using the
+  // dynamic `headerBottom` computed above keeps spacing tight whether
+  // a logo is present or not.
+  const startY = headerBottom + 26;
 
   for (let i = 0; i < Math.min(clean.length, 8); i += 1) {
     const y = startY + i * (rowH + rowGap);
@@ -795,7 +916,27 @@ function buildPricingPage(input: TemplateSeedInput, accent: string, fontFamily: 
 
   const bodyLeft = 20;
   const bodyW = pageW - 40;
-  let cursorY = 24;
+  let cursorY = 20;
+
+  // Top centered logo (white on the accent background) — matches
+  // `drawPosterHeaderLogo` called from `drawPricingSection`.
+  if (input.logoUrl) {
+    const logoW = 50;
+    const logoH = 16;
+    push(
+      newImageElement({
+        x: pageW / 2 - logoW / 2,
+        y: cursorY,
+        width: logoW,
+        height: logoH,
+        src: input.logoUrl,
+        fit: "contain",
+      })
+    );
+    cursorY += logoH + 8;
+  } else {
+    cursorY += 4;
+  }
 
   if (cards.length > 0) {
     const cardH = 66;
@@ -1277,131 +1418,233 @@ function buildAgendaPage(input: TemplateSeedInput, theme: BrochureTheme, accent:
 }
 
 /**
- * Builds the Agenda page's `"timetable-cards"` layout — two side-by-side
- * columns of session cards (accent-colored time chip, title, description,
- * speaker line), matching `drawAgendaTimetableCardsLayout`'s jsPDF output.
- * Returns `null` when there are no sessions.
+ * Session categories that get the "emphasis" black title chip on the
+ * Poster_Bold agenda page — mirrors `AGENDA_EMPHASIS_SESSION_TYPES` in
+ * `brochure-pdf.ts` exactly so the editor and the live preview color-
+ * code sessions identically. Kept as a Set locally rather than
+ * exported/imported to avoid a runtime dependency from the editor into
+ * the jsPDF module.
+ */
+const EDITOR_AGENDA_EMPHASIS_SESSION_TYPES = new Set([
+  "keynote",
+  "panel",
+  "fireside",
+  "workshop",
+]);
+
+function editorAgendaRowBackground(sessionType: string | undefined, accent: string): string {
+  if (sessionType && EDITOR_AGENDA_EMPHASIS_SESSION_TYPES.has(sessionType)) {
+    return "#000000";
+  }
+  return accent;
+}
+
+/**
+ * Builds the Agenda page's `"timetable-cards"` layout — matches
+ * `drawAgendaTimetableCardsLayout` in `brochure-pdf.ts` exactly:
+ *
+ *   - Centered logo + huge "Event Agenda" title at the top.
+ *   - Two chronologically-split columns (first half of sessions on the
+ *     left, second half on the right).
+ *   - Each row = colored time chip + colored title bar spanning the
+ *     column width. Row background is BLACK for emphasized session
+ *     types (keynote / panel / fireside / workshop) and the theme
+ *     accent for everything else.
+ *   - When a session has a description, it renders as a paragraph
+ *     directly below the row on a white background with dark text.
+ *   - Speaker line (when present) renders in small italic gray under
+ *     the description (or under the title bar when there's no
+ *     description).
+ *
+ * Every element is independently editable (Canva-style) — nothing is a
+ * baked group. Returns `null` when there are no sessions.
  */
 function buildAgendaTimetableCardsPage(input: TemplateSeedInput, theme: BrochureTheme, accent: string, fontFamily: string): BrochurePage | null {
   const content = buildAgendaSectionContent(input.sessions ?? []);
   if (content.rows.length === 0) return null;
 
   const pageW = A4_WIDTH_MM;
+  const marginX = 20;
   const elements: BrochureElement[] = [];
   const push = (el: BrochureElement) => {
     el.zIndex = elements.length;
     elements.push(el);
   };
 
-  const startY = pushClassicSectionHeading(push, theme, "Agenda", accent, fontFamily, 24, 10);
-  const bodyLeft = 20;
-  const bodyRight = pageW - 20;
+  // ── Top logo (centered) ──────────────────────────────────────────
+  let cursorY = 18;
+  if (input.logoUrl) {
+    const logoW = 50;
+    const logoH = 16;
+    push(
+      newImageElement({
+        x: pageW / 2 - logoW / 2,
+        y: cursorY,
+        width: logoW,
+        height: logoH,
+        src: input.logoUrl,
+        fit: "contain",
+      })
+    );
+    cursorY += logoH + 6;
+  } else {
+    cursorY += 4;
+  }
+
+  // ── Huge "Event Agenda" title (centered) ─────────────────────────
+  push(
+    newTextElement({
+      x: marginX,
+      y: cursorY,
+      width: pageW - marginX * 2,
+      height: 16,
+      content: "Event Agenda",
+      fontFamily,
+      fontSize: 30,
+      fontWeight: "bold",
+      color: "#000000",
+      align: "center",
+      lineHeight: 1,
+    })
+  );
+  cursorY += 20;
+
+  // ── Two-column chronological split ───────────────────────────────
+  const bodyRight = pageW - marginX;
   const colGap = 6;
-  const colWidth = (bodyRight - bodyLeft - colGap) / 2;
-  const cardPad = 4;
-  const timeChipH = 7;
-  const cardMinH = 34;
-  const maxCards = 8; // 4 rows × 2 cols — keeps the seeded page from overflowing
-  const rows = content.rows.slice(0, maxCards);
-  const colTopY = [startY, startY];
+  const colWidth = (bodyRight - marginX - colGap) / 2;
+  const timeChipW = 22;
+  const titleBarW = colWidth - timeChipW;
+  const rowMinH = 10;
+  const rowGap = 2;
 
-  for (let i = 0; i < rows.length; i += 1) {
-    const row = rows[i];
-    const col = i % 2;
-    const colX = bodyLeft + col * (colWidth + colGap);
-    const cardY = colTopY[col];
+  // Split sessions into two roughly-equal chronological halves.
+  const midpoint = Math.ceil(content.rows.length / 2);
+  const columns: AgendaRow[][] = [
+    content.rows.slice(0, midpoint) as AgendaRow[],
+    content.rows.slice(midpoint) as AgendaRow[],
+  ];
+  const colTopY: [number, number] = [cursorY, cursorY];
 
-    // Card height grows with description length (rough estimate: ~28
-    // chars per line at this column width, 4mm per wrapped line).
-    const descLineEstimate = row.description ? Math.ceil(row.description.length / 30) : 0;
-    const cardHeight = Math.max(cardMinH, timeChipH + 14 + descLineEstimate * 4 + (row.speakerLine ? 6 : 0));
+  for (let colIdx = 0; colIdx < columns.length; colIdx += 1) {
+    for (const row of columns[colIdx]) {
+      const colX = marginX + colIdx * (colWidth + colGap);
+      const cardY = colTopY[colIdx];
 
-    push(
-      newShapeElement({
-        x: colX,
-        y: cardY,
-        width: colWidth,
-        height: cardHeight,
-        shape: "rect",
-        fill: "#f9fafb",
-        stroke: "#e5e7eb",
-        strokeWidth: 0.3,
-        cornerRadius: 2,
-      })
-    );
+      const bg = editorAgendaRowBackground(row.sessionType, accent);
 
-    push(
-      newPillElement({
-        x: colX + cardPad,
-        y: cardY + cardPad,
-        width: Math.min(colWidth - cardPad * 2, 30),
-        height: timeChipH,
-        text: row.timeRangeText,
-        fontFamily,
-        fontSize: 8,
-        textColor: "#ffffff",
-        fillColor: accent,
-        strokeColor: "transparent",
-        strokeWidth: 0,
-      })
-    );
+      // Row height grows with title length (long titles wrap to 2 lines
+      // at this column width — ~28 chars/line is a decent estimate).
+      const titleLineEstimate = Math.max(1, Math.ceil(row.title.length / 30));
+      const rowH = Math.max(rowMinH, titleLineEstimate * 5 + 4);
 
-    let textY = cardY + cardPad + timeChipH + 4;
-    push(
-      newTextElement({
-        x: colX + cardPad,
-        y: textY,
-        width: colWidth - cardPad * 2,
-        height: 10,
-        content: row.title,
-        fontFamily,
-        fontSize: 10.5,
-        fontWeight: "bold",
-        color: "#0a1429",
-        align: "left",
-        lineHeight: 1.2,
-      })
-    );
-    textY += 10;
-
-    if (row.description) {
+      // Time chip (left, small).
       push(
-        newTextElement({
-          x: colX + cardPad,
-          y: textY,
-          width: colWidth - cardPad * 2,
-          height: descLineEstimate * 4 + 2,
-          content: row.description,
-          fontFamily,
-          fontSize: 8.5,
-          fontWeight: "normal",
-          color: "#5a5a5a",
-          align: "left",
-          lineHeight: 1.3,
+        newShapeElement({
+          x: colX,
+          y: cardY,
+          width: timeChipW,
+          height: rowH,
+          shape: "rect",
+          fill: bg,
+          stroke: "transparent",
+          strokeWidth: 0,
+          cornerRadius: 0,
         })
       );
-      textY += descLineEstimate * 4 + 2;
-    }
-
-    if (row.speakerLine) {
       push(
         newTextElement({
-          x: colX + cardPad,
-          y: textY,
-          width: colWidth - cardPad * 2,
-          height: 5,
-          content: row.speakerLine,
+          x: colX,
+          y: cardY + rowH / 2 - 2,
+          width: timeChipW,
+          height: rowH,
+          content: row.timeRangeText,
           fontFamily,
           fontSize: 8,
-          fontWeight: "normal",
-          color: "#787878",
+          fontWeight: "bold",
+          color: "#ffffff",
+          align: "center",
+          lineHeight: 1,
+        })
+      );
+
+      // Title bar (right, same fill).
+      push(
+        newShapeElement({
+          x: colX + timeChipW,
+          y: cardY,
+          width: titleBarW,
+          height: rowH,
+          shape: "rect",
+          fill: bg,
+          stroke: "transparent",
+          strokeWidth: 0,
+          cornerRadius: 0,
+        })
+      );
+      push(
+        newTextElement({
+          x: colX + timeChipW + 3,
+          y: cardY + rowH / 2 - (titleLineEstimate * 2.5) + 0.5,
+          width: titleBarW - 6,
+          height: rowH,
+          content: row.title,
+          fontFamily,
+          fontSize: 9.5,
+          fontWeight: "bold",
+          color: "#ffffff",
           align: "left",
           lineHeight: 1.2,
         })
       );
-    }
 
-    colTopY[col] = cardY + cardHeight + 6;
+      let afterRowY = cardY + rowH;
+
+      // Description body (below the row, dark text on white).
+      if (row.description) {
+        const descLineEstimate = Math.max(1, Math.ceil(row.description.length / 45));
+        const descBlockH = descLineEstimate * 4 + 4;
+        push(
+          newTextElement({
+            x: colX + 2,
+            y: afterRowY + 2,
+            width: colWidth - 4,
+            height: descBlockH,
+            content: row.description,
+            fontFamily,
+            fontSize: 9,
+            fontWeight: "normal",
+            color: "#000000",
+            align: "left",
+            lineHeight: 1.3,
+          })
+        );
+        afterRowY += descBlockH + 2;
+      }
+
+      // Speaker line (italic gray, subtle).
+      if (row.speakerLine) {
+        push(
+          newTextElement({
+            x: colX + 2,
+            y: afterRowY,
+            width: colWidth - 4,
+            height: 5,
+            content: row.speakerLine,
+            fontFamily,
+            fontSize: 8.5,
+            fontWeight: "normal",
+            fontStyle: "italic",
+            color: "#5a5a5a",
+            align: "left",
+            lineHeight: 1.2,
+          } as Parameters<typeof newTextElement>[0])
+        );
+        afterRowY += 6;
+      }
+
+      colTopY[colIdx] = afterRowY + rowGap;
+    }
   }
 
   return {

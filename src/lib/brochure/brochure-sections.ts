@@ -38,12 +38,26 @@ export interface CoverInput {
   banner_portrait_url?: string | null;
   image_url?: string | null;
   banner_landscape_url?: string | null;
+  /** Human-readable venue label surfaced as a separate outlined pill on
+   *  the Poster_Bold cover (matches the reference DevOps Connect
+   *  brochure's two-chip layout: date on one side, city/venue on the
+   *  other). Optional so themes that don't display it (Classic Editorial,
+   *  Corporate_Bold's original layout) keep compiling; the field is
+   *  simply not read by their cover drawers. */
+  venue?: string | null;
+  /** City / region label — fallback for `venue` when the organizer only
+   *  filled the location field. Same optional treatment as `venue`. */
+  location?: string | null;
 }
 
 /** Fully resolved, drawable Cover_Section content. */
 export interface CoverContent {
   title: string;
   dateText: string;
+  /** Optional venue/city label rendered as a second pill on the
+   *  Poster_Bold cover next to the date pill. Empty string is
+   *  normalized to `undefined` by `buildCoverContent`. */
+  venueText?: string;
   background: { type: "image"; url: string } | { type: "theme-default" };
 }
 
@@ -108,9 +122,13 @@ export function resolveCoverBackground(
  * `CoverContent` structure. Pure.
  */
 export function buildCoverContent(input: CoverInput): CoverContent {
+  const venue = typeof input.venue === "string" ? input.venue.trim() : "";
+  const location = typeof input.location === "string" ? input.location.trim() : "";
+  const venueText = venue || location;
   return {
     title: input.title,
     dateText: formatCoverDateRange(input.date, input.end_date),
+    ...(venueText ? { venueText } : {}),
     background: resolveCoverBackground(
       input.image_url,
       input.banner_landscape_url,
@@ -136,6 +154,15 @@ export interface AgendaSessionInput {
    *  so older callers that don't fetch `sessions.description` keep
    *  working unchanged (the `"table"` layout never reads this field). */
   description?: string | null;
+  /** Session category from `sessions.session_type` (e.g. "keynote",
+   *  "panel", "break", "lunch", "networking", or an organizer-defined
+   *  custom label). Consumed by the `"timetable-cards"` agenda layout
+   *  to color-code the time/title chips (black for emphasized content
+   *  sessions vs. accent for everything else), matching the reference
+   *  DevOps Connect brochure's visual hierarchy on the agenda page.
+   *  Optional so older callers/tests still compile unchanged; when
+   *  absent, the row falls back to the accent color. */
+  sessionType?: string | null;
 }
 
 /** One drawable agenda row. */
@@ -147,6 +174,11 @@ export interface AgendaRow {
   /** Omitted (never an empty string) when the session has no description
    *  (post-trim). Only consumed by the `"timetable-cards"` agenda layout. */
   description?: string;
+  /** Lowercased trimmed session category (see `AgendaSessionInput.
+   *  sessionType`). Passed through verbatim rather than mapped to a
+   *  color here — the color mapping lives in the renderer so a theme
+   *  can override it. Omitted when the source was empty/null. */
+  sessionType?: string;
 }
 
 /** Fully resolved, drawable Agenda_Section content. */
@@ -177,6 +209,10 @@ function buildAgendaRow(session: AgendaSessionInput): AgendaRow {
 
   if (typeof session.description === "string" && session.description.trim().length > 0) {
     row.description = session.description.trim();
+  }
+
+  if (typeof session.sessionType === "string" && session.sessionType.trim().length > 0) {
+    row.sessionType = session.sessionType.trim().toLowerCase();
   }
 
   return row;

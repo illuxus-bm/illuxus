@@ -594,6 +594,65 @@ function drawAgendaTableLayout(
  * right column top-to-bottom) two at a time, matching how the reference
  * brochure interleaves its two-column session grid.
  */
+/**
+ * Session categories that get the "emphasis" black title chip on the
+ * Poster_Bold agenda page, matching the DevOps Connect reference
+ * brochure's visual hierarchy (main content sessions stand out; breaks,
+ * networking, spotlights, and awards use the softer accent color).
+ * Matched case-insensitively against the trimmed `sessions.session_type`
+ * value coming from Supabase — organizer-defined custom types don't
+ * match and therefore fall back to the accent color, which is the safe
+ * default for unclassified content.
+ */
+const AGENDA_EMPHASIS_SESSION_TYPES = new Set([
+  "keynote",
+  "panel",
+  "fireside",
+  "workshop",
+]);
+
+/**
+ * Returns the row background color for an agenda row on the
+ * `"timetable-cards"` layout. Emphasized session types (keynote, panel,
+ * fireside, workshop) render in black; every other type (break, lunch,
+ * networking, qa, talk, speaker, custom labels, or an absent type) uses
+ * the theme's accent color. Pure — the mapping is intentionally simple
+ * so a theme override or future customization surface can swap it out
+ * without needing renderer-level logic changes.
+ */
+function agendaRowBackground(sessionType: string | undefined, accentColor: string): string {
+  if (sessionType && AGENDA_EMPHASIS_SESSION_TYPES.has(sessionType)) {
+    return "#000000";
+  }
+  return accentColor;
+}
+
+/**
+ * Draws the Agenda_Section's `"timetable-cards"` layout — matching the
+ * reference DevOps Connect brochure's agenda page:
+ *
+ *   - Two side-by-side columns, each holding a stack of horizontal rows.
+ *   - Sessions are split by chronological midpoint (first half → left
+ *     column, second half → right), preserving reading order on each
+ *     side (top-to-bottom), rather than the previous zig-zag
+ *     "alternate columns per session" pattern which read poorly for a
+ *     chronological agenda.
+ *   - Each row = small colored time chip on the left + wider title bar
+ *     stretching to the column's right edge. Chip and bar share the
+ *     same fill color (black for emphasized session types, accent for
+ *     everything else) so the row reads as a unified band.
+ *   - When a session has a non-empty description, it renders as a
+ *     paragraph directly below the row on a white background with
+ *     dark text, matching the "Panel Discussion" body copy in the
+ *     reference. Empty descriptions omit this block entirely.
+ *   - Speaker line (if present) sits below the description in a
+ *     smaller italic gray, or directly below the title bar when there
+ *     is no description.
+ *
+ * Overflow handling mirrors the Speakers_Section: measured up front,
+ * jumps to a fresh page when a row won't fit, resets BOTH column
+ * cursors so the pair stays level on the new page.
+ */
 function drawAgendaTimetableCardsLayout(
   doc: jsPDF,
   content: AgendaSectionContent,
@@ -610,95 +669,124 @@ function drawAgendaTimetableCardsLayout(
 
   const colGap = 6;
   const colWidth = (contentWidth - colGap) / 2;
-  const cardPad = 4;
-  const timeChipH = 7;
-  const bodyLineHeight = 4.3;
+  const timeChipW = 22;
+  const rowHeight = 10;
+  const rowGap = 2;
+  const descPadX = 2;
+  const descPadTop = 2;
+  const descPadBottom = 4;
+  const descLineHeight = 4;
+  const speakerLineHeight = 4;
+
+  // Split rows into two roughly-equal chronological halves so the left
+  // column always shows the earlier sessions and the right column the
+  // later ones, matching the reference brochure's reading order.
+  const midpoint = Math.ceil(content.rows.length / 2);
+  const columns: AgendaSectionContent["rows"][] = [
+    content.rows.slice(0, midpoint),
+    content.rows.slice(midpoint),
+  ];
 
   const colTopY = [startY, startY];
 
-  for (let i = 0; i < content.rows.length; i += 1) {
-    const row = content.rows[i];
-    const col = i % 2;
-    const colX = margin + col * (colWidth + colGap);
+  const drawColumnRow = (row: AgendaSectionContent["rows"][number], colIdx: number): void => {
+    const colX = margin + colIdx * (colWidth + colGap);
+    let cardY = colTopY[colIdx];
 
-    // Measure this card's height before drawing so the page-break check
-    // happens up front (mirrors the Speakers_Section's overflow guard).
+    // Pre-measure this row (chip + title bar + optional description +
+    // optional speaker line) so we can page-break UP FRONT if it won't
+    // fit — mirrors the Speakers_Section overflow guard.
     doc.setFont(fontFamily, "normal");
     doc.setFontSize(theme.table.fontSizePt - 1);
-    const titleLines = doc.splitTextToSize(row.title, colWidth - cardPad * 2) as string[];
-    const descLines = row.description
-      ? (doc.splitTextToSize(row.description, colWidth - cardPad * 2) as string[])
-      : [];
-    const speakerLines = row.speakerLine
-      ? (doc.splitTextToSize(row.speakerLine, colWidth - cardPad * 2) as string[])
-      : [];
-    const cardHeight =
-      timeChipH +
-      3 +
-      titleLines.length * (bodyLineHeight + 0.6) +
-      2 +
-      descLines.length * bodyLineHeight +
-      (speakerLines.length > 0 ? speakerLines.length * bodyLineHeight + 2 : 0) +
-      cardPad * 2;
+    const titleBarW = colWidth - timeChipW;
+    const titleLines = doc.splitTextToSize(row.title, titleBarW - 6) as string[];
+    // Row itself expands to accommodate a two-line title if needed.
+    const rowH = Math.max(rowHeight, titleLines.length * 5 + 4);
 
-    let cardY = colTopY[col];
-    if (cardY + cardHeight > bottomLimit) {
-      // Overflow: start a fresh page and reset BOTH columns so the next
-      // card pair begins level again at the new page's top margin.
+    const descLines = row.description
+      ? (doc.splitTextToSize(row.description, colWidth - descPadX * 2) as string[])
+      : [];
+    const descBlockH =
+      descLines.length > 0
+        ? descPadTop + descLines.length * descLineHeight + descPadBottom
+        : 0;
+
+    const speakerLines = row.speakerLine
+      ? (doc.splitTextToSize(row.speakerLine, colWidth - descPadX * 2) as string[])
+      : [];
+    const speakerBlockH =
+      speakerLines.length > 0 ? speakerLines.length * speakerLineHeight + 2 : 0;
+
+    const totalH = rowH + descBlockH + speakerBlockH + rowGap;
+
+    if (cardY + totalH > bottomLimit) {
       doc.addPage();
       colTopY[0] = theme.margins.top;
       colTopY[1] = theme.margins.top;
       cardY = theme.margins.top;
     }
 
-    // Card container — light background + thin border, mirroring the
-    // Speakers_Section card chrome for visual consistency across sections.
-    doc.setFillColor(249, 250, 251);
-    doc.rect(colX, cardY, colWidth, cardHeight, "F");
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.2);
-    doc.rect(colX, cardY, colWidth, cardHeight, "S");
+    const bg = agendaRowBackground(row.sessionType, colors.accentColor);
+    const [br, bgc, bb] = hexToRgb(bg);
 
-    let textY = cardY + cardPad;
-
-    // Time chip — small accent-colored pill at the top-left of the card.
-    const timeChipW = Math.min(colWidth - cardPad * 2, doc.getTextWidth(row.timeRangeText) + 8);
+    // ── Time chip (left) ──────────────────────────────────────────
+    doc.setFillColor(br, bgc, bb);
+    doc.rect(colX, cardY, timeChipW, rowH, "F");
+    doc.setTextColor(255, 255, 255);
     doc.setFont(fontFamily, "bold");
     doc.setFontSize(8);
-    drawPill(doc, colX + cardPad, textY, timeChipW, timeChipH, colors.accentColor);
-    doc.setTextColor(255, 255, 255);
-    doc.text(row.timeRangeText, colX + cardPad + timeChipW / 2, textY + timeChipH / 2 + 0.4, {
+    doc.text(row.timeRangeText, colX + timeChipW / 2, cardY + rowH / 2 + 0.4, {
       align: "center",
       baseline: "middle",
     });
-    textY += timeChipH + 3;
 
-    // Title.
+    // ── Title bar (right, adjacent, same fill color) ─────────────
+    doc.setFillColor(br, bgc, bb);
+    doc.rect(colX + timeChipW, cardY, titleBarW, rowH, "F");
+    doc.setTextColor(255, 255, 255);
     doc.setFont(fontFamily, "bold");
-    doc.setFontSize(theme.table.fontSizePt);
-    doc.setTextColor(0, 0, 0);
-    doc.text(titleLines, colX + cardPad, textY);
-    textY += titleLines.length * (bodyLineHeight + 0.6) + 2;
+    doc.setFontSize(theme.table.fontSizePt - 0.5);
+    // Vertically center the (possibly two-line) title.
+    const titleTop =
+      cardY + rowH / 2 - ((titleLines.length - 1) * 5) / 2 + 1.5;
+    for (let li = 0; li < titleLines.length; li += 1) {
+      doc.text(titleLines[li], colX + timeChipW + 3, titleTop + li * 5);
+    }
 
-    // Description.
+    let afterRowY = cardY + rowH;
+
+    // ── Description body (below the row, dark text on white) ──────
     if (descLines.length > 0) {
+      doc.setTextColor(0, 0, 0);
       doc.setFont(fontFamily, "normal");
       doc.setFontSize(theme.table.fontSizePt - 1);
-      doc.setTextColor(90, 90, 90);
-      doc.text(descLines, colX + cardPad, textY);
-      textY += descLines.length * bodyLineHeight;
+      const descTextY = afterRowY + descPadTop + descLineHeight - 1;
+      doc.text(descLines, colX + descPadX, descTextY);
+      afterRowY += descBlockH;
     }
 
-    // Speaker line.
+    // ── Speaker line (subtle) ─────────────────────────────────────
     if (speakerLines.length > 0) {
-      textY += 2;
+      doc.setTextColor(90, 90, 90);
       doc.setFont(fontFamily, "italic");
       doc.setFontSize(theme.table.fontSizePt - 1);
-      doc.setTextColor(120, 120, 120);
-      doc.text(speakerLines, colX + cardPad, textY);
+      doc.text(
+        speakerLines,
+        colX + descPadX,
+        afterRowY + speakerLineHeight - 1
+      );
+      afterRowY += speakerBlockH;
     }
 
-    colTopY[col] = cardY + cardHeight + colGap;
+    colTopY[colIdx] = afterRowY + rowGap;
+  };
+
+  // Draw each column top-to-bottom (left first, then right) so each
+  // column preserves chronological reading order independently.
+  for (let colIdx = 0; colIdx < columns.length; colIdx += 1) {
+    for (const row of columns[colIdx]) {
+      drawColumnRow(row, colIdx);
+    }
   }
 
   return Math.max(colTopY[0], colTopY[1]);
@@ -709,21 +797,50 @@ function drawAgendaTimetableCardsLayout(
  *  empty-message fallback when there are zero sessions — never a
  *  zero-row table/card grid regardless of layout. Returns the Y-cursor
  *  position it ended at. */
-function drawAgendaSection(
+async function drawAgendaSection(
   doc: jsPDF,
   content: AgendaSectionContent,
   theme: BrochureTheme,
   colors: ResolvedBrochureColors,
-  startY: number
-): number {
+  startY: number,
+  posterContent: BrochureGenerationInput["posterContent"] | undefined
+): Promise<number> {
   const margin = theme.margins.left;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const fontFamily = resolveFontFamilyForPdf(colors.fontFamily);
+  const isPosterFamily = theme.agenda.layout === "timetable-cards";
 
-  doc.setFont(resolveFontFamilyForPdf(colors.fontFamily), "bold");
-  doc.setFontSize(theme.heading.fontSizePt);
-  doc.setTextColor(0, 0, 0);
-  doc.text("Agenda", margin, startY);
-  drawHeadingUnderline(doc, theme, colors, margin, startY + 2, 24);
-  const y = startY + 10;
+  let y: number;
+
+  if (isPosterFamily) {
+    // Poster_Bold agenda page: centered logo + huge "Event Agenda"
+    // title matching the reference DevOps Connect brochure. Keeps the
+    // agenda page visually consistent with Cover / Abstract / Why
+    // Sponsor / Pricing (all use the same top logo + big-title
+    // pattern).
+    const headerBottom = await drawPosterHeaderLogo(
+      doc,
+      posterContent?.logoUrl ?? null,
+      "",
+      theme,
+      colors,
+      "#000000",
+      startY
+    );
+    const titleY = headerBottom + 8;
+    doc.setFont(fontFamily, "bold");
+    doc.setFontSize(30);
+    doc.setTextColor(0, 0, 0);
+    doc.text("Event Agenda", pageWidth / 2, titleY, { align: "center" });
+    y = titleY + 8;
+  } else {
+    doc.setFont(fontFamily, "bold");
+    doc.setFontSize(theme.heading.fontSizePt);
+    doc.setTextColor(0, 0, 0);
+    doc.text("Agenda", margin, startY);
+    drawHeadingUnderline(doc, theme, colors, margin, startY + 2, 24);
+    y = startY + 10;
+  }
 
   if (content.emptyMessage) {
     doc.setFont("helvetica", "italic");
@@ -733,7 +850,7 @@ function drawAgendaSection(
     return y + 8;
   }
 
-  return theme.agenda.layout === "timetable-cards"
+  return isPosterFamily
     ? drawAgendaTimetableCardsLayout(doc, content, theme, colors, y)
     : drawAgendaTableLayout(doc, content, theme, colors, y);
 }
@@ -1115,13 +1232,15 @@ async function buildBrochureDocument(input: BrochureGenerationInput): Promise<js
           image_url: input.event.image_url,
           banner_landscape_url: input.event.banner_landscape_url,
           banner_portrait_url: input.event.banner_portrait_url,
+          venue: input.event.venue,
+          location: input.event.location,
         });
         await drawCoverSection(doc, content, theme, colors, input.posterContent);
         break;
       }
       case "agenda": {
         const content = buildAgendaSectionContent(input.sessions);
-        drawAgendaSection(doc, content, theme, colors, startY);
+        await drawAgendaSection(doc, content, theme, colors, startY, input.posterContent);
         break;
       }
       case "speakers": {
@@ -1368,11 +1487,23 @@ function drawCard(
 // ─── Poster_Bold Cover ──────────────────────────────────────────────────────
 
 /**
- * Draws the Poster_Bold cover page: centered wordmark at the top, huge
- * bold two-line title, subtitle, two outlined pill-chips for date &
- * venue, a hero image with an orange color-treatment on the bottom
- * quarter, and a footer band with the "Conceptualized & Organized by"
- * logo on the left and social icons on the right.
+ * Draws the Poster_Bold cover page — matches the reference DevOps
+ * Connect brochure's cover layout exactly:
+ *
+ *   1. Centered wordmark at top (from `posterContent.logoUrl`).
+ *   2. Huge bold two-line title, auto-shrunk to fit the page width.
+ *   3. Subtitle line under the title (from `posterContent.coverTagline`),
+ *      when set.
+ *   4. Two outlined pill-chips side by side: date on the left, venue on
+ *      the right (venue chip is omitted when `content.venueText` is
+ *      absent).
+ *   5. Full-width hero image occupying the middle portion of the page.
+ *   6. Orange "shoulder" bleeds on the left and right, meeting a
+ *      white rounded footer band that overlaps them — creates the
+ *      characteristic "M" silhouette from the reference.
+ *   7. Footer band with "Conceptualized & Organized by" + producer
+ *      logo on the left, "Follow us on social media" + social icons
+ *      on the right.
  *
  * Called from `drawCoverSection` when `theme.cover.style` is
  * `poster-bold`. Never returns from the caller; the caller uses `return`
@@ -1391,51 +1522,24 @@ async function drawPosterBoldCover(
   const pageHeight = doc.internal.pageSize.getHeight();
   const centerX = pageWidth / 2;
   const fontFamily = resolveFontFamilyForPdf(colors.fontFamily);
+  const [ar, ag, ab] = hexToRgb(colors.accentColor);
 
-  // Page background — light off-white so the black text pops.
+  // White page background — the accent color appears only in the
+  // "shoulder" bleeds beneath the hero and in specific chip fills.
   fillPageBackground(doc, "#ffffff");
 
-  // ── PORTRAIT HERO BANNER (top, full width, no padding) ────────────────
-  //
-  // The cover image lives at the very top of the page: x=0, y=0, full
-  // page width, no side / top gap. Sized to ~62% of the page height so
-  // the portrait aspect of a mobile-view banner (typically ~9:16) has
-  // room to render without heavy cropping. fit: cover so the image
-  // fills the box and crops the vertical overflow rather than
-  // letterboxing.
-  const bannerHeight = pageHeight * 0.62;
-  if (heroDataUrl && heroProps) {
-    const scale = Math.max(
-      pageWidth / heroProps.width,
-      bannerHeight / heroProps.height
-    );
-    const drawW = heroProps.width * scale;
-    const drawH = heroProps.height * scale;
-    const bannerX = (pageWidth - drawW) / 2;
-    const bannerY = (bannerHeight - drawH) / 2;
-    // Clip to the banner box so the "cover" crop doesn't spill outside.
-    // jsPDF doesn't have a clipRect that survives across `addImage`; we
-    // emulate by only drawing the visible portion of the image via the
-    // scaled offsets computed above. When the source aspect is close
-    // to the banner aspect, the overflow is minimal and any leaking
-    // is masked by the content stack below.
-    doc.addImage(heroDataUrl, bannerX, bannerY, drawW, drawH);
-  }
-
-  // ── Content stack below the banner ────────────────────────────────
-  let cursorY = bannerHeight + 8;
-
-  // Optional wordmark logo above the title.
+  // ── 1. Top wordmark ───────────────────────────────────────────────
+  let cursorY = theme.margins.top;
   const logoUrl = posterContent?.logoUrl;
   if (logoUrl) {
     const dataUrl = await loadImageAsDataUrl(logoUrl);
     if (dataUrl) {
       try {
         const props = doc.getImageProperties(dataUrl);
-        const targetH = 16;
-        const targetW = Math.min(pageWidth * 0.5, (props.width / props.height) * targetH);
+        const targetH = 18;
+        const targetW = Math.min(pageWidth * 0.4, (props.width / props.height) * targetH);
         doc.addImage(dataUrl, centerX - targetW / 2, cursorY, targetW, targetH);
-        cursorY += targetH + 4;
+        cursorY += targetH + 6;
       } catch (err) {
         logger.warn("brochure image load failed", {
           url: logoUrl,
@@ -1445,16 +1549,16 @@ async function drawPosterBoldCover(
     }
   }
 
-  // Title.
+  // ── 2. Title ─────────────────────────────────────────────────────
   const titleMaxWidth = pageWidth - theme.margins.left * 2;
   doc.setFont(fontFamily, "bold");
   const { fontSizePt: titleSize, lines: titleLines } = autoShrinkTitleSize(
     doc,
     content.title,
     titleMaxWidth,
-    Math.min(28, theme.cover.titleFontSizePt),
-    18,
-    2
+    Math.min(46, theme.cover.titleFontSizePt),
+    22,
+    3
   );
   const titleLineHeightMm = titleSize * 0.42;
   doc.setTextColor(0, 0, 0);
@@ -1465,25 +1569,89 @@ async function drawPosterBoldCover(
   }
   cursorY += 4;
 
-  // Outlined date-chip.
+  // ── 3. Subtitle (from posterContent.coverTagline) ────────────────
+  const subtitle =
+    typeof posterContent?.coverTagline === "string"
+      ? posterContent.coverTagline.trim()
+      : "";
+  if (subtitle) {
+    doc.setFont(fontFamily, "normal");
+    doc.setFontSize(14);
+    doc.setTextColor(30, 30, 30);
+    const subLines = doc.splitTextToSize(subtitle, titleMaxWidth) as string[];
+    for (const line of subLines) {
+      doc.text(line, centerX, cursorY + 5, { align: "center" });
+      cursorY += 6;
+    }
+    cursorY += 2;
+  }
+
+  // ── 4. Two outlined pill-chips (date | venue) ────────────────────
+  //
+  // Rendered side-by-side and centered. `venueText` may be absent — in
+  // which case only the date chip appears, still centered.
   const chipHeight = 10;
   const chipPaddingX = 6;
+  const chipGap = 6;
   doc.setFont(fontFamily, "normal");
   doc.setFontSize(10);
-  const dateText = content.dateText;
-  const dateWidth = doc.getTextWidth(dateText) + chipPaddingX * 2;
+  const chips: string[] = [content.dateText];
+  if (content.venueText) chips.push(content.venueText);
+  const chipWidths = chips.map((t) => doc.getTextWidth(t) + chipPaddingX * 2);
+  const totalChipW =
+    chipWidths.reduce((a, b) => a + b, 0) + chipGap * (chips.length - 1);
+  let chipX = centerX - totalChipW / 2;
   const chipY = cursorY + 2;
-  drawPill(doc, centerX - dateWidth / 2, chipY, dateWidth, chipHeight, "#ffffff", "#000000");
-  doc.setTextColor(0, 0, 0);
-  doc.text(dateText, centerX, chipY + chipHeight / 2 + 0.6, {
-    align: "center",
-    baseline: "middle",
-  });
+  for (let i = 0; i < chips.length; i += 1) {
+    drawPill(doc, chipX, chipY, chipWidths[i], chipHeight, "#ffffff", "#000000");
+    doc.setTextColor(0, 0, 0);
+    doc.text(chips[i], chipX + chipWidths[i] / 2, chipY + chipHeight / 2 + 0.6, {
+      align: "center",
+      baseline: "middle",
+    });
+    chipX += chipWidths[i] + chipGap;
+  }
   cursorY = chipY + chipHeight + 4;
 
-  // ── Footer band ───────────────────────────────────────────────────
-  const footerBandHeight = 28;
+  // ── 5. Hero image ────────────────────────────────────────────────
+  //
+  // Occupies the space between the chip row and the footer band. The
+  // orange "shoulder" bleeds (step 6) sit at the very bottom of the
+  // hero region, so we reserve their height here to prevent the image
+  // spilling over them.
+  const footerBandHeight = 30;
   const footerTop = pageHeight - footerBandHeight;
+  const shoulderH = 12;
+  const heroTop = cursorY;
+  const heroBottom = footerTop - shoulderH * 0.4; // slight overlap into the shoulder curve
+  const heroH = Math.max(20, heroBottom - heroTop);
+  if (heroDataUrl && heroProps) {
+    const scale = Math.max(
+      pageWidth / heroProps.width,
+      heroH / heroProps.height
+    );
+    const drawW = heroProps.width * scale;
+    const drawH = heroProps.height * scale;
+    const bannerX = (pageWidth - drawW) / 2;
+    const bannerY = heroTop + (heroH - drawH) / 2;
+    doc.addImage(heroDataUrl, bannerX, bannerY, drawW, drawH);
+  }
+
+  // ── 6. Orange shoulder bleeds + white rounded footer overlap ────
+  //
+  // Draws a full-width accent-colored band directly beneath the hero,
+  // then paints a white rounded rectangle on top of it whose corners
+  // curve UP into the accent band — the visible accent-colored area
+  // ends up looking like two "shoulders" flanking a rounded white
+  // notch, matching the reference brochure's cover silhouette.
+  doc.setFillColor(ar, ag, ab);
+  doc.rect(0, footerTop - shoulderH, pageWidth, shoulderH + footerBandHeight, "F");
+  // White rounded card overlapping the accent band. Radius is exactly
+  // the shoulder height so the corners curve visibly into the band.
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(0, footerTop, pageWidth, footerBandHeight, shoulderH, shoulderH, "F");
+
+  // ── 7. Footer band content ────────────────────────────────────────
   const producerLogoUrl = posterContent?.organizerLogoUrl;
 
   // Left: caption + producer logo

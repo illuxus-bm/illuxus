@@ -119,6 +119,12 @@ interface SessionRow {
   start_time: string;
   end_time: string;
   speaker_id: string | null;
+  /** `sessions.session_type` — powers the agenda page's per-row color
+   *  coding on the Poster_Bold timetable-cards layout (black for
+   *  emphasized content sessions like keynote/panel, accent for
+   *  everything else). Nullable in Supabase, so read as nullable
+   *  here and normalized by `buildAgendaRow` downstream. */
+  session_type: string | null;
 }
 
 /**
@@ -150,7 +156,7 @@ async function fetchBrochureData(eventId: string): Promise<{
       .single(),
     supabase
       .from("sessions")
-      .select("id, title, description, start_time, end_time, speaker_id")
+      .select("id, title, description, start_time, end_time, speaker_id, session_type")
       .eq("event_id", eventId)
       .order("start_time"),
     supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
@@ -239,6 +245,7 @@ async function fetchBrochureData(eventId: string): Promise<{
     description: session.description,
     start_time: session.start_time,
     end_time: session.end_time,
+    sessionType: session.session_type,
     speakerNames: speakerIds
       .map((id) => sessionSpeakerNames.get(id))
       .filter((name): name is string => !!name),
@@ -837,6 +844,7 @@ export default function BrochureConfiguratorDialog({
               event.banner_portrait_url ?? event.image_url ?? event.banner_landscape_url ?? "",
             logoUrl: posterContent.logoUrl,
             organizerLogoUrl: posterContent.organizerLogoUrl,
+            socialLinks: posterContent.socialLinks,
             coverTagline: posterContent.coverTagline,
             coverPills: posterContent.coverPills,
             abstract: posterContent.abstract,
