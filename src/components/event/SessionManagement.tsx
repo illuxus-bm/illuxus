@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Presentation, Coffee, Wrench, Clock, MapPin, Mic, Users, MessageSquare, Utensils, X } from "lucide-react";
 import { ExternalLink } from "lucide-react";
 import { computeEventDays, buildSessionPayload } from "./session-day-utils";
+import { logger } from "@/lib/observability";
 
 interface Session {
   id: string;
@@ -165,11 +166,45 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
     }
 
     if (sessionId) {
-      await supabase.from("session_speakers").delete().eq("session_id", sessionId);
+      const { error: deleteError } = await supabase.from("session_speakers").delete().eq("session_id", sessionId);
+      if (deleteError) {
+        // Surface this instead of failing silently — a blocked delete (e.g.
+        // a Row-Level Security policy gap) previously left stale speaker
+        // links in place with no indication anything went wrong, which is
+        // exactly what made "can't attach multiple speakers" so hard to
+        // notice: the session itself always saved fine.
+        logger.error("session speakers delete failed", {
+          session_id: sessionId,
+          error_message: deleteError.message,
+        });
+        toast.error("Session saved, but updating its speakers failed", { description: deleteError.message });
+        setOpen(false);
+        setEditing(null);
+        setForm(emptySession);
+        setCustomType(false);
+        setCustomTypeLabel("");
+        fetchData();
+        return;
+      }
       if (form.speaker_ids.length) {
-        await supabase.from("session_speakers").insert(
+        const { error: insertError } = await supabase.from("session_speakers").insert(
           form.speaker_ids.map((sid, i) => ({ session_id: sessionId!, speaker_id: sid, position: i })),
         );
+        if (insertError) {
+          logger.error("session speakers insert failed", {
+            session_id: sessionId,
+            speaker_count: form.speaker_ids.length,
+            error_message: insertError.message,
+          });
+          toast.error("Session saved, but updating its speakers failed", { description: insertError.message });
+          setOpen(false);
+          setEditing(null);
+          setForm(emptySession);
+          setCustomType(false);
+          setCustomTypeLabel("");
+          fetchData();
+          return;
+        }
       }
     }
     toast.success(editing ? "Session updated" : "Session added");
