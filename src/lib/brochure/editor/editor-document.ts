@@ -382,3 +382,29 @@ export function findElement(
   const page = doc.pages.find((p) => p.id === pageId);
   return page?.elements.find((el) => el.id === elementId) ?? null;
 }
+
+/**
+ * Pure helper: collects every unique `fontFamily` used by any `text` or
+ * `pill` element across every page of `doc`. Mirrors
+ * `creative-renderer.ts`'s `collectUniqueFontPairs` split — a pure
+ * predicate over the document tree, kept separate from the DOM-touching
+ * `ensureFontLoaded` wrapper so it stays trivially testable.
+ *
+ * `BrochureEditorCanvas` calls this on every document change and feeds
+ * the result to `ensureFontLoaded` — this is what makes a freshly-seeded
+ * document (whose text elements reference the resolved theme font, e.g.
+ * "Playfair Display") actually request that Google Fonts family instead
+ * of silently rendering in the browser's fallback sans-serif until the
+ * organizer happens to open the font dropdown.
+ */
+export function collectDocumentFontFamilies(doc: BrochureDocument): string[] {
+  const seen = new Set<string>();
+  for (const page of doc.pages) {
+    for (const el of page.elements) {
+      if (el.kind === "text" || el.kind === "pill") {
+        seen.add(el.fontFamily);
+      }
+    }
+  }
+  return Array.from(seen);
+}

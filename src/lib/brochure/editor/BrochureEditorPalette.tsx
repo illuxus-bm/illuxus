@@ -29,14 +29,23 @@ interface Props {
    *  elements within the page. */
   pageWidth: number;
   pageHeight: number;
+  /** The active brochure's resolved font family (theme default with
+   *  any organizer override already applied — same value seeded into
+   *  the document's own text/pill elements). Newly-added elements use
+   *  this instead of a hardcoded family so a "Text"/"Heading"/"Pill"
+   *  added on, say, a JetBrains-Mono-themed brochure doesn't visually
+   *  clash with every other element already on the page. Falls back to
+   *  "Poppins" (the editor's baseline default) when omitted. */
+  defaultFontFamily?: string;
   /** Callback receives the freshly-constructed element; the parent
    *  is responsible for appending it to the document and selecting it. */
   onAddElement: (element: BrochureElement) => void;
 }
 
-export default function BrochureEditorPalette({ pageWidth, pageHeight, onAddElement }: Props) {
+export default function BrochureEditorPalette({ pageWidth, pageHeight, defaultFontFamily, onAddElement }: Props) {
   const centerX = pageWidth / 2;
   const centerY = pageHeight / 2;
+  const fontFamily = defaultFontFamily ?? "Poppins";
 
   const add = (kind: NewElementKind) => {
     switch (kind) {
@@ -48,7 +57,7 @@ export default function BrochureEditorPalette({ pageWidth, pageHeight, onAddElem
             width: 80,
             height: 12,
             content: "Your text here",
-            fontFamily: "Poppins",
+            fontFamily,
             fontSize: 14,
             fontWeight: "normal",
             color: "#111111",
@@ -64,7 +73,7 @@ export default function BrochureEditorPalette({ pageWidth, pageHeight, onAddElem
             width: 120,
             height: 20,
             content: "Heading",
-            fontFamily: "Poppins",
+            fontFamily,
             fontSize: 32,
             fontWeight: "bold",
             color: "#000000",
@@ -123,7 +132,7 @@ export default function BrochureEditorPalette({ pageWidth, pageHeight, onAddElem
             width: 50,
             height: 10,
             text: "Pill",
-            fontFamily: "Poppins",
+            fontFamily,
             fontSize: 10,
             textColor: "#000000",
             fillColor: "#ffffff",

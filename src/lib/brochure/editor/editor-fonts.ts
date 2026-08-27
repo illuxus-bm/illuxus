@@ -45,6 +45,17 @@ export const EDITOR_FONTS: EditorFont[] = [
   { family: "Work Sans", category: "sans-serif", weights: [400, 600, 700] },
   { family: "Nunito", category: "sans-serif", weights: [400, 700] },
   { family: "DM Sans", category: "sans-serif", weights: [400, 700] },
+  // "Space Grotesk" is one of the event-theme `FONT_OPTIONS`
+  // (`src/components/event/page-form/presets.ts`) an organizer can set
+  // as their event's font family — `resolveBrochureTheme` can resolve
+  // it as `colors.fontFamily`, which `seedBrochureDocument` then uses
+  // directly on every seeded text/pill element. It must be in this
+  // catalog or `ensureFontLoaded` silently no-ops for it (unknown
+  // family → no <link> ever injected → permanent fallback-font
+  // rendering for any brochure themed with this font). Weight set
+  // matches the one already used for this family elsewhere in the app
+  // (`src/lib/badge-design.ts`'s `"400;500;600;700"`).
+  { family: "Space Grotesk", category: "sans-serif", weights: [400, 500, 600, 700] },
 
   // Serif (elegant, editorial)
   { family: "Playfair Display", category: "serif", weights: [400, 700, 900] },
@@ -73,6 +84,35 @@ export const EDITOR_FONTS: EditorFont[] = [
  *  `ensureFontLoaded` calls for the same family are no-ops. Lives on
  *  the module level, i.e. persists for the entire browser session. */
 const loadedFamilies = new Set<string>();
+
+/**
+ * Subscribers notified every time a previously-unloaded font family
+ * finishes loading. Konva does NOT repaint its canvas automatically
+ * when a web font becomes available mid-session — the official Konva
+ * docs on custom fonts spell this out explicitly: canvas text needs an
+ * imperative redraw after the font finishes loading, unlike DOM text
+ * which the browser updates on its own
+ * (https://konvajs.org/docs/sandbox/Custom_Font.html). Without this,
+ * any text element seeded with (or switched to) a family that wasn't
+ * already cached by the browser renders in the fallback font
+ * indefinitely — this was the root cause of the reported "font issues"
+ * in the editor canvas.
+ *
+ * `BrochureEditorCanvas` registers a listener on mount that forces a
+ * Konva stage redraw whenever this fires.
+ */
+const fontLoadListeners = new Set<() => void>();
+
+/** Registers a callback invoked every time a font family finishes
+ *  loading via `ensureFontLoaded`. Returns an unsubscribe function. */
+export function onFontLoaded(listener: () => void): () => void {
+  fontLoadListeners.add(listener);
+  return () => fontLoadListeners.delete(listener);
+}
+
+function notifyFontLoaded(): void {
+  for (const listener of fontLoadListeners) listener();
+}
 
 /**
  * Injects the Google Fonts stylesheet `<link>` for `family` into the
@@ -121,7 +161,20 @@ export async function ensureFontLoaded(family: string): Promise<void> {
     // to the CSS font-family stack.
     setTimeout(resolve, 3000);
   });
+  // Explicitly request every weight via the Font Loading API too (not
+  // just the <link> stylesheet) — `document.fonts.ready` only resolves
+  // once fonts already *requested* for use finish loading. A family
+  // that's merely linked but never referenced by any rendered DOM text
+  // can otherwise leave `document.fonts.ready` resolving before the
+  // family is actually usable, which previously showed up as brochure
+  // text staying in the fallback font on first paint.
+  await Promise.all(
+    meta.weights.map((w) =>
+      document.fonts.load(`${w} 16px "${family}"`).catch(() => undefined)
+    )
+  );
   await document.fonts.ready;
+  notifyFontLoaded();
 }
 
 /**

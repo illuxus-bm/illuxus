@@ -46,6 +46,26 @@ export function ptToPx(pt: number, dpi: number = SCREEN_DPI): number {
 }
 
 /**
+ * Converts a font `pt` size to its millimetre equivalent. DPI-
+ * independent (the DPI terms cancel out of `ptToPx(pt, dpi) /
+ * mmToPx(1, dpi)`), which is exactly why this is the right building
+ * block for the editor canvas: every other element property (position,
+ * width, height, stroke width, corner radius) is stored in mm and
+ * converted to on-screen pixels via one `pxPerMm` factor that already
+ * bakes in the current viewport zoom (`fitPageToViewport`'s `scale`).
+ * Converting `fontSize` to mm first, then multiplying by that SAME
+ * `pxPerMm` factor, keeps text sized consistently with the rest of the
+ * scene at every zoom level — unlike calling `ptToPx(fontSize)` alone,
+ * which bakes in a fixed `SCREEN_DPI` conversion and silently ignores
+ * the viewport-fit zoom, causing text to overflow or shrink relative to
+ * its box whenever the editor's canvas pane isn't exactly the size the
+ * layout numbers were authored at.
+ */
+export function ptToMm(pt: number): number {
+  return (pt / POINTS_PER_INCH) * MM_PER_INCH;
+}
+
+/**
  * Fits an A4-ish page (`docWidthMm` × `docHeightMm`) inside an available
  * viewport (`vw` × `vh`, both in pixels) leaving `paddingPx` on every
  * side. Returns the scale factor and the resulting page pixel width.

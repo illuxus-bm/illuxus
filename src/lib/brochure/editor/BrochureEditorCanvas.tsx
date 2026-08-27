@@ -25,11 +25,13 @@ import useImage from "use-image";
 
 import {
   mmToPx,
-  ptToPx,
+  ptToMm,
   fitPageToViewport,
   SCREEN_DPI,
 } from "./editor-units";
+import { ensureFontLoaded, onFontLoaded } from "./editor-fonts";
 import {
+  collectDocumentFontFamilies,
   updateElement,
   type BrochureDocument,
   type BrochureElement,
@@ -61,7 +63,33 @@ export default function BrochureEditorCanvas({
   onSelect,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<Konva.Stage | null>(null);
   const [viewport, setViewport] = useState<{ w: number; h: number }>({ w: 800, h: 600 });
+
+  // Request every font family actually used by this document. Konva
+  // does NOT repaint canvas text on its own when a web font finishes
+  // loading mid-session (unlike DOM text, which the browser updates
+  // automatically) — see Konva's own docs on custom fonts. Without this
+  // effect, a freshly-seeded document (whose text elements reference
+  // the resolved theme font, e.g. "Playfair Display") would silently
+  // render in the browser's fallback sans-serif until the organizer
+  // happened to open the font dropdown in the properties panel, which
+  // is what made the canvas look visually wrong/inconsistent on first
+  // open. `onFontLoaded` below forces a stage redraw once each family
+  // actually finishes loading so the swap is visible without a manual
+  // interaction.
+  useEffect(() => {
+    const families = collectDocumentFontFamilies(doc);
+    for (const family of families) {
+      void ensureFontLoaded(family);
+    }
+  }, [doc]);
+
+  useEffect(() => {
+    return onFontLoaded(() => {
+      stageRef.current?.batchDraw();
+    });
+  }, []);
 
   // Observe the container size so the page auto-fits when the dialog
   // resizes (e.g. on window resize or when the properties panel opens
@@ -105,6 +133,7 @@ export default function BrochureEditorCanvas({
     >
       {stageW > 0 && stageH > 0 && (
         <Stage
+          ref={stageRef}
           width={stageW}
           height={stageH}
           onMouseDown={(e) => {
@@ -294,7 +323,7 @@ function ElementNode(props: ElementNodeProps) {
         onDragEnd={handleDragEnd}
         onTransformEnd={handleTransformEnd}
       >
-        <ElementBody element={element} width={wPx} height={hPx} pageWidth={page.width} />
+        <ElementBody element={element} width={wPx} height={hPx} pageWidth={page.width} scale={scale} />
       </Group>
       {isSelected && (
         <Transformer
@@ -328,16 +357,34 @@ function ElementNode(props: ElementNodeProps) {
 
 // ─── Element body renderers ────────────────────────────────────────────────
 
-function ElementBody({ element, width, height, pageWidth }: { element: BrochureElement; width: number; height: number; pageWidth: number }) {
+function ElementBody({
+  element,
+  width,
+  height,
+  pageWidth,
+  scale,
+}: {
+  element: BrochureElement;
+  width: number;
+  height: number;
+  pageWidth: number;
+  /** Canvas px per document mm — the SAME factor already used to
+   *  convert this element's x/y/width/height, so mm-denominated style
+   *  properties (font size, stroke width, corner radius) scale with
+   *  the rest of the scene at every viewport zoom level instead of
+   *  being fixed to a `SCREEN_DPI` px value that only looks right by
+   *  coincidence at one particular pane size. */
+  scale: number;
+}) {
   switch (element.kind) {
     case "text":
-      return <TextBody el={element} width={width} height={height} />;
+      return <TextBody el={element} width={width} height={height} scale={scale} />;
     case "image":
-      return <ImageBody el={element} width={width} height={height} />;
+      return <ImageBody el={element} width={width} height={height} scale={scale} />;
     case "shape":
-      return <ShapeBody el={element} width={width} height={height} />;
+      return <ShapeBody el={element} width={width} height={height} scale={scale} />;
     case "pill":
-      return <PillBody el={element} width={width} height={height} />;
+      return <PillBody el={element} width={width} height={height} scale={scale} />;
     default: {
       // Exhaustive check.
       const _never: never = element;
@@ -348,7 +395,7 @@ function ElementBody({ element, width, height, pageWidth }: { element: BrochureE
   }
 }
 
-function TextBody({ el, width, height }: { el: TextElement; width: number; height: number }) {
+function TextBody({ el, width, height, scale }: { el: TextElement; width: number; height: number; scale: number }) {
   return (
     <Text
       x={0}
@@ -357,7 +404,7 @@ function TextBody({ el, width, height }: { el: TextElement; width: number; heigh
       height={height}
       text={el.content}
       fontFamily={el.fontFamily}
-      fontSize={ptToPx(el.fontSize) * (width / width)}
+      fontSize={ptToMm(el.fontSize) * scale}
       fontStyle={
         el.fontWeight === "bold" && el.fontStyle === "italic"
           ? "italic bold"
@@ -376,8 +423,9 @@ function TextBody({ el, width, height }: { el: TextElement; width: number; heigh
   );
 }
 
-function ImageBody({ el, width, height }: { el: ImageElement; width: number; height: number }) {
+function ImageBody({ el, width, height, scale }: { el: ImageElement; width: number; height: number; scale: number }) {
   const [image, status] = useImage(el.src || "", "anonymous");
+  const radiusPx = el.cornerRadius * scale;
   if (status !== "loaded" || !image) {
     // Placeholder gray box while loading / on error. Include a dashed
     // border and hint text so a page-sized image whose URL failed to
@@ -395,7 +443,7 @@ function ImageBody({ el, width, height }: { el: ImageElement; width: number; hei
           stroke="#cbd5e1"
           strokeWidth={1}
           dash={[6, 4]}
-          cornerRadius={el.cornerRadius}
+          cornerRadius={radiusPx}
         />
         <Text
           x={0}
@@ -413,13 +461,13 @@ function ImageBody({ el, width, height }: { el: ImageElement; width: number; hei
     );
   }
 
-  const scale = el.fit === "cover"
+  const fitScale = el.fit === "cover"
     ? Math.max(width / image.width, height / image.height)
     : el.fit === "contain"
       ? Math.min(width / image.width, height / image.height)
       : Math.min(width / image.width, height / image.height); // "fill" — we still clamp to preserve ratio in-editor
-  const drawW = image.width * scale;
-  const drawH = image.height * scale;
+  const drawW = image.width * fitScale;
+  const drawH = image.height * fitScale;
   const dx = (width - drawW) / 2;
   const dy = (height - drawH) / 2;
 
@@ -427,7 +475,7 @@ function ImageBody({ el, width, height }: { el: ImageElement; width: number; hei
     <Group clipFunc={(ctx) => {
       // Rounded clip so the image respects `cornerRadius` even when it
       // overflows the geometry box in cover mode.
-      const r = Math.min(el.cornerRadius, width / 2, height / 2);
+      const r = Math.min(radiusPx, width / 2, height / 2);
       ctx.beginPath();
       ctx.moveTo(r, 0);
       ctx.lineTo(width - r, 0);
@@ -445,7 +493,7 @@ function ImageBody({ el, width, height }: { el: ImageElement; width: number; hei
   );
 }
 
-function ShapeBody({ el, width, height }: { el: ShapeElement; width: number; height: number }) {
+function ShapeBody({ el, width, height, scale }: { el: ShapeElement; width: number; height: number; scale: number }) {
   if (el.shape === "ellipse") {
     return (
       <Ellipse
@@ -455,7 +503,7 @@ function ShapeBody({ el, width, height }: { el: ShapeElement; width: number; hei
         radiusY={height / 2}
         fill={el.fill === "transparent" ? undefined : el.fill}
         stroke={el.stroke === "transparent" ? undefined : el.stroke}
-        strokeWidth={el.strokeWidth}
+        strokeWidth={el.strokeWidth * scale}
       />
     );
   }
@@ -467,13 +515,13 @@ function ShapeBody({ el, width, height }: { el: ShapeElement; width: number; hei
       height={height}
       fill={el.fill === "transparent" ? undefined : el.fill}
       stroke={el.stroke === "transparent" ? undefined : el.stroke}
-      strokeWidth={el.strokeWidth}
-      cornerRadius={el.cornerRadius}
+      strokeWidth={el.strokeWidth * scale}
+      cornerRadius={el.cornerRadius * scale}
     />
   );
 }
 
-function PillBody({ el, width, height }: { el: PillElement; width: number; height: number }) {
+function PillBody({ el, width, height, scale }: { el: PillElement; width: number; height: number; scale: number }) {
   // A pill is a rounded rect with the corner radius = height/2, plus
   // centered text on top.
   return (
@@ -486,7 +534,7 @@ function PillBody({ el, width, height }: { el: PillElement; width: number; heigh
         cornerRadius={height / 2}
         fill={el.fillColor === "transparent" ? undefined : el.fillColor}
         stroke={el.strokeColor === "transparent" ? undefined : el.strokeColor}
-        strokeWidth={el.strokeWidth}
+        strokeWidth={el.strokeWidth * scale}
       />
       <Text
         x={0}
@@ -495,7 +543,7 @@ function PillBody({ el, width, height }: { el: PillElement; width: number; heigh
         height={height}
         text={el.text}
         fontFamily={el.fontFamily}
-        fontSize={ptToPx(el.fontSize)}
+        fontSize={ptToMm(el.fontSize) * scale}
         fill={el.textColor}
         align="center"
         verticalAlign="middle"

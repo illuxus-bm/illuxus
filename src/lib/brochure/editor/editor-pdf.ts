@@ -20,15 +20,17 @@ import jsPDF from "jspdf";
 import Konva from "konva";
 
 import { EXPORT_DPI, mmToPx, ptToPx } from "./editor-units";
-import type {
-  BrochureDocument,
-  BrochureElement,
-  BrochurePage,
-  ImageElement,
-  PageBackground,
-  PillElement,
-  ShapeElement,
-  TextElement,
+import { ensureFontLoaded } from "./editor-fonts";
+import {
+  collectDocumentFontFamilies,
+  type BrochureDocument,
+  type BrochureElement,
+  type BrochurePage,
+  type ImageElement,
+  type PageBackground,
+  type PillElement,
+  type ShapeElement,
+  type TextElement,
 } from "./editor-document";
 
 /**
@@ -51,18 +53,6 @@ function loadImageForCanvas(url: string): Promise<HTMLImageElement | null> {
 }
 
 async function renderPageToImage(page: BrochurePage): Promise<HTMLCanvasElement> {
-  // Wait for every stylesheet-injected Google Font to finish shaping
-  // before we render a page — otherwise Konva may snapshot text at
-  // the fallback family (usually a plain sans-serif). This is what
-  // makes user-picked fonts survive the export path.
-  if (typeof document !== "undefined" && document.fonts?.ready) {
-    try {
-      await document.fonts.ready;
-    } catch {
-      // fonts.ready is best-effort; failure just means we render with
-      // whatever's currently loaded.
-    }
-  }
   // Container is off-DOM; Konva mounts into a real element but we
   // never attach it to the document so it stays invisible.
   const container = document.createElement("div");
@@ -316,6 +306,29 @@ export async function exportDocumentToPdf(
   doc: BrochureDocument,
   onProgress?: (completed: number, total: number) => void
 ): Promise<Blob> {
+  // Explicitly request every font family used anywhere in the document
+  // BEFORE rendering any page. Previously this function only awaited
+  // `document.fonts.ready` per-page, which resolves trivially (with
+  // nothing loaded) for any family that was never requested via
+  // `ensureFontLoaded` elsewhere — e.g. a font the seed used but the
+  // organizer never opened the font dropdown for. That silently
+  // exported text in the browser's fallback font instead of the
+  // family actually shown on the canvas moments earlier. Awaiting
+  // `ensureFontLoaded` per family (idempotent + cached) guarantees the
+  // stylesheet is injected and the weights are shaped, then
+  // `document.fonts.ready` below is a real synchronization point
+  // rather than a no-op.
+  const families = collectDocumentFontFamilies(doc);
+  await Promise.all(families.map((f) => ensureFontLoaded(f).catch(() => undefined)));
+  if (typeof document !== "undefined" && document.fonts?.ready) {
+    try {
+      await document.fonts.ready;
+    } catch {
+      // fonts.ready is best-effort; failure just means we render with
+      // whatever's currently loaded.
+    }
+  }
+
   const [firstPage] = doc.pages;
   const pdf = new jsPDF({
     unit: "mm",

@@ -404,6 +404,7 @@ export default function BrochureEditorDialog({
               <BrochureEditorPalette
                 pageWidth={activePage.width}
                 pageHeight={activePage.height}
+                defaultFontFamily={seed.fontFamily}
                 onAddElement={handleAddElement}
               />
               <div className="flex-1 min-w-0 relative">
