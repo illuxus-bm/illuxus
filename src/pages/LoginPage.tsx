@@ -14,6 +14,7 @@ import PasswordStrengthMeter from "@/components/auth/PasswordStrengthMeter";
 import { scorePassword } from "@/lib/password-strength";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSiteContent } from "@/hooks/useSiteContent";
+import { safeInternalPath } from "@/lib/safe-redirect";
 import { useTheme } from "@/contexts/ThemeContext";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import PersonFieldsForm, {
@@ -66,14 +67,20 @@ const LoginPage = () => {
    * open redirects.
    */
   const nextParam = searchParams.get("next");
-  const safeNext = (() => {
-    if (!nextParam) return null;
-    try {
-      const decoded = decodeURIComponent(nextParam);
-      if (decoded.startsWith("/") && !decoded.startsWith("//")) return decoded;
-    } catch { /* fall through */ }
-    return null;
-  })();
+  // Validated by `safeInternalPath`, which resolves the candidate against the
+  // current origin instead of prefix-matching it.
+  //
+  // The previous inline check was `decoded.startsWith("/") &&
+  // !decoded.startsWith("//")`. That blocked `https://evil.com` and
+  // `//evil.com` but PASSED `/\evil.com`: this value reaches
+  // `window.location.assign()` below, where the browser normalises a backslash
+  // into a forward slash before resolving the authority, so `/\evil.com`
+  // became `https://evil.com`. `/%5Cevil.com` and `/\t/evil.com` bypassed it
+  // the same way. That made `illuxus.com/login?next=/\evil.com` a phishing
+  // link on our own domain that redirects post-authentication.
+  //
+  // See src/lib/safe-redirect.ts and its regression tests.
+  const safeNext = safeInternalPath(nextParam);
   /** True when the visitor arrived because they need to claim a ticket — we
    *  show a friendlier "sign up to claim" callout on the form. */
   const claimingTicket = !!safeNext && safeNext.startsWith("/t/");
