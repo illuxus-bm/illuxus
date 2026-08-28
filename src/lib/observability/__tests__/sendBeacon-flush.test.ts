@@ -60,9 +60,16 @@ vi.mock('@sentry/browser', () => {
   };
 });
 
-// eslint-disable-next-line import/first
+// These imports intentionally sit BELOW the `vi.mock(...)` call above:
+// `vi.mock` is hoisted by Vitest, and keeping the imports after it documents
+// that the mock must be registered before the module under test is loaded.
+//
+// (There used to be `eslint-disable-next-line import/first` comments here.
+// `eslint-plugin-import` is not a dependency of this project, so the rule did
+// not exist and ESLint reported the directives themselves as errors —
+// "Definition for rule 'import/first' was not found". They suppressed nothing
+// and are removed.)
 import { createRemoteSink, type SinkClient } from '../sinks/remote';
-// eslint-disable-next-line import/first
 import type { LogRecord } from '../sinks/types';
 
 // ---------------------------------------------------------------------------

@@ -88,10 +88,20 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
         // zero React re-renders. setLevel is throttled to 500ms for the
         // "speaking / silent" checklist row.
         let lastStateUpdate = 0;
-        let cancelled = false;
+        // Cancellation is handled entirely through `rafRef`: the frame is
+        // cancelled here before starting a new loop, and again in this
+        // component's unmount cleanup.
+        //
+        // There used to be a `let cancelled = false` flag guarding the top of
+        // `loop`, but nothing ever set it to `true` — it is declared inside
+        // `startMedia()` while the cleanup lives in a separate `useEffect`
+        // return that only closes over `rafRef`, so the flag was unreachable
+        // from the only place that would have flipped it. `if (cancelled)
+        // return;` could therefore never fire. Removing both lines is
+        // behaviour-identical and drops the dead branch that `prefer-const`
+        // surfaced.
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
         const loop = () => {
-          if (cancelled) return;
           if (!document.hidden) {
             an.getByteTimeDomainData(buf);
             let sum = 0;

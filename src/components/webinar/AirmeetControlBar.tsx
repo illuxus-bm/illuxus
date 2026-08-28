@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { logger } from "@/lib/observability";
 
 const REACTIONS = ["👏", "❤️", "🔥", "😂", "🎉", "👍"];
 
@@ -106,9 +107,25 @@ export function AirmeetControlBar({
     try {
       const action = canPublish ? "demote" : "promote";
       if (canPublish && localParticipant) {
-        try { await localParticipant.setMicrophoneEnabled(false); } catch {}
-        try { await localParticipant.setCameraEnabled(false); } catch {}
-        try { await localParticipant.setScreenShareEnabled(false); } catch {}
+        // Best-effort teardown before demoting to viewer. Each call is
+        // independently guarded because a track that is already off (or whose
+        // device was unplugged) rejects, and one failure must not prevent the
+        // remaining tracks from being released or block the demotion itself.
+        try {
+          await localParticipant.setMicrophoneEnabled(false);
+        } catch {
+          // Intentionally ignored — see above.
+        }
+        try {
+          await localParticipant.setCameraEnabled(false);
+        } catch {
+          // Intentionally ignored — see above.
+        }
+        try {
+          await localParticipant.setScreenShareEnabled(false);
+        } catch {
+          // Intentionally ignored — see above.
+        }
       }
       const { error } = await supabase.functions.invoke("livekit-promote", {
         body: { session_id: sessionId, action, self: true },
@@ -149,7 +166,14 @@ export function AirmeetControlBar({
       .insert({ session_id: sessionId, user_id: cleanUserId, emoji } as any)
       .then(({ error }) => {
         if (error) {
-          console.error("Reaction insert failed:", error);
+          // Routed through `logger` rather than `console.error`: the
+          // observability layer scrubs PII, attaches the correlation id, and
+          // buffers while offline. A raw console call bypasses all three and
+          // the failure would never reach the remote sink.
+          logger.error("webinar reaction insert failed", {
+            session_id: sessionId,
+            error_message: error.message,
+          });
           toast.error(`Failed to send reaction: ${error.message}`);
         }
       });

@@ -73,7 +73,14 @@ export function captureUtm(search: string, force = false): UtmParams {
     // Only overwrite if first-touch has no data yet, or forced.
     const existing = loadStoredUtm();
     if (!hasUtm(existing) || force) {
-      try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(incoming)); } catch (_) {}
+      try {
+        sessionStorage.setItem(SESSION_KEY, JSON.stringify(incoming));
+      } catch {
+        // Intentionally ignored. `sessionStorage` throws in Safari private
+        // mode and when storage is blocked by policy. Attribution is
+        // best-effort: the caller still receives `incoming` and the
+        // registration proceeds un-attributed rather than failing.
+      }
     }
     return hasUtm(existing) && !force ? existing : incoming;
   }
@@ -94,7 +101,12 @@ export function loadStoredUtm(): UtmParams {
 
 /** Clear stored UTM params — call after a successful registration. */
 export function clearStoredUtm(): void {
-  try { sessionStorage.removeItem(SESSION_KEY); } catch (_) {}
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    // Intentionally ignored — if storage is unavailable there is nothing
+    // stored to clear, so the post-condition already holds.
+  }
 }
 
 /**

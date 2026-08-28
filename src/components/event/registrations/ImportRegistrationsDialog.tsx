@@ -111,7 +111,9 @@ export function parseCsv(text: string): string[][] {
 }
 
 function normalizeHeader(h: string): string {
-  return h.trim().toLowerCase().replace(/[\s_\-]/g, "");
+  // `-` sits last in the class, so it is a literal hyphen and needs no
+  // backslash. The previous `\-` was a no-op flagged by `no-useless-escape`.
+  return h.trim().toLowerCase().replace(/[\s_-]/g, "");
 }
 
 interface Props {

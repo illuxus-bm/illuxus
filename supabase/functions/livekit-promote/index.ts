@@ -4,6 +4,18 @@ import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 
 const MAX = 10;
 
+/**
+ * Shape of LiveKit's `RoomService/ListParticipants` Twirp response, limited to
+ * the field this function reads. Typed explicitly rather than `any` so the
+ * publisher-cap check below cannot silently start counting zero if the
+ * response shape changes — that would let the stage exceed MAX.
+ */
+interface ListParticipantsResponse {
+  participants?: Array<{
+    permission?: { canPublish?: boolean };
+  }>;
+}
+
 Deno.serve(async (req) => {
   const corsHeaders = buildCorsHeaders(req);
   const preflight = handlePreflight(req, corsHeaders);
@@ -48,8 +60,8 @@ Deno.serve(async (req) => {
       const list = await fetch(`${url}/twirp/livekit.RoomService/ListParticipants`, {
         method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${jwt}` },
         body: JSON.stringify({ room: session.livekit_room }),
-      }).then(r => r.json()).catch(() => ({ participants: [] }));
-      const pubCount = (list.participants || []).filter((p: any) => p.permission?.canPublish).length;
+      }).then(r => r.json()).catch(() => ({ participants: [] })) as ListParticipantsResponse;
+      const pubCount = (list.participants ?? []).filter((p) => p.permission?.canPublish).length;
       if (pubCount >= MAX) return j({ error: "Stage is full (10/10)" }, 409);
       if (!self) {
         await supabase.from("webinar_stage_requests").update({ status: "accepted" })

@@ -36,7 +36,12 @@
 // Conservative, practical email regex. See module-level comment for design
 // rationale. Anchored at both ends so partial matches inside other strings
 // can't slip through.
-const EMAIL_RE = /^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/;
+// `-` is placed last in each character class so it is a literal hyphen rather
+// than a range, which is why it needs no backslash. The previous `\-` escapes
+// were no-ops (flagged by `no-useless-escape`); removing them does not change
+// what this matches — verified equivalent across the local-part, subdomain,
+// hyphenated-domain, plus-tag, and underscore cases.
+const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
 /**
  * Return true when `value` looks like a deliverable email address. The check

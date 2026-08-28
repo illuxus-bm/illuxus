@@ -104,7 +104,9 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
       supabase.from("event_speakers").select("speaker_id, speakers(id, name)").eq("event_id", eventId),
     ]);
     const list = (sess || []) as any[];
-    let linkMap = new Map<string, string[]>();
+    // `const` — the Map is mutated via `.set()` but the binding is never
+    // reassigned.
+    const linkMap = new Map<string, string[]>();
     if (list.length) {
       const { data: ss } = await supabase
         .from("session_speakers")

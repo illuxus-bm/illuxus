@@ -7,6 +7,29 @@ const log = createEdgeLogger("livekit-token");
 
 const MAX_PUBLISHERS = 10;
 
+/** Roles a participant can hold in a webinar room. */
+type WebinarRole = "host" | "cohost" | "speaker" | "viewer";
+
+const WEBINAR_ROLES: readonly WebinarRole[] = ["host", "cohost", "speaker", "viewer"];
+
+/**
+ * Coerces a `webinar_speakers.role` value (a plain `text` column) into a
+ * `WebinarRole`, falling back to `"viewer"`.
+ *
+ * Replaces `role = sp.role as any`, which asserted a bare `string` into the
+ * union without checking it. That cast meant an unexpected or misspelled
+ * value in the column propagated into the LiveKit grant unvalidated. It could
+ * not escalate on its own — `roomAdmin` is `role === "host"`, so only the
+ * exact string "host" grants admin — but defaulting to the LEAST-privileged
+ * role is the correct behaviour for an unrecognised value, and doing it here
+ * means the grant is always derived from a known-good role.
+ */
+function toWebinarRole(raw: unknown): WebinarRole {
+  return typeof raw === "string" && (WEBINAR_ROLES as readonly string[]).includes(raw)
+    ? (raw as WebinarRole)
+    : "viewer";
+}
+
 function cleanName(raw: string | null | undefined): string {
   if (!raw) return "Guest";
   const s = String(raw).trim();
@@ -74,7 +97,7 @@ Deno.serve(async (req) => {
         .eq("invite_token", speaker_token)
         .maybeSingle();
       if (sp) {
-        speakerRow = sp as any;
+        speakerRow = sp;
         if (!userId) {
           guestIdentity = `speaker-${sp.id}`;
           const spName = sp.display_name?.trim();
@@ -128,14 +151,15 @@ Deno.serve(async (req) => {
       .from("events").select("user_id").eq("id", session.event_id).maybeSingle();
     const isOwner = ev?.user_id === userId;
 
-    let role: "host" | "cohost" | "speaker" | "viewer" = "viewer";
+    // Defaults to the least-privileged role; each branch below may widen it.
+    let role: WebinarRole = "viewer";
     let canPublish = false;
 
     if (userId && (isOwner || session.created_by === userId)) {
       role = "host";
       canPublish = true;
     } else if (speakerRow) {
-      role = speakerRow.role as any;
+      role = toWebinarRole(speakerRow.role);
       canPublish = true;
       const spName = speakerRow.display_name?.trim();
       if (spName) displayName = spName;
@@ -148,7 +172,7 @@ Deno.serve(async (req) => {
       const { data: sp } = await supabase
         .from("webinar_speakers").select("id, role")
         .eq("session_id", session_id).eq("user_id", userId).maybeSingle();
-      if (sp) { role = sp.role as any; canPublish = true; }
+      if (sp) { role = toWebinarRole(sp.role); canPublish = true; }
     }
 
     // If publishing, check 10-cap via LiveKit RoomService

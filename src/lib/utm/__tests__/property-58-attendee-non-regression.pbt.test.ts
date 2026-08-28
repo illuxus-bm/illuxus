@@ -55,7 +55,26 @@ const ATTENDEE_FILES = [
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",
-    hash: "b825577081eb289ebb432e95c4fc46edecab65945f243309ce31a0e11eff1ac3",
+    // Bumped after replacing a ternary-used-as-a-statement in `toggleSelect`
+    // with an explicit if/else, to clear an
+    // `@typescript-eslint/no-unused-expressions` error. The old form
+    // (`next.has(id) ? next.delete(id) : next.add(id);`) discarded its result
+    // purely for side effects.
+    //
+    // Manually re-audited against Requirements 6.4 and 6.6 — both intact:
+    //   • 6.4 — the `via <utm_source>` inline row hint still reads
+    //     `utm_source` off the registration (the `const src = ...utm_source`
+    //     line in the row renderer).
+    //   • 6.6 — the CSV export still emits the five contiguous UTM columns in
+    //     order: utm_source, utm_medium, utm_campaign, utm_content, utm_term,
+    //     each `?? ""`, alongside the unchanged comma-escaping that keeps a
+    //     value like `utm_content=blog,post` in one cell.
+    //
+    // `toggleSelect` is the bulk-action row-selection Set toggle. It shares no
+    // code path with UTM display or export, and the diff is confined to that
+    // one function. The contractual single `console.warn('UI sync failure')`
+    // (REQ-11.4) and its scoped eslint-disable are also untouched.
+    hash: "f9d27239f6066c9c9f928ade0a40d0da6bfe86a7955eea707d028a09744f7c20",
   },
   {
     path: "src/components/event/registrations/RegistrantQuickView.tsx",

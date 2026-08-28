@@ -16,7 +16,12 @@ async function loadRates(): Promise<FxRates | null> {
         return { base: parsed.base, rates: parsed.rates, fetched_at: parsed.fetched_at };
       }
     }
-  } catch {}
+  } catch {
+    // Intentionally ignored. `localStorage` throws in Safari private mode and
+    // when storage is disabled by policy, and `JSON.parse` throws on a
+    // corrupted cache entry. Either way the cache is simply unusable, so fall
+    // through to the network fetch below.
+  }
   // Try direct fetch first (most reliable, no SDK overhead), then fall back to invoke.
   const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fx-rates`;
   const anon = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY) as string | undefined;
@@ -28,7 +33,13 @@ async function loadRates(): Promise<FxRates | null> {
       const json = await res.json();
       if (json?.rates && Object.keys(json.rates).length > 10) {
         const value = json as FxRates;
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...value, _saved: Date.now() })); } catch {}
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...value, _saved: Date.now() }));
+        } catch {
+          // Intentionally ignored — caching is an optimisation. A quota or
+          // private-mode failure must not stop us returning the rates we just
+          // fetched successfully.
+        }
         return value;
       }
     }

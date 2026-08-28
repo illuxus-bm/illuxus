@@ -12,6 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { subscribeSessionParticipants, type SidebarParticipant } from "./participantStore";
+import { logger } from "@/lib/observability";
 
 const REACTIONS = ["👏", "❤️", "🔥", "😂", "🎉", "👍"];
 
@@ -125,7 +126,12 @@ export function WebinarSidebar({ sessionId, isHost, canPublish, userId, activeTa
       .insert({ session_id: sessionId, user_id: cleanUserId, emoji } as any)
       .then(({ error }) => {
         if (error) {
-          console.error("Reaction insert failed:", error);
+          // Routed through `logger` rather than `console.error` so the record
+          // is PII-scrubbed, correlation-tagged, and reaches the remote sink.
+          logger.error("webinar reaction insert failed", {
+            session_id: sessionId,
+            error_message: error.message,
+          });
           toast.error(`Failed to send reaction: ${error.message}`);
         }
       });

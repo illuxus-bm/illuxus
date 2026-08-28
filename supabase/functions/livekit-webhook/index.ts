@@ -9,12 +9,52 @@ const receiver = new WebhookReceiver(
   Deno.env.get("LIVEKIT_API_SECRET")!,
 );
 
+/**
+ * The parts of LiveKit's webhook payload this function reads.
+ *
+ * `WebhookEvent` from `livekit-server-sdk` types `room` and `event` but leaves
+ * `egressInfo` and `participant` loosely specified for the event variants we
+ * care about, which is why these accesses were previously cast to `any`.
+ * Declaring the shape narrowly instead documents exactly what the handler
+ * depends on, so an upstream payload change surfaces here rather than as an
+ * `undefined` read at runtime.
+ *
+ * Every field is optional: these are union members that only appear on their
+ * corresponding `event` value, and the handler already guards each one.
+ */
+interface EgressResultLocation {
+  location?: string;
+}
+
+interface LiveKitEgressInfo {
+  /** Populated for completed file egress (recording upload). */
+  fileResults?: EgressResultLocation[];
+  /** Legacy single-file shape, still emitted by older LiveKit versions. */
+  file?: EgressResultLocation;
+}
+
+interface LiveKitParticipantInfo {
+  identity?: string;
+  permission?: {
+    canPublish?: boolean;
+  };
+}
+
+/** Narrowing view over the SDK's `WebhookEvent` for the fields used below. */
+interface LiveKitWebhookExtras {
+  egressInfo?: LiveKitEgressInfo;
+  participant?: LiveKitParticipantInfo;
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("ok");
   try {
     const body = await req.text();
     const auth = req.headers.get("Authorization") || "";
     const event = await receiver.receive(body, auth);
+    // Single narrowing view reused by the branches below, instead of an
+    // inline `as any` at each access site.
+    const extras = event as unknown as LiveKitWebhookExtras;
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const room = event.room?.name;
     if (!room) return new Response("ok");
@@ -34,14 +74,15 @@ Deno.serve(async (req) => {
         }
       }
     } else if (event.event === "egress_ended") {
-      const file = (event as any).egressInfo?.fileResults?.[0]?.location || (event as any).egressInfo?.file?.location;
+      const file = extras.egressInfo?.fileResults?.[0]?.location
+        ?? extras.egressInfo?.file?.location;
       if (file) {
         await supabase.from("webinar_sessions").update({ recording_url: file }).eq("livekit_room", room);
       }
     } else if (event.event === "participant_joined") {
       const { data: s } = await supabase.from("webinar_sessions").select("id, viewer_peak, publisher_peak").eq("livekit_room", room).maybeSingle();
       if (s) {
-        const p = (event as any).participant || {};
+        const p: LiveKitParticipantInfo = extras.participant ?? {};
         const isPub = p.permission?.canPublish;
         const identity = p.identity || crypto.randomUUID();
         const name = p.name || null;
@@ -65,7 +106,7 @@ Deno.serve(async (req) => {
     } else if (event.event === "participant_left") {
       const { data: s } = await supabase.from("webinar_sessions").select("id, attendance_minutes").eq("livekit_room", room).maybeSingle();
       if (s) {
-        const p = (event as any).participant || {};
+        const p: LiveKitParticipantInfo = extras.participant ?? {};
         const identity = p.identity;
         if (identity) {
           const { data: row } = await supabase.from("webinar_attendance")

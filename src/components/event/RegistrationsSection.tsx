@@ -855,7 +855,14 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      // if/else rather than a ternary-as-statement: the ternary discarded its
+      // result purely for side effects, which `no-unused-expressions` flags
+      // and which reads as an expression when it is really a branch.
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   };

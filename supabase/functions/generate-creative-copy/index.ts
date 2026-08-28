@@ -166,18 +166,17 @@ function emit(
   };
   if (fields) Object.assign(record, redactValue("__fields__", fields) as Record<string, unknown>);
   const line = JSON.stringify(record);
-  // Edge functions in Deno cannot import `@/lib/observability`, and the
-  // Supabase Dashboard's function-log panel only surfaces `console.*`
-  // output. This is the workspace rule's sanctioned "no logger available"
-  // exception — the same pattern used by `generate-creative-background`.
-  /* eslint-disable no-console */
+  // `console` is the only log sink an edge function has: it runs in Deno,
+  // cannot import `@/lib/observability`, and the Supabase dashboard's
+  // function-log panel surfaces nothing else. `no-console` is switched off for
+  // `supabase/functions/**` in eslint.config.js for exactly this reason, so no
+  // per-call-site suppression is needed here.
   switch (level) {
     case "error": console.error(line); break;
     case "warn":  console.warn(line);  break;
     case "info":  console.info(line);  break;
     default:      console.debug(line); break;
   }
-  /* eslint-enable no-console */
 }
 function makeLogger(fnName: string, bound: Record<string, unknown>): EdgeLogger {
   return {

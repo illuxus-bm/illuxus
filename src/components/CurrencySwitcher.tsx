@@ -13,7 +13,14 @@ export function getStoredDisplayCurrency(fallback = "INR"): string {
 }
 
 export function setStoredDisplayCurrency(code: string) {
-  try { localStorage.setItem(STORAGE_KEY, code); } catch {}
+  try {
+    localStorage.setItem(STORAGE_KEY, code);
+  } catch {
+    // Intentionally ignored — persisting the currency preference is a
+    // convenience. `localStorage` throws in Safari private mode and when
+    // storage is disabled by policy; the selection still applies for this
+    // session either way.
+  }
 }
 
 export function CurrencySwitcher({
