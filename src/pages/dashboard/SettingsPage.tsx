@@ -542,6 +542,14 @@ const SettingsPage = () => {
   const isOwner =
     org?.owner_id === user?.id ||
     members.some((m) => m.user_id === user?.id && m.role === "owner");
+  // Admins share day-to-day management responsibilities with owners: editing
+  // org details, sending/revoking invitations, and changing/removing
+  // non-owner teammates. Owner-only actions (touching another owner, or
+  // promoting anyone to "owner") stay gated by `isOwner` below. This mirrors
+  // the `is_org_manager` SQL helper introduced in migration 030.
+  const myMembership = members.find((m) => m.user_id === user?.id);
+  const canManageOrg =
+    isOwner || (myMembership?.role === "admin");
 
   const tabs = [
     { id: "profile", label: "Profile", icon: User },
@@ -658,14 +666,14 @@ const SettingsPage = () => {
                   <div className="space-y-3">
                     <div>
                       <Label className="text-[13px]">Organization Name</Label>
-                      <Input value={orgName} onChange={(e) => setOrgName(e.target.value)} className="mt-1 h-8 text-sm" disabled={!isOwner} />
+                      <Input value={orgName} onChange={(e) => setOrgName(e.target.value)} className="mt-1 h-8 text-sm" disabled={!canManageOrg} />
                     </div>
                     <div>
                       <Label className="text-[13px]">Billing Email</Label>
-                      <Input value={orgBillingEmail} onChange={(e) => setOrgBillingEmail(e.target.value)} className="mt-1 h-8 text-sm" disabled={!isOwner} placeholder="billing@example.com" />
+                      <Input value={orgBillingEmail} onChange={(e) => setOrgBillingEmail(e.target.value)} className="mt-1 h-8 text-sm" disabled={!canManageOrg} placeholder="billing@example.com" />
                     </div>
                   </div>
-                  {isOwner && (
+                  {canManageOrg && (
                     <Button onClick={handleSaveOrg} disabled={savingOrg} size="sm" className="h-8 text-[13px]">
                       {savingOrg ? "Saving..." : "Save Changes"}
                     </Button>
@@ -697,7 +705,7 @@ const SettingsPage = () => {
                       <h2 className="text-sm font-semibold">Team Members</h2>
                       <p className="text-[12px] text-muted-foreground mt-0.5">{members.length} member{members.length !== 1 ? "s" : ""}</p>
                     </div>
-                    {isOwner && (
+                    {canManageOrg && (
                       <Button size="sm" className="h-8 text-[13px] gap-1.5" onClick={() => setShowInviteDialog(true)}>
                         <UserPlus className="h-3.5 w-3.5" />
                         Invite
@@ -719,34 +727,58 @@ const SettingsPage = () => {
                             <p className="text-[11px] text-muted-foreground">Joined {new Date(m.joined_at).toLocaleDateString()}</p>
                           </div>
                           <div className="flex items-center gap-2">
-                            {isOwner && m.user_id !== org.owner_id ? (
-                              <Select value={m.role} onValueChange={(v) => handleUpdateMemberRole(m.id, v)}>
-                                <SelectTrigger className="h-7 text-[12px] w-[100px] border-border">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {ROLE_OPTIONS.map((r) => (
-                                    <SelectItem key={r.value} value={r.value} className="text-[12px]">
-                                      {r.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <Badge variant="outline" className={`text-[11px] font-medium capitalize ${roleBadgeColor(m.role)}`}>
-                                {m.role}
-                              </Badge>
-                            )}
-                            {isOwner && m.user_id !== org.owner_id && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                onClick={() => handleRemoveMember(m.id, m.user_id)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
+                            {(() => {
+                              // A row is untouchable by non-owners when it
+                              // represents another owner — either the
+                              // canonical workspace owner or a teammate
+                              // previously promoted to `role='owner'` via
+                              // migration 007's co-owner flow. Only an owner
+                              // may edit/remove another owner, and only an
+                              // owner may promote a member to owner (the
+                              // "owner" option is filtered out below when
+                              // the acting user is an admin).
+                              const rowIsOwner =
+                                m.user_id === org.owner_id || m.role === "owner";
+                              // Owners: may edit any teammate except the
+                              // canonical workspace owner (self-demotion is
+                              // still blocked to preserve the invariant that
+                              // every workspace keeps at least one owner).
+                              // Admins: may edit any non-owner teammate.
+                              const canEditRow =
+                                (isOwner && m.user_id !== org.owner_id) ||
+                                (canManageOrg && !rowIsOwner);
+                              const roleOptions = isOwner
+                                ? ROLE_OPTIONS
+                                : ROLE_OPTIONS.filter((r) => r.value !== "owner");
+                              return canEditRow ? (
+                                <>
+                                  <Select value={m.role} onValueChange={(v) => handleUpdateMemberRole(m.id, v)}>
+                                    <SelectTrigger className="h-7 text-[12px] w-[100px] border-border">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {roleOptions.map((r) => (
+                                        <SelectItem key={r.value} value={r.value} className="text-[12px]">
+                                          {r.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                    onClick={() => handleRemoveMember(m.id, m.user_id)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </>
+                              ) : (
+                                <Badge variant="outline" className={`text-[11px] font-medium capitalize ${roleBadgeColor(m.role)}`}>
+                                  {m.role}
+                                </Badge>
+                              );
+                            })()}
                           </div>
                         </div>
                       ))}
@@ -771,7 +803,7 @@ const SettingsPage = () => {
                           <Badge variant="outline" className={`text-[11px] font-medium capitalize ${roleBadgeColor(inv.role)}`}>
                             {inv.role}
                           </Badge>
-                          {isOwner && (
+                          {canManageOrg && (
                             <Button
                               variant="ghost"
                               size="icon"
