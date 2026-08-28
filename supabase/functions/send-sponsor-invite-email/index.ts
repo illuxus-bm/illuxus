@@ -23,6 +23,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+import { assertEventAccess, requireUser } from "../_shared/auth.ts";
 
 const log = createEdgeLogger("send-sponsor-invite-email");
 
@@ -171,6 +172,18 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // ── Authorization — MUST run before any mail leaves the building ─────────
+    // Service-role send. `verify_jwt = true` is satisfied by the public anon
+    // key, so the caller must be resolved explicitly and must own the event
+    // they are inviting a sponsor to.
+    const caller = await requireUser(req, supabase);
+    if (!caller.ok) return json({ error: caller.error }, caller.status);
+    const access = await assertEventAccess(supabase, caller.user.id, event_id);
+    if (!access.ok) {
+      log.warn("unauthorized invite rejected", { actor_id: caller.user.id, event_id });
+      return json({ error: access.error }, access.status);
+    }
 
     const [{ data: sponsor }, { data: event }] = await Promise.all([
       supabase.from("sponsors").select("id, name, email").eq("id", sponsor_id).maybeSingle(),

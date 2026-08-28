@@ -1,9 +1,11 @@
 // Seeds the global `cities` table from the GeoNames cities5000 dataset.
-// Admin-only. Idempotent — safe to re-run.
+// Platform-admin only, enforced in-function (see the authorization block in
+// the handler). Idempotent — safe to re-run.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { BlobReader, ZipReader, TextWriter } from "https://deno.land/x/zipjs@v2.7.45/index.js";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+import { requirePlatformAdmin, requireUser } from "../_shared/auth.ts";
 
 const log = createEdgeLogger("seed-cities");
 
@@ -57,16 +59,29 @@ Deno.serve(async (req) => {
   const preflight = handlePreflight(req, corsHeaders);
   if (preflight) return preflight;
   try {
-    const authHeader = req.headers.get("Authorization") ?? "";
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const admin = createClient(supabaseUrl, serviceKey);
 
-    // One-time seed; allow any caller. The DB is protected by RLS and the
-    // upsert is idempotent — re-running just refreshes the city list.
-    log.info("invoked");
+    // ── Authorization — platform admin only ──────────────────────────────
+    // This used to allow any caller with the comment "the DB is protected by
+    // RLS". That reasoning was wrong: the client below is service-role, so
+    // RLS does not apply at all. Unauthenticated, the endpoint was a cost /
+    // compute DoS — every hit downloads a ~10MB GeoNames archive and bulk
+    // upserts thousands of rows.
+    const caller = await requireUser(req, admin);
+    if (!caller.ok) {
+      log.warn("unauthenticated seed rejected", { status: caller.status });
+      return json({ error: caller.error }, caller.status);
+    }
+    const authz = await requirePlatformAdmin(admin, caller.user.id);
+    if (!authz.ok) {
+      log.warn("non-admin seed rejected", { actor_id: caller.user.id });
+      return json({ error: authz.error }, authz.status);
+    }
+
+    log.info("invoked", { actor_id: caller.user.id });
 
     log.info("fetching reference data");
     const [countries, admin1] = await Promise.all([

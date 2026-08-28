@@ -18,6 +18,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { defaultFromAddress, sendViaSmtp, smtpConfigured, textToHtml } from "../_shared/smtp.ts";
 import { buildCorsHeaders, corsJson, handlePreflight } from "../_shared/cors.ts";
+import { createEdgeLogger } from "../_shared/edge-logger.ts";
+import { assertEventAccess, requireUser } from "../_shared/auth.ts";
+
+const log = createEdgeLogger("notify-venue-selection");
 
 const VENDOR_PORTAL_URL =
   Deno.env.get("VENDOR_PORTAL_URL") ?? "https://vendors.illuxus.com/vendor";
@@ -47,6 +51,24 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // ── Authorization — MUST run before any mail leaves the building ─────────
+    // This function resolves vendor owner emails via `auth.admin.listUsers()`
+    // and mails them. `verify_jwt = true` is satisfied by the public anon key,
+    // so the caller must be resolved explicitly and must own the event whose
+    // venue selection is being announced.
+    const caller = await requireUser(req, supabase);
+    if (!caller.ok) {
+      return corsJson({ ok: false, error: caller.error }, { status: caller.status, cors });
+    }
+    const access = await assertEventAccess(supabase, caller.user.id, event_id);
+    if (!access.ok) {
+      log.warn("unauthorized venue notification rejected", {
+        actor_id: caller.user.id,
+        event_id,
+      });
+      return corsJson({ ok: false, error: access.error }, { status: access.status, cors });
+    }
 
     // ─── Load event + org details ─────────────────────────────────────────
     const { data: event, error: eventErr } = await supabase

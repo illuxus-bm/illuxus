@@ -24,6 +24,7 @@ import PersonFieldsForm, { type PersonFields, emptyPersonFields, displayName as 
 import { uuid } from "@/lib/uuid";
 import { publicOrigin } from "@/lib/publicUrl";
 import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
+import { logger, supabaseRpc } from "@/lib/observability";
 
 type Profile = Tables<"profiles">;
 
@@ -448,23 +449,39 @@ const SettingsPage = () => {
     if (!org) return;
 
     // Resolve the member's email + display name BEFORE deleting the row.
-    // We need the email to (a) revoke their pending invitations so the
-    // original link can't reinstate them and (b) send the removal-notice
-    // email. Email lives on auth.users which the client can't read, but
-    // the `profiles` table mirrors it; if the mirror is missing the
-    // member's email we still proceed with the removal — the removal email
-    // is best-effort.
-    const { data: profileRow } = await supabase
-      .from("profiles")
-      .select("email, display_name, first_name, last_name")
-      .eq("user_id", memberUserId)
-      .maybeSingle();
-    const removedEmail = (profileRow as { email?: string | null } | null)?.email?.toLowerCase() || null;
-    const removedName = (profileRow as { display_name?: string | null; first_name?: string | null; last_name?: string | null } | null);
-    const displayName = removedName?.display_name
-      || [removedName?.first_name, removedName?.last_name].filter(Boolean).join(" ").trim()
-      || removedEmail
-      || "the team member";
+    // We need the email to (a) revoke their outstanding invitations so the
+    // original link can't reinstate them and (b) send the removal notice.
+    //
+    // This used to read `profiles.select("email, ...")` on the belief that
+    // "the profiles table mirrors it". It does not — `profiles` has no
+    // `email` column at all (000_full_schema.sql:5064 says so explicitly).
+    // PostgREST rejected the query, the error was destructured away, so
+    // `removedEmail` was ALWAYS null. Consequence: step 2 below is guarded
+    // on `if (removedEmail)` and therefore never ran, meaning removing a
+    // teammate never revoked their invitation rows, and step 3's removal
+    // notice never sent.
+    //
+    // Emails live in `auth.users`, which clients cannot read, so this now
+    // goes through the `org_member_contact` SECURITY DEFINER RPC
+    // (migration 031). It is scoped to a single (org, user) pair and
+    // requires the caller to administer that org, so it cannot be used to
+    // enumerate a directory. It returns an empty set rather than erroring
+    // when unauthorized; removal still proceeds in that case, since the
+    // notice and revocation are both best-effort relative to the removal.
+    const { data: contactRows, error: contactErr } = await supabaseRpc<
+      Array<{ email: string | null; display_name: string | null }>
+    >("org_member_contact", { _org_id: org.id, _user_id: memberUserId });
+
+    if (contactErr) {
+      logger.warn("member contact lookup failed", {
+        org_id: org.id,
+        error_message: contactErr.message,
+      });
+    }
+
+    const contact = contactRows?.[0] ?? null;
+    const removedEmail = contact?.email?.toLowerCase() || null;
+    const displayName = contact?.display_name || removedEmail || "the team member";
 
     // Step 1: remove the membership row.
     const { error: delErr } = await supabase.from("org_members").delete().eq("id", memberId);

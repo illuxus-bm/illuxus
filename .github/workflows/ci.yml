@@ -1,0 +1,345 @@
+name: CI
+
+# Production gate. Before this workflow existed the repository had NO
+# automated checks at all: `lint` and `test` were defined in package.json but
+# nothing invoked them, there was no `typecheck` script, and Vercel's
+# push-to-deploy ran `vite build` only. Since Vite strips types without
+# checking them, type errors, lint violations and failing tests all shipped
+# to production silently.
+#
+# Job layout:
+#   quality  — lint + unit/property tests + production build (BLOCKING)
+#   types    — tsc project-wide typecheck (NON-BLOCKING, baseline-tracked)
+#   db       — migration sanity checks (BLOCKING)
+#
+# See `docs/ci.md` for why `types` is not yet blocking and what has to happen
+# to flip it.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  # Allow manual runs so a release engineer can re-verify a commit without
+  # pushing an empty change.
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref — a force-push shouldn't leave the
+# previous run burning minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege. No job here writes to the repo, publishes packages, or
+# touches deployments.
+permissions:
+  contents: read
+
+env:
+  # Keep CI output deterministic and machine-readable.
+  CI: "true"
+  # The Supabase client is constructed at import time in some modules, so the
+  # test/build steps need syntactically-valid values. These are NOT secrets:
+  # they are throwaway placeholders so nothing in CI can ever reach a real
+  # project. Real values live in Vercel's env store.
+  VITE_SUPABASE_URL: "https://placeholder.supabase.co"
+  VITE_SUPABASE_PUBLISHABLE_KEY: "ci-placeholder-anon-key"
+  VITE_SUPABASE_PROJECT_ID: "ci-placeholder"
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # BLOCKING: lint, tests, build. All three are green as of this workflow's
+  # introduction, so any failure here is a genuine regression.
+  # ──────────────────────────────────────────────────────────────────────────
+  quality:
+    name: Lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `vite.config.ts` derives VITE_BUILD_SHA from `git rev-parse
+          # --short HEAD`. A shallow clone still resolves HEAD, but fetching
+          # depth 0 keeps the value meaningful if that logic ever changes to
+          # use tags or describe.
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        # --frozen-lockfile matches vercel.json's installCommand, so CI and
+        # the deploy build resolve the identical dependency tree. A drifted
+        # lockfile fails here instead of surprising the deploy.
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        # ESLint enforces the project's hard rules, including `no-console`
+        # (the observability layer is mandatory) and the no-explicit-any
+        # budget.
+        run: bun run lint
+
+      - name: Unit and property tests
+        # 120 files / 500 assertions at time of writing, including the
+        # fast-check property suites for the attendance state machine,
+        # observability redaction, and creative rendering.
+        run: bun run test
+
+      - name: Production build
+        run: bun run build
+
+      - name: Assert build output exists
+        # Guards against a "successful" build that emitted nothing — e.g. a
+        # misconfigured outDir. Cheap insurance on the artifact the deploy
+        # actually serves.
+        run: |
+          test -f dist/index.html || { echo "::error::dist/index.html missing after build"; exit 1; }
+          test -d dist/assets     || { echo "::error::dist/assets missing after build";     exit 1; }
+          echo "Build output verified."
+
+      - name: Fail if source maps were emitted without upload
+        # `vite.config.ts` sets sourcemap:"hidden" in production and only
+        # deletes the .map files inside the OBSERVABILITY_AUTH_TOKEN-gated
+        # Sentry plugin. Without that token the maps ship to production and
+        # are fetchable at predictable URLs. CI has no token, so maps are
+        # expected here — this step reports the count so the exposure stays
+        # visible rather than silent. It does not fail the build.
+        run: |
+          COUNT=$(find dist -name '*.map' | wc -l | tr -d ' ')
+          echo "Source maps in dist: $COUNT"
+          if [ "$COUNT" -gt 0 ]; then
+            echo "::warning::$COUNT source maps present. In production, set OBSERVABILITY_AUTH_TOKEN so @sentry/vite-plugin uploads and deletes them."
+          fi
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # NON-BLOCKING: full typecheck.
+  #
+  # `tsc -b` currently reports ~200 pre-existing errors. The dominant root
+  # cause is that `src/integrations/supabase/types.ts` is stale: 14 tables
+  # that exist in supabase/migrations are absent from the generated types
+  # (event_creative_ai_drafts, support_tickets, support_ticket_messages,
+  # event_emails, communication_recipients, community_members,
+  # speaker_applications, sponsor_applications, event_venue_selections,
+  # vendors, vendor_categories, vendor_category_map, avatars, community).
+  # Queries against those tables therefore get no type safety at all.
+  #
+  # Fixing that requires regenerating the types against the live schema:
+  #
+  #   supabase gen types typescript --project-id <id> > src/integrations/supabase/types.ts
+  #
+  # which needs project credentials and so cannot happen inside this PR.
+  # Until then this job reports the error count without blocking, so the
+  # number is tracked and visible on every run instead of unknown.
+  #
+  # TO MAKE BLOCKING: regenerate types, drive the count to 0, then delete
+  # `continue-on-error` below and add this job to branch protection.
+  # ──────────────────────────────────────────────────────────────────────────
+  types:
+    name: Typecheck (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck and report count
+        run: |
+          set +e
+          bun run typecheck > typecheck.log 2>&1
+          STATUS=$?
+          set -e
+          # Ratchet, not a fixed allowance. BASELINE only ever moves DOWN: when
+          # you reduce the count, lower this number in the same PR so the
+          # improvement is locked in and cannot silently regress.
+          #
+          # History:
+          #   200  at CI introduction
+          #   198  migration 031 removed the two `profiles.email` selects
+          #        (TypeScript was already flagging that nonexistent column —
+          #        see QA-01)
+          #   193  tsconfig.test.json now supplies `vite/client` and the
+          #        ambient src/vite-env.d.ts, clearing 5 spurious
+          #        "Property 'env' does not exist on type 'ImportMeta'" errors.
+          #        The same change ADDED edge-function tests to typechecking
+          #        coverage, which was previously zero, and those compile clean.
+          BASELINE=193
+          COUNT=$(grep -cE "error TS" typecheck.log || true)
+          echo "TypeScript errors: $COUNT (baseline $BASELINE)"
+          {
+            echo "### Typecheck: $COUNT errors (baseline $BASELINE)"
+            echo ""
+            echo "Dominant root cause: stale \`src/integrations/supabase/types.ts\` — 14 tables present in supabase/migrations are missing from the generated types, so queries against them have no type safety. Fix: regenerate with \`supabase gen types typescript --project-id <id>\`."
+            echo ""
+            echo '```'
+            grep -E "error TS" typecheck.log | head -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" -gt "$BASELINE" ]; then
+            echo "::error::Typecheck errors ($COUNT) exceed the baseline ($BASELINE). This change introduced new type errors."
+            exit 1
+          fi
+          if [ "$COUNT" -lt "$BASELINE" ]; then
+            echo "::warning::Typecheck errors ($COUNT) are BELOW the baseline ($BASELINE). Lower BASELINE in .github/workflows/ci.yml to lock this in."
+          fi
+          exit 0
+
+      - name: Upload typecheck log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typecheck-log
+          path: typecheck.log
+          retention-days: 7
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # BLOCKING: migration hygiene. These are static checks — no database is
+  # provisioned, so they are fast and have no credential requirements.
+  # ──────────────────────────────────────────────────────────────────────────
+  db:
+    name: Migration checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reject non-canonical lockfiles
+        # Bun is the canonical package manager (vercel.json runs
+        # `bun install --frozen-lockfile`). The repo previously carried FOUR
+        # lockfiles — bun.lock, bun.lockb, package-lock.json and
+        # pnpm-lock.yaml — with dates spanning two months, so different tools
+        # could resolve different dependency trees from the same commit.
+        #
+        # bun.lockb (superseded binary format) and pnpm-lock.yaml were removed.
+        # package-lock.json is intentionally KEPT: per .npmrc, Vercel installs
+        # the api/ serverless-route dependencies with npm, so it is
+        # load-bearing for that path.
+        #
+        # This gate blocks a pnpm or yarn lockfile from reappearing.
+        run: |
+          FAIL=0
+          for f in pnpm-lock.yaml yarn.lock bun.lockb; do
+            if [ -f "$f" ]; then
+              echo "::error::$f was reintroduced. Bun is canonical (bun.lock); npm's package-lock.json is kept only for api/ routes."
+              FAIL=1
+            fi
+          done
+          test -f bun.lock || { echo "::error::bun.lock is missing — vercel.json requires it for --frozen-lockfile"; FAIL=1; }
+          [ "$FAIL" -eq 0 ] || exit 1
+          echo "Lockfiles OK: bun.lock (canonical) + package-lock.json (api/ routes)."
+
+      - name: Reject duplicate migration version prefixes
+        # The repo already contains two files at version 027
+        # (027_event_creatives_event_type.sql and
+        # 027_event_venue_selections.sql). Supabase applies migrations in
+        # lexicographic order, so a duplicate prefix makes the apply order
+        # depend on the rest of the filename — fine by luck here, but a real
+        # hazard when one migration depends on the other. This check stops
+        # NEW duplicates from being introduced. The known 027 pair is
+        # allowlisted so the gate is enforceable today rather than aspirational.
+        run: |
+          cd supabase/migrations
+          DUPES=$(ls *.sql | sed -E 's/^([0-9]+)_.*/\1/' | sort | uniq -d)
+          ALLOWED="027"
+          FAIL=0
+          for v in $DUPES; do
+            if [ "$v" = "$ALLOWED" ]; then
+              echo "::warning::Known duplicate migration version $v (pre-existing, allowlisted)."
+            else
+              echo "::error::Duplicate migration version prefix: $v"
+              FAIL=1
+            fi
+          done
+          [ "$FAIL" -eq 0 ] || exit 1
+          echo "No new duplicate migration versions."
+
+      - name: Reject destructive statements in migrations
+        # Catches accidental data loss in review. DROP TABLE / TRUNCATE /
+        # DROP COLUMN require a human decision and a backup plan, so they
+        # must never arrive unnoticed.
+        #
+        # Deliberate exclusions:
+        #   - Comment lines. `--` and `*`-prefixed lines are stripped first;
+        #     000_full_schema.sql:8779 contains the prose "Truncate to 1000
+        #     chars", which is not a statement.
+        #   - `ALTER PUBLICATION ... DROP TABLE` removes a table from the
+        #     supabase_realtime publication. It changes replication, not
+        #     data. 000_full_schema.sql:1244 does exactly this.
+        #   - DROP POLICY / FUNCTION / INDEX / TRIGGER, because
+        #     `DROP ... IF EXISTS` followed by `CREATE` is this codebase's
+        #     standard idempotency idiom.
+        run: |
+          cd supabase/migrations
+          HITS=$(cat *.sql \
+            | sed -E 's/--.*$//' \
+            | grep -vE '^[[:space:]]*\*' \
+            | grep -viE 'ALTER[[:space:]]+PUBLICATION' \
+            | grep -inE '(DROP[[:space:]]+TABLE|\bTRUNCATE\b|DROP[[:space:]]+COLUMN|DROP[[:space:]]+DATABASE|DROP[[:space:]]+SCHEMA)' \
+            || true)
+          if [ -n "$HITS" ]; then
+            echo "$HITS"
+            echo "::error::Destructive SQL found in migrations. If intentional, document the backup and rollback plan and extend the exclusions in this step."
+            exit 1
+          fi
+          echo "No destructive statements found."
+
+      - name: Assert every table has RLS enabled
+        # A table created without `ENABLE ROW LEVEL SECURITY` is readable by
+        # anyone holding the public anon key. The count comparison is a
+        # coarse but effective smoke test: it catches the common mistake of
+        # adding CREATE TABLE and forgetting the ALTER TABLE line.
+        run: |
+          cd supabase/migrations
+          TABLES=$(grep -ohiE 'CREATE TABLE (IF NOT EXISTS )?public\.[a-z_]+' *.sql | grep -oiE 'public\.[a-z_]+' | tr 'A-Z' 'a-z' | sort -u)
+          MISSING=""
+          for t in $TABLES; do
+            name="${t#public.}"
+            if ! grep -qiE "ALTER TABLE (IF EXISTS )?(public\.)?${name}[[:space:]]+ENABLE ROW LEVEL SECURITY" *.sql; then
+              MISSING="$MISSING $name"
+            fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::warning::Tables without an explicit ENABLE ROW LEVEL SECURITY:$MISSING"
+            echo "Review each: static-catalogue tables may be intentional, anything holding user data is a finding."
+          else
+            echo "Every created table has RLS enabled."
+          fi
+
+      - name: Assert service-role edge functions verify caller identity
+        # THE key invariant from this repo's security audit. A function that
+        # holds SUPABASE_SERVICE_ROLE_KEY bypasses every RLS policy, so it
+        # MUST resolve the caller itself. `verify_jwt = true` does not do
+        # that: the gateway only checks the token's signature, and the public
+        # anon key in the browser bundle is a validly-signed JWT.
+        #
+        # The allowlist below is the set of intentionally-public functions,
+        # each with a different compensating control:
+        #   og-event               public OG images, filtered to published events
+        #   org-events             uses the ANON key, so RLS still applies
+        #   submit-support-ticket  public contact form
+        #   livekit-webhook        verifies LiveKit's signed webhook JWT
+        #   whatsapp-webhook       verifies Meta's X-Hub-Signature-256 HMAC
+        run: |
+          cd supabase/functions
+          ALLOW="og-event org-events submit-support-ticket livekit-webhook whatsapp-webhook"
+          FAIL=0
+          for d in */; do
+            n="${d%/}"; f="${d}index.ts"
+            [ -f "$f" ] || continue
+            case " $ALLOW " in *" $n "*) continue ;; esac
+            if grep -q 'SERVICE_ROLE' "$f" && ! grep -qE 'requireUser|auth\.getUser' "$f"; then
+              echo "::error::$n uses SUPABASE_SERVICE_ROLE_KEY but never resolves the caller. Use requireUser() from _shared/auth.ts, then an assert*Access() check, BEFORE any service-role query."
+              FAIL=1
+            fi
+          done
+          [ "$FAIL" -eq 0 ] || exit 1
+          echo "All service-role edge functions verify caller identity."

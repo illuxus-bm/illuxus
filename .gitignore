@@ -20,6 +20,15 @@ dist-ssr
 # Supabase local temp
 supabase/.temp/
 
+# TypeScript incremental build cache. Emitted by `bun run typecheck`
+# (`tsc -b`), one per referenced project. Machine-local, never committed.
+*.tsbuildinfo
+
+# Playwright / test output
+playwright-report/
+test-results/
+coverage/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

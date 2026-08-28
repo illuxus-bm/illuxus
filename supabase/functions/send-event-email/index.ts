@@ -26,6 +26,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { defaultFromAddress, sendViaSmtp, smtpConfigured, textToHtml } from "../_shared/smtp.ts";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+import { assertEventAccess, requireUser } from "../_shared/auth.ts";
 
 const log = createEdgeLogger("send-event-email");
 
@@ -69,7 +70,32 @@ Deno.serve(async (req) => {
 
     const isSystem = event_id === "support" || event_id === "invite";
 
+    // ── Authorization — MUST run before any mail leaves the building ─────────
+    // Every caller must be a real signed-in user. `verify_jwt = true` does NOT
+    // establish that: the gateway only checks the bearer token's signature,
+    // and the public anon key in the browser bundle is itself a validly-signed
+    // JWT. `requireUser` rejects the anon key because it resolves to no
+    // `auth.users` row.
+    const caller = await requireUser(req, supabase);
+    if (!caller.ok) {
+      log.warn("unauthenticated send rejected", { status: caller.status });
+      return json({ error: caller.error }, caller.status);
+    }
+
     if (!isSystem) {
+      // The previous check only verified that `email_id` and `event_id`
+      // belonged to the same row — it never involved the caller, so anyone
+      // with a valid (email_id, event_id) pair could send platform-branded
+      // mail to arbitrary recipients. Now the caller must own the event.
+      const access = await assertEventAccess(supabase, caller.user.id, event_id);
+      if (!access.ok) {
+        log.warn("unauthorized send rejected", {
+          actor_id: caller.user.id,
+          event_id,
+        });
+        return json({ error: access.error }, access.status);
+      }
+
       const { data: emailRecord, error: fetchErr } = await supabase
         .from("event_emails")
         .select("id, status")

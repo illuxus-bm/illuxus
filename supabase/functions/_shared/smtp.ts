@@ -42,6 +42,11 @@
 // minor so an upstream breaking change can't silently brick deployments.
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
+// Retry decision logic lives in a Deno-free module so it can be unit-tested
+// with vitest — this file's remote URL import makes it unloadable by Node.
+// See `smtp-retry.ts` and `__tests__/smtp-retry.test.ts`.
+import { backoffDelayMs, isRetryableSmtpError } from "./smtp-retry.ts";
+
 export interface SmtpEmailPayload {
   from: string;
   to: string[];
@@ -101,40 +106,85 @@ export function defaultFromAddress(displayName = "Illuxus"): string {
   return `${displayName} <${from}>`;
 }
 
+// ── Retry policy ────────────────────────────────────────────────────────────
+//
+// Sends used to be a single attempt: one transient blip (connection reset, a
+// relay's momentary 421, a DNS hiccup) permanently marked the recipient
+// `failed` in `communication_recipients.email_status`, and nothing ever
+// retried it. For a 500-recipient campaign that quietly loses real mail.
+//
+// Budget is deliberately small. `send-communication-email` loops over a batch
+// within ONE edge-function invocation, which has a wall-clock limit, so the
+// worst case has to stay bounded: 3 attempts with ~200ms and ~400ms waits adds
+// at most ~600ms plus jitter per recipient, and only for recipients that
+// actually fail transiently.
+const SMTP_MAX_ATTEMPTS = (() => {
+  const raw = Number(Deno.env.get("SMTP_MAX_ATTEMPTS"));
+  return Number.isFinite(raw) && raw >= 1 ? Math.min(Math.floor(raw), 5) : 3;
+})();
+
+const SMTP_RETRY_BASE_MS = (() => {
+  const raw = Number(Deno.env.get("SMTP_RETRY_BASE_MS"));
+  return Number.isFinite(raw) && raw > 0 ? Math.min(Math.floor(raw), 2_000) : 200;
+})();
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 /**
- * Send a single email via SMTP. Connection is opened, used, then closed,
- * which is the right pattern for the short-lived Deno Deploy isolates
- * Supabase Edge Functions run on.
+ * Send a single email via SMTP, retrying transient failures.
  *
- * Returns `{ ok: true }` on success. On failure, returns `{ ok: false,
- * error }` with a single-line message suitable for surfacing to the
- * operator (and the SDK).
+ * A fresh client is built per attempt and closed in `finally`. That matters:
+ * denomailer's client holds a socket, and after a connection-level error the
+ * socket is unusable, so reusing it across attempts would fail identically
+ * every time. Building fresh also re-resolves DNS, which is what makes a
+ * retry useful after an `EAI_AGAIN`.
+ *
+ * Returns `{ ok: true }` on success, or `{ ok: false, error }` with a
+ * single-line message. On exhaustion the message is prefixed with the attempt
+ * count so operators can distinguish "failed once, permanently" from "failed
+ * repeatedly, transiently" in the logs.
  */
 export async function sendViaSmtp(
   payload: SmtpEmailPayload,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  let client: SMTPClient | null = null;
-  try {
-    client = buildClient();
-    await client.send({
-      from: payload.from,
-      to: payload.to,
-      subject: payload.subject,
-      content: payload.text,
-      html: payload.html,
-      ...(payload.reply_to ? { replyTo: payload.reply_to } : {}),
-    });
-    return { ok: true };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: msg.slice(0, 500) };
-  } finally {
-    // denomailer requires explicit close — leaking the socket can cause
-    // subsequent invocations to hang while waiting for a connection slot.
-    if (client) {
-      try { await client.close(); } catch { /* noop */ }
+  let lastError = "unknown SMTP failure";
+
+  for (let attempt = 1; attempt <= SMTP_MAX_ATTEMPTS; attempt++) {
+    let client: SMTPClient | null = null;
+    try {
+      client = buildClient();
+      await client.send({
+        from: payload.from,
+        to: payload.to,
+        subject: payload.subject,
+        content: payload.text,
+        html: payload.html,
+        ...(payload.reply_to ? { replyTo: payload.reply_to } : {}),
+      });
+      return { ok: true };
+    } catch (err) {
+      lastError = (err instanceof Error ? err.message : String(err)).slice(0, 500);
+
+      const retryable = isRetryableSmtpError(lastError);
+      const hasAttemptsLeft = attempt < SMTP_MAX_ATTEMPTS;
+      if (!retryable || !hasAttemptsLeft) {
+        return {
+          ok: false,
+          error: attempt > 1 ? `${lastError} (after ${attempt} attempts)` : lastError,
+        };
+      }
+    } finally {
+      // denomailer requires explicit close — leaking the socket can cause
+      // subsequent invocations to hang while waiting for a connection slot.
+      if (client) {
+        try { await client.close(); } catch { /* noop */ }
+      }
     }
+
+    await sleep(backoffDelayMs(attempt, SMTP_RETRY_BASE_MS));
   }
+
+  return { ok: false, error: `${lastError} (after ${SMTP_MAX_ATTEMPTS} attempts)` };
 }
 
 /**

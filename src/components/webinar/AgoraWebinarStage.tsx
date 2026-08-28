@@ -48,6 +48,10 @@ interface Props {
   onDisconnect?: () => void;
   eventBannerUrl?: string | null;
   eventTitle?: string | null;
+  /** `?join=` param — authenticates a guest viewer with no account. */
+  joinToken?: string | null;
+  /** `?speaker=` param — authenticates an invited speaker with no account. */
+  speakerToken?: string | null;
 }
 
 export function AgoraWebinarStage({
@@ -58,15 +62,26 @@ export function AgoraWebinarStage({
   onDisconnect,
   eventBannerUrl,
   eventTitle,
+  joinToken,
+  speakerToken,
 }: Props) {
   const role: AgoraSessionRole = canPublish ? "publisher" : "subscriber";
-  const agoraRole: AgoraRole = canPublish ? "host" : "audience";
 
   const tokenState = useAgoraSessionToken({
     sessionId,
     uid: userId,
     role,
+    joinToken,
+    speakerToken,
   });
+
+  // The edge function decides publish rights server-side and reports the
+  // effective role back on the token. Joining the SDK as "host" while
+  // holding a subscriber token makes publishing fail at the SDK layer with
+  // an opaque error, so mirror the server's answer once it arrives and fall
+  // back to the local guess only while the token is still in flight.
+  const effectiveRole: AgoraSessionRole = tokenState.data?.role ?? role;
+  const agoraRole: AgoraRole = effectiveRole === "publisher" ? "host" : "audience";
 
   const appId = readAgoraAppId();
 

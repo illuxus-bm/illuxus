@@ -21,6 +21,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger } from "../_shared/edge-logger.ts";
 import { defaultFromAddress, sendViaSmtp, smtpConfigured } from "../_shared/smtp.ts";
+import { assertCommunicationAccess, requireUser } from "../_shared/auth.ts";
 
 const log = createEdgeLogger("send-communication-email");
 
@@ -80,6 +81,24 @@ Deno.serve(async (req) => {
       return json({ error: "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing", step }, 500);
     }
     const supabase = createClient(supabaseUrl, serviceKey);
+
+    // ── Authorization — MUST run before any mail leaves the building ─────────
+    // Service-role fan-out of SMTP mail. Without this check any caller could
+    // drive another tenant's communication to its recipients and flip their
+    // delivery state. `verify_jwt` is satisfied by the public anon key, so it
+    // is not authentication.
+    step = "auth-check";
+    const caller = await requireUser(req, supabase);
+    if (!caller.ok) return json({ error: caller.error, step }, caller.status);
+
+    const access = await assertCommunicationAccess(supabase, caller.user.id, communication_id);
+    if (!access.ok) {
+      log.warn("unauthorized send rejected", {
+        actor_id: caller.user.id,
+        communication_id,
+      });
+      return json({ error: access.error, step }, access.status);
+    }
 
     step = "read-pending-rows";
     const { data: rowsRaw, error: rowsErr } = await supabase

@@ -52,6 +52,25 @@ const ALLOWED_CATEGORIES = new Set([
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// ── Rate limiting (SEC-09) ──────────────────────────────────────────────────
+// Per-IP throttle for this public, unauthenticated endpoint. Tuned to be
+// invisible to a real person — a genuine user filing one ticket, realising they
+// left something out, and filing again stays well inside 5 per 15 minutes —
+// while making scripted abuse expensive.
+//
+// Overridable via Supabase secrets so ops can tighten during an attack without
+// a redeploy. Malformed or non-positive values fall back to the defaults rather
+// than disabling the limiter.
+const RATE_LIMIT_WINDOW_MS = (() => {
+  const raw = Number(Deno.env.get("SUPPORT_RATE_LIMIT_WINDOW_MINUTES"));
+  return Number.isFinite(raw) && raw > 0 ? raw * 60_000 : 15 * 60_000;
+})();
+
+const RATE_LIMIT_MAX_PER_WINDOW = (() => {
+  const raw = Number(Deno.env.get("SUPPORT_RATE_LIMIT_MAX"));
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 5;
+})();
+
 interface SubmitBody {
   name?: string;
   email?: string;
@@ -329,9 +348,60 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Best-effort: link to existing auth.users row when the submitter's email
-    // already has an account. Keeps the ticket connected to their profile but
-    // doesn't fail the submission if the lookup blips.
+    // ── Abuse protection (SEC-09) ──────────────────────────────────────────
+    // This endpoint is `verify_jwt = false` (a genuinely public contact form),
+    // holds the service-role key, and triggers two outbound emails per call.
+    // Unthrottled that is a spam and mail-amplification vector, and every
+    // accepted request also writes a row an admin has to triage.
+    //
+    // The throttle counts this IP's own recent tickets rather than using a
+    // separate counter table — the same "reuse the domain table for quota"
+    // approach `generate-creative-copy` takes with event_creative_ai_drafts.
+    // `ip_hash` is a salted SHA-256 (see hashIp), so no raw address is stored
+    // or compared.
+    //
+    // Fails OPEN by design: if the count query errors, the submission is
+    // allowed. A broken throttle must never silently swallow real support
+    // requests from users who may be reporting an outage.
+    if (ipHash) {
+      const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
+      const { count, error: rateErr } = await supabase
+        .from("support_tickets")
+        .select("id", { count: "exact", head: true })
+        .eq("ip_hash", ipHash)
+        .gte("created_at", windowStart);
+
+      if (rateErr) {
+        log.warn("rate-limit check failed; allowing submission", {
+          error_message: rateErr.message,
+        });
+      } else if ((count ?? 0) >= RATE_LIMIT_MAX_PER_WINDOW) {
+        log.warn("rate limit exceeded", {
+          recent_count: count,
+          window_minutes: RATE_LIMIT_WINDOW_MS / 60_000,
+        });
+        return json({
+          success: false,
+          error:
+            "You've sent several messages recently. Please wait a few minutes, " +
+            "or email support@illuxus.com directly if it's urgent.",
+        }, 429);
+      }
+    }
+
+    // Link the ticket to an existing account when the submitter already has
+    // one, so admins see it against their profile.
+    //
+    // NOTE: this lookup currently cannot succeed, and that is pre-existing.
+    // It queries `profiles.email`, but `profiles` has NO email column —
+    // 000_full_schema.sql:5064 states "Email comes from auth.users
+    // (profiles.email doesn't exist in this schema)". PostgREST rejects the
+    // request, so `linkedUserId` is always null and every ticket is stored
+    // unlinked. It is left in place rather than deleted because the intent is
+    // correct and the fix is a small `SECURITY DEFINER` RPC over `auth.users`
+    // (the pattern migration 031 establishes for exactly this problem).
+    // Harmless today: the ticket still records `email`, so an admin can find
+    // the person manually.
     let linkedUserId: string | null = null;
     try {
       const { data: existingUser } = await supabase
@@ -341,7 +411,8 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (existingUser?.user_id) linkedUserId = existingUser.user_id;
     } catch {
-      // profiles.email may not exist on every deployment — silently skip.
+      // Expected until the RPC above exists. Never fail a support submission
+      // over an optional convenience lookup.
     }
 
     const { data: inserted, error: insertErr } = await supabase

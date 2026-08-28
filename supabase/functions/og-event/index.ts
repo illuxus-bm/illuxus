@@ -458,6 +458,23 @@ Deno.serve(async (req) => {
       return pngResponse(png, { "X-OG-Reason": "event-not-found" });
     }
 
+    // This endpoint is deliberately anonymous (`verify_jwt = false`) so social
+    // crawlers can render link previews, and it queries with the service-role
+    // key, which bypasses the `events` RLS policy that would normally hide
+    // unpublished rows. Without this guard, anyone could read a draft event's
+    // title, date, venue and banner by guessing or scraping its id/slug.
+    // Render the generic fallback card instead of leaking pre-announcement
+    // details. `completed` events stay renderable so old shared links keep
+    // their preview after the event ends.
+    if (event.status !== "published" && event.status !== "completed") {
+      console.warn("og-event: refusing to render unpublished event", {
+        id: event.id,
+        status: event.status,
+      });
+      const png = await renderFallbackCard();
+      return pngResponse(png, { "X-OG-Reason": "event-not-public" });
+    }
+
     // Pull org name (purely cosmetic — failure is fine, falls back to "illuxus").
     let orgName = "illuxus";
     if (event.org_id) {

@@ -356,6 +356,11 @@ export default function EventLivePage() {
           isHost={false}
           eventBannerUrl={eventMeta.banner}
           eventTitle={eventMeta.title}
+          // Forwarded so the Agora path can authenticate link-based guests
+          // and invited speakers who have no Supabase session. The
+          // agora-token edge function validates each against this session.
+          joinToken={joinToken}
+          speakerToken={speakerToken}
           onDisconnect={() => setToken(null)}
         />
       </Suspense>

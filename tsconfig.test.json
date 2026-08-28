@@ -1,13 +1,37 @@
 {
   "extends": "./tsconfig.app.json",
   "compilerOptions": {
-    "types": ["vitest/globals", "@testing-library/jest-dom"]
+    // NOTE: this `types` array REPLACES the inherited one rather than merging.
+    // `vite/client` must therefore be listed explicitly — without it,
+    // `import.meta.env` is untyped in every module this project pulls in,
+    // which produced 5 spurious "Property 'env' does not exist on type
+    // 'ImportMeta'" errors in src/integrations/supabase/client.ts,
+    // src/lib/event-routes.ts and src/lib/observability/sinks/console.ts.
+    // Those files are not tests; they were dragged in as imports and then
+    // compiled without the ambient Vite declarations.
+    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
   },
   "include": [
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
     "src/**/*.spec.ts",
     "src/**/*.spec.tsx",
-    "src/test/setup.ts"
+    "src/test/setup.ts",
+    // Ambient declarations. `include` here is narrower than tsconfig.app.json's
+    // (which is all of `src`), so `vite-env.d.ts` is NOT inherited and has to
+    // be named. It carries the vite/client + vite-plugin-pwa references that
+    // `import.meta.env` and the PWA register API depend on.
+    "src/vite-env.d.ts",
+    // Edge-function tests. Without this they run under vitest (see the
+    // `include` in vitest.config.ts) but are never typechecked.
+    //
+    // Only the TEST files are listed. Their imports are followed
+    // automatically, which pulls in `_shared/auth.ts` — deliberately written
+    // with no Deno globals and no `https://` imports so it compiles in this
+    // project. The rest of `_shared/` (cors.ts, smtp.ts, resend.ts) is NOT
+    // included: those legitimately use `Deno.env` and remote URL imports that
+    // a browser/Node-targeted tsconfig cannot resolve. They are typechecked
+    // by Deno at deploy time instead.
+    "supabase/functions/**/__tests__/*.test.ts"
   ]
 }

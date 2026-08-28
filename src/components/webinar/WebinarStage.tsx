@@ -38,6 +38,10 @@ type Props = {
   isHost?: boolean;
   eventBannerUrl?: string | null;
   eventTitle?: string | null;
+  /** Agora-specific — `?join=` param, authenticates a guest with no account. */
+  joinToken?: string | null;
+  /** Agora-specific — `?speaker=` param, authenticates an invited speaker. */
+  speakerToken?: string | null;
   // Device selections from PreJoinCheck — honoured when the host joins
   micEnabled?: boolean;
   camEnabled?: boolean;
@@ -68,6 +72,8 @@ function WebinarStageImpl(props: Props) {
           onDisconnect={props.onDisconnect}
           eventBannerUrl={props.eventBannerUrl}
           eventTitle={props.eventTitle}
+          joinToken={props.joinToken}
+          speakerToken={props.speakerToken}
         />
       </Suspense>
     );

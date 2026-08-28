@@ -23,6 +23,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { defaultFromAddress, sendViaSmtp, smtpConfigured, textToHtml } from "../_shared/smtp.ts";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { assertCommunicationAccess, requireUser } from "../_shared/auth.ts";
 
 interface RecipientRow {
   id: string;
@@ -81,6 +82,18 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // ── Authorization — MUST run before any mail leaves the building ─────────
+    // This function holds the service-role key and fans out SMTP mail to every
+    // recipient row of the referenced communication. Without an ownership
+    // check, any caller could replay another tenant's communication (a
+    // cross-tenant mail-bomb) and mutate its delivery state. `verify_jwt` does
+    // not help here — the public anon key satisfies it.
+    const caller = await requireUser(req, supabase);
+    if (!caller.ok) return json({ error: caller.error }, caller.status);
+
+    const access = await assertCommunicationAccess(supabase, caller.user.id, communication_id);
+    if (!access.ok) return json({ error: access.error }, access.status);
 
     const { data: commRaw, error: commErr } = await supabase
       .from("communications")

@@ -41,6 +41,18 @@ export interface UseAgoraSessionTokenOpts {
   enabled?: boolean;
   /** Token expiry in seconds. Capped at 24h server-side. */
   expireSeconds?: number;
+  /**
+   * `registrations.join_token` from the `?join=` query param. Lets a GUEST
+   * with no Supabase session obtain a subscriber token — the public live
+   * page supports link-based attendees who never sign in. Forwarded to the
+   * edge function, which validates it against this session's event.
+   */
+  joinToken?: string | null;
+  /**
+   * `webinar_speakers.invite_token` from the `?speaker=` query param. Lets
+   * an invited speaker publish without signing in.
+   */
+  speakerToken?: string | null;
 }
 
 export interface UseAgoraSessionTokenReturn {
@@ -70,6 +82,8 @@ export function useAgoraSessionToken({
   role,
   enabled = true,
   expireSeconds = DEFAULT_EXPIRE_SECONDS,
+  joinToken,
+  speakerToken,
 }: UseAgoraSessionTokenOpts): UseAgoraSessionTokenReturn {
   const appId = readAgoraAppId();
   const channel = channelOverride ?? sessionId ?? null;
@@ -104,28 +118,53 @@ export function useAgoraSessionToken({
     setLoading(true);
     setError(null);
     try {
+      // `session_id` is the authoritative field; `channel` is still sent for
+      // backward compatibility with an older deployed function revision.
+      // `uid` and `role` are deliberately NOT sent — the edge function
+      // derives both server-side from the caller's JWT and their membership
+      // of the session. Sending them would be misleading, since they are
+      // ignored (see supabase/functions/agora-token/index.ts).
       const { data: rsp, error: invokeErr } = await supabase.functions.invoke(
         "agora-token",
         {
           body: {
             type: "rtc",
+            session_id: channel,
             channel,
-            uid,
-            role,
             expireSeconds,
+            // Guest credentials. Omitted when absent so the edge function
+            // falls through to the signed-in path.
+            ...(joinToken ? { join_token: joinToken } : {}),
+            ...(speakerToken ? { speaker_token: speakerToken } : {}),
           },
         },
       );
       if (invokeErr) throw invokeErr;
-      const rtc = (rsp as { rtc?: { token?: string; expireAtSeconds?: number; uid?: string } } | null)?.rtc;
+      const parsed = rsp as {
+        rtc?: { token?: string; expireAtSeconds?: number; uid?: string };
+        role?: AgoraSessionRole;
+      } | null;
+      const rtc = parsed?.rtc;
       if (!rtc?.token || !rtc?.expireAtSeconds) {
         throw new Error("agora-token edge function returned no rtc token");
+      }
+      // The server's role decision wins. The caller's requested `role` is a
+      // UI hint derived from client state; if the server downgraded us to
+      // subscriber, publishing with this token would fail at the SDK layer,
+      // so we surface the effective role instead of the requested one.
+      const effectiveRole: AgoraSessionRole = parsed?.role ?? role;
+      if (effectiveRole !== role) {
+        logger.warn("agora role downgraded by server", {
+          channel,
+          requested_role: role,
+          effective_role: effectiveRole,
+        });
       }
       const next: AgoraSessionToken = {
         appId,
         channel,
         uid: String(rtc.uid ?? uid),
-        role,
+        role: effectiveRole,
         token: rtc.token,
         expireAt: rtc.expireAtSeconds,
       };
@@ -146,7 +185,7 @@ export function useAgoraSessionToken({
     } finally {
       setLoading(false);
     }
-  }, [appId, channel, enabled, expireSeconds, role, uid]);
+  }, [appId, channel, enabled, expireSeconds, role, uid, joinToken, speakerToken]);
 
   // Initial fetch + dependency-driven refetches.
   useEffect(() => {

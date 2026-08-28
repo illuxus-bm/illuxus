@@ -46,6 +46,105 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       sourcemap: isProduction ? "hidden" : true,
+      rollupOptions: {
+        output: {
+          // ── Vendor chunk splitting ────────────────────────────────────
+          //
+          // Motivation, measured rather than assumed. Before this, the entry
+          // chunk `index-*.js` was 1,078 kB (318 kB gzip) and every visitor
+          // downloaded it. Attributing its sourcemap by package showed it was
+          // ~86% third-party:
+          //
+          //     445 kB  app code (src/)
+          //     766 kB  @supabase/*  (auth-js 390, postgrest 132,
+          //                           storage 102, realtime 89, phoenix 53)
+          //     452 kB  framer-motion + motion-dom
+          //     307 kB  react-router + @remix-run/router
+          //     186 kB  @sentry/core
+          //     146 kB  zod
+          //     131 kB  react-dom
+          //      76 kB  @tanstack/query-core
+          //
+          // Because app code changes on essentially every deploy while these
+          // libraries change only on upgrade, bundling them together meant a
+          // one-line app change invalidated the whole 318 kB for returning
+          // visitors. Splitting the stable dependencies into their own
+          // content-hashed chunks lets them stay in cache across deploys.
+          //
+          // WHY THIS IS SAFE: every package listed below is ALREADY in the
+          // eager entry chunk (that is how it was measured). Moving it to a
+          // named chunk changes only cache granularity — nothing becomes
+          // eagerly loaded that was previously lazy. Route-level
+          // `React.lazy` splitting is untouched, and `/assets/*` is served
+          // `immutable` with a 1-year max-age (vercel.json), so cache hits
+          // are real.
+          //
+          // DELIBERATELY NOT SPLIT:
+          //   - Radix UI: ~30 small packages tightly interleaved with app
+          //     components. Splitting them creates many tiny chunks and more
+          //     request overhead than it saves.
+          //   - Heavy, genuinely lazy libraries (Agora, LiveKit, exceljs,
+          //     jspdf, Konva, recharts, html5-qrcode). Vite already emits
+          //     these as separate lazy chunks because they are only reached
+          //     through dynamic imports. Naming them here would FORCE them
+          //     eager and regress first paint — the opposite of the goal.
+          manualChunks(id) {
+            if (!id.includes("node_modules")) return undefined;
+
+            // React core. Kept as ONE chunk on purpose: splitting `react`
+            // from `react-dom` is a well-known way to end up with two React
+            // instances and "invalid hook call" at runtime. `resolve.dedupe`
+            // below guards the same hazard from the resolution side.
+            if (
+              /node_modules\/(react|react-dom|scheduler)\//.test(id) ||
+              /node_modules\/react\/jsx-(dev-)?runtime/.test(id)
+            ) {
+              return "vendor-react";
+            }
+
+            // Supabase SDK family — the single largest contributor.
+            if (id.includes("node_modules/@supabase/")) return "vendor-supabase";
+
+            // Routing.
+            if (
+              id.includes("node_modules/react-router") ||
+              id.includes("node_modules/@remix-run/router")
+            ) {
+              return "vendor-router";
+            }
+
+            // Animation. framer-motion re-exports motion-dom/motion-utils, so
+            // they belong in one chunk to avoid a cross-chunk import cycle.
+            if (
+              id.includes("node_modules/framer-motion") ||
+              id.includes("node_modules/motion-dom") ||
+              id.includes("node_modules/motion-utils")
+            ) {
+              return "vendor-motion";
+            }
+
+            // Observability. Also keeps the Sentry SDK out of the app chunk so
+            // an SDK upgrade doesn't invalidate app code.
+            if (id.includes("node_modules/@sentry/")) return "vendor-observability";
+
+            // Forms + validation. Grouped because react-hook-form and its
+            // zod resolver are always used together here.
+            if (
+              id.includes("node_modules/zod") ||
+              id.includes("node_modules/react-hook-form") ||
+              id.includes("node_modules/@hookform/")
+            ) {
+              return "vendor-forms";
+            }
+
+            // Server-state.
+            if (id.includes("node_modules/@tanstack/")) return "vendor-query";
+
+            // Everything else keeps Vite's default behaviour.
+            return undefined;
+          },
+        },
+      },
     },
     plugins: [
       react(),

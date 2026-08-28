@@ -28,6 +28,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+import { assertRegistrationSelfOrOwner, requireUser } from "../_shared/auth.ts";
 
 const log = createEdgeLogger("send-ticket-email");
 
@@ -231,6 +232,34 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // ── Authorization — MUST run before the ticket is emailed ────────────────
+    // A ticket email embeds the registration's QR code, which is the check-in
+    // credential. Sending it to the registration's own address is the intended
+    // behaviour, but the *trigger* must be authorized: without a check, any
+    // caller could enumerate registration ids to force ticket re-sends, and
+    // the response would confirm which ids are real.
+    //
+    // Two callers are legitimate, so this uses the self-or-owner check:
+    //   - the attendee, immediately after RSVP (EventRsvpCard.tsx — RSVP
+    //     requires login, and the invoke runs as the attendee)
+    //   - the organizer (ImportRegistrationsDialog, AddParticipantDialog,
+    //     RegistrationsSection approval flows)
+    // The organizer-only variant would 403 every attendee's own ticket.
+    const caller = await requireUser(req, supabase);
+    if (!caller.ok) return json({ error: caller.error }, caller.status);
+    const access = await assertRegistrationSelfOrOwner(
+      supabase,
+      caller.user.id,
+      registration_id,
+    );
+    if (!access.ok) {
+      log.warn("unauthorized ticket send rejected", {
+        actor_id: caller.user.id,
+        registration_id,
+      });
+      return json({ error: access.error }, access.status);
+    }
 
     // Fetch the registration + all event/org fields needed for the email in a
     // single join so there's no N+1 round-trip.

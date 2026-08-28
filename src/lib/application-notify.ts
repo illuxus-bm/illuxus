@@ -25,7 +25,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import { logger } from "@/lib/observability";
+import { logger, supabaseRpc } from "@/lib/observability";
 import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 import { uuid } from "@/lib/uuid";
 import { publicOrigin } from "@/lib/publicUrl";
@@ -96,17 +96,59 @@ async function resolveRecipients(eventId: string): Promise<{
 
   if (userIds.size === 0) return { emails: [], event };
 
-  const { data: profileRows } = await supabase
-    .from("profiles")
-    .select("user_id, email")
-    .in("user_id", Array.from(userIds));
+  // Resolve the recipient addresses via the `event_application_notify_emails`
+  // RPC (migration 031).
+  //
+  // This replaced a `profiles.select("user_id, email")` query that could
+  // never work: `profiles` has NO `email` column — 000_full_schema.sql:5064
+  // states outright that "Email comes from auth.users (profiles.email doesn't
+  // exist in this schema)". PostgREST rejected the request, the old code
+  // destructured only `data` and dropped `error`, so `emails` was always `[]`
+  // and this notifier silently sent nothing. Every speaker/sponsor
+  // application notification since that line was written was a no-op.
+  //
+  // Emails live in `auth.users`, which no client may read, so the lookup has
+  // to happen inside a SECURITY DEFINER function. The RPC derives the
+  // recipient set server-side from `_event_id` alone and authorizes the
+  // caller as a genuine applicant for that event (or its organiser, or a
+  // platform admin) — it deliberately does NOT accept a list of user ids, so
+  // it cannot be used as a general email-resolution oracle.
+  //
+  // `userIds` above is retained only as a cheap "is there anyone to notify"
+  // guard; the authoritative recipient set comes from the RPC, which applies
+  // the same creator + org-owner + owner/admin-member rule in SQL.
+  const { data: rows, error } = await supabaseRpc<Array<{ email: string | null }>>(
+    "event_application_notify_emails",
+    { _event_id: eventId },
+  );
+
+  if (error) {
+    // Surfaced rather than swallowed — silently dropping this error is
+    // precisely how the original bug stayed invisible.
+    logger.warn("application notify recipient lookup failed", {
+      event_id: eventId,
+      error_message: error.message,
+    });
+    return { emails: [], event };
+  }
+
   const emails = Array.from(
     new Set(
-      (profileRows ?? [])
-        .map((p: { email?: string | null }) => normalizeEmail(p.email))
+      (rows ?? [])
+        .map((r) => normalizeEmail(r.email))
         .filter((e: string) => isValidEmailFormat(e)),
     ),
   );
+
+  if (emails.length === 0) {
+    // Not necessarily a failure — the RPC returns an empty set both when
+    // there is genuinely nobody to notify and when the caller is not
+    // authorized (deliberate, so the two are indistinguishable to a prober).
+    logger.info("application notify resolved no recipients", {
+      event_id: eventId,
+      candidate_user_count: userIds.size,
+    });
+  }
 
   return { emails, event };
 }
