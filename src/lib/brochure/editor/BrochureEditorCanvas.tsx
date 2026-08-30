@@ -22,6 +22,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Group, Rect, Ellipse, Line, Text, Image, Transformer } from "react-konva";
 import type Konva from "konva";
 import useImage from "use-image";
+import { Maximize2, Minus, Plus } from "lucide-react";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 import {
   computeImageDrawBox,
@@ -44,10 +53,22 @@ import {
   type TextElement,
 } from "./editor-document";
 import {
+  MAX_ZOOM,
+  MIN_ZOOM,
+  ZOOM_PRESETS,
   expandSelectionToGroups,
   snapPosition,
   type SnapGuide,
 } from "./editor-operations";
+import {
+  dashArray,
+  fontStyleString,
+  mirrorProps,
+  shadowProps,
+  shapeFillProps,
+  textExtras,
+  transformedText,
+} from "./editor-render-props";
 
 interface Props {
   document: BrochureDocument;
@@ -126,6 +147,20 @@ export default function BrochureEditorCanvas({
   } | null>(null);
   const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
 
+  /** The scrolling viewport that pans the page once it's larger than the pane. */
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * Id of the text/pill element being edited directly on the canvas, or `null`.
+   *
+   * Editing happens in a real `<textarea>` overlaid on the element rather than
+   * inside Konva, because canvas has no text input: no caret, no selection, no
+   * IME, no spellcheck, no accessibility. Overlaying the browser's own control
+   * gets all of that for free, and it's the same approach Konva's own
+   * documentation recommends.
+   */
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   // Request every font family actually used by this document. Konva
   // does NOT repaint canvas text on its own when a web font finishes
   // loading mid-session (unlike DOM text, which the browser updates
@@ -172,15 +207,160 @@ export default function BrochureEditorCanvas({
     [page.width, page.height, viewport.w, viewport.h]
   );
 
+  /**
+   * User zoom, or `null` for "fit to pane".
+   *
+   * `null` rather than storing the computed fit number, so fit STAYS fit when
+   * the dialog is resized or the page size changes — freezing the number at the
+   * moment fit was chosen would silently stop being a fit.
+   *
+   * `1` means 100%: one document millimetre drawn at `SCREEN_DPI`. That is the
+   * conventional meaning of 100% for print work, and it's the only definition
+   * available to us — real physical size would need the display's true DPI,
+   * which the browser doesn't expose.
+   */
+  const [zoom, setZoom] = useState<number | null>(null);
+  const effectiveScale = zoom ?? fit.scale;
+
   // The Konva stage renders at `1x` DPI internally but the page's
   // pixel dimensions come from `mmToPx(mm, SCREEN_DPI) × scale`. This
   // one factor is applied everywhere geometry converts to canvas
-  // pixels so the whole scene fits the viewport without altering the
-  // underlying document mm values.
-  const scalePxPerMm = (mmToPx(1, SCREEN_DPI) * fit.scale);
+  // pixels, so changing it is all that zooming requires — no document
+  // mm value is touched, and snapping stays in mm and therefore feels
+  // identical at every zoom level.
+  const scalePxPerMm = mmToPx(1, SCREEN_DPI) * effectiveScale;
 
-  const stageW = fit.widthPx;
-  const stageH = fit.heightPx;
+  const stageW = mmToPx(page.width, SCREEN_DPI) * effectiveScale;
+  const stageH = mmToPx(page.height, SCREEN_DPI) * effectiveScale;
+
+  // ─── Zoom ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Applies a new zoom while keeping a fixed point in the page stationary under
+   * the cursor.
+   *
+   * Anchoring is what separates usable zoom from infuriating zoom: without it,
+   * zooming in on a footer throws the footer off-screen and you have to hunt for
+   * it with the scrollbars every step.
+   *
+   * `anchor` is in viewport pixels relative to the scroll container. Omitted
+   * means "keep the centre of the visible area" — the right behaviour for the
+   * toolbar buttons and keyboard shortcuts, which have no cursor position.
+   */
+  const applyZoom = useCallback(
+    (nextZoom: number, anchor?: { x: number; y: number }) => {
+      const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
+      const el = scrollRef.current;
+      if (!el) {
+        setZoom(clamped);
+        return;
+      }
+
+      const ratio = clamped / effectiveScale;
+      const ax = anchor ? anchor.x : el.clientWidth / 2;
+      const ay = anchor ? anchor.y : el.clientHeight / 2;
+
+      // Document-space offset of the anchor before the change, scaled by the
+      // zoom ratio, gives where it lands after — the difference is how far the
+      // scroll position has to move to hold it still.
+      const nextLeft = (el.scrollLeft + ax) * ratio - ax;
+      const nextTop = (el.scrollTop + ay) * ratio - ay;
+
+      setZoom(clamped);
+      // After React has resized the stage. A layout effect would still run
+      // before the browser recomputes scrollWidth, so the assignment would be
+      // clamped to the OLD scrollable extent and the anchor would drift.
+      requestAnimationFrame(() => {
+        const node = scrollRef.current;
+        if (!node) return;
+        node.scrollLeft = nextLeft;
+        node.scrollTop = nextTop;
+      });
+    },
+    [effectiveScale],
+  );
+
+  const zoomBy = useCallback(
+    (factor: number, anchor?: { x: number; y: number }) =>
+      applyZoom(effectiveScale * factor, anchor),
+    [applyZoom, effectiveScale],
+  );
+
+  /** The element currently open for in-place editing, if it still exists. */
+  const editingElement = useMemo(() => {
+    if (!editingId) return null;
+    const found = page.elements.find((el) => el.id === editingId);
+    return found && (found.kind === "text" || found.kind === "pill") ? found : null;
+  }, [editingId, page.elements]);
+
+  // Dropping the active page or deleting the element mid-edit would otherwise
+  // leave the editor open over nothing.
+  useEffect(() => {
+    if (editingId && !editingElement) setEditingId(null);
+  }, [editingId, editingElement]);
+
+  /**
+   * Ctrl/Cmd + wheel zooms; a plain wheel scrolls the pane normally.
+   *
+   * Registered natively with `passive: false` because React's onWheel is
+   * attached as a passive listener, where `preventDefault()` is ignored — the
+   * browser would zoom the whole application UI instead of the canvas.
+   */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      // Exponential so each notch is a constant proportional step, which is what
+      // makes zoom feel linear across the whole range.
+      zoomBy(Math.exp(-e.deltaY * 0.002), {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [zoomBy]);
+
+  /**
+   * Zoom keyboard shortcuts, owned here rather than in the dialog's shortcut
+   * chain so zoom state stays local to the viewport that it describes.
+   *
+   * `preventDefault` is mandatory: `Cmd+-` / `Cmd+=` / `Cmd+0` are the browser's
+   * own page-zoom bindings, and without this they would scale the entire
+   * application chrome instead of the canvas.
+   */
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) return;
+      const target = e.target;
+      const isTyping =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable);
+      if (isTyping) return;
+
+      // `e.code` for the bracket-style keys: `e.key` reports the shifted
+      // character, so `Cmd+Shift+=` (a common way to press "+") wouldn't match.
+      if (e.code === "Equal" || e.key === "+") {
+        e.preventDefault();
+        zoomBy(1.25);
+      } else if (e.code === "Minus" || e.key === "-") {
+        e.preventDefault();
+        zoomBy(1 / 1.25);
+      } else if (e.code === "Digit0") {
+        e.preventDefault();
+        setZoom(null);
+      } else if (e.code === "Digit1") {
+        e.preventDefault();
+        applyZoom(1);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [applyZoom, zoomBy]);
 
   // ─── Selection ────────────────────────────────────────────────────────────
 
@@ -512,10 +692,30 @@ export default function BrochureEditorCanvas({
   }, []);
 
   return (
-    <div
-      ref={containerRef}
-      className="w-full h-full flex items-center justify-center bg-muted/40 overflow-hidden"
-    >
+    <div ref={containerRef} className="w-full h-full relative overflow-hidden">
+      {/* Scroll container = pan. Once the zoomed page is larger than the pane,
+          the native scrollbars are the pan mechanism, which also gives
+          trackpad two-finger panning and shift-wheel for free. */}
+      <div ref={scrollRef} className="w-full h-full overflow-auto bg-muted/40">
+        {/*
+          `m-auto` on the inner wrapper rather than `justify-center` on this
+          flex container. Centring a flex item that OVERFLOWS its scroll
+          container clips the top/left and makes that part unreachable by
+          scrolling; auto margins centre without that failure.
+        */}
+        <div
+          className="flex p-5"
+          style={{
+            minWidth: "100%",
+            minHeight: "100%",
+            width: "max-content",
+            height: "max-content",
+          }}
+        >
+          {/* `relative` so the in-place text editor can be absolutely
+              positioned over the element it's editing, and so it pans and zooms
+              with the page instead of floating at a fixed screen offset. */}
+          <div className="m-auto relative" style={{ width: stageW, height: stageH }}>
       {stageW > 0 && stageH > 0 && (
         <Stage
           ref={stageRef}
@@ -539,6 +739,10 @@ export default function BrochureEditorCanvas({
           </Layer>
           <Layer>
             {[...page.elements]
+              // Hidden elements are skipped by BOTH renderers, so the canvas and
+              // the exported PDF agree — unlike `opacity: 0`, which still
+              // rasterised into the file.
+              .filter((el) => !el.hidden)
               .sort((a, b) => a.zIndex - b.zIndex)
               .map((el) => (
                 <ElementNode
@@ -548,7 +752,13 @@ export default function BrochureEditorCanvas({
                   page={page}
                   isSelected={selectedElementIds.includes(el.id)}
                   registerNode={registerNode}
+                  isEditing={editingId === el.id}
                   onSelect={(additive, isolate) => handleSelect(el.id, additive, isolate)}
+                  onStartEditing={
+                    el.kind === "text" || el.kind === "pill"
+                      ? () => setEditingId(el.id)
+                      : undefined
+                  }
                   onDragStart={() => handleDragStart(el.id)}
                   onDragMove={() => handleDragMove(el.id)}
                   onDragEnd={handleDragEnd}
@@ -624,6 +834,129 @@ export default function BrochureEditorCanvas({
           </Layer>
         </Stage>
       )}
+
+            {editingElement && (
+              <InPlaceTextEditor
+                key={editingElement.id}
+                element={editingElement}
+                scale={scalePxPerMm}
+                onCommit={(value) => {
+                  const patch =
+                    editingElement.kind === "text" ? { content: value } : { text: value };
+                  onChange(updateElement(doc, page.id, editingElement.id, patch));
+                  setEditingId(null);
+                }}
+                onCancel={() => setEditingId(null)}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      <ZoomControl
+        percent={Math.round(effectiveScale * 100)}
+        isFit={zoom === null}
+        canZoomIn={effectiveScale < MAX_ZOOM - 1e-6}
+        canZoomOut={effectiveScale > MIN_ZOOM + 1e-6}
+        onZoomIn={() => zoomBy(1.25)}
+        onZoomOut={() => zoomBy(1 / 1.25)}
+        onSetZoom={(z) => applyZoom(z)}
+        onFit={() => setZoom(null)}
+      />
+    </div>
+  );
+}
+
+// ─── Zoom control ──────────────────────────────────────────────────────────
+
+/**
+ * Floating zoom control, bottom-right of the canvas pane.
+ *
+ * Overlaid on the canvas rather than added to the top toolbar: it belongs to the
+ * viewport, not to the selection, and every design tool puts it here — so it's
+ * where organizers look for it.
+ */
+function ZoomControl({
+  percent,
+  isFit,
+  canZoomIn,
+  canZoomOut,
+  onZoomIn,
+  onZoomOut,
+  onSetZoom,
+  onFit,
+}: {
+  percent: number;
+  isFit: boolean;
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onSetZoom: (zoom: number) => void;
+  onFit: () => void;
+}) {
+  return (
+    <div className="absolute bottom-3 right-3 flex items-center gap-0.5 rounded-md border border-border bg-background/95 backdrop-blur px-1 py-0.5 shadow-sm">
+      <button
+        type="button"
+        onClick={onZoomOut}
+        disabled={!canZoomOut}
+        title="Zoom out (Ctrl+-)"
+        aria-label="Zoom out"
+        className="h-7 w-7 grid place-items-center rounded hover:bg-muted disabled:opacity-40 disabled:hover:bg-transparent"
+      >
+        <Minus className="h-3.5 w-3.5" />
+      </button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            title="Zoom level"
+            className="h-7 min-w-[62px] px-1.5 rounded hover:bg-muted text-[11px] tabular-nums"
+          >
+            {percent}%{isFit ? " · Fit" : ""}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[140px]">
+          <DropdownMenuItem onClick={onFit}>
+            Fit to pane
+            <span className="ml-auto text-[10px] text-muted-foreground">Ctrl+0</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {ZOOM_PRESETS.map((z) => (
+            <DropdownMenuItem key={z} onClick={() => onSetZoom(z)}>
+              {Math.round(z * 100)}%
+              {z === 1 && (
+                <span className="ml-auto text-[10px] text-muted-foreground">Ctrl+1</span>
+              )}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <button
+        type="button"
+        onClick={onZoomIn}
+        disabled={!canZoomIn}
+        title="Zoom in (Ctrl+=)"
+        aria-label="Zoom in"
+        className="h-7 w-7 grid place-items-center rounded hover:bg-muted disabled:opacity-40 disabled:hover:bg-transparent"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+
+      <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
+
+      <button
+        type="button"
+        onClick={onFit}
+        title="Fit to pane (Ctrl+0)"
+        aria-label="Fit page to pane"
+        className="h-7 w-7 grid place-items-center rounded hover:bg-muted"
+      >
+        <Maximize2 className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 }
@@ -689,6 +1022,8 @@ interface ElementNodeProps {
   scale: number; // px per mm
   page: BrochurePage;
   isSelected: boolean;
+  /** True while the overlaid textarea is open over this element. */
+  isEditing: boolean;
   /** Publishes (or retracts) the live Konva node in the parent's registry. */
   registerNode: (elementId: string, node: Konva.Group | null) => void;
   /**
@@ -696,6 +1031,8 @@ interface ElementNodeProps {
    * @param isolate  alt-click — select just this element, ignoring its card.
    */
   onSelect: (additive: boolean, isolate: boolean) => void;
+  /** Double-click handler, only supplied for kinds that carry editable text. */
+  onStartEditing?: () => void;
   onDragStart: () => void;
   onDragMove: () => void;
   onDragEnd: () => void;
@@ -719,8 +1056,10 @@ function ElementNode(props: ElementNodeProps) {
     scale,
     page,
     isSelected,
+    isEditing,
     registerNode,
     onSelect,
+    onStartEditing,
     onDragStart,
     onDragMove,
     onDragEnd,
@@ -739,6 +1078,13 @@ function ElementNode(props: ElementNodeProps) {
   const wPx = element.width * scale;
   const hPx = element.height * scale;
 
+  // A locked element is inert on the canvas: not clickable, not draggable, and
+  // (because it can't be selected) not resizable. The intended use is a
+  // full-bleed background panel that would otherwise be grabbed on every stray
+  // click. It stays reachable from the layers list, which is what keeps locking
+  // from being a one-way trap.
+  const locked = !!element.locked;
+
   return (
     <Group
       ref={setRef}
@@ -746,7 +1092,8 @@ function ElementNode(props: ElementNodeProps) {
       y={yPx}
       rotation={element.rotation}
       opacity={element.opacity}
-      draggable
+      listening={!locked}
+      draggable={!locked}
       onMouseEnter={(e) => {
         // Change the cursor to "move" so users know the element (or
         // full-bleed image) is grabbable — otherwise a page-sized
@@ -768,11 +1115,29 @@ function ElementNode(props: ElementNodeProps) {
         // Touch has no modifier keys, so a tap always selects the whole card.
         onSelect(false, false);
       }}
+      onDblClick={(e) => {
+        if (!onStartEditing) return;
+        e.cancelBubble = true;
+        onStartEditing();
+      }}
+      onDblTap={(e) => {
+        if (!onStartEditing) return;
+        e.cancelBubble = true;
+        onStartEditing();
+      }}
       onDragStart={onDragStart}
       onDragMove={onDragMove}
       onDragEnd={onDragEnd}
     >
-      <ElementBody element={element} width={wPx} height={hPx} pageWidth={page.width} scale={scale} />
+      {/* While the overlaid textarea is open, the Konva copy is suppressed —
+          otherwise the glyphs render twice, slightly offset, because canvas and
+          DOM text metrics never match exactly. For a pill the capsule stays
+          drawn and only its label is hidden, so the shape doesn't flicker. */}
+      {isEditing && element.kind === "pill" ? (
+        <PillBody el={element} width={wPx} height={hPx} scale={scale} hideText />
+      ) : isEditing && element.kind === "text" ? null : (
+        <ElementBody element={element} width={wPx} height={hPx} pageWidth={page.width} scale={scale} />
+      )}
       {isSelected && (
         // Per-element outline. The shared Transformer only draws ONE box around
         // the whole selection, so without this the organizer can't tell which
@@ -834,29 +1199,26 @@ function ElementBody({
 }
 
 function TextBody({ el, width, height, scale }: { el: TextElement; width: number; height: number; scale: number }) {
+  // `ptToMm(1) * scale` is the pt→px factor at this zoom level; letter spacing
+  // is stored in points so it tracks the type size.
+  const ptToPxFactor = ptToMm(1) * scale;
   return (
     <Text
       x={0}
       y={0}
       width={width}
       height={height}
-      text={el.content}
+      text={transformedText(el.content, el.textTransform)}
       fontFamily={el.fontFamily}
       fontSize={ptToMm(el.fontSize) * scale}
-      fontStyle={
-        el.fontWeight === "bold" && el.fontStyle === "italic"
-          ? "italic bold"
-          : el.fontWeight === "bold"
-            ? "bold"
-            : el.fontStyle === "italic"
-              ? "italic"
-              : "normal"
-      }
+      fontStyle={fontStyleString(el.fontWeight, el.fontStyle)}
       fill={el.color}
       align={el.align}
       lineHeight={el.lineHeight}
       wrap="word"
       listening
+      {...textExtras(el, ptToPxFactor, scale)}
+      {...shadowProps(el.shadow, scale)}
     />
   );
 }
@@ -935,7 +1297,7 @@ function ImageBody({ el, width, height, scale }: { el: ImageElement; width: numb
       ctx.lineTo(0, r);
       ctx.quadraticCurveTo(0, 0, r, 0);
       ctx.closePath();
-    }}>
+    }} {...shadowProps(el.shadow, scale)}>
       {/* Must stay listening. A Konva Group has no hit area of its own — hit
           testing goes through its children — so `listening={false}` here left a
           successfully-loaded image with ZERO hit area. Clicks fell through to
@@ -946,12 +1308,25 @@ function ImageBody({ el, width, height, scale }: { el: ImageElement; width: numb
 
           The placeholder branch above always had a listening Rect, so a BROKEN
           image was selectable while a working one wasn't. */}
-      <Image image={image} x={dx} y={dy} width={drawW} height={drawH} />
+      <Image
+        image={image}
+        width={drawW}
+        height={drawH}
+        {...mirrorProps(el.flipH, el.flipV, dx, dy, drawW, drawH)}
+      />
     </Group>
   );
 }
 
 function ShapeBody({ el, width, height, scale }: { el: ShapeElement; width: number; height: number; scale: number }) {
+  const strokeWidthPx = el.strokeWidth * scale;
+  const common = {
+    stroke: el.stroke === "transparent" ? undefined : el.stroke,
+    strokeWidth: strokeWidthPx,
+    dash: dashArray(el.dash, strokeWidthPx),
+    ...shapeFillProps(el, width, height),
+    ...shadowProps(el.shadow, scale),
+  };
   if (el.shape === "ellipse") {
     return (
       <Ellipse
@@ -959,27 +1334,30 @@ function ShapeBody({ el, width, height, scale }: { el: ShapeElement; width: numb
         y={height / 2}
         radiusX={width / 2}
         radiusY={height / 2}
-        fill={el.fill === "transparent" ? undefined : el.fill}
-        stroke={el.stroke === "transparent" ? undefined : el.stroke}
-        strokeWidth={el.strokeWidth * scale}
+        {...common}
       />
     );
   }
   return (
-    <Rect
-      x={0}
-      y={0}
-      width={width}
-      height={height}
-      fill={el.fill === "transparent" ? undefined : el.fill}
-      stroke={el.stroke === "transparent" ? undefined : el.stroke}
-      strokeWidth={el.strokeWidth * scale}
-      cornerRadius={el.cornerRadius * scale}
-    />
+    <Rect x={0} y={0} width={width} height={height} cornerRadius={el.cornerRadius * scale} {...common} />
   );
 }
 
-function PillBody({ el, width, height, scale }: { el: PillElement; width: number; height: number; scale: number }) {
+function PillBody({
+  el,
+  width,
+  height,
+  scale,
+  hideText = false,
+}: {
+  el: PillElement;
+  width: number;
+  height: number;
+  scale: number;
+  /** Set while the in-place editor is open, so the capsule keeps drawing but its
+   *  label doesn't double up with the textarea's. */
+  hideText?: boolean;
+}) {
   // A pill is a rounded rect with the corner radius = height/2, plus
   // centered text on top.
   return (
@@ -993,20 +1371,121 @@ function PillBody({ el, width, height, scale }: { el: PillElement; width: number
         fill={el.fillColor === "transparent" ? undefined : el.fillColor}
         stroke={el.strokeColor === "transparent" ? undefined : el.strokeColor}
         strokeWidth={el.strokeWidth * scale}
+        {...shadowProps(el.shadow, scale)}
       />
-      <Text
-        x={0}
-        y={0}
-        width={width}
-        height={height}
-        text={el.text}
-        fontFamily={el.fontFamily}
-        fontSize={ptToMm(el.fontSize) * scale}
-        fill={el.textColor}
-        align="center"
-        verticalAlign="middle"
-        listening={false}
-      />
+      {!hideText && (
+        <Text
+          x={0}
+          y={0}
+          width={width}
+          height={height}
+          text={el.text}
+          fontFamily={el.fontFamily}
+          fontSize={ptToMm(el.fontSize) * scale}
+          fontStyle={fontStyleString(el.fontWeight, "normal")}
+          letterSpacing={el.letterSpacing ? el.letterSpacing * ptToMm(1) * scale : undefined}
+          fill={el.textColor}
+          align="center"
+          verticalAlign="middle"
+          listening={false}
+        />
+      )}
     </>
+  );
+}
+
+// ─── In-place text editor ──────────────────────────────────────────────────
+
+/**
+ * A `<textarea>` overlaid exactly on top of a text or pill element.
+ *
+ * Editing text on a canvas is otherwise a side-panel affair: you retype in a
+ * box on the right while the text you're changing sits somewhere else on screen.
+ * For the single most repeated action in brochure design that's a constant tax,
+ * so this puts the caret where the words are.
+ *
+ * The textarea's font, size, tracking, colour and alignment are matched to the
+ * element so the text doesn't visibly jump when editing starts or ends. It can't
+ * match Konva's line breaking exactly — canvas and DOM text measurement differ —
+ * so the overlay is a close approximation, and the authoritative render appears
+ * again the moment editing commits.
+ *
+ * Commit on blur or Cmd/Ctrl+Enter; abandon on Escape. Enter inserts a newline,
+ * because these boxes are genuinely multi-line (the model stores `\n`).
+ */
+function InPlaceTextEditor({
+  element,
+  scale,
+  onCommit,
+  onCancel,
+}: {
+  element: TextElement | PillElement;
+  scale: number;
+  onCommit: (value: string) => void;
+  onCancel: () => void;
+}) {
+  const initial = element.kind === "text" ? element.content : element.text;
+  const [value, setValue] = useState(initial);
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    node.focus();
+    node.select();
+  }, []);
+
+  const isText = element.kind === "text";
+  const fontPx = ptToMm(element.fontSize) * scale;
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => onCommit(value)}
+      onKeyDown={(e) => {
+        // Stop the dialog's global shortcuts from seeing these keys — Delete
+        // would otherwise remove the element being typed into, and Cmd+A would
+        // select every element on the page instead of the text.
+        e.stopPropagation();
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onCancel();
+        } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          onCommit(value);
+        }
+      }}
+      spellCheck
+      style={{
+        position: "absolute",
+        left: element.x * scale,
+        top: element.y * scale,
+        width: element.width * scale,
+        height: element.height * scale,
+        fontFamily: `"${element.fontFamily}", sans-serif`,
+        fontSize: fontPx,
+        fontWeight: isText ? element.fontWeight : (element.fontWeight ?? "normal"),
+        fontStyle: isText && element.fontStyle === "italic" ? "italic" : "normal",
+        letterSpacing: element.letterSpacing ? element.letterSpacing * ptToMm(1) * scale : undefined,
+        lineHeight: isText ? element.lineHeight : 1.2,
+        color: isText ? element.color : element.textColor,
+        textAlign: isText ? element.align : "center",
+        textTransform: isText ? (element.textTransform ?? "none") : "none",
+        // A pill's capsule is still painted underneath, so the editor must not
+        // cover it; a bare text element has nothing behind it either way.
+        background: "transparent",
+        border: "1px solid #3b82f6",
+        outline: "none",
+        padding: 0,
+        margin: 0,
+        resize: "none",
+        overflow: "hidden",
+        // Rotation shares the element's centre pivot, matching Konva.
+        transform: element.rotation ? `rotate(${element.rotation}deg)` : undefined,
+        transformOrigin: "center center",
+      }}
+    />
   );
 }

@@ -20,10 +20,13 @@ import {
 import {
   SNAP_TOLERANCE_MM,
   alignElements,
+  copyElements,
   distributeElements,
   duplicateElements,
   expandSelectionToGroups,
   groupElements,
+  movePage,
+  pasteElements,
   reorderElements,
   selectionBounds,
   selectionHasGroup,
@@ -1016,6 +1019,189 @@ describe("grouped cards work with the existing operations", () => {
     const ids = expandSelectionToGroups(doc.pages[0], ["bg"]);
     const out = reorderElements(doc, "page-1", ids, "front");
     expect(orderOf(out)).toEqual(["other", "bg", "photo"]);
+  });
+});
+
+// ─── Clipboard ──────────────────────────────────────────────────────────────
+
+describe("copyElements", () => {
+  it("returns detached copies, so editing the document can't mutate the clipboard", () => {
+    // This is what makes cut-then-paste work: the originals are gone by the time
+    // paste runs.
+    const doc = docWith([{ id: "a", x: 10 }, { id: "b", x: 20 }]);
+    const clip = copyElements(doc.pages[0], ["a"]);
+    expect(clip).toHaveLength(1);
+    expect(clip[0]).not.toBe(el(doc, "a"));
+    expect(clip[0].x).toBe(10);
+  });
+
+  it("returns clipboard entries in paint order", () => {
+    const doc = docWith([
+      { id: "a", zIndex: 2 },
+      { id: "b", zIndex: 0 },
+      { id: "c", zIndex: 1 },
+    ]);
+    expect(copyElements(doc.pages[0], ["a", "b", "c"]).map((e) => e.id)).toEqual([
+      "b",
+      "c",
+      "a",
+    ]);
+  });
+
+  it("ignores unknown ids and returns empty for an empty selection", () => {
+    const doc = docWith([{ id: "a" }]);
+    expect(copyElements(doc.pages[0], ["ghost"])).toEqual([]);
+    expect(copyElements(doc.pages[0], [])).toEqual([]);
+  });
+});
+
+describe("pasteElements", () => {
+  it("adds copies with fresh ids, offset, on top", () => {
+    const source = docWith([{ id: "a", x: 10, y: 20 }]);
+    const clip = copyElements(source.pages[0], ["a"]);
+
+    const target = docWith([{ id: "existing" }]);
+    const { doc: out, newIds } = pasteElements(target, "page-1", clip);
+
+    expect(newIds).toHaveLength(1);
+    expect(newIds[0]).not.toBe("a");
+    expect(orderOf(out)).toEqual(["existing", newIds[0]]);
+    expect(el(out, newIds[0]).x).toBe(14);
+    expect(el(out, newIds[0]).y).toBe(24);
+  });
+
+  it("pastes onto a DIFFERENT page than the source, which is how elements move", () => {
+    // The whole point: before this, `duplicateElements` was the only copy
+    // mechanism and it was hard-wired to one page.
+    const twoPage: BrochureDocument = {
+      ...docWith([{ id: "a", x: 5, y: 5 }]),
+      pages: [
+        docWith([{ id: "a", x: 5, y: 5 }]).pages[0],
+        { ...newPage(), id: "page-2", elements: [] },
+      ],
+    };
+    const clip = copyElements(twoPage.pages[0], ["a"]);
+    const { doc: out, newIds } = pasteElements(twoPage, "page-2", clip);
+
+    expect(out.pages[0].elements).toHaveLength(1); // source untouched
+    expect(out.pages[1].elements).toHaveLength(1);
+    expect(out.pages[1].elements[0].id).toBe(newIds[0]);
+  });
+
+  it("remaps card tags so a pasted card is its own card", () => {
+    // Reusing the source groupId would weld the copy to the original — selecting
+    // one would select both, forever.
+    const source = groupedDoc([
+      { id: "bg", groupId: "c1" },
+      { id: "photo", groupId: "c1" },
+    ]);
+    const clip = copyElements(source.pages[0], ["bg", "photo"]);
+    const { doc: out, newIds } = pasteElements(source, "page-1", clip);
+
+    const copyGroups = new Set(newIds.map((id) => el(out, id).groupId));
+    expect(copyGroups.size).toBe(1);
+    expect([...copyGroups][0]).not.toBe("c1");
+  });
+
+  it("keeps two separate cards separate when pasted together", () => {
+    const source = groupedDoc([
+      { id: "a1", groupId: "c1" },
+      { id: "a2", groupId: "c1" },
+      { id: "b1", groupId: "c2" },
+      { id: "b2", groupId: "c2" },
+    ]);
+    const clip = copyElements(source.pages[0], ["a1", "a2", "b1", "b2"]);
+    const { doc: out, newIds } = pasteElements(source, "page-1", clip);
+    const groups = new Set(newIds.map((id) => el(out, id).groupId));
+    expect(groups.size).toBe(2);
+  });
+
+  it("pasting twice produces two independent copies", () => {
+    const source = docWith([{ id: "a" }]);
+    const clip = copyElements(source.pages[0], ["a"]);
+    const first = pasteElements(source, "page-1", clip);
+    const second = pasteElements(first.doc, "page-1", clip);
+    expect(second.newIds[0]).not.toBe(first.newIds[0]);
+    expect(second.doc.pages[0].elements).toHaveLength(3);
+  });
+
+  it("keeps zIndex dense after a paste", () => {
+    const source = docWith([{ id: "a" }, { id: "b" }]);
+    const clip = copyElements(source.pages[0], ["a", "b"]);
+    const { doc: out } = pasteElements(source, "page-1", clip);
+    expect(sortedByZ(out.pages[0].elements).map((e) => e.zIndex)).toEqual([0, 1, 2, 3]);
+  });
+
+  it("is a no-op for an empty clipboard or unknown page", () => {
+    const doc = docWith([{ id: "a" }]);
+    expect(pasteElements(doc, "page-1", [])).toEqual({ doc, newIds: [] });
+    expect(pasteElements(doc, "page-nope", copyElements(doc.pages[0], ["a"]))).toEqual({
+      doc,
+      newIds: [],
+    });
+  });
+
+  it("does not mutate the input document", () => {
+    const doc = docWith([{ id: "a" }]);
+    pasteElements(doc, "page-1", copyElements(doc.pages[0], ["a"]));
+    expect(doc.pages[0].elements).toHaveLength(1);
+  });
+});
+
+// ─── movePage ───────────────────────────────────────────────────────────────
+
+describe("movePage", () => {
+  /** Document with `n` pages named `p1`…`pn`. */
+  const pagesDoc = (n: number): BrochureDocument => ({
+    id: "d",
+    title: "T",
+    pages: Array.from({ length: n }, (_, i) => ({ ...newPage(), id: `p${i + 1}`, elements: [] })),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  const order = (d: BrochureDocument) => d.pages.map((p) => p.id);
+
+  it("swaps a page with the one before it", () => {
+    expect(order(movePage(pagesDoc(4), "p3", "earlier"))).toEqual(["p1", "p3", "p2", "p4"]);
+  });
+
+  it("swaps a page with the one after it", () => {
+    expect(order(movePage(pagesDoc(4), "p2", "later"))).toEqual(["p1", "p3", "p2", "p4"]);
+  });
+
+  it("is a no-op at the boundaries", () => {
+    const doc = pagesDoc(3);
+    expect(movePage(doc, "p1", "earlier")).toBe(doc);
+    expect(movePage(doc, "p3", "later")).toBe(doc);
+  });
+
+  it("is a no-op for an unknown page or a single-page document", () => {
+    const doc = pagesDoc(3);
+    expect(movePage(doc, "nope", "earlier")).toBe(doc);
+    const one = pagesDoc(1);
+    expect(movePage(one, "p1", "later")).toBe(one);
+  });
+
+  it("can walk a page from the end to the front, one step at a time", () => {
+    // The concrete scenario this was written for: "duplicate page" appends to the
+    // end, so bringing the copy back to position 2 has to be possible.
+    let doc = pagesDoc(5);
+    for (let i = 0; i < 3; i += 1) doc = movePage(doc, "p5", "earlier");
+    expect(order(doc)).toEqual(["p1", "p5", "p2", "p3", "p4"]);
+  });
+
+  it("preserves page contents and identity, only the order", () => {
+    const doc = pagesDoc(3);
+    const before = doc.pages.find((p) => p.id === "p2");
+    const out = movePage(doc, "p2", "later");
+    expect(out.pages.find((p) => p.id === "p2")).toBe(before);
+    expect(out.pages).toHaveLength(3);
+  });
+
+  it("does not mutate the input document", () => {
+    const doc = pagesDoc(3);
+    movePage(doc, "p2", "later");
+    expect(order(doc)).toEqual(["p1", "p2", "p3"]);
   });
 });
 

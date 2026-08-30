@@ -286,6 +286,21 @@ export interface SnapResult {
 export const SNAP_TOLERANCE_MM = 2;
 
 /**
+ * Canvas zoom limits, as a multiplier where `1` = 100% (one document millimetre
+ * drawn at `SCREEN_DPI`).
+ *
+ * The floor is below any realistic fit scale so "zoom out" still works on a
+ * large page; the ceiling is high enough to inspect 6pt type, which is the whole
+ * reason zoom was needed — at fit scale an A4 page sits near 0.55× and the
+ * seeded agenda body text renders around 6 screen pixels.
+ */
+export const MIN_ZOOM = 0.1;
+export const MAX_ZOOM = 8;
+
+/** Discrete steps for the zoom dropdown, matching what design tools offer. */
+export const ZOOM_PRESETS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4] as const;
+
+/**
  * Snaps a dragged element's proposed position to nearby edges and centres.
  *
  * Candidate lines are the page edges, the page centre lines, and every edge +
@@ -408,31 +423,10 @@ export function duplicateElements(
   if (!page) return { doc, newIds: [] };
 
   const ids = new Set(elementIds);
-
-  // Card tags have to be REMAPPED, not copied. Spreading `...el` carries the
-  // source's `groupId` onto the copy, which would put the copy in the same card
-  // as the original — selecting one would select both, and they could never be
-  // moved apart. Each distinct source group gets one fresh id so a duplicated
-  // card stays a card, but its own.
-  const groupRemap = new Map<string, string>();
-
-  const copies: BrochureElement[] = [];
-  for (const el of sortedByZ(page.elements)) {
-    if (!ids.has(el.id)) continue;
-    let groupId = el.groupId;
-    if (groupId !== undefined) {
-      const mapped = groupRemap.get(groupId) ?? generateId("group");
-      groupRemap.set(groupId, mapped);
-      groupId = mapped;
-    }
-    copies.push({
-      ...el,
-      id: generateId(el.kind),
-      x: el.x + offsetMm,
-      y: el.y + offsetMm,
-      ...(groupId !== undefined ? { groupId } : {}),
-    } as BrochureElement);
-  }
+  const copies = cloneElements(
+    sortedByZ(page.elements).filter((el) => ids.has(el.id)),
+    offsetMm,
+  );
   if (copies.length === 0) return { doc, newIds: [] };
 
   const next = mapPageElements(doc, pageId, (elements) =>
@@ -532,6 +526,104 @@ export function ungroupElements(
 export function selectionHasGroup(page: BrochurePage, elementIds: string[]): boolean {
   const ids = new Set(elementIds);
   return page.elements.some((el) => ids.has(el.id) && !!el.groupId);
+}
+
+// ─── Clipboard ──────────────────────────────────────────────────────────────
+
+/**
+ * Deep-copies elements with fresh ids, remapped card tags, and an optional
+ * offset. Shared by duplicate and paste.
+ *
+ * The card-tag remap is the subtle part: spreading `...el` carries the source's
+ * `groupId` onto the copy, which would put the copy in the SAME card as the
+ * original — selecting one would select both and they could never be separated.
+ * Each distinct source group therefore gets exactly one fresh id, so a copied
+ * card stays a card but its own.
+ */
+function cloneElements(elements: BrochureElement[], offsetMm: number): BrochureElement[] {
+  const groupRemap = new Map<string, string>();
+  return elements.map((el) => {
+    let groupId = el.groupId;
+    if (groupId !== undefined) {
+      const mapped = groupRemap.get(groupId) ?? generateId("group");
+      groupRemap.set(groupId, mapped);
+      groupId = mapped;
+    }
+    return {
+      ...el,
+      id: generateId(el.kind),
+      x: el.x + offsetMm,
+      y: el.y + offsetMm,
+      ...(groupId !== undefined ? { groupId } : {}),
+    } as BrochureElement;
+  });
+}
+
+/**
+ * Snapshot of a selection for the clipboard.
+ *
+ * Returns detached copies rather than references into the document, so a later
+ * edit or delete can't mutate what's on the clipboard — which is what makes
+ * cut-then-paste work.
+ */
+export function copyElements(
+  page: BrochurePage,
+  elementIds: string[],
+): BrochureElement[] {
+  const ids = new Set(elementIds);
+  return sortedByZ(page.elements)
+    .filter((el) => ids.has(el.id))
+    .map((el) => ({ ...el }));
+}
+
+/**
+ * Pastes clipboard elements onto a page, on top, with fresh ids.
+ *
+ * The target is whichever page is active, which is what makes moving a card
+ * between pages possible at all. Previously `duplicateElements` was the only
+ * copy mechanism and it was hard-wired to a single page, so relocating one
+ * element meant duplicating the whole page and deleting everything else on it.
+ */
+export function pasteElements(
+  doc: BrochureDocument,
+  pageId: string,
+  clipboard: BrochureElement[],
+  offsetMm = 4,
+): { doc: BrochureDocument; newIds: string[] } {
+  if (clipboard.length === 0) return { doc, newIds: [] };
+  const page = doc.pages.find((p) => p.id === pageId);
+  if (!page) return { doc, newIds: [] };
+
+  const clones = cloneElements(clipboard, offsetMm);
+  const next = mapPageElements(doc, pageId, (elements) =>
+    normalizeZ([...sortedByZ(elements), ...clones]),
+  );
+  return { doc: next, newIds: clones.map((c) => c.id) };
+}
+
+// ─── Page ordering ──────────────────────────────────────────────────────────
+
+/**
+ * Moves a page one step earlier or later in the document.
+ *
+ * Without this a multi-page brochure could not be resequenced at all, and
+ * "duplicate page" was effectively broken for anything but the last page:
+ * `addPage` appends, so duplicating page 2 of 8 put the copy at position 9 with
+ * no way to bring it back.
+ */
+export function movePage(
+  doc: BrochureDocument,
+  pageId: string,
+  direction: "earlier" | "later",
+): BrochureDocument {
+  const index = doc.pages.findIndex((p) => p.id === pageId);
+  if (index === -1) return doc;
+  const target = direction === "earlier" ? index - 1 : index + 1;
+  if (target < 0 || target >= doc.pages.length) return doc;
+
+  const pages = [...doc.pages];
+  [pages[index], pages[target]] = [pages[target], pages[index]];
+  return { ...doc, pages, updatedAt: new Date().toISOString() };
 }
 
 /**

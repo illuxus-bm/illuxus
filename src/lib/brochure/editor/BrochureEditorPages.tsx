@@ -11,7 +11,7 @@
  * document mutation; the SVG placeholder is precise enough for
  * navigation.
  */
-import { Plus, Copy, Trash2 } from "lucide-react";
+import { Plus, Copy, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import type { BrochureDocument, BrochurePage } from "./editor-document";
@@ -23,6 +23,7 @@ interface Props {
   onAddPage: () => void;
   onDuplicatePage: (id: string) => void;
   onDeletePage: (id: string) => void;
+  onMovePage: (id: string, direction: "earlier" | "later") => void;
 }
 
 export default function BrochureEditorPages({
@@ -32,7 +33,9 @@ export default function BrochureEditorPages({
   onAddPage,
   onDuplicatePage,
   onDeletePage,
+  onMovePage,
 }: Props) {
+  const activeIndex = doc.pages.findIndex((p) => p.id === activePageId);
   return (
     <div className="h-24 border-t border-border bg-background flex items-center gap-2 px-3 overflow-x-auto shrink-0">
       {doc.pages.map((page, idx) => (
@@ -44,13 +47,43 @@ export default function BrochureEditorPages({
           onSelect={() => onSelectPage(page.id)}
         />
       ))}
-      <div className="flex flex-col gap-1 pl-2 border-l border-border h-full py-2">
+
+      {/* Reordering. Without this a multi-page brochure could not be
+          resequenced at all, and "duplicate page" appended the copy to the very
+          end — so duplicating page 2 of 8 left it stranded at position 9. */}
+      <div className="flex flex-col gap-1 pl-2 border-l border-border h-full py-2 shrink-0">
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 w-7 p-0"
+          onClick={() => onMovePage(activePageId, "earlier")}
+          title="Move current page earlier"
+          aria-label="Move current page earlier"
+          disabled={activeIndex <= 0}
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 w-7 p-0"
+          onClick={() => onMovePage(activePageId, "later")}
+          title="Move current page later"
+          aria-label="Move current page later"
+          disabled={activeIndex === -1 || activeIndex >= doc.pages.length - 1}
+        >
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-1 pl-2 border-l border-border h-full py-2 shrink-0">
         <Button
           size="sm"
           variant="ghost"
           className="h-7 w-7 p-0"
           onClick={onAddPage}
           title="Add page"
+          aria-label="Add page"
         >
           <Plus className="h-3.5 w-3.5" />
         </Button>
@@ -60,6 +93,7 @@ export default function BrochureEditorPages({
           className="h-7 w-7 p-0"
           onClick={() => onDuplicatePage(activePageId)}
           title="Duplicate current page"
+          aria-label="Duplicate current page"
         >
           <Copy className="h-3.5 w-3.5" />
         </Button>
@@ -69,6 +103,7 @@ export default function BrochureEditorPages({
           className="h-7 w-7 p-0 text-destructive"
           onClick={() => onDeletePage(activePageId)}
           title="Delete current page"
+          aria-label="Delete current page"
           disabled={doc.pages.length <= 1}
         >
           <Trash2 className="h-3.5 w-3.5" />

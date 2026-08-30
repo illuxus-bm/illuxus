@@ -26,16 +26,27 @@
  *   - Cmd/Ctrl-Shift-Z    — redo (also Cmd/Ctrl-Y)
  *   - Cmd/Ctrl-D          — duplicate the selection
  *   - Cmd/Ctrl-A          — select everything on the active page
+ *   - Cmd/Ctrl-C / X / V  — copy / cut / paste (paste targets the ACTIVE page,
+ *                           which is how an element moves between pages)
+ *   - Cmd/Ctrl-G          — group the selection into a card
+ *   - Cmd/Ctrl-Shift-G    — ungroup
  *   - Cmd/Ctrl-] / [      — bring forward / send backward
  *   - Cmd/Ctrl-Shift-] /[ — bring to front / send to back
  *   - Arrow keys          — nudge the selection by 1 mm (10 mm with Shift)
+ *
+ * Zoom shortcuts (Cmd/Ctrl with `+` / `-` / `0` / `1`, and Cmd/Ctrl-wheel) are
+ * owned by `BrochureEditorCanvas` instead, since zoom describes the viewport
+ * rather than the selection.
+ *
+ * Double-clicking a text or pill element edits it in place on the canvas.
+ * Alt-clicking reaches a single element inside a grouped card.
  *
  * Export renders each page to a Konva canvas at print DPI and stamps
  * into a jsPDF, then triggers a browser download. Save persists the
  * document JSON via `onSaveDocument` (owned by the parent, which
  * writes to `events.page_config.brochureDocument`).
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   X,
   Undo2,
@@ -59,6 +70,9 @@ import {
   Copy,
   Group,
   Ungroup,
+  ClipboardCopy,
+  ClipboardPaste,
+  Scissors,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -66,6 +80,7 @@ import { preloadAllEditorFonts } from "@/lib/brochure/editor/editor-fonts";
 
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { logger } from "@/lib/observability";
 
 import BrochureEditorCanvas from "@/lib/brochure/editor/BrochureEditorCanvas";
@@ -86,9 +101,12 @@ import {
 } from "@/lib/brochure/editor/editor-document";
 import {
   alignElements,
+  copyElements,
   distributeElements,
   duplicateElements,
   groupElements,
+  movePage,
+  pasteElements,
   reorderElements,
   selectionBounds,
   selectionHasGroup,
@@ -352,6 +370,54 @@ export default function BrochureEditorDialog({
     setDoc(ungroupElements(doc, activePageId, selectedElementIds));
   }, [doc, activePageId, hasSelection, selectedElementIds, setDoc]);
 
+  // ─── Clipboard ──────────────────────────────────────────────────────────
+  //
+  // A ref rather than state: nothing renders from the clipboard, so storing it
+  // in state would re-render the whole editor on every copy for no benefit.
+  // Deliberately an in-editor clipboard rather than the system one — reading
+  // `navigator.clipboard` needs a permission prompt and can only carry text, so
+  // round-tripping elements through it would mean serialising to a string and
+  // guessing whether an arbitrary paste came from us.
+  const clipboardRef = useRef<BrochureElement[]>([]);
+
+  const handleCopy = useCallback(() => {
+    if (!doc || !activePageId || !hasSelection) return false;
+    const page = doc.pages.find((p) => p.id === activePageId);
+    if (!page) return false;
+    clipboardRef.current = copyElements(page, selectedElementIds);
+    return clipboardRef.current.length > 0;
+  }, [doc, activePageId, hasSelection, selectedElementIds]);
+
+  const handleCut = useCallback(() => {
+    if (handleCopy()) handleDeleteSelected();
+  }, [handleCopy, handleDeleteSelected]);
+
+  // Pastes onto the ACTIVE page, so copy here / switch page / paste there is how
+  // an element moves between pages.
+  const handlePaste = useCallback(() => {
+    if (!doc || !activePageId || clipboardRef.current.length === 0) return;
+    const { doc: next, newIds } = pasteElements(doc, activePageId, clipboardRef.current);
+    if (newIds.length === 0) return;
+    setDoc(next);
+    setSelectedElementIds(newIds);
+  }, [doc, activePageId, setDoc]);
+
+  const handleMovePage = useCallback(
+    (pageId: string, direction: "earlier" | "later") => {
+      if (!doc) return;
+      setDoc(movePage(doc, pageId, direction));
+    },
+    [doc, setDoc]
+  );
+
+  const handleRenameDocument = useCallback(
+    (title: string) => {
+      if (!doc) return;
+      setDoc({ ...doc, title, updatedAt: new Date().toISOString() });
+    },
+    [doc, setDoc]
+  );
+
   const handleSelectAllOnPage = useCallback(() => {
     if (!doc || !activePageId) return;
     const page = doc.pages.find((p) => p.id === activePageId);
@@ -362,12 +428,20 @@ export default function BrochureEditorDialog({
   // ─── Page mutations ─────────────────────────────────────────────────────
   const handleAddPage = useCallback(() => {
     if (!doc) return;
-    const page = newPage();
+    // Inherit the current page's dimensions and background rather than always
+    // producing A4. `newPage()` is hardcoded to A4, and the exporter honours
+    // per-page size — so adding a page to, say, an Instagram-story document
+    // silently produced a PDF with one A4 sheet wedged into it.
+    const current = doc.pages.find((p) => p.id === activePageId);
+    const base = newPage();
+    const page = current
+      ? { ...base, width: current.width, height: current.height, background: current.background }
+      : base;
     const next = addPage(doc, page);
     setDoc(next);
     setActivePageId(page.id);
     setSelectedElementIds([]);
-  }, [doc, setDoc]);
+  }, [doc, activePageId, setDoc]);
 
   const handleDuplicatePage = useCallback(
     (pageId: string) => {
@@ -433,6 +507,15 @@ export default function BrochureEditorDialog({
       } else if (isMeta && e.key.toLowerCase() === "a") {
         e.preventDefault();
         handleSelectAllOnPage();
+      } else if (isMeta && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        handleCopy();
+      } else if (isMeta && e.key.toLowerCase() === "x") {
+        e.preventDefault();
+        handleCut();
+      } else if (isMeta && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        handlePaste();
       } else if (isMeta && e.shiftKey && e.key.toLowerCase() === "g") {
         e.preventDefault();
         handleUngroup();
@@ -490,6 +573,9 @@ export default function BrochureEditorDialog({
     handleReorder,
     handleGroup,
     handleUngroup,
+    handleCopy,
+    handleCut,
+    handlePaste,
     nudgeSelected,
   ]);
 
@@ -584,11 +670,20 @@ export default function BrochureEditorDialog({
       <DialogContent className="max-w-[98vw] w-[98vw] h-[95vh] p-0 gap-0 flex flex-col overflow-hidden">
         {/* Toolbar */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0 bg-background">
-          <div className="flex items-center gap-3">
-            <span className="text-[13px] font-semibold">Brochure editor</span>
-            <span className="text-[11px] text-muted-foreground truncate max-w-[300px]">
-              {doc?.title ?? "Loading…"}
-            </span>
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-[13px] font-semibold shrink-0">Brochure editor</span>
+            {/* Editable, because the title names the exported PDF file. It was
+                previously static text set only by the template seed, so the
+                organizer had no say in what they downloaded. */}
+            <Input
+              value={doc?.title ?? ""}
+              onChange={(e) => handleRenameDocument(e.target.value)}
+              disabled={!doc}
+              placeholder="Untitled brochure"
+              aria-label="Brochure title"
+              title="Brochure title — also names the exported PDF"
+              className="h-7 w-[240px] text-[12px] border-transparent hover:border-border focus-visible:border-border bg-transparent px-2"
+            />
           </div>
           <div className="flex items-center gap-1">
             <Button
@@ -773,6 +868,23 @@ export default function BrochureEditorDialog({
               disabled={!hasSelection}
               onClick={handleDuplicateSelected}
             />
+            <ToolbarButton
+              icon={<ClipboardCopy className="h-3.5 w-3.5" />}
+              label="Copy (Ctrl+C) — paste on any page to move it there"
+              disabled={!hasSelection}
+              onClick={handleCopy}
+            />
+            <ToolbarButton
+              icon={<Scissors className="h-3.5 w-3.5" />}
+              label="Cut (Ctrl+X)"
+              disabled={!hasSelection}
+              onClick={handleCut}
+            />
+            <ToolbarButton
+              icon={<ClipboardPaste className="h-3.5 w-3.5" />}
+              label="Paste onto this page (Ctrl+V)"
+              onClick={handlePaste}
+            />
 
             <span className="text-[11px] text-muted-foreground ml-auto pl-3 shrink-0">
               {selectionIsGrouped
@@ -819,6 +931,7 @@ export default function BrochureEditorDialog({
               onAddPage={handleAddPage}
               onDuplicatePage={handleDuplicatePage}
               onDeletePage={handleDeletePage}
+              onMovePage={handleMovePage}
             />
           </>
         ) : (

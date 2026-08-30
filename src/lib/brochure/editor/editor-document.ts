@@ -55,6 +55,47 @@ export interface Geometry {
    * one member to all of them. Undefined means "not part of a card".
    */
   groupId?: string;
+  /** Drop shadow. Absent means no shadow, which is the default for everything
+   *  the seed builds. */
+  shadow?: ElementShadow;
+  /** Locked elements can't be selected, dragged or resized on the canvas. The
+   *  intended use is a full-bleed background panel that would otherwise be
+   *  grabbed on every stray click. Still editable via the layers list. */
+  locked?: boolean;
+  /** Hidden elements are skipped by BOTH renderers, so they disappear from the
+   *  canvas AND the exported PDF. That symmetry is the point — `opacity: 0` was
+   *  the only previous approximation and it still rasterised into the file. */
+  hidden?: boolean;
+}
+
+/**
+ * Drop shadow, shared by every element kind.
+ *
+ * Distances are in millimetres like all other geometry, so a shadow keeps its
+ * proportions between the 110 DPI preview and the 300 DPI export instead of
+ * being a fixed pixel offset that looks correct at exactly one resolution.
+ */
+export interface ElementShadow {
+  color: string;
+  /** Blur radius, mm. */
+  blur: number;
+  /** Offset, mm. Positive x is right, positive y is down. */
+  offsetX: number;
+  offsetY: number;
+  /** `0` → `1`. Multiplies with the element's own `opacity`. */
+  opacity: number;
+}
+
+/** Stroke dash style for shapes. Concrete presets rather than a raw dash array:
+ *  the array's units would have to be mm and scaled per renderer, and three
+ *  named options cover what a brochure actually needs. */
+export type StrokeDash = "solid" | "dashed" | "dotted";
+
+/** Two-stop linear gradient fill for shapes. */
+export interface ShapeGradient {
+  from: string;
+  to: string;
+  direction: "vertical" | "horizontal" | "diagonal";
 }
 
 // ─── Element types ───────────────────────────────────────────────────────────
@@ -73,6 +114,17 @@ export interface TextElement extends Geometry {
   color: string; // hex
   align: "left" | "center" | "right";
   lineHeight: number; // multiplier, e.g. 1.2
+  /** Extra tracking between glyphs, in points. Negative tightens. */
+  letterSpacing?: number;
+  /** Applied at render time, leaving `content` as typed — so switching back to
+   *  `none` restores the original casing instead of having destroyed it. */
+  textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
+  /** Where the text sits within its box. Defaults to `top`, which is what both
+   *  renderers did unconditionally before this existed. */
+  verticalAlign?: "top" | "middle" | "bottom";
+  /** Outline drawn around the glyphs. `strokeWidth` is in mm. */
+  strokeColor?: string;
+  strokeWidth?: number;
 }
 
 /** Image element — a bitmap loaded from a URL. */
@@ -104,6 +156,18 @@ export interface ImageElement extends Geometry {
   /** Extra scale on top of the fit scale, `>= 1`. Default `1`. Lets the
    *  organizer push further into the image than `cover` alone allows. */
   zoom?: number;
+  /**
+   * Mirror the bitmap within its box.
+   *
+   * Applied to the image INSIDE the element rather than to the element's own
+   * transform. Flipping via the Konva Transformer would mean storing a negative
+   * scale, and `handleTransformEnd` deliberately takes the absolute value of
+   * scale so that dragging a handle past the opposite edge resizes rather than
+   * silently collapsing the element. Keeping flip as its own field avoids
+   * fighting that.
+   */
+  flipH?: boolean;
+  flipV?: boolean;
 }
 
 /** Vector shape element — rect or ellipse for now, more later. */
@@ -115,6 +179,11 @@ export interface ShapeElement extends Geometry {
   stroke: string; // hex
   strokeWidth: number; // mm
   cornerRadius: number; // mm, applied only to rects
+  /** When present, takes precedence over the flat `fill`. `fill` is retained
+   *  underneath so removing the gradient restores the previous solid colour. */
+  fillGradient?: ShapeGradient;
+  /** Defaults to `solid`. */
+  dash?: StrokeDash;
 }
 
 /** Pill element — a rounded capsule with centered text. Composed
@@ -131,6 +200,10 @@ export interface PillElement extends Geometry {
   fillColor: string;
   strokeColor: string; // "transparent" for no stroke
   strokeWidth: number;
+  /** Defaults to `normal`. */
+  fontWeight?: "normal" | "bold";
+  /** Extra tracking between glyphs, in points. */
+  letterSpacing?: number;
 }
 
 /** The full element union. Add new element kinds by extending this

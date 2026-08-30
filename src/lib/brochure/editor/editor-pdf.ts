@@ -20,6 +20,15 @@ import jsPDF from "jspdf";
 import Konva from "konva";
 
 import { EXPORT_DPI, computeImageDrawBox, mmToPx, ptToPx } from "./editor-units";
+import {
+  dashArray,
+  fontStyleString,
+  mirrorProps,
+  shadowProps,
+  shapeFillProps,
+  textExtras,
+  transformedText,
+} from "./editor-render-props";
 import { ensureFontLoaded } from "./editor-fonts";
 import {
   collectDocumentFontFamilies,
@@ -86,7 +95,13 @@ async function renderPageToImage(
 
   // Content layer.
   const contentLayer = new Konva.Layer();
-  const sorted = [...page.elements].sort((a, b) => a.zIndex - b.zIndex);
+  // `hidden` is honoured here as well as on the canvas. Skipping it in only one
+  // renderer is exactly the kind of divergence this module was restructured to
+  // eliminate — and it would be the worst kind, since the organizer would see a
+  // clean canvas and find the element in the downloaded file.
+  const sorted = [...page.elements]
+    .filter((el) => !el.hidden)
+    .sort((a, b) => a.zIndex - b.zIndex);
   for (const el of sorted) {
     await drawElement(contentLayer, el, pxPerMm, dpi);
   }
@@ -167,7 +182,7 @@ async function drawElement(
 
   switch (el.kind) {
     case "text":
-      drawTextInto(group, el, wPx, hPx, dpi);
+      drawTextInto(group, el, wPx, hPx, dpi, pxPerMm);
       break;
     case "image":
       await drawImageInto(group, el, wPx, hPx, pxPerMm);
@@ -189,29 +204,26 @@ function drawTextInto(
   w: number,
   h: number,
   dpi: number = EXPORT_DPI,
+  pxPerMm: number = mmToPx(1, EXPORT_DPI),
 ) {
-  const fontStyle =
-    el.fontWeight === "bold" && el.fontStyle === "italic"
-      ? "italic bold"
-      : el.fontWeight === "bold"
-        ? "bold"
-        : el.fontStyle === "italic"
-          ? "italic"
-          : "normal";
   group.add(
     new Konva.Text({
       x: 0,
       y: 0,
       width: w,
       height: h,
-      text: el.content,
+      // Text styling goes through the shared mappers so the exported PDF cannot
+      // disagree with the canvas. See `editor-render-props.ts`.
+      text: transformedText(el.content, el.textTransform),
       fontFamily: el.fontFamily,
       fontSize: ptToPx(el.fontSize, dpi),
-      fontStyle,
+      fontStyle: fontStyleString(el.fontWeight, el.fontStyle),
       fill: el.color,
       align: el.align,
       lineHeight: el.lineHeight,
       wrap: "word",
+      ...textExtras(el, ptToPx(1, dpi), pxPerMm),
+      ...shadowProps(el.shadow, pxPerMm),
     })
   );
 }
@@ -284,7 +296,15 @@ async function drawImageInto(
       ctx.closePath();
     },
   });
-  clip.add(new Konva.Image({ image: img, x: dx, y: dy, width: drawW, height: drawH }));
+  clip.add(
+    new Konva.Image({
+      image: img,
+      width: drawW,
+      height: drawH,
+      ...mirrorProps(el.flipH, el.flipV, dx, dy, drawW, drawH),
+    })
+  );
+  clip.setAttrs(shadowProps(el.shadow, pxPerMm));
   group.add(clip);
 }
 
@@ -295,6 +315,16 @@ function drawShapeInto(
   h: number,
   pxPerMm: number,
 ) {
+  const strokeWidthPx = el.strokeWidth * pxPerMm;
+  // Fill (flat or gradient), dash pattern and shadow all come from the shared
+  // mappers, so they cannot drift from the canvas renderer.
+  const common = {
+    stroke: el.stroke === "transparent" ? undefined : el.stroke,
+    strokeWidth: strokeWidthPx,
+    dash: dashArray(el.dash, strokeWidthPx),
+    ...shapeFillProps(el, w, h),
+    ...shadowProps(el.shadow, pxPerMm),
+  };
   if (el.shape === "ellipse") {
     group.add(
       new Konva.Ellipse({
@@ -302,9 +332,7 @@ function drawShapeInto(
         y: h / 2,
         radiusX: w / 2,
         radiusY: h / 2,
-        fill: el.fill === "transparent" ? undefined : el.fill,
-        stroke: el.stroke === "transparent" ? undefined : el.stroke,
-        strokeWidth: el.strokeWidth * pxPerMm,
+        ...common,
       })
     );
     return;
@@ -315,10 +343,8 @@ function drawShapeInto(
       y: 0,
       width: w,
       height: h,
-      fill: el.fill === "transparent" ? undefined : el.fill,
-      stroke: el.stroke === "transparent" ? undefined : el.stroke,
-      strokeWidth: el.strokeWidth * pxPerMm,
       cornerRadius: el.cornerRadius * pxPerMm,
+      ...common,
     })
   );
 }
@@ -341,6 +367,7 @@ function drawPillInto(
       fill: el.fillColor === "transparent" ? undefined : el.fillColor,
       stroke: el.strokeColor === "transparent" ? undefined : el.strokeColor,
       strokeWidth: el.strokeWidth * pxPerMm,
+      ...shadowProps(el.shadow, pxPerMm),
     })
   );
   group.add(
@@ -352,6 +379,8 @@ function drawPillInto(
       text: el.text,
       fontFamily: el.fontFamily,
       fontSize: ptToPx(el.fontSize, dpi),
+      fontStyle: fontStyleString(el.fontWeight, "normal"),
+      letterSpacing: el.letterSpacing ? el.letterSpacing * ptToPx(1, dpi) : undefined,
       fill: el.textColor,
       align: "center",
       verticalAlign: "middle",
