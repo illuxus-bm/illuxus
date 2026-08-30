@@ -184,3 +184,39 @@ describe("Konva Transformer multi-node drag proxy", () => {
     expect(b.x()).toBe(bStart);
   });
 });
+
+describe("Konva Transformer multi-node resize", () => {
+  // `handleTransformEnd` reads scale off EVERY selected node and bakes it into
+  // that element's mm width/height. That only produces a coherent card resize if
+  // Konva actually distributes a single bounding-box drag across all attached
+  // nodes, scaling their positions as well as their sizes. Pinned here because
+  // it is the mechanism behind "resize the whole card", and a change to it would
+  // otherwise surface only as cards quietly coming apart.
+  it("scales position and size of every attached node from one bounding box", () => {
+    const { a, b, tr } = buildSelection();
+
+    // The selection's bounding box: a is at (10,10,20,20), b at (100,50,20,20),
+    // so the box spans x 10..120, y 10..70.
+    const before = { bx: b.x(), by: b.y() };
+    tr._fitNodesInto({ x: 10, y: 10, width: 220, height: 120, rotation: 0 });
+
+    // Every node grows...
+    expect(a.scaleX()).toBeGreaterThan(1);
+    expect(a.scaleY()).toBeGreaterThan(1);
+    expect(b.scaleX()).toBeGreaterThan(1);
+    expect(b.scaleY()).toBeGreaterThan(1);
+
+    // ...and the far node moves outward. Scaling sizes without positions would
+    // leave the card's pieces overlapping instead of spreading with the box.
+    expect(b.x()).toBeGreaterThan(before.bx);
+    expect(b.y()).toBeGreaterThan(before.by);
+  });
+
+  it("keeps the anchored corner fixed so a resize grows away from it", () => {
+    const { a, tr } = buildSelection();
+    tr._fitNodesInto({ x: 10, y: 10, width: 220, height: 120, rotation: 0 });
+    // Top-left of the selection was the origin and stays put.
+    expect(a.x()).toBeCloseTo(10, 5);
+    expect(a.y()).toBeCloseTo(10, 5);
+  });
+});

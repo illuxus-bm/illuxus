@@ -44,6 +44,7 @@ import {
   type TextElement,
 } from "./editor-document";
 import {
+  expandSelectionToGroups,
   snapPosition,
   type SnapGuide,
 } from "./editor-operations";
@@ -201,18 +202,28 @@ export default function BrochureEditorCanvas({
   }, []);
 
   const handleSelect = useCallback(
-    (elementId: string, additive: boolean) => {
+    (elementId: string, additive: boolean, isolate: boolean) => {
+      // `isolate` (Alt/Option-click) reaches a single element INSIDE a card.
+      // Without it, a grouped element could never be edited on its own — you
+      // could never retype one speaker's job title, because every click would
+      // grab the whole tile.
+      const grow = (ids: string[]) =>
+        isolate ? ids : expandSelectionToGroups(page, ids);
+
       if (!additive) {
-        onSelect([elementId]);
+        onSelect(grow([elementId]));
         return;
       }
+      // Toggling a card removes all of its members, not just the one clicked.
+      const clickedGroup = grow([elementId]);
+      const alreadyIn = clickedGroup.every((id) => selectedElementIds.includes(id));
       onSelect(
-        selectedElementIds.includes(elementId)
-          ? selectedElementIds.filter((id) => id !== elementId)
-          : [...selectedElementIds, elementId],
+        alreadyIn
+          ? selectedElementIds.filter((id) => !clickedGroup.includes(id))
+          : Array.from(new Set([...selectedElementIds, ...clickedGroup])),
       );
     },
-    [onSelect, selectedElementIds],
+    [onSelect, page, selectedElementIds],
   );
 
   // Re-bind the shared Transformer whenever the selection changes, or when the
@@ -237,11 +248,19 @@ export default function BrochureEditorCanvas({
       // from the element the user actually grabbed — defines the gesture.
       if (dragStartRef.current) return;
 
-      // Dragging something outside the current selection replaces it. Konva
-      // only proxies drag to nodes the Transformer is attached to, so an
-      // unselected element moves alone, which is what we want here.
-      const ids = selectedElementIds.includes(elementId) ? selectedElementIds : [elementId];
-      if (!selectedElementIds.includes(elementId)) onSelect([elementId]);
+      // Dragging something outside the current selection replaces it — and if
+      // that something belongs to a card, the whole card comes along.
+      //
+      // This matters for the click-and-drag-in-one-motion case: Konva fires
+      // `dragstart` BEFORE `click`, so the card isn't selected yet and the
+      // Transformer is still attached to whatever was selected before. Konva
+      // therefore won't proxy this gesture to the card's other members, and
+      // `handleDragEnd` compensates by applying the initiator's delta to any
+      // element that didn't move on its own.
+      const ids = selectedElementIds.includes(elementId)
+        ? selectedElementIds
+        : expandSelectionToGroups(page, [elementId]);
+      if (!selectedElementIds.includes(elementId)) onSelect(ids);
 
       const from = new Map<string, { x: number; y: number }>();
       for (const id of ids) {
@@ -250,7 +269,7 @@ export default function BrochureEditorCanvas({
       }
       dragStartRef.current = { initiatorId: elementId, ids, from };
     },
-    [onSelect, selectedElementIds],
+    [onSelect, page, selectedElementIds],
   );
 
   const handleDragMove = useCallback(
@@ -297,28 +316,46 @@ export default function BrochureEditorCanvas({
     dragStartRef.current = null;
     setSnapGuides([]);
 
+    // How far the grabbed element actually travelled. Used below to carry any
+    // card member that Konva didn't move on its own.
+    const initiatorNode = nodeRefs.current.get(gesture.initiatorId);
+    const initiatorFrom = gesture.from.get(gesture.initiatorId);
+    const dx = initiatorNode && initiatorFrom ? initiatorNode.x() - initiatorFrom.x : 0;
+    const dy = initiatorNode && initiatorFrom ? initiatorNode.y() - initiatorFrom.y : 0;
+
+    // A click registers as a zero-distance drag; committing it would push an
+    // undo entry for doing nothing.
+    const isStationary = (px: number, py: number) =>
+      Math.abs(px) < 0.01 && Math.abs(py) < 0.01;
+    if (isStationary(dx, dy)) return;
+
     // Read each node's FINAL position rather than applying one delta. Konva may
-    // have moved these nodes itself via the drag proxy, so reading back makes
-    // the commit independent of how they got there — and it produces exactly
-    // one document update, hence one undo entry, for one user gesture.
+    // have moved these nodes itself via the Transformer's drag proxy, so reading
+    // back makes the commit independent of how they got there — and it produces
+    // exactly one document update, hence one undo entry, per user gesture.
     let next = doc;
-    let moved = false;
     for (const id of gesture.ids) {
       const node = nodeRefs.current.get(id);
       const from = gesture.from.get(id);
-      if (!node) continue;
-      if (from && Math.abs(node.x() - from.x) < 0.01 && Math.abs(node.y() - from.y) < 0.01) {
-        continue;
-      }
-      moved = true;
+      if (!node || !from) continue;
+
+      const nodeDx = node.x() - from.x;
+      const nodeDy = node.y() - from.y;
+
+      // A card member that never moved means Konva didn't proxy to it — the
+      // Transformer wasn't attached to it yet when the drag began (click and
+      // drag in one motion). Apply the initiator's delta so the card stays
+      // together instead of shedding the piece that was grabbed.
+      const useInitiatorDelta = id !== gesture.initiatorId && isStationary(nodeDx, nodeDy);
+      const finalX = useInitiatorDelta ? from.x + dx : node.x();
+      const finalY = useInitiatorDelta ? from.y + dy : node.y();
+
       next = updateElement(next, page.id, id, {
-        x: node.x() / scalePxPerMm,
-        y: node.y() / scalePxPerMm,
+        x: finalX / scalePxPerMm,
+        y: finalY / scalePxPerMm,
       });
     }
-    // A click registers as a zero-distance drag; committing it would push an
-    // undo entry for doing nothing.
-    if (moved) onChange(next);
+    onChange(next);
   }, [doc, onChange, page.id, scalePxPerMm]);
 
   // ─── Transform (resize / rotate, selection-wide) ──────────────────────────
@@ -350,16 +387,42 @@ export default function BrochureEditorCanvas({
       node.skewX(0);
       node.skewY(0);
 
-      next = updateElement(next, page.id, id, {
+      const absX = Math.abs(scaleX);
+      const absY = Math.abs(scaleY);
+
+      const geometry = {
         x: node.x() / scalePxPerMm,
         y: node.y() / scalePxPerMm,
         // Absolute value, because dragging an anchor past the opposite edge
         // gives a NEGATIVE scale. Without this the element collapses to the 1mm
         // floor instead of resizing, which reads as the element vanishing.
-        width: Math.max(1, element.width * Math.abs(scaleX)),
-        height: Math.max(1, element.height * Math.abs(scaleY)),
+        width: Math.max(1, element.width * absX),
+        height: Math.max(1, element.height * absY),
         rotation: node.rotation(),
-      });
+      };
+
+      // Type size follows a PROPORTIONAL resize (both axes changing, i.e. a
+      // corner drag or any group resize) but not a single-axis one, which is the
+      // convention every design tool uses: dragging a side re-wraps the text,
+      // dragging a corner scales it. Without this, resizing a card grew the box
+      // and left the text at its original size, which is most of what "it
+      // resizes the box, not the component" felt like.
+      //
+      // Built per-kind rather than by writing `fontSize` onto a
+      // `Partial<BrochureElement>`: that union only permits the keys common to
+      // every element kind, and this project's `strict: false` is the only
+      // reason a blind write would have compiled.
+      const proportional = Math.abs(absX - 1) > 0.001 && Math.abs(absY - 1) > 0.001;
+      const typeScale = Math.min(absX, absY);
+
+      if (proportional && (element.kind === "text" || element.kind === "pill")) {
+        next = updateElement(next, page.id, id, {
+          ...geometry,
+          fontSize: Math.max(1, element.fontSize * typeScale),
+        });
+      } else {
+        next = updateElement(next, page.id, id, geometry);
+      }
     }
     if (next !== doc) onChange(next);
   }, [doc, onChange, page.elements, page.id, scalePxPerMm, selectedElementIds]);
@@ -418,12 +481,16 @@ export default function BrochureEditorCanvas({
       const minY = Math.min(start.y, pos.y) / scalePxPerMm;
       const maxY = Math.max(start.y, pos.y) / scalePxPerMm;
 
-      const hits = page.elements
+      const rawHits = page.elements
         .filter(
           (el) =>
             el.x < maxX && el.x + el.width > minX && el.y < maxY && el.y + el.height > minY,
         )
         .map((el) => el.id);
+
+      // Touching part of a card selects the whole card, so a marquee can't
+      // leave you resizing a tile's background without its photo.
+      const hits = e.evt.altKey ? rawHits : expandSelectionToGroups(page, rawHits);
 
       const additive = e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey;
       if (additive) {
@@ -432,7 +499,7 @@ export default function BrochureEditorCanvas({
         onSelect(hits);
       }
     },
-    [onSelect, page.elements, scalePxPerMm, selectedElementIds],
+    [onSelect, page, scalePxPerMm, selectedElementIds],
   );
 
   // Abandons an in-flight marquee. Leaving the stage mid-drag is the common
@@ -481,7 +548,7 @@ export default function BrochureEditorCanvas({
                   page={page}
                   isSelected={selectedElementIds.includes(el.id)}
                   registerNode={registerNode}
-                  onSelect={(additive) => handleSelect(el.id, additive)}
+                  onSelect={(additive, isolate) => handleSelect(el.id, additive, isolate)}
                   onDragStart={() => handleDragStart(el.id)}
                   onDragMove={() => handleDragMove(el.id)}
                   onDragEnd={handleDragEnd}
@@ -624,8 +691,11 @@ interface ElementNodeProps {
   isSelected: boolean;
   /** Publishes (or retracts) the live Konva node in the parent's registry. */
   registerNode: (elementId: string, node: Konva.Group | null) => void;
-  /** `additive` is true for shift/cmd-click, meaning "toggle in the selection". */
-  onSelect: (additive: boolean) => void;
+  /**
+   * @param additive shift/cmd-click — toggle this element in the selection.
+   * @param isolate  alt-click — select just this element, ignoring its card.
+   */
+  onSelect: (additive: boolean, isolate: boolean) => void;
   onDragStart: () => void;
   onDragMove: () => void;
   onDragEnd: () => void;
@@ -691,11 +761,12 @@ function ElementNode(props: ElementNodeProps) {
       }}
       onClick={(e) => {
         e.cancelBubble = true;
-        onSelect(e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey);
+        onSelect(e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey, e.evt.altKey);
       }}
       onTap={(e) => {
         e.cancelBubble = true;
-        onSelect(false);
+        // Touch has no modifier keys, so a tap always selects the whole card.
+        onSelect(false, false);
       }}
       onDragStart={onDragStart}
       onDragMove={onDragMove}
@@ -865,7 +936,17 @@ function ImageBody({ el, width, height, scale }: { el: ImageElement; width: numb
       ctx.quadraticCurveTo(0, 0, r, 0);
       ctx.closePath();
     }}>
-      <Image image={image} x={dx} y={dy} width={drawW} height={drawH} listening={false} />
+      {/* Must stay listening. A Konva Group has no hit area of its own — hit
+          testing goes through its children — so `listening={false}` here left a
+          successfully-loaded image with ZERO hit area. Clicks fell through to
+          the page background and deselected, which is why images could not be
+          selected and therefore could not be resized. The `clipFunc` above also
+          clips the hit region, so the clickable area is the element's box even
+          when a `cover` image overflows it.
+
+          The placeholder branch above always had a listening Rect, so a BROKEN
+          image was selectable while a working one wasn't. */}
+      <Image image={image} x={dx} y={dy} width={drawW} height={drawH} />
     </Group>
   );
 }

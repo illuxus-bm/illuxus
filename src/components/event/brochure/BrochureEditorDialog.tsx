@@ -57,6 +57,8 @@ import {
   Columns3,
   Rows3,
   Copy,
+  Group,
+  Ungroup,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -86,9 +88,12 @@ import {
   alignElements,
   distributeElements,
   duplicateElements,
+  groupElements,
   reorderElements,
   selectionBounds,
+  selectionHasGroup,
   translateElements,
+  ungroupElements,
   type AlignAxis,
   type LayerOp,
 } from "@/lib/brochure/editor/editor-operations";
@@ -331,6 +336,22 @@ export default function BrochureEditorDialog({
     [doc, activePageId, selectedElementIds, setDoc]
   );
 
+  // Grouping tags the selection with a shared id so it selects, moves and
+  // resizes as one card. The seeded templates pre-group their cards; this is for
+  // arrangements the organizer builds themselves.
+  const handleGroup = useCallback(() => {
+    if (!doc || !activePageId || selectedElementIds.length < 2) return;
+    setDoc(groupElements(doc, activePageId, selectedElementIds));
+    toast.success("Grouped", {
+      description: "These now move and resize together. Alt-click to edit one piece.",
+    });
+  }, [doc, activePageId, selectedElementIds, setDoc]);
+
+  const handleUngroup = useCallback(() => {
+    if (!doc || !activePageId || !hasSelection) return;
+    setDoc(ungroupElements(doc, activePageId, selectedElementIds));
+  }, [doc, activePageId, hasSelection, selectedElementIds, setDoc]);
+
   const handleSelectAllOnPage = useCallback(() => {
     if (!doc || !activePageId) return;
     const page = doc.pages.find((p) => p.id === activePageId);
@@ -412,6 +433,12 @@ export default function BrochureEditorDialog({
       } else if (isMeta && e.key.toLowerCase() === "a") {
         e.preventDefault();
         handleSelectAllOnPage();
+      } else if (isMeta && e.shiftKey && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        handleUngroup();
+      } else if (isMeta && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        handleGroup();
         // Matched on `e.code`, not `e.key`. `e.key` reports the SHIFTED
         // character, so `Cmd+Shift+]` arrives as "}" — comparing against "]"
         // never matched, nothing called preventDefault, and the browser's
@@ -461,6 +488,8 @@ export default function BrochureEditorDialog({
     handleDeleteSelected,
     handleSelectAllOnPage,
     handleReorder,
+    handleGroup,
+    handleUngroup,
     nudgeSelected,
   ]);
 
@@ -544,6 +573,11 @@ export default function BrochureEditorDialog({
     if (!activePage || selectedElementIds.length === 0) return null;
     return selectionBounds(activePage, selectedElementIds);
   }, [activePage, selectedElementIds]);
+
+  const selectionIsGrouped = useMemo(
+    () => (activePage ? selectionHasGroup(activePage, selectedElementIds) : false),
+    [activePage, selectedElementIds],
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -720,6 +754,20 @@ export default function BrochureEditorDialog({
 
             <ToolbarDivider />
             <ToolbarButton
+              icon={<Group className="h-3.5 w-3.5" />}
+              label="Group into a card (Ctrl+G) — moves and resizes as one"
+              disabled={selectedElementIds.length < 2}
+              onClick={handleGroup}
+            />
+            <ToolbarButton
+              icon={<Ungroup className="h-3.5 w-3.5" />}
+              label="Ungroup (Ctrl+Shift+G)"
+              disabled={!selectionIsGrouped}
+              onClick={handleUngroup}
+            />
+
+            <ToolbarDivider />
+            <ToolbarButton
               icon={<Copy className="h-3.5 w-3.5" />}
               label="Duplicate (Ctrl+D)"
               disabled={!hasSelection}
@@ -727,7 +775,9 @@ export default function BrochureEditorDialog({
             />
 
             <span className="text-[11px] text-muted-foreground ml-auto pl-3 shrink-0">
-              Shift-click or drag on empty space to select several
+              {selectionIsGrouped
+                ? "Card selected — Alt-click a piece to edit it on its own"
+                : "Shift-click or drag on empty space to select several"}
             </span>
           </div>
         )}

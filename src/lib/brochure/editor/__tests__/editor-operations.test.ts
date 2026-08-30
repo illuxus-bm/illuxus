@@ -22,11 +22,15 @@ import {
   alignElements,
   distributeElements,
   duplicateElements,
+  expandSelectionToGroups,
+  groupElements,
   reorderElements,
   selectionBounds,
+  selectionHasGroup,
   snapPosition,
   sortedByZ,
   translateElements,
+  ungroupElements,
 } from "../editor-operations";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
@@ -731,6 +735,287 @@ describe("duplicateElements", () => {
     const doc = docWith([{ id: "a" }]);
     duplicateElements(doc, "page-1", ["a"]);
     expect(doc.pages[0].elements).toHaveLength(1);
+  });
+});
+
+// ─── Grouping (cards) ───────────────────────────────────────────────────────
+
+/** Builds a page whose elements carry the given group tags. */
+function groupedDoc(
+  boxes: Array<{ id: string; groupId?: string; x?: number; y?: number }>,
+): BrochureDocument {
+  const doc = docWith(boxes.map((b) => ({ id: b.id, x: b.x, y: b.y })));
+  const tagged = doc.pages[0].elements.map((el, i) =>
+    boxes[i].groupId ? { ...el, groupId: boxes[i].groupId } : el,
+  );
+  return { ...doc, pages: [{ ...doc.pages[0], elements: tagged }] };
+}
+
+describe("expandSelectionToGroups", () => {
+  it("expands one grouped element to its whole card", () => {
+    // This is the fix for the reported bug: clicking a speaker tile's
+    // background rect used to select only that rect, so resizing grew the
+    // backing box and left the photo and text behind.
+    const doc = groupedDoc([
+      { id: "bg", groupId: "card1" },
+      { id: "photo", groupId: "card1" },
+      { id: "name", groupId: "card1" },
+      { id: "loose" },
+    ]);
+    expect(expandSelectionToGroups(doc.pages[0], ["bg"])).toEqual([
+      "bg",
+      "photo",
+      "name",
+    ]);
+  });
+
+  it("leaves an ungrouped element alone", () => {
+    const doc = groupedDoc([{ id: "a" }, { id: "b", groupId: "card1" }]);
+    expect(expandSelectionToGroups(doc.pages[0], ["a"])).toEqual(["a"]);
+  });
+
+  it("expands across several cards at once", () => {
+    const doc = groupedDoc([
+      { id: "a1", groupId: "c1" },
+      { id: "a2", groupId: "c1" },
+      { id: "b1", groupId: "c2" },
+      { id: "b2", groupId: "c2" },
+    ]);
+    expect(expandSelectionToGroups(doc.pages[0], ["a1", "b2"])).toEqual([
+      "a1",
+      "a2",
+      "b1",
+      "b2",
+    ]);
+  });
+
+  it("keeps ungrouped members of a mixed selection", () => {
+    const doc = groupedDoc([
+      { id: "bg", groupId: "c1" },
+      { id: "photo", groupId: "c1" },
+      { id: "loose" },
+    ]);
+    expect(expandSelectionToGroups(doc.pages[0], ["bg", "loose"])).toEqual([
+      "bg",
+      "photo",
+      "loose",
+    ]);
+  });
+
+  it("returns results in page order, so repeated clicks are stable", () => {
+    const doc = groupedDoc([
+      { id: "bg", groupId: "c1" },
+      { id: "photo", groupId: "c1" },
+      { id: "name", groupId: "c1" },
+    ]);
+    const once = expandSelectionToGroups(doc.pages[0], ["name"]);
+    const twice = expandSelectionToGroups(doc.pages[0], once);
+    expect(once).toEqual(["bg", "photo", "name"]);
+    expect(twice).toEqual(once);
+  });
+
+  it("returns the identical array when nothing needs adding", () => {
+    // Called on every click, so a stable reference keeps React state and memo
+    // dependencies from churning.
+    const doc = groupedDoc([{ id: "a" }, { id: "b" }]);
+    const input = ["a"];
+    expect(expandSelectionToGroups(doc.pages[0], input)).toBe(input);
+
+    const full = groupedDoc([
+      { id: "x", groupId: "c" },
+      { id: "y", groupId: "c" },
+    ]);
+    const complete = ["x", "y"];
+    expect(expandSelectionToGroups(full.pages[0], complete)).toBe(complete);
+  });
+
+  it("is a no-op for an empty selection", () => {
+    const doc = groupedDoc([{ id: "a", groupId: "c" }]);
+    const empty: string[] = [];
+    expect(expandSelectionToGroups(doc.pages[0], empty)).toBe(empty);
+  });
+
+  it("ignores ids that are not on the page", () => {
+    const doc = groupedDoc([{ id: "a", groupId: "c" }, { id: "b", groupId: "c" }]);
+    expect(expandSelectionToGroups(doc.pages[0], ["ghost"])).toEqual(["ghost"]);
+  });
+});
+
+describe("groupElements", () => {
+  it("tags the selection with one shared id", () => {
+    const doc = groupedDoc([{ id: "a" }, { id: "b" }, { id: "c" }]);
+    const out = groupElements(doc, "page-1", ["a", "b"]);
+    const ga = el(out, "a").groupId;
+    const gb = el(out, "b").groupId;
+    expect(ga).toBeTruthy();
+    expect(ga).toBe(gb);
+    expect(el(out, "c").groupId).toBeUndefined();
+  });
+
+  it("makes the grouped elements expand as a card afterwards", () => {
+    const doc = groupedDoc([{ id: "a" }, { id: "b" }, { id: "c" }]);
+    const out = groupElements(doc, "page-1", ["a", "b"]);
+    expect(expandSelectionToGroups(out.pages[0], ["a"])).toEqual(["a", "b"]);
+  });
+
+  it("generates a distinct id per group", () => {
+    const doc = groupedDoc([{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }]);
+    const out = groupElements(groupElements(doc, "page-1", ["a", "b"]), "page-1", ["c", "d"]);
+    expect(el(out, "a").groupId).not.toBe(el(out, "c").groupId);
+  });
+
+  it("merges rather than nests when the selection spans two cards", () => {
+    // The model is deliberately flat. Silently producing a half-nested state
+    // would be worse than merging.
+    const doc = groupedDoc([
+      { id: "a1", groupId: "c1" },
+      { id: "a2", groupId: "c1" },
+      { id: "b1", groupId: "c2" },
+    ]);
+    const out = groupElements(doc, "page-1", ["a1", "a2", "b1"]);
+    const ids = new Set([
+      el(out, "a1").groupId,
+      el(out, "a2").groupId,
+      el(out, "b1").groupId,
+    ]);
+    expect(ids.size).toBe(1);
+  });
+
+  it("needs at least two elements", () => {
+    const doc = groupedDoc([{ id: "a" }, { id: "b" }]);
+    expect(groupElements(doc, "page-1", ["a"])).toBe(doc);
+    expect(groupElements(doc, "page-1", [])).toBe(doc);
+  });
+
+  it("is a no-op when fewer than two ids exist on the page", () => {
+    const doc = groupedDoc([{ id: "a" }]);
+    expect(groupElements(doc, "page-1", ["a", "ghost"])).toBe(doc);
+    expect(groupElements(doc, "page-nope", ["a", "b"])).toBe(doc);
+  });
+
+  it("does not mutate the input document", () => {
+    const doc = groupedDoc([{ id: "a" }, { id: "b" }]);
+    groupElements(doc, "page-1", ["a", "b"]);
+    expect(el(doc, "a").groupId).toBeUndefined();
+  });
+});
+
+describe("ungroupElements", () => {
+  it("removes the group tag entirely rather than leaving it undefined-valued", () => {
+    // The field is optional, and a leftover `groupId: undefined` key would
+    // serialize into the persisted JSON as noise.
+    const doc = groupedDoc([
+      { id: "a", groupId: "c1" },
+      { id: "b", groupId: "c1" },
+    ]);
+    const out = ungroupElements(doc, "page-1", ["a", "b"]);
+    expect("groupId" in el(out, "a")).toBe(false);
+    expect("groupId" in el(out, "b")).toBe(false);
+  });
+
+  it("leaves geometry untouched", () => {
+    const doc = groupedDoc([
+      { id: "a", groupId: "c1", x: 12, y: 34 },
+      { id: "b", groupId: "c1" },
+    ]);
+    const out = ungroupElements(doc, "page-1", ["a"]);
+    expect([el(out, "a").x, el(out, "a").y]).toEqual([12, 34]);
+  });
+
+  it("only ungroups what was selected", () => {
+    const doc = groupedDoc([
+      { id: "a", groupId: "c1" },
+      { id: "b", groupId: "c1" },
+    ]);
+    const out = ungroupElements(doc, "page-1", ["a"]);
+    expect(el(out, "b").groupId).toBe("c1");
+  });
+
+  it("stops the selection expanding once every member is ungrouped", () => {
+    const doc = groupedDoc([
+      { id: "a", groupId: "c1" },
+      { id: "b", groupId: "c1" },
+    ]);
+    const out = ungroupElements(doc, "page-1", ["a", "b"]);
+    expect(expandSelectionToGroups(out.pages[0], ["a"])).toEqual(["a"]);
+  });
+
+  it("is a no-op when nothing in the selection is grouped", () => {
+    const doc = groupedDoc([{ id: "a" }, { id: "b" }]);
+    expect(ungroupElements(doc, "page-1", ["a", "b"])).toBe(doc);
+    expect(ungroupElements(doc, "page-1", [])).toBe(doc);
+  });
+
+  it("does not mutate the input document", () => {
+    const doc = groupedDoc([
+      { id: "a", groupId: "c1" },
+      { id: "b", groupId: "c1" },
+    ]);
+    ungroupElements(doc, "page-1", ["a"]);
+    expect(el(doc, "a").groupId).toBe("c1");
+  });
+});
+
+describe("selectionHasGroup", () => {
+  it("is true when any selected element belongs to a card", () => {
+    const doc = groupedDoc([{ id: "a", groupId: "c1" }, { id: "b" }]);
+    expect(selectionHasGroup(doc.pages[0], ["a"])).toBe(true);
+    expect(selectionHasGroup(doc.pages[0], ["a", "b"])).toBe(true);
+  });
+
+  it("is false for an ungrouped or empty selection", () => {
+    const doc = groupedDoc([{ id: "a", groupId: "c1" }, { id: "b" }]);
+    expect(selectionHasGroup(doc.pages[0], ["b"])).toBe(false);
+    expect(selectionHasGroup(doc.pages[0], [])).toBe(false);
+    expect(selectionHasGroup(doc.pages[0], ["ghost"])).toBe(false);
+  });
+});
+
+// ─── Group interaction with the other operations ────────────────────────────
+
+describe("grouped cards work with the existing operations", () => {
+  it("translates a whole card rigidly", () => {
+    const doc = groupedDoc([
+      { id: "bg", groupId: "c1", x: 0, y: 0 },
+      { id: "photo", groupId: "c1", x: 2, y: 2 },
+    ]);
+    const ids = expandSelectionToGroups(doc.pages[0], ["bg"]);
+    const out = translateElements(doc, "page-1", ids, 10, 5);
+    expect([el(out, "bg").x, el(out, "bg").y]).toEqual([10, 5]);
+    expect([el(out, "photo").x, el(out, "photo").y]).toEqual([12, 7]);
+  });
+
+  it("duplicates a card as a card, with its own fresh group id", () => {
+    // Copies must NOT share the original's groupId, or selecting the copy would
+    // also select the original and the two would be stuck together forever.
+    const doc = groupedDoc([
+      { id: "bg", groupId: "c1" },
+      { id: "photo", groupId: "c1" },
+    ]);
+    const { doc: out, newIds } = duplicateElements(doc, "page-1", ["bg", "photo"]);
+    expect(newIds).toHaveLength(2);
+
+    const copyGroups = new Set(newIds.map((id) => el(out, id).groupId));
+    expect(copyGroups.size).toBe(1);
+    const copyGroup = [...copyGroups][0];
+    expect(copyGroup).toBeTruthy();
+    expect(copyGroup).not.toBe("c1");
+
+    // And the copy expands to exactly itself, not to the original too.
+    expect(expandSelectionToGroups(out.pages[0], [newIds[0]]).sort()).toEqual(
+      [...newIds].sort(),
+    );
+  });
+
+  it("keeps a card contiguous in paint order when sent to the front", () => {
+    const doc = groupedDoc([
+      { id: "bg", groupId: "c1" },
+      { id: "other" },
+      { id: "photo", groupId: "c1" },
+    ]);
+    const ids = expandSelectionToGroups(doc.pages[0], ["bg"]);
+    const out = reorderElements(doc, "page-1", ids, "front");
+    expect(orderOf(out)).toEqual(["other", "bg", "photo"]);
   });
 });
 

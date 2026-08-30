@@ -21,6 +21,7 @@
 import {
   A4_HEIGHT_MM,
   A4_WIDTH_MM,
+  generateId,
   newDocument,
   newImageElement,
   newPage,
@@ -87,8 +88,21 @@ import {
  *         workshop, accent for everything else), full-width title bar,
  *         description body directly below the row on white with dark
  *         text. Big centered "Event Agenda" heading + top logo.
+ *   3 — Cards are pre-grouped. Every multi-primitive card the seed builds —
+ *       speaker tile, pricing card, agenda row, sponsor card, abstract block,
+ *       outcome chip, numbered row — tags its parts with a shared
+ *       `Geometry.groupId`, so clicking one selects the whole card and
+ *       resizing the card resizes all of it. Before this, clicking a speaker
+ *       tile selected only the background rectangle, so a resize grew the
+ *       backing box and left the photo and text at their original size.
+ *
+ *       This is why the bump matters for already-saved documents: they have no
+ *       group tags, so their cards stay loose. The notice on open points at
+ *       "Reset to template" for organizers who want the grouped layout; the
+ *       alternative is to marquee-select a card and press Ctrl+G, which
+ *       produces the same result without discarding their edits.
  */
-export const EDITOR_SEED_VERSION = 2;
+export const EDITOR_SEED_VERSION = 3;
 
 /** Input for template pre-loading. Mirrors the essential fields the
  *  jsPDF renderer already receives via `BrochureGenerationInput`, so a
@@ -250,6 +264,38 @@ function buildEditorPageForSection(
     default:
       return null;
   }
+}
+
+/**
+ * Wraps a page's `push` helper so everything pushed through the result is tagged
+ * as ONE card (see `Geometry.groupId`).
+ *
+ * The templates express a card as several loose primitives — a background rect,
+ * a photo, a name, a job title. Without a shared tag, clicking a speaker tile
+ * in the editor selected only the primitive under the cursor, so "resize the
+ * card" resized the backing rectangle and left the photo and text behind. Tagging
+ * at seed time is what makes a template's cards behave like objects on first
+ * open, rather than requiring the organizer to marquee-select and group them by
+ * hand.
+ *
+ * Call once per card, inside the loop:
+ *
+ *   for (const row of rows) {
+ *     const pushCard = cardPusher(push);
+ *     pushCard(newShapeElement({ ... }));   // background
+ *     pushCard(newImageElement({ ... }));   // photo
+ *   }
+ *
+ * Neither renderer reads `groupId`; both keep drawing a flat element list.
+ */
+function cardPusher(
+  push: (el: BrochureElement) => void,
+): (el: BrochureElement) => void {
+  const groupId = generateId("group");
+  return (el: BrochureElement) => {
+    el.groupId = groupId;
+    push(el);
+  };
 }
 
 // ─── Cover page builders ───────────────────────────────────────────────────
@@ -630,7 +676,9 @@ function buildAbstractPage(input: TemplateSeedInput, accent: string, fontFamily:
     const cardW = pageW - 40;
     const headingPillW = 42;
     const headingPillH = 10;
-    push(
+    // Heading pill + white card + body copy move and resize as one block.
+    const pushCard = cardPusher(push);
+    pushCard(
       newPillElement({
         x: pageW / 2 - headingPillW / 2,
         y: cursorY,
@@ -647,7 +695,7 @@ function buildAbstractPage(input: TemplateSeedInput, accent: string, fontFamily:
     );
     const cardY = cursorY + headingPillH / 2;
     const cardH = 46;
-    push(
+    pushCard(
       newShapeElement({
         x: cardX,
         y: cardY,
@@ -660,7 +708,7 @@ function buildAbstractPage(input: TemplateSeedInput, accent: string, fontFamily:
         cornerRadius: 6,
       })
     );
-    push(
+    pushCard(
       newTextElement({
         x: cardX + 8,
         y: cardY + headingPillH / 2 + 6,
@@ -708,7 +756,9 @@ function buildAbstractPage(input: TemplateSeedInput, accent: string, fontFamily:
       const row = Math.floor(i / cols);
       const x = 20 + col * (chipW + gap);
       const y = gridTop + row * (chipH + gap);
-      push(
+      // Chip = black panel + its label, grouped so dragging one moves both.
+      const pushChip = cardPusher(push);
+      pushChip(
         newShapeElement({
           x,
           y,
@@ -721,7 +771,7 @@ function buildAbstractPage(input: TemplateSeedInput, accent: string, fontFamily:
           cornerRadius: 4,
         })
       );
-      push(
+      pushChip(
         newTextElement({
           x: x,
           y: y + chipH / 2 - 3,
@@ -821,8 +871,11 @@ function buildNumberedListPage(
 
   for (let i = 0; i < Math.min(clean.length, 8); i += 1) {
     const y = startY + i * (rowH + rowGap);
+    // Row = number badge + badge label + outline row + item text, grouped so
+    // the whole numbered row drags as one.
+    const pushRow = cardPusher(push);
     // Number badge.
-    push(
+    pushRow(
       newShapeElement({
         x: 20,
         y,
@@ -835,7 +888,7 @@ function buildNumberedListPage(
         cornerRadius: 0,
       })
     );
-    push(
+    pushRow(
       newTextElement({
         x: 20,
         y: y + rowH / 2 - 4,
@@ -851,7 +904,7 @@ function buildNumberedListPage(
       })
     );
     // Item body — outline row.
-    push(
+    pushRow(
       newShapeElement({
         x: 20,
         y,
@@ -864,7 +917,7 @@ function buildNumberedListPage(
         cornerRadius: 0,
       })
     );
-    push(
+    pushRow(
       newTextElement({
         x: 20 + badgeW + 6,
         y: y + 3,
@@ -949,8 +1002,10 @@ function buildPricingPage(input: TemplateSeedInput, accent: string, fontFamily: 
       const row = Math.floor(i / cols);
       const cx = bodyLeft + col * (cardW + gap);
       const cy = cursorY + row * (cardH + gap);
+      // Whole pricing card (panel + title + subtitle + price + discounts).
+      const pushCard = cardPusher(push);
 
-      push(
+      pushCard(
         newShapeElement({
           x: cx,
           y: cy,
@@ -963,7 +1018,7 @@ function buildPricingPage(input: TemplateSeedInput, accent: string, fontFamily: 
           cornerRadius: 8,
         })
       );
-      push(
+      pushCard(
         newTextElement({
           x: cx + 8,
           y: cy + 6,
@@ -979,7 +1034,7 @@ function buildPricingPage(input: TemplateSeedInput, accent: string, fontFamily: 
         })
       );
       if (card.subtitle) {
-        push(
+        pushCard(
           newTextElement({
             x: cx + 8,
             y: cy + 15,
@@ -995,7 +1050,7 @@ function buildPricingPage(input: TemplateSeedInput, accent: string, fontFamily: 
           })
         );
       }
-      push(
+      pushCard(
         newTextElement({
           x: cx,
           y: cy + 24,
@@ -1012,7 +1067,7 @@ function buildPricingPage(input: TemplateSeedInput, accent: string, fontFamily: 
       );
       const discounts = (card.discounts ?? []).filter((d) => d && d.trim());
       if (discounts.length > 0) {
-        push(
+        pushCard(
           newTextElement({
             x: cx + 8,
             y: cy + 42,
@@ -1027,7 +1082,7 @@ function buildPricingPage(input: TemplateSeedInput, accent: string, fontFamily: 
             lineHeight: 1,
           })
         );
-        push(
+        pushCard(
           newTextElement({
             x: cx + 8,
             y: cy + 48,
@@ -1315,8 +1370,11 @@ function buildAgendaPage(input: TemplateSeedInput, theme: BrochureTheme, accent:
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
     const rowH = rowHeights[i];
+    // One agenda row = time cell + title + speaker, grouped so a whole row
+    // drags together instead of leaving its time chip behind.
+    const pushRow = cardPusher(push);
     // Time cell (bold black)
-    push(
+    pushRow(
       newTextElement({
         x: bodyLeft + cellPad,
         y: cursorY + cellPad,
@@ -1332,7 +1390,7 @@ function buildAgendaPage(input: TemplateSeedInput, theme: BrochureTheme, accent:
       })
     );
     // Session cell (normal black)
-    push(
+    pushRow(
       newTextElement({
         x: titleColX + cellPad,
         y: cursorY + cellPad,
@@ -1350,7 +1408,7 @@ function buildAgendaPage(input: TemplateSeedInput, theme: BrochureTheme, accent:
     // Speakers cell (normal gray — matches autoTable's `textColor:
     // [90, 90, 90]` for the speakers column)
     if (row.speakerLine) {
-      push(
+      pushRow(
         newTextElement({
           x: speakersColX + cellPad,
           y: cursorY + cellPad,
@@ -1690,8 +1748,12 @@ function buildSpeakersPage(speakers: SpeakerInput[], theme: BrochureTheme, accen
     const x = bodyLeft + col * (cardW + gap);
     const y = startY + rowIdx * (cardH + 6);
 
+    // One card = background + photo + name + subtitle + company, all sharing a
+    // groupId so the tile selects, moves and resizes as a single object.
+    const pushCard = cardPusher(push);
+
     // Card background.
-    push(
+    pushCard(
       newShapeElement({
         x,
         y,
@@ -1707,7 +1769,7 @@ function buildSpeakersPage(speakers: SpeakerInput[], theme: BrochureTheme, accen
 
     // Photo (URL image) or initial placeholder shape.
     if (row.photo.type === "url") {
-      push(
+      pushCard(
         newImageElement({
           x,
           y,
@@ -1719,7 +1781,7 @@ function buildSpeakersPage(speakers: SpeakerInput[], theme: BrochureTheme, accen
         })
       );
     } else {
-      push(
+      pushCard(
         newShapeElement({
           x,
           y,
@@ -1732,7 +1794,7 @@ function buildSpeakersPage(speakers: SpeakerInput[], theme: BrochureTheme, accen
           cornerRadius: 2,
         })
       );
-      push(
+      pushCard(
         newTextElement({
           x,
           y: y + photoH / 2 - 8,
@@ -1750,7 +1812,7 @@ function buildSpeakersPage(speakers: SpeakerInput[], theme: BrochureTheme, accen
     }
 
     // Name.
-    push(
+    pushCard(
       newTextElement({
         x: x + 2,
         y: y + photoH + 2,
@@ -1767,7 +1829,7 @@ function buildSpeakersPage(speakers: SpeakerInput[], theme: BrochureTheme, accen
     );
     // Subtitle.
     if (row.subtitleLine) {
-      push(
+      pushCard(
         newTextElement({
           x: x + 2,
           y: y + photoH + 8,
@@ -1785,7 +1847,7 @@ function buildSpeakersPage(speakers: SpeakerInput[], theme: BrochureTheme, accen
     }
     // Company.
     if (row.companyLine) {
-      push(
+      pushCard(
         newTextElement({
           x: x + 2,
           y: y + photoH + 14,
@@ -1875,9 +1937,11 @@ function buildSponsorsPage(sponsors: SponsorInput[], theme: BrochureTheme, accen
       const rowIdx = Math.floor(i / perRow);
       const x = bodyLeft + col * (logoW + logoGap);
       const y = cursorY + rowIdx * (logoH + 4);
+      // Sponsor card = background surface + logo/text.
+      const pushCard = cardPusher(push);
 
       // Card background so text logos have a distinct surface.
-      push(
+      pushCard(
         newShapeElement({
           x,
           y,
@@ -1891,7 +1955,7 @@ function buildSponsorsPage(sponsors: SponsorInput[], theme: BrochureTheme, accen
         })
       );
       if (sponsor.logo.type === "url") {
-        push(
+        pushCard(
           newImageElement({
             x: x + 2,
             y: y + 2,
@@ -1903,7 +1967,7 @@ function buildSponsorsPage(sponsors: SponsorInput[], theme: BrochureTheme, accen
           })
         );
       } else {
-        push(
+        pushCard(
           newTextElement({
             x: x + 2,
             y: y + logoH / 2 - 3,

@@ -408,14 +408,29 @@ export function duplicateElements(
   if (!page) return { doc, newIds: [] };
 
   const ids = new Set(elementIds);
+
+  // Card tags have to be REMAPPED, not copied. Spreading `...el` carries the
+  // source's `groupId` onto the copy, which would put the copy in the same card
+  // as the original — selecting one would select both, and they could never be
+  // moved apart. Each distinct source group gets one fresh id so a duplicated
+  // card stays a card, but its own.
+  const groupRemap = new Map<string, string>();
+
   const copies: BrochureElement[] = [];
   for (const el of sortedByZ(page.elements)) {
     if (!ids.has(el.id)) continue;
+    let groupId = el.groupId;
+    if (groupId !== undefined) {
+      const mapped = groupRemap.get(groupId) ?? generateId("group");
+      groupRemap.set(groupId, mapped);
+      groupId = mapped;
+    }
     copies.push({
       ...el,
       id: generateId(el.kind),
       x: el.x + offsetMm,
       y: el.y + offsetMm,
+      ...(groupId !== undefined ? { groupId } : {}),
     } as BrochureElement);
   }
   if (copies.length === 0) return { doc, newIds: [] };
@@ -424,6 +439,99 @@ export function duplicateElements(
     normalizeZ([...sortedByZ(elements), ...copies]),
   );
   return { doc: next, newIds: copies.map((c) => c.id) };
+}
+
+// ─── Grouping (cards) ───────────────────────────────────────────────────────
+
+/**
+ * Expands a selection to include every sibling of any grouped element in it.
+ *
+ * This is what makes a card behave like one object. The canvas calls it on every
+ * click, so grabbing a speaker tile's background rect also grabs the photo, the
+ * name and the job title — and the shared Transformer then moves and resizes all
+ * of them together.
+ *
+ * Idempotent, and order-preserving relative to the page's element order so the
+ * resulting selection is stable across repeated clicks.
+ */
+export function expandSelectionToGroups(
+  page: BrochurePage,
+  elementIds: string[],
+): string[] {
+  if (elementIds.length === 0) return elementIds;
+  const ids = new Set(elementIds);
+
+  const groupIds = new Set<string>();
+  for (const el of page.elements) {
+    if (ids.has(el.id) && el.groupId) groupIds.add(el.groupId);
+  }
+  if (groupIds.size === 0) return elementIds;
+
+  const expanded = page.elements
+    .filter((el) => ids.has(el.id) || (el.groupId && groupIds.has(el.groupId)))
+    .map((el) => el.id);
+
+  // Preserve the caller's array when nothing was added, so React state and
+  // memo dependencies don't churn on every click.
+  if (expanded.length === elementIds.length && expanded.every((id) => ids.has(id))) {
+    return elementIds;
+  }
+  return expanded;
+}
+
+/**
+ * Tags every selected element with one fresh `groupId`, making them a card.
+ *
+ * Needs 2+ elements: a group of one is just an element. Any pre-existing group
+ * membership among the selection is overwritten, so grouping a selection that
+ * spans two cards merges them rather than nesting — the model is deliberately
+ * flat, and silently producing a half-nested state would be worse than merging.
+ */
+export function groupElements(
+  doc: BrochureDocument,
+  pageId: string,
+  elementIds: string[],
+): BrochureDocument {
+  if (elementIds.length < 2) return doc;
+  const ids = new Set(elementIds);
+  const groupId = generateId("group");
+  let matched = 0;
+  const next = mapPageElements(doc, pageId, (elements) =>
+    elements.map((el) => {
+      if (!ids.has(el.id)) return el;
+      matched += 1;
+      return { ...el, groupId };
+    }),
+  );
+  // Fewer than two of the ids actually exist on this page.
+  return matched >= 2 ? next : doc;
+}
+
+/** Removes card membership from the selection, leaving the elements in place. */
+export function ungroupElements(
+  doc: BrochureDocument,
+  pageId: string,
+  elementIds: string[],
+): BrochureDocument {
+  if (elementIds.length === 0) return doc;
+  const ids = new Set(elementIds);
+  let changed = false;
+  const next = mapPageElements(doc, pageId, (elements) =>
+    elements.map((el) => {
+      if (!ids.has(el.id) || el.groupId === undefined) return el;
+      changed = true;
+      const { groupId: _dropped, ...rest } = el;
+      void _dropped;
+      return rest as BrochureElement;
+    }),
+  );
+  return changed ? next : doc;
+}
+
+/** True when any selected element belongs to a card. */
+export function selectionHasGroup(page: BrochurePage, elementIds: string[]): boolean {
+  const ids = new Set(elementIds);
+  return page.elements.some((el) => ids.has(el.id) && !!el.groupId);
 }
 
 /**

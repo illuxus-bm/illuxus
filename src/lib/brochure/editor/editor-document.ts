@@ -38,6 +38,23 @@ export interface Geometry {
   /** Z-order within the parent page. Higher = drawn later. Duplicates
    *  are permitted and resolved by array index in `Brochure_Page.elements`. */
   zIndex: number;
+  /**
+   * Card membership tag. Elements sharing a `groupId` are selected, moved and
+   * resized as one unit.
+   *
+   * A flat tag rather than a nested `group` element kind, deliberately. The
+   * templates express a card (a speaker tile, a pricing card, an agenda row) as
+   * several loose primitives — a background rect, a photo, a name, a job title.
+   * Clicking one of those selected only that primitive, so "resize the card"
+   * resized the backing rectangle and left the photo and text behind.
+   *
+   * Nesting would fix that too, but it would have to be threaded through the
+   * canvas renderer, the PDF exporter, the properties panel, z-order handling
+   * and every seed builder. A tag needs none of that: both renderers ignore the
+   * field entirely and keep drawing a flat list, while selection expands from
+   * one member to all of them. Undefined means "not part of a card".
+   */
+  groupId?: string;
 }
 
 // ─── Element types ───────────────────────────────────────────────────────────
