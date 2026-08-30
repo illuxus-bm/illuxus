@@ -44,8 +44,20 @@ export const COLOR_SWATCHES: string[] = [
   "#34d399", "#22d3ee",
 ];
 
+/**
+ * Font families offered by the organizer-facing pickers (event theme,
+ * creative customization panel).
+ *
+ * Must stay a subset of the creatives renderer's loadable catalog in
+ * `src/lib/creatives/creative-fonts.ts` — a family offered here but absent
+ * there is fetched by nothing and renders in the fallback face. Property 50
+ * asserts the two agree.
+ */
 export const FONT_OPTIONS: string[] = [
   "Poppins", "Inter", "Playfair Display", "Merriweather",
   "Roboto", "Lato", "Open Sans", "Montserrat", "Raleway",
-  "JetBrains Mono", "Space Grotesk",
+  "JetBrains Mono", "Space Grotesk", "DM Sans",
+  // Script faces, for invitation-style creatives where the headline is
+  // calligraphic rather than set in a sans.
+  "Dancing Script", "Great Vibes", "Pacifico",
 ];

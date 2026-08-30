@@ -80,6 +80,16 @@ interface CreativePreviewCanvasProps {
    *  through to `decoratePlanWithCustomization` so the decorator can gate
    *  emission of the watermark element (Requirement 6.3). */
   effectiveWatermarkLogoUrl?: string;
+  /**
+   * Overrides the on-screen preview width cap. Defaults to
+   * `PREVIEW_MAX_WIDTH_PX`, which is tuned for the dialog's side pane.
+   *
+   * Raising it does not change what is drawn — only the backing-store size and
+   * the context scale — so preview/export parity (Property 49) is unaffected.
+   * The dev preview route uses a larger cap because judging typographic
+   * fidelity against a reference design is not possible at 360px.
+   */
+  maxWidthPx?: number;
 }
 
 /** Stand-in speaker used while no real speaker is selected yet, mirroring
@@ -133,6 +143,7 @@ export default function CreativePreviewCanvas({
   customization,
   effectiveFontFamily,
   effectiveWatermarkLogoUrl,
+  maxWidthPx,
 }: CreativePreviewCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -144,7 +155,7 @@ export default function CreativePreviewCanvas({
 
       setPreviewLoading(true);
       try {
-        const previewScale = Math.min(1, PREVIEW_MAX_WIDTH_PX / format.width);
+        const previewScale = Math.min(1, (maxWidthPx ?? PREVIEW_MAX_WIDTH_PX) / format.width);
         canvas.width = Math.round(format.width * previewScale);
         canvas.height = Math.round(format.height * previewScale);
 
@@ -198,6 +209,7 @@ export default function CreativePreviewCanvas({
       customization,
       effectiveFontFamily,
       effectiveWatermarkLogoUrl,
+      maxWidthPx,
     ],
   );
 

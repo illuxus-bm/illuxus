@@ -209,7 +209,22 @@ export interface ShapeSlot {
   /** Stable label — used as the `PlanElement`'s key for logging/debugging
    *  and as the React key when multiple shapes are rendered. */
   key: string;
-  shape: "rect" | "rounded-rect" | "circle";
+  shape: "rect" | "rounded-rect" | "circle" | "polygon";
+  /**
+   * Vertices for `shape: "polygon"`, in normalized box space — `[0,0]` is the
+   * box's top-left, `[1,1]` its bottom-right. Ignored by every other shape.
+   *
+   * Normalized rather than absolute so one definition survives reflow to any
+   * format: the points scale with the resolved box instead of needing to be
+   * re-authored per aspect ratio.
+   *
+   * Polygons exist because the envelope in the reference invite is made of
+   * triangles and trapezoids — an open flap and two diagonal fold panels.
+   * Approximating those with rounded rectangles is what made the previous
+   * attempt at this template read as three stacked beige bars rather than an
+   * envelope.
+   */
+  points?: Array<[number, number]>;
   xPct: number;
   yPct: number;
   widthPct: number;
@@ -225,6 +240,147 @@ export interface ShapeSlot {
   cornerRadiusFactor?: number;
   /** 0..1. Defaults to `1` (fully opaque) when omitted. */
   opacity?: number;
+}
+
+/**
+ * Where a slot's text comes from.
+ *
+ * The older slots bind to data implicitly, via a `key` drawn from a closed
+ * union that the plan builder switches on. That works while every slot maps
+ * 1:1 onto a promo field, but it can't express "this line is static chrome"
+ * or "these two lines come from two different fields but lay out as one
+ * block" — both of which the reference designs need. So the newer composite
+ * slots declare their source explicitly instead.
+ */
+export type PromoTextSource =
+  /** Fixed template chrome — "You're Invited", a section label. Renders
+   *  identically for every event, so it isn't organizer data. */
+  | { from: "literal"; text: string }
+  /** Pulled from the `EventPromoLike` field of that name. The slot is omitted
+   *  entirely when the field is absent or empty, matching every other slot's
+   *  no-empty-placeholder convention. */
+  | { from: "field"; field: PromoTextField }
+  /**
+   * Several fields joined into one line, skipping any that are absent.
+   *
+   * Needed because the same promo record has to drive layouts that disagree
+   * about line breaks: the square invite sets "India's Largest" and "Virtual
+   * HR Summit" as two differently-coloured runs, while the wide banner sets
+   * the identical copy as one uniform white line. Without a joining source,
+   * switching between those templates would silently drop half the headline —
+   * the banner would show only whichever single field it happened to bind to.
+   *
+   * Skipping absent fields (rather than emitting the separator anyway) is what
+   * keeps a promo with no `titleLead` from rendering with a leading space.
+   */
+  | { from: "fields"; fields: PromoTextField[]; join: string };
+
+/** `EventPromoLike` fields a composite slot can bind to. */
+export type PromoTextField =
+  | "title"
+  | "titleLead"
+  | "tagline"
+  | "dateLabel"
+  | "ctaLabel"
+  | "editionLabel";
+
+/** One independently-styled line inside a `TextStackSlot`. */
+export interface TextStackRunSpec {
+  source: PromoTextSource;
+  fontFamily: string;
+  fontWeight: number;
+  baseSizePx: number;
+  color: string;
+  /** Extra tracking, authored px. Used for small-caps eyebrow lines, where
+   *  tracking is what separates the intended look from a cramped smudge. */
+  letterSpacingPx?: number;
+  transform?: "none" | "uppercase";
+}
+
+/**
+ * Several styled lines laid out as ONE vertically-centered block.
+ *
+ * Exists because a `TextSlot` carries a single family/weight/size/color, so a
+ * two-tone headline — the reference invite's charcoal "India's Largest" above
+ * heavier purple "Virtual HR Summit" — couldn't be expressed. Two separate
+ * text slots are not equivalent: each centers inside its own box, so the
+ * optical gap between the lines drifts as copy length changes and neither
+ * knows the other's height.
+ *
+ * When the block overflows, every run shrinks by one shared factor, so the
+ * size ratio between runs (which is the design's typographic hierarchy) is
+ * preserved rather than collapsing toward uniformity.
+ */
+export interface TextStackSlot {
+  key: "headlineStack" | "lockupStack";
+  xPct: number;
+  yPct: number;
+  maxWidthPct: number;
+  maxHeightPct: number;
+  runs: TextStackRunSpec[];
+  /** Gap between runs, authored px. */
+  lineGapPx: number;
+  align: "left" | "center" | "right";
+}
+
+/**
+ * What sits alongside an `AdornedTextSlot`'s line. All sizes are authored px.
+ */
+export type TextAdornmentSpec =
+  /** A dot either side — the reference invite's "• 23rd July, 2026 •". */
+  | { style: "dots"; color: string; radiusPx: number; gapPx: number }
+  /** A vector glyph before the line — the hero banner's calendar. */
+  | {
+      style: "leading-icon";
+      name: "calendar";
+      color: string;
+      sizePx: number;
+      strokeWidthPx: number;
+      gapPx: number;
+    };
+
+/**
+ * A single line composed with an adornment and centred as one unit.
+ *
+ * Its own slot type rather than a text slot plus separately-positioned shapes
+ * or a standalone icon, because the adornment is placed off the text's
+ * *measured* width — which authored percentages cannot express. Positioning
+ * them independently means the adornment drifts away from short copy and
+ * collides with long copy; the first cut of the hero banner did precisely
+ * that, overlapping its calendar glyph with the date.
+ */
+export interface AdornedTextSlot {
+  key: "dateAdorned";
+  source: PromoTextSource;
+  xPct: number;
+  yPct: number;
+  maxWidthPct: number;
+  maxHeightPct: number;
+  fontFamily: string;
+  fontWeight: number;
+  baseSizePx: number;
+  color: string;
+  adornment: TextAdornmentSpec;
+}
+
+/**
+ * A wax-seal-styled CTA: a notched plaque with an inset rule and a centered
+ * label. Distinct from `PillSlot` because the silhouette is scalloped rather
+ * than a capsule, and it carries two fills (plaque + inset rule).
+ */
+export interface SealSlot {
+  key: "ctaButton";
+  source: PromoTextSource;
+  xPct: number;
+  yPct: number;
+  widthPct: number;
+  heightPct: number;
+  fillColor: string;
+  accentColor: string;
+  textColor: string;
+  fontFamily: string;
+  fontWeight: number;
+  baseSizePx: number;
 }
 
 export interface CreativeTemplate {
@@ -252,8 +408,26 @@ export interface CreativeTemplate {
    *  Event_Promo templates only, drawn unconditionally right after the
    *  background. Every other Creative type leaves this empty/omitted. */
   shapeSlots?: ShapeSlot[];
+  /** Multi-run headline blocks — see `TextStackSlot`. Event_Promo only. */
+  textStackSlots?: TextStackSlot[];
+  /** Adorned single lines — see `AdornedTextSlot`. Event_Promo only. */
+  adornedTextSlots?: AdornedTextSlot[];
+  /** Wax-seal CTA — see `SealSlot`. Mutually exclusive with a `ctaButton`
+   *  pill; a template declares one or the other, never both. */
+  sealSlots?: SealSlot[];
   /** Divider/"presented by" marker — combo templates only. */
   divider?: { xPct: number; yPct1: number; yPct2: number; color: string };
+  /**
+   * Formats this composition was actually designed for.
+   *
+   * Reflow guarantees every box lands inside the canvas at any aspect ratio,
+   * but containment is not the same as looking right: a square envelope
+   * invite reflowed to a 600×200 email banner is a legible, correctly-clamped
+   * mess. Rather than pretend one composition serves every shape, a template
+   * states its intent and the format picker surfaces the matching options
+   * first. Omitted means "works anywhere".
+   */
+  preferredFormatIds?: string[];
   /**
    * Theme-overridable fields: which colors/logo this template pulls from
    * Event_Theme when defined, falling back to the values above otherwise.
@@ -494,7 +668,15 @@ export const COMBO_TEMPLATES: CreativeTemplate[] = [
  *  up to 4 stat value/label pairs, a date pill, and a CTA button; and a
  *  light invite-card layout with a script-style "You're Invited"
  *  headline, bold event title, date, and CTA button. */
-export const EVENT_TEMPLATES: CreativeTemplate[] = [
+/**
+ * The original square-authored Event_Promo presets.
+ *
+ * Kept because existing `event_creatives` rows reference these ids, and the
+ * template picker should not lose options an organizer may already be using.
+ * New work should prefer the reference-matched layouts that lead
+ * `EVENT_TEMPLATES`.
+ */
+const LEGACY_EVENT_TEMPLATES: CreativeTemplate[] = [
   {
     id: "event-stats-banner",
     type: "event",
@@ -756,6 +938,570 @@ export const EVENT_TEMPLATES: CreativeTemplate[] = [
   },
 ];
 
+// ─── Reference-matched Event_Promo templates ────────────────────────────────
+//
+// The two templates below are authored against the aspect ratios they were
+// designed for rather than the shared 1200×1200 canvas the older presets use,
+// and their `baseSizePx` values are the literal pixel sizes intended at that
+// authored size. `scaleTextSize` divides by the authored short side, so a
+// template authored at 1080×1080 renders 1:1 on a 1080×1080 Instagram Post,
+// and one authored at 1200×628 renders ~1:1 on a 1200×627 LinkedIn Post. That
+// is why each declares `preferredFormatIds`: the composition is designed for a
+// shape, and reflowing a square envelope onto a 600×200 email banner produces
+// something correctly clamped but visually wrong.
+
+/** Authored canvas for the square invite. Matches Instagram Post exactly. */
+const INVITE_SIZE = 1080;
+
+/** Authored canvas for the wide hero banner. ~1.91:1, matching LinkedIn Post. */
+const BANNER_W = 1200;
+const BANNER_H = 628;
+
+/** Deep indigo-purple ground shared by both reference layouts. */
+const REF_PURPLE_DEEP = "#2B0E60";
+const REF_PURPLE_MID = "#3A1785";
+/** Low-opacity motif colour for the decorative botanical/ring watermarks. */
+const REF_MOTIF = "#6D34C8";
+/** Cream family for the envelope: back panel, folded flap, and the card. */
+const CREAM_BACK = "#EDE4CE";
+const CREAM_FLAP = "#DFD3B4";
+const CREAM_FRONT = "#E7DEC4";
+const CREAM_CARD = "#F7F3E8";
+/** Sealing-wax red, and the lighter tone used for its inset rule. */
+const WAX_RED = "#BE1E2D";
+const WAX_RED_LIGHT = "#E4626B";
+/** The red used for the accent ticks flanking the script headline and the
+ *  dots flanking the date. */
+const ACCENT_RED = "#E4515C";
+
+/**
+ * A leaf silhouette in normalized box space: pointed at top and bottom,
+ * bulging at the middle.
+ *
+ * Sampled from two opposing quadratic arcs rather than hand-placed, so the
+ * curve is smooth. The shape model has no bezier support, so a polygon with
+ * enough vertices is how a curve gets expressed.
+ */
+const LEAF_POINTS: Array<[number, number]> = (() => {
+  const steps = 7;
+  const right: Array<[number, number]> = [];
+  const left: Array<[number, number]> = [];
+  for (let i = 0; i <= steps; i += 1) {
+    const t = i / steps;
+    // Half-width peaks at the midpoint and falls to zero at both tips.
+    const halfWidth = 0.5 * Math.sin(Math.PI * t);
+    right.push([0.5 + halfWidth, t]);
+    left.push([0.5 - halfWidth, t]);
+  }
+  return [...right, ...left.reverse()];
+})();
+
+/**
+ * A short diagonal tick, as used in threes either side of the script
+ * headline. Built as a polygon rather than a rotated rect because the shape
+ * model has no rotation.
+ */
+function tick(
+  key: string,
+  xPct: number,
+  yPct: number,
+  lengthPct: number,
+  lean: 1 | -1,
+): ShapeSlot {
+  const thickness = 0.42;
+  return {
+    key,
+    shape: "polygon",
+    xPct,
+    yPct,
+    widthPct: lengthPct * 0.62,
+    heightPct: lengthPct,
+    fillColor: ACCENT_RED,
+    // A thin parallelogram. Both sides lean outward, away from the headline,
+    // so the three per side splay like a hand-drawn emphasis mark.
+    points:
+      lean === 1
+        ? [
+            [1 - thickness, 0],
+            [1, 0],
+            [thickness, 1],
+            [0, 1],
+          ]
+        : [
+            [0, 0],
+            [thickness, 0],
+            [1, 1],
+            [1 - thickness, 1],
+          ],
+  };
+}
+
+/**
+ * "Invitation Envelope" — matches the square reference invite.
+ *
+ * Composition, top to bottom: centred wordmark with a tracked edition
+ * eyebrow, decorative motifs in the upper right, an opened envelope whose
+ * flap is folded back behind a cream card, a script "You're Invited" flanked
+ * by accent ticks, a two-tone headline, a dot-flanked date, and a wax-seal
+ * CTA pressed over the envelope's front panel.
+ *
+ * The envelope is drawn back-to-front: back panel → folded flap → card →
+ * front panel. `shapeSlots` preserves array order, and the front panel coming
+ * last is what makes the card read as tucked *into* the envelope rather than
+ * pasted on top of it.
+ */
+const EVENT_TEMPLATE_INVITE_REFERENCE: CreativeTemplate = {
+  id: "event-invite-envelope-ref",
+  type: "event",
+  name: "Invitation Envelope",
+  description:
+    "Opened cream envelope on deep purple: script \"You're Invited\", two-tone headline, dot-flanked date, and a red wax-seal CTA.",
+  authoredWidth: INVITE_SIZE,
+  authoredHeight: INVITE_SIZE,
+  background: { type: "gradient", from: REF_PURPLE_MID, to: REF_PURPLE_DEEP, angle: 145 },
+  preferredFormatIds: ["instagram-post", "instagram-story"],
+  imageSlots: {
+    wordmark: { xPct: 50, yPct: 8.5, widthPct: 32, heightPct: 5, shape: "rect" },
+  },
+  shapeSlots: [
+    // ── Decorative motifs, upper right ──
+    // Interlocking rings, stroke-only at low opacity.
+    {
+      key: "motifRingOuter",
+      shape: "rounded-rect",
+      xPct: 88,
+      yPct: 27,
+      widthPct: 17,
+      heightPct: 17,
+      fillColor: "transparent",
+      strokeColor: REF_MOTIF,
+      strokeWidthPx: 14,
+      cornerRadiusFactor: 0.42,
+      opacity: 0.5,
+    },
+    {
+      key: "motifRingInner",
+      shape: "rounded-rect",
+      xPct: 96,
+      yPct: 20,
+      widthPct: 15,
+      heightPct: 15,
+      fillColor: "transparent",
+      strokeColor: REF_MOTIF,
+      strokeWidthPx: 14,
+      cornerRadiusFactor: 0.42,
+      opacity: 0.45,
+    },
+    // Two leaves. Twelve vertices rather than four: a diamond reads as a
+    // diamond, and the reference motif is a soft botanical form, so the
+    // silhouette needs enough points to curve.
+    {
+      key: "motifLeafA",
+      shape: "polygon",
+      xPct: 85,
+      yPct: 10,
+      widthPct: 12,
+      heightPct: 17,
+      fillColor: REF_MOTIF,
+      opacity: 0.38,
+      points: LEAF_POINTS,
+    },
+    {
+      key: "motifLeafB",
+      shape: "polygon",
+      xPct: 95.5,
+      yPct: 6.5,
+      widthPct: 10,
+      heightPct: 15,
+      fillColor: REF_MOTIF,
+      opacity: 0.28,
+      points: LEAF_POINTS,
+    },
+    // Four-point sparkle.
+    {
+      key: "motifSparkle",
+      shape: "polygon",
+      xPct: 90,
+      yPct: 3,
+      widthPct: 5,
+      heightPct: 6,
+      fillColor: REF_MOTIF,
+      opacity: 0.55,
+      points: [
+        [0.5, 0],
+        [0.6, 0.4],
+        [1, 0.5],
+        [0.6, 0.6],
+        [0.5, 1],
+        [0.4, 0.6],
+        [0, 0.5],
+        [0.4, 0.4],
+      ],
+    },
+
+    // ── Envelope, drawn back to front ──
+    {
+      key: "envelopeBack",
+      shape: "rounded-rect",
+      xPct: 50,
+      yPct: 62,
+      widthPct: 87,
+      heightPct: 76,
+      fillColor: CREAM_BACK,
+      // Barely rounded. At a larger radius the flap's square top corners poke
+      // outside the curve and leave two dark notches against the background.
+      cornerRadiusFactor: 0.008,
+    },
+    // The flap, folded back so its inner face shows as a downward triangle.
+    {
+      key: "envelopeFlap",
+      shape: "polygon",
+      xPct: 50,
+      yPct: 31.5,
+      widthPct: 87,
+      heightPct: 15,
+      fillColor: CREAM_FLAP,
+      points: [
+        [0, 0],
+        [1, 0],
+        [0.5, 1],
+      ],
+    },
+    // The card. In front of the flap, behind the front panel, so its bottom
+    // edge disappears into the envelope mouth.
+    {
+      key: "invitationCard",
+      shape: "rounded-rect",
+      // Bottom edge deliberately pushed to ~86%, below where the front
+      // panel's V arms cross the card's own left/right extent. Any higher and
+      // the card's bottom corners protrude above the fold on either side of
+      // the peak, reading as a stepped notch instead of a card in an envelope.
+      xPct: 50,
+      yPct: 58.5,
+      widthPct: 72,
+      heightPct: 47,
+      fillColor: CREAM_CARD,
+      cornerRadiusFactor: 0.02,
+      strokeColor: "#00000012",
+      strokeWidthPx: 2,
+    },
+    // Accent ticks either side of the script headline: three per side,
+    // splaying outward, the middle one longest.
+    tick("tickL1", 20.6, 42.4, 3.0, -1),
+    tick("tickL2", 18.6, 46.5, 3.8, -1),
+    tick("tickL3", 20.6, 50.6, 3.0, -1),
+    tick("tickR1", 79.4, 42.4, 3.0, 1),
+    tick("tickR2", 81.4, 46.5, 3.8, 1),
+    tick("tickR3", 79.4, 50.6, 3.0, 1),
+    // Front panel: a pentagon whose peak is the envelope's bottom fold.
+    //
+    // The V is deliberately shallow. A deeper one leaves the card's bottom
+    // corners protruding above the fold on either side of the peak, which
+    // reads as a stepped notch rather than a card tucked into an envelope.
+    {
+      key: "envelopeFront",
+      shape: "polygon",
+      xPct: 50,
+      yPct: 88,
+      widthPct: 87,
+      heightPct: 20,
+      fillColor: CREAM_FRONT,
+      points: [
+        [0, 0.22],
+        [0.5, 0],
+        [1, 0.22],
+        [1, 1],
+        [0, 1],
+      ],
+    },
+  ],
+  textSlots: [
+    // Script headline. Its own slot rather than a stack run because it is a
+    // standalone flourish, not part of the headline hierarchy.
+    {
+      key: "eventTagline",
+      xPct: 50,
+      yPct: 46.5,
+      maxWidthPct: 52,
+      maxHeightPct: 12,
+      fontFamily: "Dancing Script",
+      fontWeight: 700,
+      baseSizePx: 104,
+      color: "#4C1D95",
+      align: "center",
+      transform: "none",
+    },
+  ],
+  textStackSlots: [
+    // Edition eyebrow under the wordmark: tracked small caps.
+    {
+      key: "lockupStack",
+      xPct: 50,
+      yPct: 12.4,
+      maxWidthPct: 60,
+      maxHeightPct: 4,
+      lineGapPx: 0,
+      align: "center",
+      runs: [
+        {
+          source: { from: "field", field: "editionLabel" },
+          fontFamily: "Poppins",
+          fontWeight: 600,
+          baseSizePx: 23,
+          color: "#D6C9F5",
+          letterSpacingPx: 6,
+          transform: "uppercase",
+        },
+      ],
+    },
+    // The two-tone headline. Charcoal lead over heavier purple title, shrunk
+    // together so the emphasis ratio survives long copy.
+    {
+      key: "headlineStack",
+      xPct: 50,
+      yPct: 60,
+      maxWidthPct: 62,
+      maxHeightPct: 17,
+      lineGapPx: 10,
+      align: "center",
+      runs: [
+        {
+          source: { from: "field", field: "titleLead" },
+          fontFamily: "Poppins",
+          fontWeight: 700,
+          baseSizePx: 55,
+          color: "#26262B",
+        },
+        {
+          source: { from: "field", field: "title" },
+          fontFamily: "Poppins",
+          fontWeight: 700,
+          baseSizePx: 61,
+          color: "#5B21B6",
+        },
+      ],
+    },
+  ],
+  adornedTextSlots: [
+    {
+      key: "dateAdorned",
+      source: { from: "field", field: "dateLabel" },
+      xPct: 50,
+      yPct: 71,
+      maxWidthPct: 60,
+      maxHeightPct: 6,
+      fontFamily: "Poppins",
+      fontWeight: 600,
+      baseSizePx: 32,
+      color: "#33333A",
+      adornment: { style: "dots", color: ACCENT_RED, radiusPx: 7, gapPx: 18 },
+    },
+  ],
+  sealSlots: [
+    {
+      key: "ctaButton",
+      source: { from: "field", field: "ctaLabel" },
+      xPct: 50,
+      yPct: 88,
+      widthPct: 34,
+      heightPct: 8.4,
+      fillColor: WAX_RED,
+      accentColor: WAX_RED_LIGHT,
+      textColor: "#FFFFFF",
+      fontFamily: "Poppins",
+      fontWeight: 700,
+      baseSizePx: 30,
+    },
+  ],
+  // Background stays off-theme: the cream/purple/wax-red relationship is what
+  // makes this layout work, and substituting an arbitrary event primary would
+  // leave the envelope floating on a clashing ground.
+  themeOverridable: { background: false, accentTextKeys: [] },
+};
+
+/**
+ * "Stats Hero" — matches the wide reference banner.
+ *
+ * Near-black aurora ground, centred lockup with a tracked edition eyebrow, one
+ * uniform white headline, a translucent stats panel split into four columns by
+ * hairline rules, a calendar glyph beside the date, and a purple pill CTA.
+ */
+const EVENT_TEMPLATE_HERO_REFERENCE: CreativeTemplate = {
+  id: "event-stats-hero-ref",
+  type: "event",
+  name: "Stats Hero Banner",
+  description:
+    "Wide near-black aurora banner: bold headline, four-column stats panel with hairline dividers, calendar date line, and a purple CTA pill.",
+  authoredWidth: BANNER_W,
+  authoredHeight: BANNER_H,
+  background: { type: "gradient", from: "#1B1145", to: "#0B0620", angle: 165 },
+  preferredFormatIds: ["linkedin-post", "twitter-post"],
+  imageSlots: {
+    wordmark: { xPct: 50, yPct: 13, widthPct: 20, heightPct: 8, shape: "rect" },
+  },
+  shapeSlots: [
+    // Aurora streaks. Kept very faint and very wide: at higher opacity the
+    // polygons stop reading as diffuse light and start reading as flat
+    // triangles, which is what the first cut of this template did.
+    {
+      key: "auroraA",
+      shape: "polygon",
+      xPct: 28,
+      yPct: 20,
+      widthPct: 120,
+      heightPct: 60,
+      fillColor: "#8E7BE8",
+      opacity: 0.07,
+      points: [
+        [0, 0.66],
+        [0.5, 0],
+        [1, 0.14],
+        [0.58, 1],
+      ],
+    },
+    {
+      key: "auroraB",
+      shape: "polygon",
+      xPct: 80,
+      yPct: 84,
+      widthPct: 110,
+      heightPct: 62,
+      fillColor: "#6A57C8",
+      opacity: 0.06,
+      points: [
+        [0, 0.34],
+        [0.68, 0],
+        [1, 0.76],
+        [0.3, 1],
+      ],
+    },
+    // Stats panel.
+    {
+      key: "statsCard",
+      shape: "rounded-rect",
+      xPct: 50,
+      yPct: 50,
+      widthPct: 59,
+      heightPct: 19.5,
+      fillColor: "#FFFFFF10",
+      cornerRadiusFactor: 0.16,
+      strokeColor: "#FFFFFF1F",
+      strokeWidthPx: 2,
+    },
+    // Hairline column rules. Positioned at the boundaries between four equal
+    // columns inside the panel (which spans 20.5%..79.5%).
+    { key: "statDivider1", shape: "rect", xPct: 35.25, yPct: 50, widthPct: 0.12, heightPct: 11, fillColor: "#FFFFFF2E" },
+    { key: "statDivider2", shape: "rect", xPct: 50, yPct: 50, widthPct: 0.12, heightPct: 11, fillColor: "#FFFFFF2E" },
+    { key: "statDivider3", shape: "rect", xPct: 64.75, yPct: 50, widthPct: 0.12, heightPct: 11, fillColor: "#FFFFFF2E" },
+  ],
+  textSlots: [
+    { key: "statValue1", xPct: 27.9, yPct: 46.5, maxWidthPct: 13, maxHeightPct: 8, fontFamily: "Poppins", fontWeight: 700, baseSizePx: 42, color: "#A78BFA", align: "center", transform: "none" },
+    { key: "statLabel1", xPct: 27.9, yPct: 55, maxWidthPct: 13, maxHeightPct: 5, fontFamily: "Poppins", fontWeight: 400, baseSizePx: 20, color: "#EDEAFB", align: "center", transform: "none" },
+    { key: "statValue2", xPct: 42.6, yPct: 46.5, maxWidthPct: 13, maxHeightPct: 8, fontFamily: "Poppins", fontWeight: 700, baseSizePx: 42, color: "#A78BFA", align: "center", transform: "none" },
+    { key: "statLabel2", xPct: 42.6, yPct: 55, maxWidthPct: 13, maxHeightPct: 5, fontFamily: "Poppins", fontWeight: 400, baseSizePx: 20, color: "#EDEAFB", align: "center", transform: "none" },
+    { key: "statValue3", xPct: 57.4, yPct: 46.5, maxWidthPct: 13, maxHeightPct: 8, fontFamily: "Poppins", fontWeight: 700, baseSizePx: 42, color: "#A78BFA", align: "center", transform: "none" },
+    { key: "statLabel3", xPct: 57.4, yPct: 55, maxWidthPct: 13, maxHeightPct: 5, fontFamily: "Poppins", fontWeight: 400, baseSizePx: 20, color: "#EDEAFB", align: "center", transform: "none" },
+    { key: "statValue4", xPct: 72.1, yPct: 46.5, maxWidthPct: 13, maxHeightPct: 8, fontFamily: "Poppins", fontWeight: 700, baseSizePx: 42, color: "#A78BFA", align: "center", transform: "none" },
+    { key: "statLabel4", xPct: 72.1, yPct: 55, maxWidthPct: 13, maxHeightPct: 5, fontFamily: "Poppins", fontWeight: 400, baseSizePx: 20, color: "#EDEAFB", align: "center", transform: "none" },
+    // No plain `dateLabel` slot: the date is drawn by the `adornedTextSlots`
+    // entry below so that it and its calendar glyph centre as one unit.
+  ],
+  textStackSlots: [
+    {
+      key: "lockupStack",
+      xPct: 50,
+      yPct: 19.5,
+      maxWidthPct: 50,
+      maxHeightPct: 4,
+      lineGapPx: 0,
+      align: "center",
+      runs: [
+        {
+          source: { from: "field", field: "editionLabel" },
+          fontFamily: "Poppins",
+          fontWeight: 600,
+          baseSizePx: 18,
+          color: "#C6BAF0",
+          letterSpacingPx: 5,
+          transform: "uppercase",
+        },
+      ],
+    },
+    {
+      // One uniform white line. The joining source recombines the lead and the
+      // title that the square invite renders as two separate runs, so the same
+      // promo record drives both layouts without losing half the headline.
+      key: "headlineStack",
+      xPct: 50,
+      yPct: 30,
+      maxWidthPct: 84,
+      maxHeightPct: 13,
+      lineGapPx: 0,
+      align: "center",
+      runs: [
+        {
+          source: { from: "fields", fields: ["titleLead", "title"], join: " " },
+          fontFamily: "Poppins",
+          fontWeight: 700,
+          baseSizePx: 52,
+          color: "#FFFFFF",
+        },
+      ],
+    },
+  ],
+  adornedTextSlots: [
+    {
+      key: "dateAdorned",
+      source: { from: "field", field: "dateLabel" },
+      xPct: 50,
+      yPct: 71.5,
+      maxWidthPct: 40,
+      maxHeightPct: 6,
+      fontFamily: "Poppins",
+      fontWeight: 500,
+      baseSizePx: 22,
+      color: "#FFFFFF",
+      adornment: {
+        style: "leading-icon",
+        name: "calendar",
+        color: "#FFFFFF",
+        sizePx: 24,
+        strokeWidthPx: 2,
+        gapPx: 12,
+      },
+    },
+  ],
+  pillSlots: [
+    {
+      key: "ctaButton",
+      xPct: 50,
+      yPct: 86.5,
+      widthPct: 25,
+      heightPct: 11,
+      fillColor: "#7C5CFC",
+      textColor: "#FFFFFF",
+      fontFamily: "Poppins",
+      fontWeight: 600,
+      baseSizePx: 22,
+      cornerRadiusFactor: 0.28,
+    },
+  ],
+  themeOverridable: {
+    background: true,
+    accentTextKeys: ["statValue1", "statValue2", "statValue3", "statValue4"],
+  },
+};
+
+/**
+ * Event_Promo presets, reference-matched layouts first so the template picker
+ * offers them ahead of the older square-authored ones.
+ */
+export const EVENT_TEMPLATES: CreativeTemplate[] = [
+  EVENT_TEMPLATE_INVITE_REFERENCE,
+  EVENT_TEMPLATE_HERO_REFERENCE,
+  ...LEGACY_EVENT_TEMPLATES,
+];
+
 /** Returns the static preset registry matching the given Creative type (Requirement 1.1). */
 export function templatesFor(type: CreativeType): CreativeTemplate[] {
   switch (type) {
@@ -963,6 +1709,9 @@ export function reflowTemplate(
   textSlots: Record<string, ResolvedBox>;
   pillSlots: Record<string, ResolvedBox>;
   shapeSlots: Record<string, ResolvedBox>;
+  textStackSlots: Record<string, ResolvedBox>;
+  adornedTextSlots: Record<string, ResolvedBox>;
+  sealSlots: Record<string, ResolvedBox>;
 } {
   const imageSlots: Record<string, ResolvedBox> = {};
   for (const [role, slot] of Object.entries(template.imageSlots)) {
@@ -1018,7 +1767,51 @@ export function reflowTemplate(
     );
   }
 
-  return { imageSlots, textSlots, pillSlots, shapeSlots };
+  const textStackSlots: Record<string, ResolvedBox> = {};
+  for (const slot of template.textStackSlots ?? []) {
+    textStackSlots[slot.key] = reflowBox(
+      slot.xPct,
+      slot.yPct,
+      slot.maxWidthPct,
+      slot.maxHeightPct,
+      format.width,
+      format.height
+    );
+  }
+
+  const adornedTextSlots: Record<string, ResolvedBox> = {};
+  for (const slot of template.adornedTextSlots ?? []) {
+    adornedTextSlots[slot.key] = reflowBox(
+      slot.xPct,
+      slot.yPct,
+      slot.maxWidthPct,
+      slot.maxHeightPct,
+      format.width,
+      format.height
+    );
+  }
+
+  const sealSlots: Record<string, ResolvedBox> = {};
+  for (const slot of template.sealSlots ?? []) {
+    sealSlots[slot.key] = reflowBox(
+      slot.xPct,
+      slot.yPct,
+      slot.widthPct,
+      slot.heightPct,
+      format.width,
+      format.height
+    );
+  }
+
+  return {
+    imageSlots,
+    textSlots,
+    pillSlots,
+    shapeSlots,
+    textStackSlots,
+    adornedTextSlots,
+    sealSlots,
+  };
 }
 
 // ─── Template selection persistence (Requirement 1.4) ───────────────────────

@@ -674,11 +674,13 @@ export interface DecorateContext {
  *   6. images (base)         (photo / logo / speakerPhoto / sponsorLogo)
  *   7. texts (base)          (name / title / company / tierBadge / ...
  *                             with slotOverrides + positionNudges applied)
- *   8. custom-prompt texts   (in author order — Property 41)
- *   9. divider (base)        (if the template defines one)
- *  10. pills (base)          (Event_Promo date chip / CTA button)
- *  11. watermark             (if a resolved watermark URL exists)
- *  12. border                (last — Property 42.4)
+ *   8. text-like (base)      (text-stack / flanked-text / icon — passed
+ *                             through undecorated)
+ *   9. custom-prompt texts   (in author order — Property 41)
+ *  10. divider (base)        (if the template defines one)
+ *  11. pills (base)          (Event_Promo date chip / CTA button / seal)
+ *  12. watermark             (if a resolved watermark URL exists)
+ *  13. border                (last — Property 42.4)
  *
  * When `config` is empty per `isEmptyCustomization`, returns the input
  * plan reference unchanged. This is the structural anchor for Property 45
@@ -702,6 +704,17 @@ export function decoratePlanWithCustomization(
   const shapes: PlanElement[] = [];
   const images: PlanElement[] = [];
   const texts: Extract<PlanElement, { kind: "text" }>[] = [];
+  // Composite foreground elements that read as text but aren't a plain `text`
+  // element, so `applyOverridesToTextElement` can't process them: a
+  // `text-stack` carries per-run styling and an `adorned-text` owns its own
+  // adornment geometry. They ride alongside the texts in z-order and pass
+  // through undecorated.
+  //
+  // Bucketing them explicitly matters: this switch used to have no branch for
+  // them, and an unmatched element is dropped rather than passed through — so
+  // applying any customization to an Event_Promo built from a template that
+  // uses these would silently erase its headline, date line and icons.
+  const textLike: PlanElement[] = [];
   const dividers: PlanElement[] = [];
   const pills: PlanElement[] = [];
 
@@ -719,11 +732,20 @@ export function decoratePlanWithCustomization(
       case "text":
         texts.push(el);
         break;
+      case "text-stack":
+      case "adorned-text":
+        textLike.push(el);
+        break;
       case "divider":
         dividers.push(el);
         break;
       case "pill":
+      // A seal is a CTA, so it belongs with the pills at the top of the
+      // stack rather than among the mid-layer text.
+      case "seal":
         pills.push(el);
+        break;
+      default:
         break;
     }
   }
@@ -776,6 +798,7 @@ export function decoratePlanWithCustomization(
     ...overlayElements,
     ...images,
     ...decoratedTexts,
+    ...textLike,
     ...customPromptTexts,
     ...dividers,
     ...pills,

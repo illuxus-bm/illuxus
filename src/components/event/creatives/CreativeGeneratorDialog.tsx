@@ -95,6 +95,9 @@ import {
   type CustomizationConfig,
 } from "@/lib/creatives/creative-customization";
 import type { EventPageConfig } from "@/components/event/page-form/types";
+import { Textarea } from "@/components/ui/textarea";
+import { callGenerateCreativeCopy, CreativeCopyError } from "@/lib/creatives/creative-ai";
+import { resolveBrief, type CreativeBriefSuggestion } from "@/lib/creatives/creative-brief";
 
 interface CreativeGeneratorDialogProps {
   open: boolean;
@@ -250,20 +253,32 @@ export default function CreativeGeneratorDialog({
   // the event's date once `eventMeta.date` loads. Reset whenever the
   // dialog re-opens, mirroring every other transient selection above.
   const [eventPromoForm, setEventPromoForm] = useState<{
+    /** Qualifier line above `title`. Rendered as the charcoal first run of a
+     *  two-tone headline, and joined back onto `title` on layouts that set the
+     *  headline as one line. */
+    titleLead: string;
     title: string;
+    /** Tracked eyebrow above the lockup, e.g. "Summer Edition". */
+    editionLabel: string;
     tagline: string;
     dateLabel: string;
     ctaLabel: string;
     wordmarkUrl: string;
     stats: { value: string; label: string }[];
   }>({
+    titleLead: "",
     title: "",
+    editionLabel: "",
     tagline: "",
     dateLabel: "",
     ctaLabel: "",
     wordmarkUrl: "",
     stats: [{ value: "", label: "" }],
   });
+
+  /** The organizer's free-text brief for prompt-driven generation. */
+  const [briefPrompt, setBriefPrompt] = useState("");
+  const [briefLoading, setBriefLoading] = useState(false);
 
   const { org } = useOrg();
   const currentOrgId = org?.id ?? null;
@@ -298,8 +313,12 @@ export default function CreativeGeneratorDialog({
     setAiBackground(null);
     setCustomization({});
     setAppliedBrandKit(undefined);
+    setBriefPrompt("");
+    setBriefLoading(false);
     setEventPromoForm({
+      titleLead: "",
       title: "",
+      editionLabel: "",
       tagline: initialEventPromo?.tagline ?? "",
       dateLabel: "",
       ctaLabel: initialEventPromo?.ctaLabel ?? "",
@@ -499,6 +518,99 @@ export default function CreativeGeneratorDialog({
     return effective.template;
   }, [effective.template, backgroundSource, aiBackground]);
 
+  /**
+   * Prompt-driven generation: one brief becomes a filled-in composer.
+   *
+   * Populates the form and switches the template rather than rendering and
+   * downloading straight away. That is deliberate — the organizer stays in
+   * control of the result, can see it in the live preview, and can edit any
+   * field before exporting. A one-shot "prompt in, PNG out" button would give
+   * them no recourse when the model's phrasing is nearly-but-not-quite right,
+   * which is most of the time.
+   *
+   * Only the first suggestion is applied. The others are persisted as
+   * `event_creative_ai_drafts` rows by the edge function and surface in the
+   * review panel, so nothing is wasted.
+   */
+  const handleGenerateFromPrompt = async () => {
+    const prompt = briefPrompt.trim();
+    if (prompt.length === 0) return;
+
+    setBriefLoading(true);
+    try {
+      const { suggestions } = await callGenerateCreativeCopy({
+        eventId,
+        kind: "event",
+        promptText: prompt,
+        alternatives: 3,
+        context: {
+          eventTitle: eventMeta.title ?? eventPromoForm.title.trim() ?? "",
+          dateText: eventPromoForm.dateLabel.trim() || null,
+        },
+        source: "on_demand",
+      });
+
+      const first = suggestions[0];
+      if (!first) {
+        toast.error("No suggestions returned", {
+          description: "Try rephrasing the brief with a bit more detail.",
+        });
+        return;
+      }
+
+      const resolved = resolveBrief(
+        first as CreativeBriefSuggestion,
+        {
+          eventTitle: eventMeta.title ?? "Event",
+          dateLabel: eventPromoForm.dateLabel.trim() || null,
+          wordmarkUrl: eventPromoForm.wordmarkUrl.trim() || null,
+        },
+        organizationLogoUrl,
+      );
+
+      const { promo } = resolved;
+      setEventPromoForm((prev) => ({
+        ...prev,
+        title: promo.title,
+        titleLead: promo.titleLead ?? "",
+        editionLabel: promo.editionLabel ?? "",
+        tagline: promo.tagline ?? "",
+        // Keep whatever the organizer already typed for the date if the model
+        // didn't supply one — the event's real date beats an invented one.
+        dateLabel: promo.dateLabel ?? prev.dateLabel,
+        ctaLabel: promo.ctaLabel ?? prev.ctaLabel,
+        stats:
+          promo.stats && promo.stats.length > 0
+            ? promo.stats.map((s) => ({ value: s.value, label: s.label }))
+            : prev.stats,
+      }));
+
+      // Switch to the layout the model chose for the brief.
+      setTemplateId(resolved.templateId);
+
+      toast.success("Draft applied", {
+        description: `Used the ${resolved.layout === "invite" ? "invitation" : "stats banner"} layout. Edit any field before exporting.`,
+      });
+    } catch (err) {
+      const code = err instanceof CreativeCopyError ? err.code : "network";
+      logger.error("prompt-driven creative generation failed", {
+        event_id: eventId,
+        error_code: code,
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+      toast.error("Couldn't generate from that brief", {
+        description:
+          code === "quota"
+            ? "Daily AI limit reached for this event. Try again tomorrow."
+            : code === "auth"
+              ? "You don't have permission to generate for this event."
+              : "The AI service didn't respond. Try again in a moment.",
+      });
+    } finally {
+      setBriefLoading(false);
+    }
+  };
+
   // Live-preview counterpart of `handleGenerate`'s `eventPromo` construction
   // — used only when `type === "event"` (Requirement: Event_Promo creative
   // type). Recomputed on every form edit so the preview stays in sync.
@@ -506,6 +618,8 @@ export default function CreativeGeneratorDialog({
     () => ({
       id: eventId,
       title: eventPromoForm.title.trim() || "Event Title",
+      titleLead: eventPromoForm.titleLead.trim() || null,
+      editionLabel: eventPromoForm.editionLabel.trim() || null,
       tagline: eventPromoForm.tagline.trim() || null,
       dateLabel: eventPromoForm.dateLabel.trim() || null,
       ctaLabel: eventPromoForm.ctaLabel.trim() || null,
@@ -593,6 +707,8 @@ export default function CreativeGeneratorDialog({
       const eventPromo: EventPromoLike = {
         id: eventId,
         title: eventPromoForm.title.trim(),
+        titleLead: eventPromoForm.titleLead.trim() || null,
+        editionLabel: eventPromoForm.editionLabel.trim() || null,
         tagline: eventPromoForm.tagline.trim() || null,
         dateLabel: eventPromoForm.dateLabel.trim() || null,
         ctaLabel: eventPromoForm.ctaLabel.trim() || null,
@@ -831,6 +947,53 @@ export default function CreativeGeneratorDialog({
               </section>
             )}
 
+            {/* PROMPT-DRIVEN GENERATION — "event" type only.
+                Sits above the manual fields because describing what you want is
+                the faster path; the fields below stay editable so the result is
+                a starting point rather than a take-it-or-leave-it output. */}
+            {type === "event" && (
+              <section>
+                <Label
+                  htmlFor="creative-brief-prompt"
+                  className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block"
+                >
+                  Describe it
+                </Label>
+                <div className="space-y-2">
+                  <Textarea
+                    id="creative-brief-prompt"
+                    value={briefPrompt}
+                    onChange={(e) => setBriefPrompt(e.target.value)}
+                    placeholder="An elegant square invite for our summer HR summit — formal but warm, with a save-the-date feel."
+                    rows={3}
+                    maxLength={600}
+                    disabled={briefLoading}
+                    className="text-[13px] resize-none"
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-muted-foreground">
+                      Picks a layout and fills the fields below. Edit anything after.
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void handleGenerateFromPrompt()}
+                      disabled={briefLoading || briefPrompt.trim().length === 0}
+                      className="h-7 gap-1.5 text-[12px] shrink-0"
+                    >
+                      {briefLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
+                      {briefLoading ? "Designing…" : "Generate"}
+                    </Button>
+                  </div>
+                </div>
+              </section>
+            )}
+
             {/* EVENT PROMO FORM — "event" type only */}
             {type === "event" && (
               <section>
@@ -839,11 +1002,35 @@ export default function CreativeGeneratorDialog({
                 </Label>
                 <div className="space-y-2.5">
                   <div className="space-y-1">
+                    <Label className="text-[11px] text-muted-foreground">
+                      Headline lead-in (optional)
+                    </Label>
+                    <Input
+                      value={eventPromoForm.titleLead}
+                      onChange={(e) => setEventPromoForm((p) => ({ ...p, titleLead: e.target.value }))}
+                      placeholder="India's Largest"
+                      className="h-8 text-[13px]"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Set above the title, in a lighter colour, on layouts with a
+                      two-tone headline.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
                     <Label className="text-[11px] text-muted-foreground">Title</Label>
                     <Input
                       value={eventPromoForm.title}
                       onChange={(e) => setEventPromoForm((p) => ({ ...p, title: e.target.value }))}
                       placeholder="India's Largest Virtual HR Summit"
+                      className="h-8 text-[13px]"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] text-muted-foreground">Edition label (optional)</Label>
+                    <Input
+                      value={eventPromoForm.editionLabel}
+                      onChange={(e) => setEventPromoForm((p) => ({ ...p, editionLabel: e.target.value }))}
+                      placeholder="Summer Edition"
                       className="h-8 text-[13px]"
                     />
                   </div>

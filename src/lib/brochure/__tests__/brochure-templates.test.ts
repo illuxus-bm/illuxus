@@ -31,10 +31,20 @@ describe("resolveFontFamilyForPdf", () => {
     Raleway: "helvetica",
     "JetBrains Mono": "courier",
     "Space Grotesk": "courier",
+    "DM Sans": "helvetica",
+    // Script faces bucket to `times` — see SERIF_FONT_FAMILIES for why that is
+    // the least-wrong of the three base-14 options.
+    "Dancing Script": "times",
+    "Great Vibes": "times",
+    Pacifico: "times",
   };
 
   it("maps every FONT_OPTIONS entry to its expected base-14 bucket", () => {
+    // Guards against a family being added to FONT_OPTIONS without a considered
+    // PDF bucket: without this, a missing EXPECTED entry is `undefined` and the
+    // assertion below would silently compare against it.
     for (const font of FONT_OPTIONS) {
+      expect(EXPECTED[font], `no expected PDF bucket declared for "${font}"`).toBeDefined();
       expect(resolveFontFamilyForPdf(font)).toBe(EXPECTED[font]);
     }
   });

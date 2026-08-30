@@ -226,6 +226,18 @@ interface RequestBody {
   kind: CopyKind;
   context: CopyContext;
   alternatives?: number;
+  /**
+   * The organizer's free-text brief, e.g. "an elegant square invite for our
+   * summer HR summit, formal but warm".
+   *
+   * When present (and `kind === 'event'`), the function switches to
+   * brief mode: the model interprets the brief and returns a whole creative —
+   * layout choice, two-tone headline, eyebrow, date, CTA, stats and palette —
+   * instead of just a tagline and CTA for a template the organizer already
+   * picked. Ignored for the entity kinds, whose creatives are driven by the
+   * speaker/sponsor record rather than a brief.
+   */
+  promptText?: string;
   /** `speakers.id` / `sponsors.id` this generation is for. Persisted on
    *  the resulting draft row(s) so the review UI can group by entity
    *  and pre-select the same one when applying. Null for
@@ -244,6 +256,19 @@ interface CopySuggestion {
   subtitle?: string;
   ctaLabel: string;
   stats?: Array<{ value: string; label: string }>;
+  // ── Prompt-driven fields (kind='event' only) ──
+  // Populated when the caller supplies `promptText`. They carry the pieces the
+  // reference Event_Promo templates need but `tagline`/`subtitle` cannot
+  // express: a two-tone headline is a lead-in plus an emphasised remainder, and
+  // the eyebrow is a separate tracked line. Optional so the pre-existing
+  // preset-driven callers see a byte-identical response shape.
+  title?: string;
+  titleLead?: string;
+  editionLabel?: string;
+  dateLabel?: string;
+  /** "invite" | "banner" — validated against the allowlist, not free text. */
+  layout?: string;
+  palette?: { primary?: string; accent?: string };
 }
 
 interface PersistedSuggestion extends CopySuggestion {
@@ -271,6 +296,10 @@ const DEFAULT_COPY_MODEL = "gemini-1.5-flash-latest";
 const DEFAULT_DAILY_QUOTA = 50;
 const DEFAULT_ALTERNATIVES = 3;
 const MAX_ALTERNATIVES = 5;
+/** Cap on the organizer's brief. Long enough for a real description, short
+ *  enough that a pasted document can't blow past the model's token budget and
+ *  crowd out the event facts that follow it in the prompt. */
+const MAX_PROMPT_CHARS = 600;
 const GEMINI_TIMEOUT_MS = 20_000;
 
 const log = createEdgeLogger("generate-creative-copy");
@@ -284,6 +313,82 @@ const log = createEdgeLogger("generate-creative-copy");
  * caller gets the same output shape and Gemini's structured-output
  * settings can enforce it if we ever migrate to `response_schema`.
  */
+/** Layout categories a prompt may resolve to. Kept deliberately tiny — see the
+ *  rationale in `src/lib/creatives/creative-brief.ts`. */
+const ALLOWED_LAYOUTS: ReadonlySet<string> = new Set(["invite", "banner"]);
+
+/** Matches `#rgb` / `#rrggbb`. An invalid `fillStyle` is silently ignored by
+ *  canvas rather than throwing, so a bad hex would surface as one
+ *  mysteriously mis-coloured element. Rejected here instead. */
+const HEX_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+/**
+ * Builds the prompt for a prompt-driven Event_Promo generation.
+ *
+ * Distinct from `buildPrompt` because the task is different: that one asks for
+ * a tagline and CTA to slot into a template the organizer already chose, while
+ * this one asks the model to interpret a brief and decide the whole creative,
+ * layout included.
+ *
+ * The requested JSON deliberately separates `titleLead` from `title`. Asking
+ * for one combined headline and splitting it afterwards works, but the model
+ * makes a better editorial judgement about which words carry the emphasis than
+ * a word-count heuristic does — the heuristic in `splitHeadline` exists only as
+ * a fallback for when this field comes back empty.
+ */
+function buildBriefPrompt(
+  ctx: CopyContext,
+  promptText: string,
+  alternatives: number,
+): string {
+  const eventBits = [
+    `Event title: ${ctx.eventTitle}`,
+    ctx.eventDescription ? `Description: ${ctx.eventDescription}` : null,
+    ctx.dateText ? `Date: ${ctx.dateText}` : null,
+    ctx.venueText ? `Venue: ${ctx.venueText}` : null,
+  ].filter(Boolean).join("\n");
+
+  const jsonShape = [
+    "{",
+    '  "layout": "invite" | "banner",',
+    '  "titleLead": "≤40 chars — the qualifier line, e.g. \\"India\'s Largest\\"",',
+    '  "title": "≤40 chars — the emphasised subject, e.g. \\"Virtual HR Summit\\"",',
+    '  "editionLabel": "≤24 chars — small eyebrow, e.g. \\"Summer Edition\\", or omit",',
+    '  "tagline": "≤32 chars — script flourish for invite layouts, e.g. \\"You\'re Invited\\", or omit",',
+    '  "dateLabel": "≤32 chars — human-readable date, e.g. \\"23rd July, 2026\\"",',
+    '  "ctaLabel": "≤22 chars, action verb, e.g. \\"Register for FREE\\"",',
+    '  "stats": [{"value": "≤12 chars e.g. 6000+", "label": "≤24 chars e.g. Attendees"}],',
+    '  "palette": {"primary": "#rrggbb", "accent": "#rrggbb"}',
+    "}",
+  ].join("\n");
+
+  return [
+    "You are a senior graphic designer and copywriter for a professional events platform.",
+    `Interpret the organizer's brief and design ${alternatives} distinct social creatives for this event.`,
+    "",
+    "Organizer's brief:",
+    promptText,
+    "",
+    "Event facts (use these; do not contradict them):",
+    eventBits,
+    "",
+    "Choose the layout that fits the brief:",
+    '- "invite": a square, formal invitation. Best when the brief asks for an invite, a save-the-date, or something elegant/personal. Uses the script tagline.',
+    '- "banner": a wide hero banner with a row of headline numbers. Best when the brief emphasises scale, stats, reach, or a launch announcement.',
+    "",
+    "Rules:",
+    "- Return ONLY a JSON array of suggestions. No prose, no code fences.",
+    "- Each suggestion must match exactly this shape (extra keys are ignored):",
+    jsonShape,
+    "- Split the headline so `title` holds the subject and `titleLead` holds the qualifier. Both are required.",
+    '- Include 4 stats for "banner" layouts. Omit `stats` entirely for "invite" layouts.',
+    "- Only state numbers the brief or the event facts support. Never invent attendance figures.",
+    "- `palette` must be dark-background-friendly hex colours that suit the event's subject.",
+    "- Every string must be human-natural — no template placeholders, no {{brackets}}, no emoji.",
+    "- Vary layout and tone across the alternatives where the brief allows it.",
+  ].filter(Boolean).join("\n");
+}
+
 function buildPrompt(kind: CopyKind, ctx: CopyContext, alternatives: number): string {
   const eventBits = [
     `Event title: ${ctx.eventTitle}`,
@@ -405,6 +510,118 @@ function parseSuggestions(raw: string): CopySuggestion[] {
     parsed.push({ tagline, ctaLabel, ...(subtitle ? { subtitle } : {}), ...(stats ? { stats } : {}) });
   }
   return parsed;
+}
+
+/**
+ * Parses a prompt-driven brief response.
+ *
+ * Separate from `parseSuggestions` because the required fields differ: a brief
+ * must carry a `title` and a `ctaLabel` to be renderable, whereas the
+ * preset-driven path requires a `tagline`. Sharing one parser would mean
+ * loosening both sets of requirements and accepting responses that render
+ * blank.
+ *
+ * `layout` and `palette` are validated against an allowlist and a hex pattern
+ * respectively, then dropped if invalid — an unusable value must not reach the
+ * renderer, where canvas would ignore it silently.
+ */
+function parseBriefSuggestions(raw: string): CopySuggestion[] {
+  const arr = extractJsonArray(raw);
+  if (!arr) return [];
+
+  const clamp = (s: unknown, max: number): string =>
+    typeof s === "string" ? s.trim().slice(0, max) : "";
+
+  const out: CopySuggestion[] = [];
+  for (const item of arr) {
+    if (!item || typeof item !== "object") continue;
+    const it = item as Record<string, unknown>;
+
+    const title = clamp(it.title, 40);
+    const ctaLabel = clamp(it.ctaLabel, 22);
+    // Without a headline and a CTA there is nothing worth rendering.
+    if (!title || !ctaLabel) continue;
+
+    const titleLead = clamp(it.titleLead, 40) || undefined;
+    const editionLabel = clamp(it.editionLabel, 24) || undefined;
+    const tagline = clamp(it.tagline, 32) || undefined;
+    const dateLabel = clamp(it.dateLabel, 32) || undefined;
+
+    const rawLayout = clamp(it.layout, 12).toLowerCase();
+    const layout = ALLOWED_LAYOUTS.has(rawLayout) ? rawLayout : undefined;
+
+    let palette: CopySuggestion["palette"];
+    if (it.palette && typeof it.palette === "object") {
+      const p = it.palette as Record<string, unknown>;
+      const primary = typeof p.primary === "string" && HEX_COLOR_RE.test(p.primary.trim())
+        ? p.primary.trim()
+        : undefined;
+      const accent = typeof p.accent === "string" && HEX_COLOR_RE.test(p.accent.trim())
+        ? p.accent.trim()
+        : undefined;
+      if (primary) palette = { primary, ...(accent ? { accent } : {}) };
+    }
+
+    let stats: CopySuggestion["stats"];
+    if (Array.isArray(it.stats)) {
+      const collected: Array<{ value: string; label: string }> = [];
+      for (const s of it.stats.slice(0, 4)) {
+        if (!s || typeof s !== "object") continue;
+        const rs = s as Record<string, unknown>;
+        const value = clamp(rs.value, 12);
+        const label = clamp(rs.label, 24);
+        if (value && label) collected.push({ value, label });
+      }
+      if (collected.length > 0) stats = collected;
+    }
+
+    out.push({
+      // `tagline` is required by the shared CopySuggestion shape and is what
+      // the draft row stores as its headline, so fall back to the title.
+      tagline: tagline ?? title,
+      ctaLabel,
+      title,
+      ...(titleLead ? { titleLead } : {}),
+      ...(editionLabel ? { editionLabel } : {}),
+      ...(tagline ? { tagline } : {}),
+      ...(dateLabel ? { dateLabel } : {}),
+      ...(layout ? { layout } : {}),
+      ...(palette ? { palette } : {}),
+      ...(stats ? { stats } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * Pulls a JSON array out of a model response, tolerating code fences and
+ * surrounding prose. Shared by both parsers so the recovery behaviour can't
+ * drift between them.
+ */
+function extractJsonArray(raw: string): unknown[] | null {
+  const stripped = raw
+    .replace(/^\s*```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/i, "")
+    .trim();
+
+  const attempt = (text: string): unknown[] | null => {
+    try {
+      const value = JSON.parse(text);
+      return Array.isArray(value) ? value : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const direct = attempt(stripped);
+  if (direct) return direct;
+
+  // Gemini sometimes wraps the array in explanatory prose despite being told
+  // not to.
+  const first = stripped.indexOf("[");
+  const last = stripped.lastIndexOf("]");
+  if (first >= 0 && last > first) return attempt(stripped.slice(first, last + 1));
+  return null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -574,7 +791,16 @@ Deno.serve(async (req: Request) => {
   }
 
   // ── Call Gemini text model ───────────────────────────────────────────────
-  const prompt = buildPrompt(body.kind, body.context, alternatives);
+  // Brief mode only applies to event-level creatives: speaker and sponsor
+  // creatives are driven by the entity record, so there is no layout for a
+  // brief to choose.
+  const briefText =
+    body.kind === "event" && typeof body.promptText === "string" && body.promptText.trim().length > 0
+      ? body.promptText.trim().slice(0, MAX_PROMPT_CHARS)
+      : null;
+  const prompt = briefText
+    ? buildBriefPrompt(body.context, briefText, alternatives)
+    : buildPrompt(body.kind, body.context, alternatives);
   const endpoint =
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
@@ -673,9 +899,12 @@ Deno.serve(async (req: Request) => {
     return errorResponse(503, { error: "Couldn't reach Gemini", code: "service_outage" });
   }
 
-  const suggestions = parseSuggestions(raw);
+  const suggestions = briefText ? parseBriefSuggestions(raw) : parseSuggestions(raw);
   if (suggestions.length === 0) {
-    rlog.error("failed to parse gemini response", { raw_excerpt: raw.slice(0, 400) });
+    rlog.error("failed to parse gemini response", {
+      raw_excerpt: raw.slice(0, 400),
+      brief_mode: briefText !== null,
+    });
     return errorResponse(503, {
       error: "Couldn't parse the AI response",
       code: "service_outage",

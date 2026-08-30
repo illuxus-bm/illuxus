@@ -548,6 +548,21 @@ export interface CreativeCopyRequest {
   context: CreativeCopyContext;
   /** How many alternatives to generate. Server clamps to 1..5, default 3. */
   alternatives?: number;
+  /**
+   * The organizer's free-text brief, e.g. "an elegant square invite for our
+   * summer HR summit, formal but warm".
+   *
+   * When present and `kind === 'event'`, the server switches to brief mode: the
+   * model interprets the brief and returns a whole creative — layout choice,
+   * two-tone headline, eyebrow, date, CTA, stats and palette — rather than just
+   * a tagline and CTA for an already-chosen template. Clamped server-side to
+   * 600 characters. Ignored for the entity kinds, whose creatives are driven by
+   * the speaker/sponsor record.
+   *
+   * Feed the response through `resolveBrief` in `./creative-brief` to get a
+   * renderable `EventPromoLike` plus a template id and theme.
+   */
+  promptText?: string;
   /** `speakers.id` / `sponsors.id` this generation is for. Persisted
    *  on the draft row so the review UI can group by entity. Null for
    *  `kind='event'`. */
@@ -571,6 +586,25 @@ export interface CreativeCopySuggestion {
   /** Present only for `kind='event'` — 3 stats like
    *  `[{ value: '30+', label: 'Speakers' }, ...]`. */
   stats?: Array<{ value: string; label: string }>;
+  // ── Brief-mode fields (present only when `promptText` was supplied) ──
+  // These carry what the reference Event_Promo templates need and
+  // `tagline`/`subtitle` cannot express: a two-tone headline is a lead-in plus
+  // an emphasised remainder, and the eyebrow is its own tracked line. All
+  // optional, so the preset-driven path sees an unchanged response shape.
+  /** Emphasised headline subject, e.g. "Virtual HR Summit". */
+  title?: string;
+  /** Qualifier line above `title`, e.g. "India's Largest". */
+  titleLead?: string;
+  /** Tracked eyebrow, e.g. "Summer Edition". */
+  editionLabel?: string;
+  /** Human-readable date line, e.g. "23rd July, 2026". */
+  dateLabel?: string;
+  /** `"invite" | "banner"`, already validated against the allowlist
+   *  server-side. Map it via `templateIdForLayout` rather than trusting it as a
+   *  template id. */
+  layout?: string;
+  /** Hex colours, already pattern-validated server-side. */
+  palette?: { primary?: string; accent?: string };
 }
 
 export interface CreativeCopyResponse {

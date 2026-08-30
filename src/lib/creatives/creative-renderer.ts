@@ -28,6 +28,7 @@
  */
 
 import { logger } from "@/lib/observability";
+import { ensureCreativeFonts } from "./creative-fonts";
 
 import type {
   CreativeBgStyle,
@@ -82,6 +83,18 @@ export interface SponsorLike {
 export interface EventPromoLike {
   id: string;
   title: string;
+  /**
+   * Lead-in line set above `title` in a two-tone headline, e.g. "India's
+   * Largest" above "Virtual HR Summit".
+   *
+   * Separate from `title` rather than parsed out of it: which words carry the
+   * emphasis is an editorial decision, and inferring the split from a
+   * delimiter or word count would silently re-emphasize a headline whenever
+   * the copy changed. Templates without a `textStackSlots` headline ignore it.
+   */
+  titleLead?: string | null;
+  /** Small tracked eyebrow above the headline, e.g. "SUMMER EDITION". */
+  editionLabel?: string | null;
   /** Optional secondary line — script-style headline on Invite Card
    *  templates ("You're Invited"), omitted entirely when absent. */
   tagline?: string | null;
@@ -97,6 +110,46 @@ export interface EventPromoLike {
   wordmarkUrl?: string | null;
   stats?: Array<{ value: string; label: string }>;
 }
+
+/**
+ * One independently-styled line inside a `text-stack` element.
+ *
+ * `letterSpacingPx` is applied by drawing character-by-character rather than
+ * via `ctx.letterSpacing`, which Safari only gained in 17.4 — an export that
+ * silently loses its tracking on one browser is worse than a slightly slower
+ * draw. Used for the reference designs' small-caps edition eyebrow
+ * ("SUMMER EDITION"), where tracking is the difference between the intended
+ * look and a cramped smudge.
+ */
+export interface TextStackRun {
+  text: string;
+  fontFamily: string;
+  fontWeight: number;
+  /** Size at the target format, already scaled by the plan builder. */
+  baseSizePx: number;
+  color: string;
+  /** Extra tracking in px at the target format. Defaults to 0. */
+  letterSpacingPx?: number;
+}
+
+/** Procedural vector glyphs the renderer can draw. */
+export type IconName = "calendar";
+
+/**
+ * What sits alongside an `adorned-text` line. Sizes are px at the target
+ * format, already scaled by the plan builder.
+ */
+export type TextAdornment =
+  /** A dot either side of the line. */
+  | { style: "dots"; color: string; radiusPx: number; gapPx: number }
+  /**
+   * A vector glyph immediately before the line.
+   *
+   * Drawn from paths rather than shipped as a raster so it inherits the
+   * template's colour and stays crisp at any export size — a 24px PNG icon
+   * upscaled into a 1600px banner is visibly soft.
+   */
+  | { style: "leading-icon"; name: IconName; color: string; sizePx: number; strokeWidthPx: number; gapPx: number };
 
 /**
  * One resolved, drawable unit. Produced by the plan builders (pure);
@@ -146,6 +199,8 @@ export type PlanElement =
       strokeWidthPx?: number;
       cornerRadiusFactor: number;
       opacity: number;
+      /** Normalized vertices for `shape: "polygon"` — see `ShapeSlot.points`. */
+      points?: Array<[number, number]>;
     }
   | {
       /** A rounded capsule filled with `fillColor` and centered text —
@@ -164,6 +219,83 @@ export type PlanElement =
       baseSizePx: number;
       /** 0..1 fraction of `box.height`, mirrors `PillSlot.cornerRadiusFactor`. */
       cornerRadiusFactor: number;
+    }
+  | {
+      /**
+       * A vertical stack of independently-styled lines, laid out and centered
+       * as ONE block.
+       *
+       * Exists because a `text` element carries a single family/weight/size/
+       * color, so a headline like the reference invite's — "India's Largest"
+       * in charcoal above "Virtual HR Summit" in heavier purple — was
+       * impossible to express. Authoring it as two `text` slots is not
+       * equivalent: each would center independently inside its own box, so
+       * the optical gap between the lines would drift as the copy length
+       * changed, and neither would know the other's height.
+       *
+       * Fitting is proportional: when the stack overflows `box`, every run
+       * shrinks by one shared factor rather than each fitting itself. The
+       * size *ratio* between runs is a typographic decision by the template
+       * author, so preserving it while scaling is the point.
+       */
+      kind: "text-stack";
+      key: TextSlot["key"];
+      box: ResolvedBox;
+      runs: TextStackRun[];
+      /** Vertical gap between consecutive runs, in px at the target format. */
+      lineGapPx: number;
+      align: TextSlot["align"];
+    }
+  | {
+      /**
+       * A single text line with an adornment measured against it and centered
+       * as one unit — the reference invite's "• 23rd July, 2026 •" and the
+       * hero banner's calendar-glyph-plus-date.
+       *
+       * Needs its own element kind rather than a `text` element plus separate
+       * `shape` circles or a separate icon, because the adornment sits relative
+       * to the text's *measured* width, which isn't known until draw time.
+       * Authored percentages can only say "at 45% across", not "just outside
+       * whatever this string turns out to be" — so an independently-positioned
+       * adornment drifts away from short copy and collides with long copy. The
+       * first version of the hero banner did exactly that: its calendar glyph
+       * overlapped the date.
+       *
+       * Both adornment styles live on one element because they are the same
+       * layout problem. Splitting them produced two positioning schemes, only
+       * one of which was correct.
+       */
+      kind: "adorned-text";
+      key: TextSlot["key"];
+      box: ResolvedBox;
+      text: string;
+      fontFamily: string;
+      fontWeight: number;
+      baseSizePx: number;
+      color: string;
+      adornment: TextAdornment;
+    }
+  | {
+      /**
+       * A wax-seal-styled CTA: a notched deep-red plaque with an inset
+       * lighter rule and centered label, standing in for the reference
+       * invite's stamped seal.
+       *
+       * Distinct from `pill` because the silhouette isn't a capsule — it has
+       * scalloped edges and a double border, and its label is optically
+       * centered against the plaque rather than the bounding box.
+       */
+      kind: "seal";
+      key: "ctaButton";
+      box: ResolvedBox;
+      text: string;
+      fillColor: string;
+      /** Inset rule + scallop highlight color. */
+      accentColor: string;
+      textColor: string;
+      fontFamily: string;
+      fontWeight: number;
+      baseSizePx: number;
     }
   // ─── Creative_Customization variants (Task 5) ──────────────────────────
   // Every base-spec variant above remains byte-identical; the variants
@@ -236,6 +368,8 @@ import {
   tierAccentColor,
   type CreativeTemplate,
   type EventTheme,
+  type PromoTextField,
+  type PromoTextSource,
 } from "./creative-templates";
 
 /**
@@ -246,6 +380,43 @@ import {
  */
 function applyTransform(value: string, transform: TextSlot["transform"]): string {
   return transform === "uppercase" ? value.toUpperCase() : value;
+}
+
+/**
+ * Resolves a composite slot's `PromoTextSource` to its display string, or
+ * `""` when the bound field is absent or blank.
+ *
+ * Returning `""` rather than throwing or substituting a placeholder is what
+ * lets callers drop the slot entirely — the module-wide convention that an
+ * absent optional field renders as absence, never as an empty box or a
+ * literal "undefined". Pure.
+ */
+function resolvePromoSource(source: PromoTextSource, promo: EventPromoLike): string {
+  if (source.from === "literal") return source.text;
+  if (source.from === "fields") {
+    return source.fields
+      .map((field) => readPromoField(field, promo))
+      .filter((v) => v.length > 0)
+      .join(source.join);
+  }
+  return readPromoField(source.field, promo);
+}
+
+/** Reads one `EventPromoLike` field as a trimmed string, `""` when absent. */
+function readPromoField(field: PromoTextField, promo: EventPromoLike): string {
+  const raw =
+    field === "title"
+      ? promo.title
+      : field === "titleLead"
+        ? promo.titleLead
+        : field === "tagline"
+          ? promo.tagline
+          : field === "dateLabel"
+            ? promo.dateLabel
+            : field === "ctaLabel"
+              ? promo.ctaLabel
+              : promo.editionLabel;
+  return (raw ?? "").trim();
 }
 
 /**
@@ -267,6 +438,33 @@ function scaleTextSize(
   const authoredShort = Math.min(authoredWidth, authoredHeight);
   const targetShort = Math.min(format.width, format.height);
   return Math.max(10, authoredBaseSizePx * (targetShort / authoredShort));
+}
+
+/**
+ * Scales a non-font authored measurement — a stroke width, a dot radius, a gap,
+ * letter tracking — to the target format.
+ *
+ * Separate from `scaleTextSize` specifically because of that function's
+ * `Math.max(10, …)` floor. Ten pixels is a sensible minimum for a *font size*,
+ * where anything smaller is illegible, but applying it to other metrics is
+ * actively wrong: a 2px icon stroke becomes 10px and the glyph fills in solid,
+ * a 7px dot becomes 10px, and 5px of tracking becomes 10px. Reusing
+ * `scaleTextSize` here produced exactly that — the hero banner's calendar
+ * rendered as a white blob and its eyebrow was tracked twice as wide as
+ * designed.
+ *
+ * The floor here is a fraction of a pixel: enough that a hairline never rounds
+ * away to nothing, small enough to never inflate a thin detail.
+ */
+function scaleMetric(
+  authoredPx: number,
+  authoredWidth: number,
+  authoredHeight: number,
+  format: PlatformFormat,
+): number {
+  const authoredShort = Math.min(authoredWidth, authoredHeight);
+  const targetShort = Math.min(format.width, format.height);
+  return Math.max(0.25, authoredPx * (targetShort / authoredShort));
 }
 
 /**
@@ -618,9 +816,21 @@ export function buildEventPlan(
       box: reflowed.shapeSlots[shapeSlot.key],
       fillColor: shapeSlot.fillColor,
       strokeColor: shapeSlot.strokeColor,
-      strokeWidthPx: shapeSlot.strokeWidthPx,
+      // Scaled rather than passed through: an authored stroke is a proportion
+      // of the design, so an unscaled 14px motif ring outline would read as a
+      // hairline on a 4000px export and as a heavy band on a 600px one.
+      strokeWidthPx:
+        shapeSlot.strokeWidthPx === undefined
+          ? undefined
+          : scaleMetric(
+              shapeSlot.strokeWidthPx,
+              template.authoredWidth,
+              template.authoredHeight,
+              format,
+            ),
       cornerRadiusFactor: shapeSlot.cornerRadiusFactor ?? 0,
       opacity: shapeSlot.opacity ?? 1,
+      points: shapeSlot.points,
     });
   }
 
@@ -696,6 +906,121 @@ export function buildEventPlan(
       fontWeight: datePillSlot.fontWeight,
       baseSizePx: scaleTextSize(datePillSlot.baseSizePx, template.authoredWidth, template.authoredHeight, format),
       cornerRadiusFactor: datePillSlot.cornerRadiusFactor,
+    });
+  }
+
+  // ── Composite slots ──────────────────────────────────────────────────
+  // These bind to promo data explicitly via `PromoTextSource` rather than
+  // implicitly through a key union, so a slot can mix static template chrome
+  // with organizer fields. See `PromoTextSource` for why.
+
+  for (const stackSlot of template.textStackSlots ?? []) {
+    const runs: TextStackRun[] = [];
+    for (const spec of stackSlot.runs) {
+      const raw = resolvePromoSource(spec.source, promo);
+      // An absent field drops just its run, leaving the rest of the block to
+      // close up — so a promo with no `titleLead` renders a clean one-line
+      // headline rather than a gap where the lead would have been.
+      if (!raw) continue;
+      runs.push({
+        text: applyTransform(raw, spec.transform),
+        fontFamily: spec.fontFamily,
+        fontWeight: spec.fontWeight,
+        baseSizePx: scaleTextSize(
+          spec.baseSizePx,
+          template.authoredWidth,
+          template.authoredHeight,
+          format,
+        ),
+        color: spec.color,
+        letterSpacingPx:
+          spec.letterSpacingPx === undefined
+            ? undefined
+            : scaleMetric(
+                spec.letterSpacingPx,
+                template.authoredWidth,
+                template.authoredHeight,
+                format,
+              ),
+      });
+    }
+    if (runs.length === 0) continue;
+    elements.push({
+      kind: "text-stack",
+      key: "eventTitle",
+      box: reflowed.textStackSlots[stackSlot.key],
+      runs,
+      lineGapPx: scaleMetric(
+        stackSlot.lineGapPx,
+        template.authoredWidth,
+        template.authoredHeight,
+        format,
+      ),
+      align: stackSlot.align,
+    });
+  }
+
+  for (const adorned of template.adornedTextSlots ?? []) {
+    const value = resolvePromoSource(adorned.source, promo);
+    if (!value) continue;
+    // Font size uses the legibility-floored scaler; every other metric uses
+    // `scaleMetric`, whose floor is sub-pixel. Mixing them up is what turned
+    // the calendar glyph into a solid blob.
+    const metric = (authored: number) =>
+      scaleMetric(authored, template.authoredWidth, template.authoredHeight, format);
+    const spec = adorned.adornment;
+    elements.push({
+      kind: "adorned-text",
+      key: "dateLabel",
+      box: reflowed.adornedTextSlots[adorned.key],
+      text: value,
+      fontFamily: adorned.fontFamily,
+      fontWeight: adorned.fontWeight,
+      baseSizePx: scaleTextSize(
+        adorned.baseSizePx,
+        template.authoredWidth,
+        template.authoredHeight,
+        format,
+      ),
+      color: adorned.color,
+      adornment:
+        spec.style === "dots"
+          ? {
+              style: "dots",
+              color: spec.color,
+              radiusPx: metric(spec.radiusPx),
+              gapPx: metric(spec.gapPx),
+            }
+          : {
+              style: "leading-icon",
+              name: spec.name,
+              color: spec.color,
+              sizePx: metric(spec.sizePx),
+              strokeWidthPx: metric(spec.strokeWidthPx),
+              gapPx: metric(spec.gapPx),
+            },
+    });
+  }
+
+  for (const seal of template.sealSlots ?? []) {
+    elements.push({
+      kind: "seal",
+      key: "ctaButton",
+      box: reflowed.sealSlots[seal.key],
+      // Same never-empty fallback as the CTA pill below: a promo creative
+      // exists to drive a registration, so its CTA always has a label.
+      text: resolvePromoSource(seal.source, promo) || "Register Now",
+      fillColor: seal.fillColor,
+      accentColor: seal.accentColor,
+      textColor: seal.textColor,
+      fontFamily: seal.fontFamily,
+      fontWeight: seal.fontWeight,
+      baseSizePx: scaleTextSize(
+        seal.baseSizePx,
+        template.authoredWidth,
+        template.authoredHeight,
+        format,
+      ),
     });
   }
 
@@ -931,6 +1256,102 @@ export function fitText(
   const truncated = truncateWithEllipsis(text, box.width, MIN_FONT_SIZE_PX, measure);
 
   return { lines: [truncated].slice(0, maxLines), fontSizePx: MIN_FONT_SIZE_PX };
+}
+
+// ─── Text stack fitting ─────────────────────────────────────────────────────
+
+/** One run's resolved lines and the size they were fit at. */
+export interface FittedStackRun {
+  lines: string[];
+  fontSizePx: number;
+  color: string;
+  fontFamily: string;
+  fontWeight: number;
+  letterSpacingPx: number;
+}
+
+/** Result of `fitTextStack`: per-run lines plus the block's total height. */
+export interface StackFitResult {
+  runs: FittedStackRun[];
+  /** Total block height in px, guaranteed `<= box.height`. */
+  totalHeightPx: number;
+  /** The shared factor every run's authored size was multiplied by. */
+  scale: number;
+}
+
+/**
+ * Lays out a `text-stack`'s runs into a single block that fits `box`.
+ *
+ * The runs shrink together by one shared `scale` rather than each fitting
+ * itself independently. That is the whole reason this function exists instead
+ * of calling `fitText` per run: the ratio between "India's Largest" at 44px
+ * and "Virtual HR Summit" at 64px encodes the design's typographic hierarchy,
+ * and per-run fitting would collapse the two toward each other whenever one
+ * happened to be the longer string — producing a headline where the emphasis
+ * silently moves depending on the copy.
+ *
+ * Guarantees, mirroring `fitText`'s contract:
+ *  - `totalHeightPx <= box.height` always holds exactly, so a stack never
+ *    bleeds vertically out of its box.
+ *  - Each line's measured width is within `box.width`, modulo the same
+ *    single-unbreakable-word caveat `fitText` documents.
+ *
+ * Pure given `measure`, so it is testable without a canvas.
+ */
+export function fitTextStack(
+  runs: readonly TextStackRun[],
+  box: ResolvedBox,
+  lineGapPx: number,
+  measure: (text: string, fontSizePx: number, run: TextStackRun) => number,
+): StackFitResult {
+  const usable = runs.filter((r) => r.text.trim().length > 0);
+  if (usable.length === 0 || box.width <= 0 || box.height <= 0) {
+    return { runs: [], totalHeightPx: 0, scale: 1 };
+  }
+
+  let scale = 1;
+
+  for (;;) {
+    const laid = usable.map((run) => {
+      const fontSizePx = Math.max(MIN_FONT_SIZE_PX, run.baseSizePx * scale);
+      const lines = wrapWords(run.text, box.width, fontSizePx, (t, size) =>
+        measure(t, size, run),
+      );
+      return { run, fontSizePx, lines };
+    });
+
+    const gap = lineGapPx * scale;
+    const totalHeightPx =
+      laid.reduce((sum, l) => sum + l.lines.length * l.fontSizePx * LINE_HEIGHT_FACTOR, 0) +
+      gap * Math.max(0, laid.length - 1);
+
+    const everyLineFits = laid.every((l) =>
+      allLinesFitWidth(l.lines, box.width, l.fontSizePx, (t, size) => measure(t, size, l.run)),
+    );
+
+    const atFloor = laid.every((l) => l.fontSizePx <= MIN_FONT_SIZE_PX);
+
+    if ((totalHeightPx <= box.height && everyLineFits) || atFloor) {
+      return {
+        runs: laid.map((l) => ({
+          lines: l.lines,
+          fontSizePx: l.fontSizePx,
+          color: l.run.color,
+          fontFamily: l.run.fontFamily,
+          fontWeight: l.run.fontWeight,
+          letterSpacingPx: (l.run.letterSpacingPx ?? 0) * scale,
+        })),
+        // Clamp so the height guarantee holds even in the at-floor case,
+        // where the block genuinely cannot be made to fit. Reporting the
+        // clamped value keeps callers' vertical centering inside the box;
+        // the overflow is absorbed by drawing fewer lines than requested.
+        totalHeightPx: Math.min(totalHeightPx, box.height),
+        scale,
+      };
+    }
+
+    scale *= SHRINK_STEP;
+  }
 }
 
 // ─── Filenames (Property 11) ─────────────────────────────────────────────────
@@ -1293,7 +1714,23 @@ function drawShapeElement(ctx: CanvasRenderingContext2D, el: Extract<PlanElement
   ctx.globalAlpha = el.opacity;
 
   ctx.beginPath();
-  if (el.shape === "circle") {
+  if (el.shape === "polygon") {
+    const points = el.points ?? [];
+    // Fewer than 3 vertices can't enclose an area. Bail rather than draw a
+    // degenerate sliver, so a malformed template shows a missing shape instead
+    // of a stray hairline.
+    if (points.length < 3) {
+      ctx.restore();
+      return;
+    }
+    points.forEach(([nx, ny], i) => {
+      const px = x + nx * width;
+      const py = y + ny * height;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.closePath();
+  } else if (el.shape === "circle") {
     const cx = x + width / 2;
     const cy = y + height / 2;
     const radius = Math.min(width, height) / 2;
@@ -1372,6 +1809,324 @@ function drawPillElement(ctx: CanvasRenderingContext2D, el: Extract<PlanElement,
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(fit.lines[0], x + width / 2, y + height / 2);
+}
+
+/**
+ * Measures a string including manual letter-spacing, matching exactly what
+ * `fillTextTracked` will draw. Keeping measure and draw in one place is what
+ * prevents tracked text from centering off by half its accumulated spacing.
+ */
+function measureTracked(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  letterSpacingPx: number,
+): number {
+  if (letterSpacingPx === 0) return ctx.measureText(text).width;
+  const chars = [...text];
+  const glyphs = chars.reduce((sum, ch) => sum + ctx.measureText(ch).width, 0);
+  // Trailing spacing after the final glyph is excluded — including it would
+  // make a tracked string appear shifted left when centered.
+  return glyphs + letterSpacingPx * Math.max(0, chars.length - 1);
+}
+
+/**
+ * Draws `text` at `x`,`y` with manual per-character tracking.
+ *
+ * Done by hand rather than with `ctx.letterSpacing` because that property
+ * only landed in Safari 17.4; on anything older it is ignored, so a creative
+ * exported from an older Safari would silently lose its tracking while
+ * looking correct everywhere else. `x` is interpreted per `align`, matching
+ * `ctx.textAlign` semantics, but the context's own `textAlign` is forced to
+ * `"left"` for the duration since each glyph is positioned explicitly.
+ */
+function fillTextTracked(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  letterSpacingPx: number,
+  align: TextSlot["align"],
+): void {
+  if (letterSpacingPx === 0) {
+    ctx.textAlign = align;
+    ctx.fillText(text, x, y);
+    return;
+  }
+
+  const total = measureTracked(ctx, text, letterSpacingPx);
+  let cursor = align === "left" ? x : align === "right" ? x - total : x - total / 2;
+
+  const prevAlign = ctx.textAlign;
+  ctx.textAlign = "left";
+  for (const ch of [...text]) {
+    ctx.fillText(ch, cursor, y);
+    cursor += ctx.measureText(ch).width + letterSpacingPx;
+  }
+  ctx.textAlign = prevAlign;
+}
+
+/**
+ * Draws a `text-stack`: several independently-styled lines laid out as one
+ * vertically-centered block inside `el.box`.
+ */
+function drawTextStackElement(
+  ctx: CanvasRenderingContext2D,
+  el: Extract<PlanElement, { kind: "text-stack" }>,
+): void {
+  const measure = (text: string, fontSizePx: number, run: TextStackRun): number => {
+    ctx.font = `${run.fontWeight} ${fontSizePx}px ${run.fontFamily}, sans-serif`;
+    return measureTracked(ctx, text, (run.letterSpacingPx ?? 0) * (fontSizePx / run.baseSizePx));
+  };
+
+  const fit = fitTextStack(el.runs, el.box, el.lineGapPx, measure);
+  if (fit.runs.length === 0) return;
+
+  const x =
+    el.align === "left"
+      ? el.box.x
+      : el.align === "right"
+        ? el.box.x + el.box.width
+        : el.box.x + el.box.width / 2;
+
+  let cursorY = el.box.y + el.box.height / 2 - fit.totalHeightPx / 2;
+
+  ctx.textBaseline = "middle";
+  for (let i = 0; i < fit.runs.length; i += 1) {
+    const run = fit.runs[i];
+    const lineHeight = run.fontSizePx * LINE_HEIGHT_FACTOR;
+
+    ctx.font = `${run.fontWeight} ${run.fontSizePx}px ${run.fontFamily}, sans-serif`;
+    ctx.fillStyle = run.color;
+
+    run.lines.forEach((line, lineIndex) => {
+      const y = cursorY + lineIndex * lineHeight + lineHeight / 2;
+      fillTextTracked(ctx, line, x, y, run.letterSpacingPx, el.align);
+    });
+
+    cursorY += run.lines.length * lineHeight;
+    if (i < fit.runs.length - 1) cursorY += el.lineGapPx * fit.scale;
+  }
+}
+
+/** Total width an adornment adds to a line, including its gap. */
+function adornmentReservedWidth(adornment: TextAdornment): number {
+  return adornment.style === "dots"
+    ? 2 * (adornment.radiusPx * 2 + adornment.gapPx)
+    : adornment.sizePx + adornment.gapPx;
+}
+
+/**
+ * Draws an `adorned-text`: one line plus its adornment, composed and centered
+ * as a single unit inside `el.box`.
+ *
+ * Measuring the text first and laying the adornment out around the result is
+ * the whole point — it keeps the pair optically centered and correctly spaced
+ * whatever the copy length.
+ */
+function drawAdornedTextElement(
+  ctx: CanvasRenderingContext2D,
+  el: Extract<PlanElement, { kind: "adorned-text" }>,
+): void {
+  const measure = (text: string, fontSizePx: number): number => {
+    ctx.font = `${el.fontWeight} ${fontSizePx}px ${el.fontFamily}, sans-serif`;
+    return ctx.measureText(text).width;
+  };
+
+  // Shrink-to-fit against the space left after the adornment, so a long date
+  // never pushes its glyph or dots outside the box.
+  const textBox: ResolvedBox = {
+    ...el.box,
+    width: Math.max(1, el.box.width - adornmentReservedWidth(el.adornment)),
+  };
+
+  const fit = fitText(el.text, textBox, el.baseSizePx, measure);
+  if (fit.lines.length === 0) return;
+
+  // Single-line by design: a wrapped date with dots or a glyph would read as
+  // broken, so only the first line is drawn.
+  const line = fit.lines[0];
+  ctx.font = `${el.fontWeight} ${fit.fontSizePx}px ${el.fontFamily}, sans-serif`;
+  const textWidth = ctx.measureText(line).width;
+
+  const centerY = el.box.y + el.box.height / 2;
+  const boxCenterX = el.box.x + el.box.width / 2;
+
+  ctx.textBaseline = "middle";
+
+  if (el.adornment.style === "dots") {
+    const { color, radiusPx, gapPx } = el.adornment;
+
+    ctx.fillStyle = el.color;
+    ctx.textAlign = "center";
+    ctx.fillText(line, boxCenterX, centerY);
+
+    const dotOffset = textWidth / 2 + gapPx + radiusPx;
+    ctx.fillStyle = color;
+    for (const dx of [-dotOffset, dotOffset]) {
+      ctx.beginPath();
+      ctx.arc(boxCenterX + dx, centerY, radiusPx, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return;
+  }
+
+  // Leading icon: centre [glyph][gap][text] as one run.
+  const { name, color, sizePx, strokeWidthPx, gapPx } = el.adornment;
+  const totalWidth = sizePx + gapPx + textWidth;
+  const startX = boxCenterX - totalWidth / 2;
+
+  drawIcon(ctx, name, { x: startX, y: centerY - sizePx / 2, width: sizePx, height: sizePx }, color, strokeWidthPx);
+
+  ctx.fillStyle = el.color;
+  ctx.textAlign = "left";
+  ctx.fillText(line, startX + sizePx + gapPx, centerY);
+}
+
+/**
+ * Draws a vector glyph into `box`. Paths are expressed as proportions of the
+ * box so one definition serves every export size.
+ *
+ * Deliberately sparse: at the ~28px the reference designs use, extra interior
+ * detail merges into a solid blob. Only the strokes that survive at that size
+ * are drawn.
+ */
+function drawIcon(
+  ctx: CanvasRenderingContext2D,
+  name: IconName,
+  box: ResolvedBox,
+  color: string,
+  strokeWidthPx: number,
+): void {
+  const { x, y, width, height } = box;
+  if (width <= 0 || height <= 0) return;
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = strokeWidthPx;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  const py = (n: number) => y + n * height;
+  const px = (n: number) => x + n * width;
+
+  if (name === "calendar") {
+    // Body, inset at the top to leave room for the two hanging rings.
+    const bodyTop = py(0.18);
+    const bodyH = height * 0.82;
+    const radius = Math.min(width, bodyH) * 0.18;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(x, bodyTop, width, bodyH, radius);
+    } else {
+      ctx.moveTo(x + radius, bodyTop);
+      ctx.arcTo(x + width, bodyTop, x + width, bodyTop + bodyH, radius);
+      ctx.arcTo(x + width, bodyTop + bodyH, x, bodyTop + bodyH, radius);
+      ctx.arcTo(x, bodyTop + bodyH, x, bodyTop, radius);
+      ctx.arcTo(x, bodyTop, x + width, bodyTop, radius);
+    }
+    ctx.stroke();
+
+    // Header rule under the month band.
+    ctx.beginPath();
+    ctx.moveTo(x, py(0.42));
+    ctx.lineTo(x + width, py(0.42));
+    ctx.stroke();
+
+    // Rings.
+    for (const rx of [0.3, 0.7]) {
+      ctx.beginPath();
+      ctx.moveTo(px(rx), py(0));
+      ctx.lineTo(px(rx), py(0.26));
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+}
+
+/** Number of scallop bumps along the seal's longer axis. */
+const SEAL_SCALLOPS_LONG = 9;
+
+/**
+ * Draws a `seal`: a notched red wax plaque with an inset rule and a centered
+ * label.
+ *
+ * The scalloped silhouette is built by walking the perimeter of a rounded
+ * rect and adding outward semicircles at regular intervals, which reads as a
+ * pressed wax stamp far better than a plain rounded rect does while staying
+ * fully vector (so it stays sharp at any export size).
+ */
+function drawSealElement(
+  ctx: CanvasRenderingContext2D,
+  el: Extract<PlanElement, { kind: "seal" }>,
+): void {
+  const { x, y, width, height } = el.box;
+  if (width <= 0 || height <= 0) return;
+
+  const bump = Math.min(width, height) * 0.07;
+  // Inset the plaque so the scallops occupy the space instead of overflowing
+  // the element's box.
+  const ix = x + bump;
+  const iy = y + bump;
+  const iw = Math.max(1, width - bump * 2);
+  const ih = Math.max(1, height - bump * 2);
+
+  ctx.save();
+
+  // Scallops along the two long edges plus proportionally fewer along the
+  // short edges, so bump spacing stays roughly even around the perimeter.
+  const alongX = SEAL_SCALLOPS_LONG;
+  const alongY = Math.max(2, Math.round((SEAL_SCALLOPS_LONG * ih) / iw));
+
+  ctx.beginPath();
+  ctx.rect(ix, iy, iw, ih);
+  for (let i = 0; i < alongX; i += 1) {
+    const cx = ix + ((i + 0.5) * iw) / alongX;
+    ctx.moveTo(cx + bump, iy);
+    ctx.arc(cx, iy, bump, 0, Math.PI, true);
+    ctx.moveTo(cx + bump, iy + ih);
+    ctx.arc(cx, iy + ih, bump, 0, Math.PI, false);
+  }
+  for (let i = 0; i < alongY; i += 1) {
+    const cy = iy + ((i + 0.5) * ih) / alongY;
+    ctx.moveTo(ix, cy - bump);
+    ctx.arc(ix, cy, bump, -Math.PI / 2, Math.PI / 2, true);
+    ctx.moveTo(ix + iw, cy - bump);
+    ctx.arc(ix + iw, cy, bump, -Math.PI / 2, Math.PI / 2, false);
+  }
+  ctx.fillStyle = el.fillColor;
+  ctx.fill();
+
+  // Inset rule, the detail that makes it read as stamped rather than printed.
+  const inset = Math.min(iw, ih) * 0.12;
+  ctx.beginPath();
+  ctx.rect(ix + inset, iy + inset, iw - inset * 2, ih - inset * 2);
+  ctx.strokeStyle = el.accentColor;
+  ctx.lineWidth = Math.max(1, Math.min(iw, ih) * 0.045);
+  ctx.stroke();
+
+  if (el.text) {
+    const measure = (text: string, fontSizePx: number): number => {
+      ctx.font = `${el.fontWeight} ${fontSizePx}px ${el.fontFamily}, sans-serif`;
+      return ctx.measureText(text).width;
+    };
+    const fit = fitText(
+      el.text,
+      { x: ix, y: iy, width: (iw - inset * 2) * 0.9, height: ih },
+      el.baseSizePx,
+      measure,
+    );
+    if (fit.lines.length > 0) {
+      ctx.font = `${el.fontWeight} ${fit.fontSizePx}px ${el.fontFamily}, sans-serif`;
+      ctx.fillStyle = el.textColor;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(fit.lines[0], ix + iw / 2, iy + ih / 2);
+    }
+  }
+
+  ctx.restore();
 }
 
 // ─── Creative_Customization drawing helpers (Task 5) ────────────────────────
@@ -1573,35 +2328,13 @@ function drawBorder(
   ctx.restore();
 }
 
-/**
- * Ensures the Poppins font used by the templates is actually loaded before
- * the canvas draws any text. `ctx.font` silently falls back to the system
- * sans-serif when the requested family isn't loaded — that's what caused
- * the earlier "text looks wrong on first render, then correct on reload"
- * behavior, since the browser hadn't fetched Poppins yet when the canvas
- * did its measurements and draws. `document.fonts.load` primes the font
- * and resolves once it's usable. Fails silently (returns void) so a font
- * that can't be fetched degrades gracefully to the system fallback rather
- * than crashing the render.
- *
- * The font weights loaded here (400 / 500 / 600 / 700) match every weight
- * used across `SPEAKER_TEMPLATES`, `SPONSOR_TEMPLATES`, and `COMBO_TEMPLATES`.
- */
-async function ensureFontsLoaded(): Promise<void> {
-  if (typeof document === "undefined" || !document.fonts) return;
-  try {
-    await Promise.all([
-      document.fonts.load("400 16px Poppins"),
-      document.fonts.load("500 16px Poppins"),
-      document.fonts.load("600 16px Poppins"),
-      document.fonts.load("700 16px Poppins"),
-    ]);
-  } catch {
-    // Font loading is best-effort — a failed load falls back to
-    // `sans-serif` via the CSS font stack in `drawTextElement`, which is
-    // ugly but not broken.
-  }
-}
+// Font loading lives in `./creative-fonts`, which injects the Google Fonts
+// stylesheet before shaping weights. The previous implementation here called
+// `document.fonts.load(...)` directly, which only shapes families a
+// stylesheet has already declared — so every family outside the five in
+// `index.html` resolved successfully having fetched nothing and then rendered
+// in system sans. `Playfair Display`, named by two shipped Event_Promo
+// templates, was silently affected. See `creative-fonts.ts` for the details.
 
 /**
  * Pure helper: collects the unique `(fontFamily, fontWeight)` pairs used by
@@ -1616,42 +2349,49 @@ async function ensureFontsLoaded(): Promise<void> {
 export function collectUniqueFontPairs(plan: RenderPlan): Array<{ family: string; weight: number }> {
   const seen = new Set<string>();
   const out: Array<{ family: string; weight: number }> = [];
-  for (const el of plan.elements) {
-    if (el.kind !== "text") continue;
-    const key = `${el.fontWeight}::${el.fontFamily}`;
-    if (seen.has(key)) continue;
+
+  const add = (family: string, weight: number): void => {
+    const key = `${weight}::${family}`;
+    if (seen.has(key)) return;
     seen.add(key);
-    out.push({ family: el.fontFamily, weight: el.fontWeight });
+    out.push({ family, weight });
+  };
+
+  for (const el of plan.elements) {
+    switch (el.kind) {
+      case "text":
+        add(el.fontFamily, el.fontWeight);
+        break;
+      // Pills carry their own family/weight for the label they render, and
+      // used to be omitted here — so the CTA button's text was measured and
+      // painted in whatever the fallback face happened to be, no matter what
+      // the template asked for. Every Event_Promo template has a CTA, which
+      // made this the most visible instance of the miss.
+      case "pill":
+        add(el.fontFamily, el.fontWeight);
+        break;
+      // A text-stack's runs each carry their own family and weight, so a
+      // two-tone headline can mix a script accent with a bold sans.
+      case "text-stack":
+        for (const run of el.runs) add(run.fontFamily, run.fontWeight);
+        break;
+      default:
+        break;
+    }
   }
   return out;
 }
 
 /**
- * Loads every unique `(fontFamily, fontWeight)` pair present in `plan`'s
- * `text` elements via `document.fonts.load(...)` (Requirement 4.4).
- * Best-effort — a per-pair try/catch prevents one failing family from
- * blocking the others, and unresolved families degrade to the CSS
- * `sans-serif` fallback baked into `drawTextElement`'s font string
- * (Requirement 4.3).
+ * Loads every font `plan` needs and resolves once they are measurable.
  *
- * Called from `drawPlan` AFTER the base-spec `ensureFontsLoaded()` so
- * plans containing only Poppins text stay byte-identical to the base
- * spec's behavior (Property 45): the same four Poppins weights are
- * requested once each, then this function may re-request one of them if
- * the plan uses it — a no-op after the browser has already loaded it.
+ * Delegates to `ensureCreativeFonts`, which injects the Google Fonts
+ * stylesheet before shaping weights — the step the previous implementation
+ * skipped. Best-effort: an unreachable font degrades to the CSS `sans-serif`
+ * fallback baked into the draw helpers' font strings.
  */
 async function ensureFontsLoadedForPlan(plan: RenderPlan): Promise<void> {
-  if (typeof document === "undefined" || !document.fonts) return;
-  const pairs = collectUniqueFontPairs(plan);
-  await Promise.all(
-    pairs.map(async ({ family, weight }) => {
-      try {
-        await document.fonts.load(`${weight} 16px ${family}`);
-      } catch {
-        // Best-effort — a single font failure must not block the others.
-      }
-    }),
-  );
+  await ensureCreativeFonts(collectUniqueFontPairs(plan));
 }
 
 /**
@@ -1703,7 +2443,9 @@ function drawBackgroundScrim(
  * imagery.
  */
 export async function drawPlan(ctx: CanvasRenderingContext2D, plan: RenderPlan): Promise<void> {
-  await ensureFontsLoaded();
+  // Must complete before the first `measureText`: `fitText` picks wrap points
+  // and a font size from measured widths, so measuring in the fallback face
+  // and painting in the real one produces text that overflows its box.
   await ensureFontsLoadedForPlan(plan);
 
   for (const el of plan.elements) {
@@ -1726,6 +2468,15 @@ export async function drawPlan(ctx: CanvasRenderingContext2D, plan: RenderPlan):
         break;
       case "pill":
         drawPillElement(ctx, el);
+        break;
+      case "text-stack":
+        drawTextStackElement(ctx, el);
+        break;
+      case "adorned-text":
+        drawAdornedTextElement(ctx, el);
+        break;
+      case "seal":
+        drawSealElement(ctx, el);
         break;
       case "overlay-dim":
         drawOverlayDim(ctx, el, plan.format);

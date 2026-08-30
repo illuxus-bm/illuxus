@@ -103,6 +103,7 @@ const SponsorAcceptInvitePage = lazyWithLog("SponsorAcceptInvitePage", () => imp
 const SpeakerEventsPage = lazyWithLog("SpeakerEventsPage", () => import("./pages/speaker/SpeakerEventsPage.tsx"));
 const SpeakerEventDetailPage = lazyWithLog("SpeakerEventDetailPage", () => import("./pages/speaker/SpeakerEventDetailPage.tsx"));
 const QuickViewsPreviewPage = lazyWithLog("QuickViewsPreviewPage", () => import("./pages/dev/QuickViewsPreviewPage.tsx"));
+const CreativesPreviewPage = lazyWithLog("CreativesPreviewPage", () => import("./pages/dev/CreativesPreviewPage.tsx"));
 const PlatformAnalyticsPage = lazyWithLog("PlatformAnalyticsPage", () => import("./pages/dashboard/admin/PlatformAnalyticsPage.tsx"));
 const SupportTicketsPage = lazyWithLog("SupportTicketsPage", () => import("./pages/dashboard/admin/SupportTicketsPage.tsx"));
 const UserManagementPage = lazyWithLog("UserManagementPage", () => import("./pages/dashboard/admin/UserManagementPage.tsx"));
@@ -363,6 +364,9 @@ const App = () => (
                 <Route path="/speaker/events/:eventId" element={<RouteErrorBoundary><SpeakerEventDetailPage /></RouteErrorBoundary>} />
                 {import.meta.env.DEV && (
                   <Route path="/__preview/quick-views" element={<RouteErrorBoundary><QuickViewsPreviewPage /></RouteErrorBoundary>} />
+                )}
+                {import.meta.env.DEV && (
+                  <Route path="/__preview/creatives" element={<RouteErrorBoundary><CreativesPreviewPage /></RouteErrorBoundary>} />
                 )}
                 <Route path="/dashboard/events/:id" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><EventDetailPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/tickets" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><TicketsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />

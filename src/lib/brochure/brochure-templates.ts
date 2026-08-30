@@ -411,7 +411,17 @@ export function resolveBrochureTheme(
 /** `FONT_OPTIONS` entries (`src/components/event/page-form/presets.ts`)
  *  that read visually as serif fonts — bucketed onto jsPDF's `"times"`
  *  base-14 family. */
-const SERIF_FONT_FAMILIES = new Set(["Playfair Display", "Merriweather"]);
+const SERIF_FONT_FAMILIES = new Set([
+  "Playfair Display",
+  "Merriweather",
+  // Script faces have no base-14 counterpart at all. `times` is the least-wrong
+  // bucket: like a script, it has modulated stroke weight and calligraphic
+  // roots, whereas `helvetica`'s uniform geometric strokes read as the opposite
+  // of a connected hand.
+  "Dancing Script",
+  "Great Vibes",
+  "Pacifico",
+]);
 
 /** `FONT_OPTIONS` entries that read visually as monospace fonts — bucketed
  *  onto jsPDF's `"courier"` base-14 family. */

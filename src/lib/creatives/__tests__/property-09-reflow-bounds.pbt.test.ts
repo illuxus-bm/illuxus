@@ -58,11 +58,14 @@ describe("Property 9: Reflowed element bounds stay within canvas", () => {
   it("every reflowed box stays within [0, width] x [0, height]", () => {
     fc.assert(
       fc.property(arbTemplate, arbFormat, (template, format) => {
-        const { imageSlots, textSlots } = reflowTemplate(template, format);
-        const allBoxes = [
-          ...Object.values(imageSlots),
-          ...Object.values(textSlots),
-        ];
+        // Every category `reflowTemplate` resolves, not just images and text.
+        // The original version checked only those two, so the containment
+        // guarantee was unverified for pills and decorative shapes — and would
+        // have stayed unverified for the composite slots added later. Spreading
+        // the whole result means a new slot category is covered the moment it
+        // is returned, rather than needing this list updated.
+        const reflowed = reflowTemplate(template, format);
+        const allBoxes = Object.values(reflowed).flatMap((byKey) => Object.values(byKey));
 
         for (const box of allBoxes) {
           if (box.x < 0) return false;
