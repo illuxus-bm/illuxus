@@ -4,9 +4,7 @@
  *
  * Mounted inside `CreativeGeneratorDialog` (Task 9) and reused by
  * `BatchCreativeGeneratorDialog` (Task 11) when the "Background source"
- * selector is set to "AI-generated". Matches the contract in
- * `.kiro/specs/creative-ai-backgrounds/design.md`'s "Components and
- * Interfaces" section:
+ * selector is set to "AI-generated". The component contract is:
  *
  *  1. Style_Preset selector (5 presets, Requirement 2.1).
  *  2. Aspect_Ratio_Selection selector (4 ratios, Requirement 5.1).

@@ -5,10 +5,9 @@ attendees in/out via QR, host LiveKit webinars, and grow communities around thei
 events. Built with a strong bias toward observability, property-based testing,
 security-first architecture, and production-grade scalability.
 
-> **For AI agents and vibecoding:** start at
-> [`steering/project-overview.md`](./steering/project-overview.md) for
-> architecture and conventions, [`ROADMAP.md`](./ROADMAP.md) for product trajectory,
-> then specs under [`specs/`](./.kiro/specs) for in-flight work.
+> **New to the codebase?** Read [Project layout](#project-layout) and
+> [Conventions](#conventions) below for architecture and house rules, then
+> [`ROADMAP.md`](./ROADMAP.md) for product trajectory and in-flight work.
 
 ---
 
@@ -58,7 +57,6 @@ security-first architecture, and production-grade scalability.
 - `agora-rtc-sdk-ng`: v4.24.4
 - `react-hook-form` + `zod`: v7.61.1 / v3.25.76
 - `tanstack/react-query`: v5.83.0
-- `@tanstack/react-virtual`: for virtualized registration lists
 - `dompurify`: v3.4.11 (XSS protection)
 - `fast-check`: v3.23.2 (property-based testing)
 - `vite-plugin-pwa`: v1.3.0 (PWA service worker)
@@ -214,9 +212,7 @@ supabase/
 │                               whatsapp-*)
 └── config.toml
 
-docs/                           observability + agora setup docs
-specs/                    in-flight specs (kiro spec-driven dev)
-steering/                 always-included project context for AI agents
+docs/                           observability, agora setup, audits
 tests/                          Playwright e2e + visual regression
 scripts/                        token audit, slug check
 ```
@@ -469,7 +465,7 @@ const { data, error, correlationId } = await supabaseRpc('set_attendance', { p_r
 | Single live event page (12 channels/user) | ~500 simultaneous attendees | ~1,000 | WAL volume from REPLICA IDENTITY FULL |
 | LiveKit / Agora video | 3,000 viewers / room | 10,000 viewers / room | Bandwidth + license tier |
 
-### Capacity After Critical Fixes (See [Audit Report](specs/PLATFORM_AUDIT_2026-06.md))
+### Capacity After Critical Fixes (See [Audit Report](./docs/PLATFORM_AUDIT.md))
 
 | Surface | Before | After Critical | After All High |
 |---------|--------|----------------|----------------|
@@ -538,7 +534,7 @@ illuxus uses **fast-check** for property-based testing of critical business logi
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `VITE_SUPABASE_URL` | Supabase project URL | - |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anon key | - |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable (anon) key | - |
 | `VITE_PUBLIC_ORIGIN` | Public domain for share URLs | `https://illuxus.com` |
 | `VITE_PUBLIC_PUBLISHED_HOST` | Published host for events | `events.illuxus.com` |
 | `VITE_PUBLIC_DOMAIN` | Public domain | `illuxus.com` |
@@ -602,7 +598,7 @@ Source map upload at build time requires these secrets:
 
 - **Comprehensive codebase audit**: Identified 40+ ESLint errors, 29 npm advisories (11 high, 15 moderate, 3 low)
   including DOMPurify XSS bypasses, lodash prototype pollution, brace-expansion ReDoS
-  - See [PLATFORM_AUDIT_2026-06.md](specs/PLATFORM_AUDIT_2026-06.md) for full details
+  - See [PLATFORM_AUDIT.md](./docs/PLATFORM_AUDIT.md) for full details
 - **Audit report updated**: Added remediation roadmap with ~12 hours to fix code quality issues
 - **README updated**: Comprehensive feature documentation, security & observability sections
 
@@ -637,11 +633,11 @@ Public links and bookmarks should remain stable forever — both the legacy
 ## Additional Resources
 
 - **[ROADMAP.md](./ROADMAP.md)**: Product trajectory, Now/Next/Later, epics
-- **[`specs/`](./specs/)**: In-flight feature specs
 - **[`docs/`](./docs/)**: Technical documentation (observability, agora setup)
-- **[`steering/`](./steering/)**: AI agent steering rules and conventions
-- **[PLATFORM_AUDIT_2026-06.md](specs/PLATFORM_AUDIT_2026-06.md)**: Comprehensive platform audit
+- **[docs/PLATFORM_AUDIT.md](./docs/PLATFORM_AUDIT.md)**: Comprehensive platform audit
   with security issues, scalability analysis, and remediation roadmap
+- **[docs/SECURITY_AUDIT_2026-08-27.md](./docs/SECURITY_AUDIT_2026-08-27.md)**: Security,
+  QA and reliability audit
 
 ---
 

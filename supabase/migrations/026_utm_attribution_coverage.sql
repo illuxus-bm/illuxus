@@ -97,9 +97,9 @@ ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS utm_term     text;
 
 COMMENT ON COLUMN public.speaker_applications.utm_source IS
-  'First-touch UTM source captured from the tab''s sessionStorage at submission time. See spec .kiro/specs/utm-attribution-coverage/';
+  'First-touch UTM source captured from the tab''s sessionStorage at submission time. See docs/utm-attribution.md';
 COMMENT ON COLUMN public.sponsor_applications.utm_source IS
-  'First-touch UTM source captured from the tab''s sessionStorage at submission time. See spec .kiro/specs/utm-attribution-coverage/';
+  'First-touch UTM source captured from the tab''s sessionStorage at submission time. See docs/utm-attribution.md';
 COMMENT ON COLUMN public.profiles.utm_source IS
   'First-touch UTM source read from auth.users.raw_user_meta_data by the handle_new_user trigger at account creation.';
 

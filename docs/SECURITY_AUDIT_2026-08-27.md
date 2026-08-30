@@ -108,9 +108,9 @@ Stack verified against the code, not the README:
 
 The README should not be relied on. Verified discrepancies:
 
-- Links to `specs/`, `steering/`, and `.kiro/specs`. **All three directories do not
-  exist** — removed in commits `6e3503c` and `becdfd2`. Every "see the audit report"
-  and "start at project-overview.md" pointer is dead.
+- ~~Links to `specs/` and `steering/` directories that do not exist, leaving every
+  "see the audit report" and "start at project-overview.md" pointer dead.~~
+  **Resolved** — those pointers now resolve to `docs/`.
 - Lists "Rate limiting on edge functions" and "HMAC verification on webhooks" under a
   **Security Features** heading, annotated `(TODO: implement)`. The heading is
   misleading; only one function has a quota and only one webhook was verified at the

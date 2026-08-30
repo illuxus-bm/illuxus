@@ -190,8 +190,8 @@ export default function RevenuePage() {
       .slice(0, 50);
   }, [regsQ.data]);
 
-  // Admin gating is handled by SuperAdminRoute in App.tsx — see
-  // .kiro/specs/admin-nav-history-fix/ for why no page-level check is needed.
+  // Admin gating is handled by SuperAdminRoute in App.tsx, so no
+  // page-level role check is needed here.
 
   const s = summaryQ.data;
   const isLoading = summaryQ.isLoading;

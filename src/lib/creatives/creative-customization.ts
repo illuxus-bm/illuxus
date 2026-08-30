@@ -7,9 +7,7 @@
  * This module is strictly additive to the base spec. Every hook point
  * short-circuits when its `Customization_Config` field is absent, so
  * Property 45 (Additivity_Invariant) is a structural guarantee rather than
- * a best-effort claim. See `.kiro/specs/creative-customization/design.md`
- * for the full architecture and `.kiro/specs/creative-customization/
- * requirements.md` for the requirement citations.
+ * a best-effort claim.
  *
  * The module owns:
  *  - Public types for `Customization_Config` (Requirement 12.2) and every

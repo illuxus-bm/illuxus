@@ -1282,7 +1282,7 @@ ON CONFLICT(section) DO NOTHING;
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- FILE 4/?: _apply_attendance — internal helper for the tabbed scanner
 --
--- Spec: .kiro/specs/checkin-checkout-tabs (Task 1.1)
+-- Check-in / check-out scanner (Task 1.1)
 -- Requirements: 3, 4, 5, 6, 7, 8, 12.1, 12.2, 13.2
 --
 -- This helper is the single source of truth for attendance state transitions.
@@ -1406,7 +1406,7 @@ REVOKE ALL ON FUNCTION public._apply_attendance(uuid, text, text, uuid) FROM PUB
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- FILE 5/?: set_attendance — per-row RPC for the tabbed scanner
 --
--- Spec: .kiro/specs/checkin-checkout-tabs (Task 1.2)
+-- Check-in / check-out scanner (Task 1.2)
 -- Requirements: 3, 4, 5, 6, 7, 8, 10, 12.1, 12.2, 13.2
 --
 -- This RPC is the SECURITY DEFINER entry point the new `QRScannerDialog`
@@ -1494,7 +1494,7 @@ GRANT EXECUTE ON FUNCTION public.set_attendance(uuid, text, text) TO authenticat
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- FILE 6/?: bulk_set_attendance — tightened per-row return shape
 --
--- Spec: .kiro/specs/checkin-checkout-tabs (Task 1.3)
+-- Check-in / check-out scanner (Task 1.3)
 -- Requirements: 15.1, 15.2, 15.3
 --
 -- Replaces the legacy `bulk_set_attendance(uuid[], text, text) RETURNS int`

@@ -42,10 +42,9 @@ storage), **insert** (tab storage → row), **display** (row → UI), and
 | Sponsor_Application | `sponsor_applications` | `PublicEventPage` | `SponsorApplicationDialog.tsx` | `ApplicationsSection.tsx` | `ApplicationsSection` |
 | User_Profile | `profiles` | `LoginPage.tsx` mount | `handle_new_user()` trigger reading `auth.users.raw_user_meta_data` | `UserManagementPage.tsx` | `UserManagementPage` |
 
-Attendee_Registration shipped before this spec. Speaker_Application,
-Sponsor_Application, and User_Profile were added by the
-`utm-attribution-coverage` spec so the four surfaces now share one
-contract end to end.
+Attendee_Registration shipped first. Speaker_Application,
+Sponsor_Application, and User_Profile were added later so all four
+surfaces now share one contract end to end.
 
 ## First-touch semantics
 
@@ -166,8 +165,8 @@ CI build.
 **Property 58 is the attendee tripwire.** It fingerprints the opening
 of `EventRsvpCard.tsx`, `RegistrationsSection.tsx`, and
 `registrations/RegistrantQuickView.tsx` and fails loudly if any of
-those files are edited. The `utm-attribution-coverage` spec added the
-three new surfaces without touching the shipped attendee flow, and
+those files are edited. The three new surfaces were added without
+touching the shipped attendee flow, and
 Property 58 is the mechanical check that this stays true across future
 work. If you have a legitimate reason to edit an attendee file, update
 the fingerprint in Property 58 along with the change.
@@ -191,10 +190,11 @@ admin scope on the two applications tables and self-read / admin bypass
 on `profiles` already cover the UTM columns. The migration's header
 comment documents this explicitly.
 
-## Reference specs
+## Related code
 
-- [`.kiro/specs/utm-attribution-coverage/`](specs/utm-attribution-coverage/)
-  — the spec that added Speaker_Application, Sponsor_Application, and
-  User_Profile attribution to the existing attendee flow. See
-  `requirements.md` for the full acceptance criteria, `design.md` for
-  the module boundaries, and `tasks.md` for the implementation plan.
+- `src/lib/utm.ts` — capture, load, and clear helpers.
+- `src/lib/utm/csv-escape.ts` and `src/lib/utm/applications-csv.ts` — the
+  export contract.
+- `src/lib/utm/__tests__/` — the seven property tests listed above.
+- `supabase/migrations/026_utm_attribution_coverage.sql` — the UTM columns
+  and the `handle_new_user()` trigger update.

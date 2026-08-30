@@ -74,7 +74,7 @@
  *
  * Constraints:
  *  - No `console.*` — every log routes through `logger` from
- *    `@/lib/observability` (workspace steering rule).
+ *    `@/lib/observability` (enforced by the `no-console` ESLint rule).
  *  - shadcn primitives from `@/components/ui/*`.
  *  - Does not edit `creative-customization.ts`, `creative-renderer.ts`,
  *    `creative-templates.ts`, or `creative-storage.ts`.

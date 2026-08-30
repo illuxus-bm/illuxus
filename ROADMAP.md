@@ -1,7 +1,7 @@
 # illuxus roadmap
 
-A living map of where the product is going. Use this when planning new specs, when
-asking an AI to scope a feature, or when deciding what to vibecode next.
+A living map of where the product is going. Use this when planning new work or
+deciding what to build next.
 
 > Three lenses: a **mindmap** of the product surface, a **Now / Next / Later** timeline,
 > and **epics** that link goals to actual code paths.
@@ -206,13 +206,13 @@ are live in `main`.
 | ------------------------------ | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | Observability Foundation       | Phases A–E shipped; Phase F (prod Remote Sink + canary rollout) pending                 | `src/lib/observability/`, `eslint.config.js`, `docs/observability*.md` |
 | Check-in / Check-out tabs      | DB, state machine + 13 PBTs, client UI, cleanup done; component/integration tests open  | `src/components/event/registrations/QRScannerDialog.tsx`, `src/lib/attendance/`, consolidated migration |
-| Agora migration                | Phase 1 (stage, reactions, participants, refresh) shipped; recording + edge-function parity with the LiveKit suite still in flight | `src/components/webinar/AgoraWebinarStage.tsx`, edge functions, `specs/agora-migration/` |
-| Security & scale spec          | Hardening backlog scoped; not yet broken into shipping phases                            | `specs/security-and-scale/`                                      |
+| Agora migration                | Phase 1 (stage, reactions, participants, refresh) shipped; recording + edge-function parity with the LiveKit suite still in flight | `src/components/webinar/AgoraWebinarStage.tsx`, edge functions |
+| Security & scale               | Hardening backlog scoped; not yet broken into shipping phases                            | `docs/SECURITY_AUDIT_2026-08-27.md`, `docs/security-headers.md`  |
 
 ### Next (clear, scoped follow-ups)
 
-These come from existing code patterns, in-flight specs, and the recent commit
-history. They are not full specs yet — write one before vibecoding more than a
+These come from existing code patterns and the recent commit history. They are
+not fully scoped yet — write up the requirements before starting more than a
 day's worth of work.
 
 - **Observability Phase F — production rollout.** Wire `VITE_OBSERVABILITY_DSN`
@@ -279,7 +279,7 @@ flowchart LR
 ```
 
 - Code: `src/lib/observability/`
-- Specs: `specs/observability-foundation/`
+- Docs: `docs/observability.md`, `docs/observability-privacy.md`
 - Open work: Phase F (prod DSN + canary), monitoring of the offline queue cap.
 
 ### Epic B — Attendance
@@ -292,7 +292,6 @@ provable via property-based tests.
   `src/components/event/attendance/`
 - DB: included in `000_full_schema.sql` (apply_attendance helper, set_attendance
   RPC, bulk_set_attendance, self check-in/out)
-- Specs: `specs/checkin-checkout-tabs/`
 - Open work: integration tests for the dialog and live updates.
 
 ### Epic C — Community
@@ -315,7 +314,7 @@ recordings stored in Supabase Storage.
 - Edge: `livekit-token`, `livekit-room-create`, `livekit-room-end`,
   `livekit-go-live`, `livekit-promote`, `livekit-webhook`,
   `recording-start`, `recording-stop`, plus Agora helpers
-- Specs: `specs/agora-migration/`
+- Docs: `docs/agora-setup.md`
 - Open work: chapters, breakout rooms, simulcast, retire the LiveKit stage once
   Agora reaches feature parity.
 
@@ -384,21 +383,19 @@ UI, or hidden actions.
 - Theme tokens + design system (`src/index.css`, `tailwind.config.ts`).
 - Title size + Body size sliders for per-event landing-page typography.
 - Property-based testing as a first-class citizen.
-- Steering files (`steering/`) as the always-on AI context layer.
 - Schema consolidation (`supabase/migrations/000_full_schema.sql`) — one
   idempotent file is the canonical schema; new changes are appended in place.
 
 ---
 
-## How to use this document with AI
+## How to use this document
 
-When asking an AI to scope or build something:
+When scoping or building something:
 
-1. Point it at the relevant **Epic** so it picks up the correct code paths.
-2. If creating a new spec, drop a `specs/<feature-name>/` and let the spec
-   workflow drive Requirements → Design → Tasks.
-3. If vibecoding, prefer additive changes inside the epic's listed files first;
-   only widen the surface when the change demands it.
-4. Re-read [`README.md`](./README.md) for conventions and
-   [`steering/project-overview.md`](./steering/project-overview.md) for
-   architectural guardrails before any non-trivial change.
+1. Find the relevant **Epic** so you pick up the correct code paths.
+2. Write up requirements and a design before starting anything larger than a
+   day's work.
+3. Prefer additive changes inside the epic's listed files first; only widen the
+   surface when the change demands it.
+4. Re-read [`README.md`](./README.md) for conventions and architectural
+   guardrails before any non-trivial change.

@@ -84,9 +84,8 @@ export interface AiBackgroundResponse {
  * `callGenerateBackground` (Task 2.2). The Creative_Generator UI selects a
  * category-specific toast message from this value (Requirements 9.2, 10.2).
  *
- * The category-to-HTTP-status mapping is documented in
- * `.kiro/specs/creative-ai-backgrounds/design.md`'s "Failure category
- * mapping" table.
+ * The category-to-HTTP-status mapping is documented in the
+ * "Failure category mapping" table below.
  */
 export type AiBackgroundErrorCode =
   | "network"
@@ -401,7 +400,7 @@ function newAiBackgroundCorrelationId(): string {
  *
  * The `logger.error` call is the ONLY logging site — no `console.*` calls
  * anywhere in this wrapper, per the project's hard `no-console: error`
- * ESLint rule (`.kiro/steering/project-overview.md`).
+ * ESLint rule (see `eslint.config.js`).
  *
  * ## Correlation id
  *

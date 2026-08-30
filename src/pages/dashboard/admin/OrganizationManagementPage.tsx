@@ -383,8 +383,8 @@ export default function OrganizationManagementPage() {
     return Math.round((cancelled / Math.max(1, subs.length)) * 100);
   }, [subsQ.data]);
 
-  // Admin gating is handled by SuperAdminRoute in App.tsx — see
-  // .kiro/specs/admin-nav-history-fix/ for why no page-level check is needed.
+  // Admin gating is handled by SuperAdminRoute in App.tsx, so no
+  // page-level role check is needed here.
 
   const isLoading = orgsQ.isLoading;
 

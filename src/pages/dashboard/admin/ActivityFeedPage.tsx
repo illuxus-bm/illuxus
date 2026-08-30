@@ -173,8 +173,8 @@ export default function ActivityFeedPage() {
     });
   }, [merged, category, search]);
 
-  // Admin gating is handled by SuperAdminRoute in App.tsx — see
-  // .kiro/specs/admin-nav-history-fix/ for why no page-level check is needed.
+  // Admin gating is handled by SuperAdminRoute in App.tsx, so no
+  // page-level role check is needed here.
 
   const isLoading = feedQ.isLoading;
 
