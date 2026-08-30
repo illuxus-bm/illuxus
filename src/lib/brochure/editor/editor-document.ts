@@ -70,6 +70,23 @@ export interface ImageElement extends Geometry {
   fit: "cover" | "contain" | "fill";
   /** Corner radius in mm. `0` = square. */
   cornerRadius: number;
+  /**
+   * Crop focal point, 0 → 1 on each axis. Chooses which part of the image
+   * survives when `fit: "cover"` crops the overflow: `0` keeps the left/top
+   * edge, `1` the right/bottom, `0.5` centres.
+   *
+   * Optional, defaulting to centre, so every document saved before cropping
+   * existed keeps rendering exactly as it did. A focal point rather than a
+   * pixel crop rect because the element box is resized by dragging and a
+   * pixel rect would have to be recomputed on every resize — see
+   * `computeImageDrawBox` in `editor-units.ts`, which is the single
+   * implementation shared by the canvas and the PDF exporter.
+   */
+  focalX?: number;
+  focalY?: number;
+  /** Extra scale on top of the fit scale, `>= 1`. Default `1`. Lets the
+   *  organizer push further into the image than `cover` alone allows. */
+  zoom?: number;
 }
 
 /** Vector shape element — rect or ellipse for now, more later. */

@@ -18,12 +18,13 @@
  * the properties panel + element palette + page thumbnails live in
  * later phases and mount around this in `BrochureEditorDialog`.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Group, Rect, Ellipse, Text, Image, Transformer } from "react-konva";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Stage, Layer, Group, Rect, Ellipse, Line, Text, Image, Transformer } from "react-konva";
 import type Konva from "konva";
 import useImage from "use-image";
 
 import {
+  computeImageDrawBox,
   mmToPx,
   ptToMm,
   fitPageToViewport,
@@ -42,6 +43,10 @@ import {
   type ShapeElement,
   type TextElement,
 } from "./editor-document";
+import {
+  snapPosition,
+  type SnapGuide,
+} from "./editor-operations";
 
 interface Props {
   document: BrochureDocument;
@@ -49,22 +54,76 @@ interface Props {
   /** Active page id. Only this page is rendered — page thumbnails +
    *  navigation are the parent component's responsibility. */
   activePageId: string;
-  /** Selected element id, or `null` for no selection. Owned by the
-   *  parent so the properties panel can react to selection changes. */
-  selectedElementId: string | null;
-  onSelect: (elementId: string | null) => void;
+  /**
+   * Currently-selected element ids. An array rather than a single id
+   * because a "card" in the seeded templates is several loose primitives
+   * (background rect + heading + body text), and the organizer has to be
+   * able to grab all of them at once to move or resize the card as a unit.
+   * Empty means nothing is selected. Owned by the parent so the properties
+   * panel and the toolbar can react to selection changes.
+   */
+  selectedElementIds: string[];
+  onSelect: (elementIds: string[]) => void;
 }
 
 export default function BrochureEditorCanvas({
   document: doc,
   onChange,
   activePageId,
-  selectedElementId,
+  selectedElementIds,
   onSelect,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
   const [viewport, setViewport] = useState<{ w: number; h: number }>({ w: 800, h: 600 });
+
+  /**
+   * Live Konva node handles keyed by element id.
+   *
+   * Needed because a multi-node `<Transformer>` is attached imperatively via
+   * `.nodes([...])`, and because dragging one member of a multi-selection has
+   * to move its siblings within the same frame — both require reaching the
+   * actual Konva nodes, which React refs on child components can't provide
+   * from the parent.
+   */
+  const nodeRefs = useRef(new Map<string, Konva.Group>());
+  const transformerRef = useRef<Konva.Transformer | null>(null);
+
+  /** Guides currently holding the dragged element, in mm. */
+  const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
+
+  /**
+   * The in-flight drag gesture, or `null` when nothing is being dragged.
+   *
+   * This exists because ONE user drag produces MANY Konva drag events. Konva's
+   * `Transformer` proxies drag across every attached node: on the first
+   * `dragmove` it shifts the other attached nodes by the same delta and calls
+   * `startDrag()` on them, which makes them genuine drag participants that
+   * then emit their own `dragstart` / `dragmove` / `dragend`.
+   *
+   * So the gesture has to be claimed once and ignored on re-entry, and it must
+   * be committed exactly once — otherwise each sibling's `dragend` commits
+   * against the same stale `doc` captured in this render's closure and only the
+   * last write survives, leaving the other elements moved on the canvas but
+   * unmoved in the document.
+   */
+  const dragStartRef = useRef<{
+    /** The element the user actually grabbed. */
+    initiatorId: string;
+    /** Every element Konva will move for this gesture. */
+    ids: string[];
+    /** Starting positions in canvas px, used to detect a no-op drag. */
+    from: Map<string, { x: number; y: number }>;
+  } | null>(null);
+
+  /** In-progress rubber-band selection, in canvas px. */
+  const [marquee, setMarquee] = useState<{
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  } | null>(null);
+  const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // Request every font family actually used by this document. Konva
   // does NOT repaint canvas text on its own when a web font finishes
@@ -122,9 +181,268 @@ export default function BrochureEditorCanvas({
   const stageW = fit.widthPx;
   const stageH = fit.heightPx;
 
-  const commitGeometry = (elementId: string, patch: Partial<BrochureElement>) => {
-    onChange(updateElement(doc, page.id, elementId, patch));
-  };
+  // ─── Selection ────────────────────────────────────────────────────────────
+
+  /**
+   * Click-to-select, shift/cmd-click to toggle membership.
+   *
+   * Toggle rather than add-only so the organizer can back out of an
+   * over-wide marquee without starting the selection over.
+   */
+  /**
+   * Stable registry callback. Stable matters: React re-invokes a ref callback
+   * (once with `null`, once with the node) whenever its identity changes, so an
+   * inline closure here would thrash the map on every re-render — including the
+   * many re-renders that happen while dragging as snap guides update.
+   */
+  const registerNode = useCallback((elementId: string, node: Konva.Group | null) => {
+    if (node) nodeRefs.current.set(elementId, node);
+    else nodeRefs.current.delete(elementId);
+  }, []);
+
+  const handleSelect = useCallback(
+    (elementId: string, additive: boolean) => {
+      if (!additive) {
+        onSelect([elementId]);
+        return;
+      }
+      onSelect(
+        selectedElementIds.includes(elementId)
+          ? selectedElementIds.filter((id) => id !== elementId)
+          : [...selectedElementIds, elementId],
+      );
+    },
+    [onSelect, selectedElementIds],
+  );
+
+  // Re-bind the shared Transformer whenever the selection changes, or when the
+  // document changes (a re-render can replace the underlying Konva nodes, and
+  // a Transformer holding a detached node draws handles that do nothing).
+  useEffect(() => {
+    const tr = transformerRef.current;
+    if (!tr) return;
+    const nodes = selectedElementIds
+      .map((id) => nodeRefs.current.get(id))
+      .filter((n): n is Konva.Group => !!n);
+    tr.nodes(nodes);
+    tr.getLayer()?.batchDraw();
+  }, [selectedElementIds, doc, activePageId]);
+
+  // ─── Drag (with snapping, selection-wide) ─────────────────────────────────
+
+  const handleDragStart = useCallback(
+    (elementId: string) => {
+      // Re-entrant: Konva's drag proxy calls startDrag() on the other selected
+      // nodes, so this fires once per moving element. Only the first call —
+      // from the element the user actually grabbed — defines the gesture.
+      if (dragStartRef.current) return;
+
+      // Dragging something outside the current selection replaces it. Konva
+      // only proxies drag to nodes the Transformer is attached to, so an
+      // unselected element moves alone, which is what we want here.
+      const ids = selectedElementIds.includes(elementId) ? selectedElementIds : [elementId];
+      if (!selectedElementIds.includes(elementId)) onSelect([elementId]);
+
+      const from = new Map<string, { x: number; y: number }>();
+      for (const id of ids) {
+        const node = nodeRefs.current.get(id);
+        if (node) from.set(id, { x: node.x(), y: node.y() });
+      }
+      dragStartRef.current = { initiatorId: elementId, ids, from };
+    },
+    [onSelect, selectedElementIds],
+  );
+
+  const handleDragMove = useCallback(
+    (elementId: string) => {
+      const gesture = dragStartRef.current;
+      if (!gesture || elementId !== gesture.initiatorId) return;
+
+      // Snapping is deliberately limited to single-element drags.
+      //
+      // Konva's drag proxy hands each node in a multi-selection its own pointer
+      // offset, captured once on the first frame, and then moves each one
+      // independently for the rest of the gesture. Nudging only the initiator to
+      // a snap line would therefore pull the group apart. Correcting every node
+      // every frame means re-implementing group drag alongside the one Konva is
+      // already running — more machinery than a snap is worth. The group still
+      // moves rigidly; it just doesn't latch onto guides.
+      if (gesture.ids.length !== 1) return;
+
+      const node = nodeRefs.current.get(elementId);
+      const element = page.elements.find((el) => el.id === elementId);
+      if (!node || !element) return;
+
+      // Snap in millimetre space so the tolerance feels identical at every
+      // zoom level, then write the result back to the node in px.
+      const snapped = snapPosition(page, {
+        id: elementId,
+        x: node.x() / scalePxPerMm,
+        y: node.y() / scalePxPerMm,
+        width: element.width,
+        height: element.height,
+      });
+      node.x(snapped.x * scalePxPerMm);
+      node.y(snapped.y * scalePxPerMm);
+      setSnapGuides(snapped.guides);
+    },
+    [page, scalePxPerMm],
+  );
+
+  const handleDragEnd = useCallback(() => {
+    const gesture = dragStartRef.current;
+    // A sibling's dragend arriving after the gesture was already committed.
+    if (!gesture) return;
+    // Claim it immediately so the remaining dragend events are no-ops.
+    dragStartRef.current = null;
+    setSnapGuides([]);
+
+    // Read each node's FINAL position rather than applying one delta. Konva may
+    // have moved these nodes itself via the drag proxy, so reading back makes
+    // the commit independent of how they got there — and it produces exactly
+    // one document update, hence one undo entry, for one user gesture.
+    let next = doc;
+    let moved = false;
+    for (const id of gesture.ids) {
+      const node = nodeRefs.current.get(id);
+      const from = gesture.from.get(id);
+      if (!node) continue;
+      if (from && Math.abs(node.x() - from.x) < 0.01 && Math.abs(node.y() - from.y) < 0.01) {
+        continue;
+      }
+      moved = true;
+      next = updateElement(next, page.id, id, {
+        x: node.x() / scalePxPerMm,
+        y: node.y() / scalePxPerMm,
+      });
+    }
+    // A click registers as a zero-distance drag; committing it would push an
+    // undo entry for doing nothing.
+    if (moved) onChange(next);
+  }, [doc, onChange, page.id, scalePxPerMm]);
+
+  // ─── Transform (resize / rotate, selection-wide) ──────────────────────────
+
+  /**
+   * Bakes Konva's transient node scale into the document's mm width/height for
+   * every selected node.
+   *
+   * Konva scales each attached node independently, so this reads them all back
+   * rather than deriving one factor — that's what lets a multi-element card be
+   * resized by one drag of the shared bounding box.
+   */
+  const handleTransformEnd = useCallback(() => {
+    let next = doc;
+    for (const id of selectedElementIds) {
+      const node = nodeRefs.current.get(id);
+      const element = page.elements.find((el) => el.id === id);
+      if (!node || !element) continue;
+
+      const scaleX = node.scaleX();
+      const scaleY = node.scaleY();
+      // Reset the transient scale so subsequent transforms compose from 1.
+      node.scaleX(1);
+      node.scaleY(1);
+      // Konva writes skew too when it decomposes a group resize that contains a
+      // rotated element. `BrochureElement` has no skew field, so leaving it on
+      // the node would show a skew on the canvas that neither the document nor
+      // the PDF export knows about.
+      node.skewX(0);
+      node.skewY(0);
+
+      next = updateElement(next, page.id, id, {
+        x: node.x() / scalePxPerMm,
+        y: node.y() / scalePxPerMm,
+        // Absolute value, because dragging an anchor past the opposite edge
+        // gives a NEGATIVE scale. Without this the element collapses to the 1mm
+        // floor instead of resizing, which reads as the element vanishing.
+        width: Math.max(1, element.width * Math.abs(scaleX)),
+        height: Math.max(1, element.height * Math.abs(scaleY)),
+        rotation: node.rotation(),
+      });
+    }
+    if (next !== doc) onChange(next);
+  }, [doc, onChange, page.elements, page.id, scalePxPerMm, selectedElementIds]);
+
+  // ─── Marquee (rubber-band) selection ──────────────────────────────────────
+  //
+  // The primary way to grab a card: shift-clicking every piece of a 6-element
+  // pricing tile is tedious and easy to get wrong.
+
+  const isBackgroundTarget = (target: Konva.Node) =>
+    target === target.getStage() || target.attrs.id === "page-bg";
+
+  const handleStageMouseDown = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (!isBackgroundTarget(e.target)) return;
+      const pos = e.target.getStage()?.getPointerPosition();
+      if (!pos) return;
+      marqueeStartRef.current = { x: pos.x, y: pos.y };
+      setMarquee({ x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y });
+      // Don't clear the selection yet — a plain click clears it on mouse-up.
+      // Clearing here would make shift-drag-to-extend impossible.
+    },
+    [],
+  );
+
+  const handleStageMouseMove = useCallback(() => {
+    const start = marqueeStartRef.current;
+    if (!start) return;
+    const pos = stageRef.current?.getPointerPosition();
+    if (!pos) return;
+    setMarquee({ x1: start.x, y1: start.y, x2: pos.x, y2: pos.y });
+  }, []);
+
+  const handleStageMouseUp = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      const start = marqueeStartRef.current;
+      marqueeStartRef.current = null;
+      setMarquee(null);
+      if (!start) return;
+
+      const pos = stageRef.current?.getPointerPosition() ?? start;
+      const dragged = Math.abs(pos.x - start.x) > 3 || Math.abs(pos.y - start.y) > 3;
+
+      // A click (no meaningful drag) on the background clears the selection —
+      // the behaviour this component had before marquee existed.
+      if (!dragged) {
+        if (isBackgroundTarget(e.target)) onSelect([]);
+        return;
+      }
+
+      // Intersection, not containment: a full-bleed background rect can never
+      // be fully enclosed by a marquee drawn inside the page, so requiring
+      // containment would make the most important element unselectable.
+      const minX = Math.min(start.x, pos.x) / scalePxPerMm;
+      const maxX = Math.max(start.x, pos.x) / scalePxPerMm;
+      const minY = Math.min(start.y, pos.y) / scalePxPerMm;
+      const maxY = Math.max(start.y, pos.y) / scalePxPerMm;
+
+      const hits = page.elements
+        .filter(
+          (el) =>
+            el.x < maxX && el.x + el.width > minX && el.y < maxY && el.y + el.height > minY,
+        )
+        .map((el) => el.id);
+
+      const additive = e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey;
+      if (additive) {
+        onSelect(Array.from(new Set([...selectedElementIds, ...hits])));
+      } else {
+        onSelect(hits);
+      }
+    },
+    [onSelect, page.elements, scalePxPerMm, selectedElementIds],
+  );
+
+  // Abandons an in-flight marquee. Leaving the stage mid-drag is the common
+  // way to get here, and the selection is left untouched rather than cleared:
+  // the gesture was cancelled, not completed.
+  const handleStageMouseLeave = useCallback(() => {
+    if (!marqueeStartRef.current) return;
+    marqueeStartRef.current = null;
+    setMarquee(null);
+  }, []);
 
   return (
     <div
@@ -136,18 +454,14 @@ export default function BrochureEditorCanvas({
           ref={stageRef}
           width={stageW}
           height={stageH}
-          onMouseDown={(e) => {
-            // Deselect when clicking on the empty stage / page background.
-            if (e.target === e.target.getStage()) {
-              onSelect(null);
-              return;
-            }
-            // Konva event `target` may be the background Rect (id "page-bg")
-            // rather than the Stage; deselect in that case too.
-            if (e.target.attrs.id === "page-bg") {
-              onSelect(null);
-            }
-          }}
+          onMouseDown={handleStageMouseDown}
+          onMouseMove={handleStageMouseMove}
+          onMouseUp={handleStageMouseUp}
+          // Releasing the mouse outside the stage never fires `mouseup` on it,
+          // which would otherwise leave the marquee rectangle painted on the
+          // canvas forever. Dragging a selection box past the page edge is
+          // routine, so this is a reachable state, not a corner case.
+          onMouseLeave={handleStageMouseLeave}
           style={{
             boxShadow: "0 2px 24px rgba(0,0,0,0.12)",
             background: "#fff",
@@ -165,11 +479,81 @@ export default function BrochureEditorCanvas({
                   element={el}
                   scale={scalePxPerMm}
                   page={page}
-                  isSelected={el.id === selectedElementId}
-                  onSelect={() => onSelect(el.id)}
-                  onGeometryCommit={(patch) => commitGeometry(el.id, patch)}
+                  isSelected={selectedElementIds.includes(el.id)}
+                  registerNode={registerNode}
+                  onSelect={(additive) => handleSelect(el.id, additive)}
+                  onDragStart={() => handleDragStart(el.id)}
+                  onDragMove={() => handleDragMove(el.id)}
+                  onDragEnd={handleDragEnd}
                 />
               ))}
+
+            {/* One Transformer for the whole selection, so a multi-element
+                card resizes from a single shared bounding box. */}
+            <Transformer
+              ref={transformerRef}
+              rotateEnabled={selectedElementIds.length === 1}
+              enabledAnchors={[
+                "top-left",
+                "top-right",
+                "bottom-left",
+                "bottom-right",
+                "middle-left",
+                "middle-right",
+                "top-center",
+                "bottom-center",
+              ]}
+              borderStroke="#3b82f6"
+              anchorStroke="#3b82f6"
+              anchorFill="#ffffff"
+              anchorSize={8}
+              onTransformEnd={handleTransformEnd}
+              boundBoxFunc={(oldBox, newBox) => {
+                // Enforce a minimum size so the user can't shrink an element
+                // into an invisible speck.
+                if (newBox.width < 8 || newBox.height < 8) return oldBox;
+                return newBox;
+              }}
+            />
+
+            {/* Alignment guides — drawn only for the lines actually holding
+                the dragged element, so a visible guide always means
+                "you are snapped to this". */}
+            {snapGuides.map((guide) =>
+              guide.orientation === "vertical" ? (
+                <Line
+                  key={`v-${guide.at}`}
+                  points={[guide.at * scalePxPerMm, 0, guide.at * scalePxPerMm, stageH]}
+                  stroke="#ec4899"
+                  strokeWidth={1}
+                  dash={[4, 4]}
+                  listening={false}
+                />
+              ) : (
+                <Line
+                  key={`h-${guide.at}`}
+                  points={[0, guide.at * scalePxPerMm, stageW, guide.at * scalePxPerMm]}
+                  stroke="#ec4899"
+                  strokeWidth={1}
+                  dash={[4, 4]}
+                  listening={false}
+                />
+              ),
+            )}
+
+            {marquee && (
+              <Rect
+                x={Math.min(marquee.x1, marquee.x2)}
+                y={Math.min(marquee.y1, marquee.y2)}
+                width={Math.abs(marquee.x2 - marquee.x1)}
+                height={Math.abs(marquee.y2 - marquee.y1)}
+                fill="rgba(59,130,246,0.12)"
+                stroke="#3b82f6"
+                strokeWidth={1}
+                dash={[4, 3]}
+                listening={false}
+              />
+            )}
           </Layer>
         </Stage>
       )}
@@ -208,18 +592,25 @@ function ImageBackground({ src, fit, width, height }: { src: string; fit: "cover
   if (!image) {
     return <Rect id="page-bg" x={0} y={0} width={width} height={height} fill="#f3f4f6" listening />;
   }
-  // Compute a fit box mirroring `fitImageBox` from the jsPDF renderer.
-  const scale = fit === "cover"
-    ? Math.max(width / image.width, height / image.height)
-    : Math.min(width / image.width, height / image.height);
-  const drawW = image.width * scale;
-  const drawH = image.height * scale;
-  const dx = (width - drawW) / 2;
-  const dy = (height - drawH) / 2;
+  // Same shared fit helper the PDF exporter uses for page backgrounds.
+  const box = computeImageDrawBox({
+    boxWidth: width,
+    boxHeight: height,
+    naturalWidth: image.width,
+    naturalHeight: image.height,
+    fit,
+  });
   return (
     <>
       <Rect id="page-bg" x={0} y={0} width={width} height={height} fill="#f3f4f6" listening />
-      <Image image={image} x={dx} y={dy} width={drawW} height={drawH} listening={false} />
+      <Image
+        image={image}
+        x={box.dx}
+        y={box.dy}
+        width={box.width}
+        height={box.height}
+        listening={false}
+      />
     </>
   );
 }
@@ -231,31 +622,46 @@ interface ElementNodeProps {
   scale: number; // px per mm
   page: BrochurePage;
   isSelected: boolean;
-  onSelect: () => void;
-  onGeometryCommit: (patch: Partial<BrochureElement>) => void;
+  /** Publishes (or retracts) the live Konva node in the parent's registry. */
+  registerNode: (elementId: string, node: Konva.Group | null) => void;
+  /** `additive` is true for shift/cmd-click, meaning "toggle in the selection". */
+  onSelect: (additive: boolean) => void;
+  onDragStart: () => void;
+  onDragMove: () => void;
+  onDragEnd: () => void;
 }
 
 /**
- * One element node — routes on `element.kind` to the concrete renderer,
- * wraps in a Konva `<Group>` so drag/resize/rotate operate on the
- * element as a unit, and attaches a `<Transformer>` when this element
- * is the current selection.
+ * One element node — routes on `element.kind` to the concrete renderer and
+ * wraps it in a Konva `<Group>` so drag/resize/rotate operate on the element
+ * as a unit.
+ *
+ * Drag and transform are deliberately NOT handled here. Both are
+ * selection-wide operations: snapping needs every other element on the page as
+ * candidate geometry, and moving one member of a multi-selection has to move
+ * its siblings in the same frame. Neither is knowable from inside a single
+ * element, so the parent owns them and this component just forwards the
+ * events.
  */
 function ElementNode(props: ElementNodeProps) {
-  const { element, scale, page, isSelected, onSelect, onGeometryCommit } = props;
-  const nodeRef = useRef<Konva.Group | null>(null);
-  const transformerRef = useRef<Konva.Transformer | null>(null);
+  const {
+    element,
+    scale,
+    page,
+    isSelected,
+    registerNode,
+    onSelect,
+    onDragStart,
+    onDragMove,
+    onDragEnd,
+  } = props;
 
-  // Wire the Transformer to the currently-selected node on every render
-  // where the selection state changes. Konva transformers are
-  // imperatively-attached via `.nodes([node])`, so this must be an
-  // effect rather than a prop.
-  useEffect(() => {
-    if (isSelected && nodeRef.current && transformerRef.current) {
-      transformerRef.current.nodes([nodeRef.current]);
-      transformerRef.current.getLayer()?.batchDraw();
-    }
-  }, [isSelected]);
+  // Stable per-element ref callback, so React doesn't detach and reattach the
+  // node in the parent's registry on every re-render.
+  const setRef = useCallback(
+    (node: Konva.Group | null) => registerNode(element.id, node),
+    [registerNode, element.id],
+  );
 
   // Convert the element's mm geometry to canvas pixels.
   const xPx = element.x * scale;
@@ -263,95 +669,56 @@ function ElementNode(props: ElementNodeProps) {
   const wPx = element.width * scale;
   const hPx = element.height * scale;
 
-  // `scale` = canvas-px per document-mm (already includes fit-to-viewport
-  // zoom). Drag / resize commits divide by `scale` to go back to mm.
-  const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
-    const node = e.target;
-    onGeometryCommit({
-      x: node.x() / scale,
-      y: node.y() / scale,
-    });
-  };
-
-  const handleTransformEnd = () => {
-    const node = nodeRef.current;
-    if (!node) return;
-    const scaleX = node.scaleX();
-    const scaleY = node.scaleY();
-    // Reset internal Konva scale — we bake it into width/height so
-    // subsequent transforms compose correctly.
-    node.scaleX(1);
-    node.scaleY(1);
-    onGeometryCommit({
-      x: node.x() / scale,
-      y: node.y() / scale,
-      width: Math.max(4, (wPx * scaleX) / scale),
-      height: Math.max(4, (hPx * scaleY) / scale),
-      rotation: node.rotation(),
-    });
-  };
-
   return (
-    <>
-      <Group
-        ref={nodeRef}
-        x={xPx}
-        y={yPx}
-        rotation={element.rotation}
-        opacity={element.opacity}
-        draggable
-        onMouseEnter={(e) => {
-          // Change the cursor to "move" so users know the element (or
-          // full-bleed image) is grabbable — otherwise a page-sized
-          // image looks like a static background and users don't
-          // realise they can click to select it.
-          const stage = e.target.getStage();
-          if (stage) stage.container().style.cursor = "move";
-        }}
-        onMouseLeave={(e) => {
-          const stage = e.target.getStage();
-          if (stage) stage.container().style.cursor = "default";
-        }}
-        onClick={(e) => {
-          e.cancelBubble = true;
-          onSelect();
-        }}
-        onTap={(e) => {
-          e.cancelBubble = true;
-          onSelect();
-        }}
-        onDragEnd={handleDragEnd}
-        onTransformEnd={handleTransformEnd}
-      >
-        <ElementBody element={element} width={wPx} height={hPx} pageWidth={page.width} scale={scale} />
-      </Group>
+    <Group
+      ref={setRef}
+      x={xPx}
+      y={yPx}
+      rotation={element.rotation}
+      opacity={element.opacity}
+      draggable
+      onMouseEnter={(e) => {
+        // Change the cursor to "move" so users know the element (or
+        // full-bleed image) is grabbable — otherwise a page-sized
+        // image looks like a static background and users don't
+        // realise they can click to select it.
+        const stage = e.target.getStage();
+        if (stage) stage.container().style.cursor = "move";
+      }}
+      onMouseLeave={(e) => {
+        const stage = e.target.getStage();
+        if (stage) stage.container().style.cursor = "default";
+      }}
+      onClick={(e) => {
+        e.cancelBubble = true;
+        onSelect(e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey);
+      }}
+      onTap={(e) => {
+        e.cancelBubble = true;
+        onSelect(false);
+      }}
+      onDragStart={onDragStart}
+      onDragMove={onDragMove}
+      onDragEnd={onDragEnd}
+    >
+      <ElementBody element={element} width={wPx} height={hPx} pageWidth={page.width} scale={scale} />
       {isSelected && (
-        <Transformer
-          ref={transformerRef}
-          rotateEnabled
-          enabledAnchors={[
-            "top-left",
-            "top-right",
-            "bottom-left",
-            "bottom-right",
-            "middle-left",
-            "middle-right",
-            "top-center",
-            "bottom-center",
-          ]}
-          borderStroke="#3b82f6"
-          anchorStroke="#3b82f6"
-          anchorFill="#ffffff"
-          anchorSize={8}
-          boundBoxFunc={(_oldBox, newBox) => {
-            // Enforce a minimum size so the user can't shrink an element
-            // into an invisible speck.
-            if (newBox.width < 8 || newBox.height < 8) return _oldBox;
-            return newBox;
-          }}
+        // Per-element outline. The shared Transformer only draws ONE box around
+        // the whole selection, so without this the organizer can't tell which
+        // pieces of a card are actually in the selection and which just happen
+        // to sit inside the bounding box.
+        <Rect
+          x={0}
+          y={0}
+          width={wPx}
+          height={hPx}
+          stroke="#3b82f6"
+          strokeWidth={1}
+          dash={[3, 3]}
+          listening={false}
         />
       )}
-    </>
+    </Group>
   );
 }
 
@@ -461,15 +828,25 @@ function ImageBody({ el, width, height, scale }: { el: ImageElement; width: numb
     );
   }
 
-  const fitScale = el.fit === "cover"
-    ? Math.max(width / image.width, height / image.height)
-    : el.fit === "contain"
-      ? Math.min(width / image.width, height / image.height)
-      : Math.min(width / image.width, height / image.height); // "fill" — we still clamp to preserve ratio in-editor
-  const drawW = image.width * fitScale;
-  const drawH = image.height * fitScale;
-  const dx = (width - drawW) / 2;
-  const dy = (height - drawH) / 2;
+  // Fit / zoom / focal-point math is shared with the PDF exporter — the same
+  // `computeImageDrawBox` call — so the canvas and the downloaded file cannot
+  // disagree. They previously each had their own copy, and both had silently
+  // degraded `fit: "fill"` into `contain`.
+  const {
+    dx,
+    dy,
+    width: drawW,
+    height: drawH,
+  } = computeImageDrawBox({
+    boxWidth: width,
+    boxHeight: height,
+    naturalWidth: image.width,
+    naturalHeight: image.height,
+    fit: el.fit,
+    zoom: el.zoom,
+    focalX: el.focalX,
+    focalY: el.focalY,
+  });
 
   return (
     <Group clipFunc={(ctx) => {

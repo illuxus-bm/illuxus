@@ -668,7 +668,23 @@ export function saveBrochurePrefs(
 ): EventPageConfig {
   return {
     ...config,
-    brochurePrefs: prefs,
+    brochurePrefs: {
+      // MERGE, don't replace.
+      //
+      // This used to be `brochurePrefs: prefs`, a wholesale replacement.
+      // `BrochureConfiguratorDialog.handleGenerate` calls this with only
+      // `{ themeId, colorOverride, sectionLayout, posterContent }` when the
+      // organizer has "save as default" ticked — so every such download
+      // DELETED `brochurePrefs.editorDocument`, silently throwing away the
+      // entire WYSIWYG layout they had saved from the editor.
+      //
+      // Spreading the existing prefs first preserves any key this particular
+      // caller doesn't know about (today `editorDocument`, tomorrow whatever
+      // else gets added) while still letting the caller override the keys it
+      // does own.
+      ...(config.brochurePrefs ?? {}),
+      ...(prefs ?? {}),
+    },
   };
 }
 

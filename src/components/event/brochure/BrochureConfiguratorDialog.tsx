@@ -30,9 +30,18 @@
  * `BrochureThemeOverride` — never written back to `eventPageConfig.theme`
  * (Requirement 1.4).
  *
- * The primary "Download brochure" action calls `downloadBrochurePdf`,
- * driving a `Progress` bar from its `onProgress` callback (Requirement
- * 9.3). A failure is caught, logged via
+ * The primary "Download brochure" action calls `downloadDocumentAsPdf` with
+ * `resolvedDocument` — the organizer's saved WYSIWYG document when one
+ * exists, otherwise a fresh template seed — driving a `Progress` bar from
+ * its `onProgress` callback (Requirement 9.3). It deliberately does NOT call
+ * `downloadBrochurePdf` any more: that rendered from the theme and section
+ * list and ignored the editor document entirely, so every edit an organizer
+ * made was missing from the downloaded file. The live preview and the editor
+ * canvas consume the same `resolvedDocument`, which is what makes "what you
+ * see is what you download" true by construction rather than by keeping two
+ * renderers in sync by hand. See `resolve-document.ts`.
+ *
+ * A failure is caught, logged via
  * `logger.error("brochure generation failed", { event_id, error_message })`,
  * and surfaced as a `toast.error` while the dialog stays open so the
  * organizer can retry (Requirements 9.1, 9.2).
@@ -74,12 +83,17 @@ import {
   resolveBrochureTheme,
   resolveSectionLayout,
   saveBrochurePrefs,
+  buildBrochureFilename,
   type BrochureTheme,
   type BrochureThemeOverride,
   type EventThemeInput,
   type SectionLayout,
 } from "@/lib/brochure/brochure-templates";
-import { downloadBrochurePdf, type BrochureGenerationInput } from "@/lib/brochure/brochure-pdf";
+
+import { downloadDocumentAsPdf } from "@/lib/brochure/editor/editor-pdf";
+import { isUsableDocument, resolveBrochureDocument } from "@/lib/brochure/editor/resolve-document";
+import type { BrochureDocument } from "@/lib/brochure/editor/editor-document";
+import type { TemplateSeedInput } from "@/lib/brochure/editor/editor-templates";
 import type {
   AgendaSessionInput,
   SpeakerInput,
@@ -472,85 +486,87 @@ export default function BrochureConfiguratorDialog({
   // in the same order.
   const resolvedSectionIds = useMemo(() => resolveSectionLayout(sectionLayout), [sectionLayout]);
 
-  // The full resolved generation input — recomputed whenever any selection
-  // or fetched entity changes, and passed unchanged to BOTH
-  // BrochurePreviewFrame (live preview) and downloadBrochurePdf (export),
-  // so the two can never diverge (Requirement 8.1, 8.2).
-  const generationInput = useMemo<BrochureGenerationInput>(
-    () => ({
-      event: {
-        title: event?.title ?? "",
-        date: event?.date ?? new Date().toISOString(),
-        end_date: event?.end_date ?? null,
-        venue: event?.venue ?? null,
-        location: event?.location ?? null,
-        image_url: event?.image_url ?? null,
-        banner_landscape_url: event?.banner_landscape_url ?? null,
-        // Portrait banner is preferred as the cover hero (A4 is
-        // portrait; the mobile-view banner slots in without heavy
-        // cropping). buildCoverContent's resolveCoverBackground picks
-        // this first when defined, falling back to image_url and
-        // banner_landscape_url in that order.
-        banner_portrait_url: event?.banner_portrait_url ?? null,
-      },
+  // ─── Editor seed — shared by the preview, the export, AND the editor ─────
+  //
+  // Lifted out of the `<BrochureEditorDialog seed={{…}}>` JSX prop it used to
+  // be inlined into, because it is no longer editor-only: it is now the input
+  // to `resolveBrochureDocument`, which backs the live preview and the
+  // "Download brochure" button too. One memo, three consumers, so a template
+  // seed can't differ between what you preview, what you edit, and what you
+  // download.
+  //
+  // Returns null until the event row has loaded; every consumer guards on it.
+  const editorSeed = useMemo<TemplateSeedInput | null>(() => {
+    if (!event) return null;
+    return {
+      eventTitle: event.title,
+      dateText: (() => {
+        try {
+          const d = new Date(event.date);
+          return `${d.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" })}  |  ${d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })} onwards`;
+        } catch {
+          return event.date;
+        }
+      })(),
+      venueText: event.venue ?? event.location ?? "",
+      // Prefer the mobile / portrait banner (matches the event's mobile-view
+      // hero); fall back through image_url, then the landscape banner so the
+      // cover always has something to render.
+      coverImageUrl:
+        event.banner_portrait_url ?? event.image_url ?? event.banner_landscape_url ?? "",
+      logoUrl: posterContent.logoUrl,
+      organizerLogoUrl: posterContent.organizerLogoUrl,
+      socialLinks: posterContent.socialLinks,
+      coverTagline: posterContent.coverTagline,
+      coverPills: posterContent.coverPills,
+      abstract: posterContent.abstract,
+      featured: posterContent.featured,
+      learningOutcomes: posterContent.learningOutcomes,
+      numberedItems:
+        selectedTheme.id === "corporate-bold"
+          ? posterContent.focusOfSummit
+          : posterContent.whySponsor,
+      pricingCards: posterContent.pricingCards,
+      showRegistrationForm: posterContent.registrationForm,
+      accentColor: resolvedColors.accentColor,
+      fontFamily: resolvedColors.fontFamily,
       sessions,
       speakers,
       sponsors,
       venueLogistics,
-      theme: selectedTheme,
-      eventTheme,
-      themeOverride,
-      sectionLayout,
-      // Poster_Bold / Corporate_Bold-only fields are only populated when
-      // one of those themes is active; the Sponsorship_Packages table
-      // below is always populated regardless of theme since it's not
-      // gated to a specific theme in the renderer (Requirement: renders
-      // on any theme). `undefined` on any individual field is safe —
-      // every content builder treats an empty/absent field as "no
-      // content" and the section is skipped.
-      posterContent: {
-        ...(selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold"
-          ? {
-              logoUrl: posterContent.logoUrl ?? null,
-              organizerLogoUrl: posterContent.organizerLogoUrl ?? null,
-              socialLinks: posterContent.socialLinks ?? null,
-              coverTagline: posterContent.coverTagline ?? null,
-              coverPills: posterContent.coverPills ?? null,
-              abstract: {
-                abstract: posterContent.abstract,
-                featured: posterContent.featured,
-                learningOutcomes: posterContent.learningOutcomes,
-              },
-              whySponsor: { items: posterContent.whySponsor },
-              pricing: {
-                cards: posterContent.pricingCards,
-                showRegistrationForm: posterContent.registrationForm,
-              },
-              focusOfSummit: { items: posterContent.focusOfSummit },
-              whoShouldAttend: {
-                description: posterContent.whoShouldAttendDescription,
-                items: posterContent.whoShouldAttendItems,
-              },
-              solutionProviders: {
-                description: posterContent.solutionProvidersDescription,
-              },
-              highlights: {
-                leftTitle: posterContent.whyMattersTitle,
-                leftItems: posterContent.whyMattersItems,
-                rightTitle: posterContent.whatYouWillGainTitle,
-                rightItems: posterContent.whatYouWillGainItems,
-              },
-            }
-          : {}),
-        sponsorshipPackages: {
-          title: posterContent.sponsorshipPackagesTitle,
-          benefits: posterContent.sponsorshipBenefits,
-          tiers: posterContent.sponsorshipTiers,
-        },
+      sponsorshipPackages: {
+        title: posterContent.sponsorshipPackagesTitle,
+        benefits: posterContent.sponsorshipBenefits,
+        tiers: posterContent.sponsorshipTiers,
       },
-    }),
-    [event, sessions, speakers, sponsors, venueLogistics, selectedTheme, eventTheme, themeOverride, sectionLayout, posterContent]
-  );
+    };
+  }, [event, posterContent, selectedTheme.id, resolvedColors, sessions, speakers, sponsors, venueLogistics]);
+
+  // The organizer's persisted WYSIWYG document, if any.
+  //
+  // Validated here rather than only inside `resolveBrochureDocument`, because
+  // this same value is handed to the editor as `initialDocument`. An
+  // unvalidated malformed row (the JSONB column is typed `pages: unknown[]` and
+  // cast straight through) would preview fine — the resolver degrades it to the
+  // template seed — while the editor loaded it verbatim and, with no usable
+  // pages, sat on "Loading template…" with no error and no way forward.
+  const savedDocument = useMemo<BrochureDocument | null>(() => {
+    const raw = eventPageConfig.brochurePrefs?.editorDocument;
+    if (!raw) return null;
+    const candidate = raw as unknown as BrochureDocument;
+    return isUsableDocument(candidate) ? candidate : null;
+  }, [eventPageConfig.brochurePrefs?.editorDocument]);
+
+  // ─── THE single source of truth for everything we render ─────────────────
+  //
+  // Saved document wins; otherwise seed from the theme. Preview, export and
+  // editor all consume THIS, so "what you see is what you download" holds by
+  // construction instead of by keeping two renderers in sync by hand.
+  const resolvedDocument = useMemo(() => {
+    if (!editorSeed) return null;
+    return resolveBrochureDocument(savedDocument, editorSeed, selectedTheme, resolvedSectionIds);
+  }, [savedDocument, editorSeed, selectedTheme, resolvedSectionIds]);
+
 
   const includedCount = sectionLayout.filter((s) => s.included).length;
 
@@ -573,15 +589,34 @@ export default function BrochureConfiguratorDialog({
         );
       }
 
-      await downloadBrochurePdf(
-        {
-          ...generationInput,
-          onProgress: (completed, total) => setProgress({ completed, total }),
-        },
-        generationInput.event.title
+      // Render the SAME document the preview and the editor use.
+      //
+      // This used to call `downloadBrochurePdf` on a separately-assembled
+      // `BrochureGenerationInput` — the theme-driven jsPDF pipeline, which
+      // never read the editor document. An organizer could customise every
+      // element, save, then download a PDF with none of their changes in it
+      // and no indication why. Routing the download through
+      // `resolvedDocument` is the fix: saved document if one exists, template
+      // seed otherwise, always the same renderer as the canvas and preview.
+      if (!resolvedDocument) {
+        toast.error("Brochure data is still loading", {
+          description: "Give it a moment and try again.",
+        });
+        return;
+      }
+
+      await downloadDocumentAsPdf(
+        resolvedDocument.document,
+        buildBrochureFilename(event?.title ?? ""),
+        (completed, total) => setProgress({ completed, total }),
       );
 
-      toast.success("Brochure ready", { description: "Your download should start automatically." });
+      toast.success("Brochure ready", {
+        description:
+          resolvedDocument.source === "saved"
+            ? "Exported from your customised layout."
+            : "Your download should start automatically.",
+      });
     } catch (err) {
       const error_message = err instanceof Error ? err.message : String(err);
       logger.error("brochure generation failed", { event_id: eventId, error_message });
@@ -780,7 +815,11 @@ export default function BrochureConfiguratorDialog({
                 <span className="text-[12px] font-semibold">Live preview</span>
               </div>
               <div className="flex-1 min-h-0 p-4 flex items-center justify-center overflow-hidden">
-                <BrochurePreviewFrame input={generationInput} />
+                {/* Renders the resolved document — the same one the editor
+                    edits and the download exports. Previously this rendered
+                    the theme-driven jsPDF pipeline while the editor drew from
+                    the document, which is exactly why the two never matched. */}
+                <BrochurePreviewFrame document={resolvedDocument?.document ?? null} />
               </div>
             </div>
           </div>
@@ -816,67 +855,17 @@ export default function BrochureConfiguratorDialog({
           theme seeded as a live document. Save flows back through
           `onConfigChange` so the parent persists to Supabase via
           `events.page_config.brochurePrefs.editorDocument`. */}
-      {editorOpen && event && (
+      {editorOpen && event && editorSeed && (
         <BrochureEditorDialog
           open={editorOpen}
           onOpenChange={setEditorOpen}
-          // Seed the editor from the SAME theme + resolved section list +
-          // resolved colors the live preview is currently showing, so the
-          // two can never diverge (Requirement: editor/preview parity).
+          // Same theme, section list and resolved colors the preview and the
+          // download use — all three now consume `editorSeed` /
+          // `resolvedDocument`, so parity is structural.
           theme={selectedTheme}
           resolvedSectionIds={resolvedSectionIds}
-          seed={{
-            eventTitle: event.title,
-            dateText: (() => {
-              try {
-                const d = new Date(event.date);
-                return `${d.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" })}  |  ${d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })} onwards`;
-              } catch {
-                return event.date;
-              }
-            })(),
-            venueText: event.venue ?? event.location ?? "",
-            // Prefer the mobile / portrait banner (matches the event's
-            // mobile-view hero); fall back through image_url, then the
-            // landscape banner as last-resort so the cover always has
-            // something to render.
-            coverImageUrl:
-              event.banner_portrait_url ?? event.image_url ?? event.banner_landscape_url ?? "",
-            logoUrl: posterContent.logoUrl,
-            organizerLogoUrl: posterContent.organizerLogoUrl,
-            socialLinks: posterContent.socialLinks,
-            coverTagline: posterContent.coverTagline,
-            coverPills: posterContent.coverPills,
-            abstract: posterContent.abstract,
-            featured: posterContent.featured,
-            learningOutcomes: posterContent.learningOutcomes,
-            numberedItems:
-              selectedTheme.id === "corporate-bold"
-                ? posterContent.focusOfSummit
-                : posterContent.whySponsor,
-            pricingCards: posterContent.pricingCards,
-            showRegistrationForm: posterContent.registrationForm,
-            accentColor: resolvedColors.accentColor,
-            fontFamily: resolvedColors.fontFamily,
-            // Content-page data — the shared seed uses these to build
-            // Agenda / Speakers / Sponsors / Venue pages that match the
-            // preview one-to-one so the editor and the live preview
-            // show the SAME set of pages.
-            sessions,
-            speakers,
-            sponsors,
-            venueLogistics,
-            sponsorshipPackages: {
-              title: posterContent.sponsorshipPackagesTitle,
-              benefits: posterContent.sponsorshipBenefits,
-              tiers: posterContent.sponsorshipTiers,
-            },
-          }}
-          initialDocument={
-            eventPageConfig.brochurePrefs?.editorDocument
-              ? (eventPageConfig.brochurePrefs.editorDocument as unknown as import("@/lib/brochure/editor/editor-document").BrochureDocument)
-              : null
-          }
+          seed={editorSeed}
+          initialDocument={savedDocument}
           onSaveDocument={async (doc) => {
             // Persist through the existing page-config path so autosave
             // reuses the same debounced update pipeline the rest of the

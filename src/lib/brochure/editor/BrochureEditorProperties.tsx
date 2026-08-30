@@ -403,6 +403,82 @@ function ImageFields({ el, onChange }: { el: ImageElement; onChange: (p: Partial
           />
         </div>
       </div>
+
+      {/* Crop — only meaningful when the image overflows or letterboxes, which
+          `fill` never does (it stretches to the box exactly). Hiding these
+          controls in fill mode avoids sliders that visibly do nothing. */}
+      {el.fit !== "fill" && (
+        <div className="space-y-2 pt-1">
+          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Crop
+          </Label>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label className="text-[10px]">Zoom</Label>
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {(el.zoom ?? 1).toFixed(2)}×
+              </span>
+            </div>
+            <Slider
+              value={[el.zoom ?? 1]}
+              min={1}
+              max={3}
+              step={0.05}
+              onValueChange={([v]) => onChange({ zoom: v })}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label className="text-[10px]">Horizontal focus</Label>
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {Math.round((el.focalX ?? 0.5) * 100)}%
+              </span>
+            </div>
+            <Slider
+              value={[el.focalX ?? 0.5]}
+              min={0}
+              max={1}
+              step={0.01}
+              onValueChange={([v]) => onChange({ focalX: v })}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label className="text-[10px]">Vertical focus</Label>
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {Math.round((el.focalY ?? 0.5) * 100)}%
+              </span>
+            </div>
+            <Slider
+              value={[el.focalY ?? 0.5]}
+              min={0}
+              max={1}
+              step={0.01}
+              onValueChange={([v]) => onChange({ focalY: v })}
+            />
+          </div>
+
+          <p className="text-[10px] text-muted-foreground/80">
+            Focus picks which part of the image stays visible when it&apos;s cropped —
+            useful for keeping a face or logo in frame.
+          </p>
+
+          {((el.zoom ?? 1) !== 1 || (el.focalX ?? 0.5) !== 0.5 || (el.focalY ?? 0.5) !== 0.5) && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onChange({ zoom: 1, focalX: 0.5, focalY: 0.5 })}
+              className="h-7 w-full text-[11px]"
+            >
+              Reset crop
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

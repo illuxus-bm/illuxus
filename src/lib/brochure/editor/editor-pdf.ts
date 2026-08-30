@@ -19,7 +19,7 @@
 import jsPDF from "jspdf";
 import Konva from "konva";
 
-import { EXPORT_DPI, mmToPx, ptToPx } from "./editor-units";
+import { EXPORT_DPI, computeImageDrawBox, mmToPx, ptToPx } from "./editor-units";
 import { ensureFontLoaded } from "./editor-fonts";
 import {
   collectDocumentFontFamilies,
@@ -52,13 +52,30 @@ function loadImageForCanvas(url: string): Promise<HTMLImageElement | null> {
   });
 }
 
-async function renderPageToImage(page: BrochurePage): Promise<HTMLCanvasElement> {
+/**
+ * DPI used for the live preview.
+ *
+ * The preview re-renders on a 400ms debounce while the organizer is
+ * changing settings, and a full 300 DPI A4 page is ~2480×3508 px — far too
+ * slow to feel live. 110 DPI is ~910×1287 px, which is sharp enough inside
+ * the preview pane and roughly 7× cheaper to rasterise.
+ *
+ * This changes RESOLUTION only, never layout: every geometry value is mm and
+ * is multiplied by `pxPerMm` derived from whichever DPI is passed, so the
+ * preview and the 300 DPI export are the same picture at different sizes.
+ */
+export const PREVIEW_DPI = 110;
+
+async function renderPageToImage(
+  page: BrochurePage,
+  dpi: number = EXPORT_DPI,
+): Promise<HTMLCanvasElement> {
   // Container is off-DOM; Konva mounts into a real element but we
   // never attach it to the document so it stays invisible.
   const container = document.createElement("div");
-  const widthPx = mmToPx(page.width, EXPORT_DPI);
-  const heightPx = mmToPx(page.height, EXPORT_DPI);
-  const pxPerMm = mmToPx(1, EXPORT_DPI);
+  const widthPx = mmToPx(page.width, dpi);
+  const heightPx = mmToPx(page.height, dpi);
+  const pxPerMm = mmToPx(1, dpi);
 
   const stage = new Konva.Stage({ container, width: widthPx, height: heightPx });
 
@@ -71,7 +88,7 @@ async function renderPageToImage(page: BrochurePage): Promise<HTMLCanvasElement>
   const contentLayer = new Konva.Layer();
   const sorted = [...page.elements].sort((a, b) => a.zIndex - b.zIndex);
   for (const el of sorted) {
-    await drawElement(contentLayer, el, pxPerMm);
+    await drawElement(contentLayer, el, pxPerMm, dpi);
   }
   stage.add(contentLayer);
 
@@ -111,24 +128,31 @@ async function drawPageBackground(
   const img = await loadImageForCanvas(bg.src);
   layer.add(new Konva.Rect({ x: 0, y: 0, width: widthPx, height: heightPx, fill: "#f3f4f6" }));
   if (img) {
-    const scale = bg.fit === "cover"
-      ? Math.max(widthPx / img.width, heightPx / img.height)
-      : Math.min(widthPx / img.width, heightPx / img.height);
-    const drawW = img.width * scale;
-    const drawH = img.height * scale;
+    const box = computeImageDrawBox({
+      boxWidth: widthPx,
+      boxHeight: heightPx,
+      naturalWidth: img.width,
+      naturalHeight: img.height,
+      fit: bg.fit,
+    });
     layer.add(
       new Konva.Image({
         image: img,
-        x: (widthPx - drawW) / 2,
-        y: (heightPx - drawH) / 2,
-        width: drawW,
-        height: drawH,
+        x: box.dx,
+        y: box.dy,
+        width: box.width,
+        height: box.height,
       })
     );
   }
 }
 
-async function drawElement(layer: Konva.Layer, el: BrochureElement, pxPerMm: number): Promise<void> {
+async function drawElement(
+  layer: Konva.Layer,
+  el: BrochureElement,
+  pxPerMm: number,
+  dpi: number = EXPORT_DPI,
+): Promise<void> {
   const xPx = el.x * pxPerMm;
   const yPx = el.y * pxPerMm;
   const wPx = el.width * pxPerMm;
@@ -143,23 +167,29 @@ async function drawElement(layer: Konva.Layer, el: BrochureElement, pxPerMm: num
 
   switch (el.kind) {
     case "text":
-      drawTextInto(group, el, wPx, hPx);
+      drawTextInto(group, el, wPx, hPx, dpi);
       break;
     case "image":
-      await drawImageInto(group, el, wPx, hPx);
+      await drawImageInto(group, el, wPx, hPx, pxPerMm);
       break;
     case "shape":
-      drawShapeInto(group, el, wPx, hPx);
+      drawShapeInto(group, el, wPx, hPx, pxPerMm);
       break;
     case "pill":
-      drawPillInto(group, el, wPx, hPx);
+      drawPillInto(group, el, wPx, hPx, pxPerMm, dpi);
       break;
   }
 
   layer.add(group);
 }
 
-function drawTextInto(group: Konva.Group, el: TextElement, w: number, h: number) {
+function drawTextInto(
+  group: Konva.Group,
+  el: TextElement,
+  w: number,
+  h: number,
+  dpi: number = EXPORT_DPI,
+) {
   const fontStyle =
     el.fontWeight === "bold" && el.fontStyle === "italic"
       ? "italic bold"
@@ -176,7 +206,7 @@ function drawTextInto(group: Konva.Group, el: TextElement, w: number, h: number)
       height: h,
       text: el.content,
       fontFamily: el.fontFamily,
-      fontSize: ptToPx(el.fontSize, EXPORT_DPI),
+      fontSize: ptToPx(el.fontSize, dpi),
       fontStyle,
       fill: el.color,
       align: el.align,
@@ -186,9 +216,15 @@ function drawTextInto(group: Konva.Group, el: TextElement, w: number, h: number)
   );
 }
 
-async function drawImageInto(group: Konva.Group, el: ImageElement, w: number, h: number) {
+async function drawImageInto(
+  group: Konva.Group,
+  el: ImageElement,
+  w: number,
+  h: number,
+  pxPerMm: number,
+) {
   const img = await loadImageForCanvas(el.src);
-  const radiusPx = (el.cornerRadius / 25.4) * EXPORT_DPI;
+  const radiusPx = el.cornerRadius * pxPerMm;
 
   // Rounded-corner clip via a Konva.Path wrapping group (simpler:
   // use a Rect with fillPatternImage). We'll use fillPatternImage to
@@ -206,18 +242,34 @@ async function drawImageInto(group: Konva.Group, el: ImageElement, w: number, h:
     );
     return;
   }
-  const scale = el.fit === "cover"
-    ? Math.max(w / img.width, h / img.height)
-    : Math.min(w / img.width, h / img.height);
-  const drawW = img.width * scale;
-  const drawH = img.height * scale;
-  const dx = (w - drawW) / 2;
-  const dy = (h - drawH) / 2;
+  // Fit / zoom / focal-point math is shared with the canvas renderer so the
+  // exported PDF cannot disagree with what the organizer laid out. See
+  // `computeImageDrawBox`.
+  const {
+    dx,
+    dy,
+    width: drawW,
+    height: drawH,
+  } = computeImageDrawBox({
+    boxWidth: w,
+    boxHeight: h,
+    naturalWidth: img.width,
+    naturalHeight: img.height,
+    fit: el.fit,
+    zoom: el.zoom,
+    focalX: el.focalX,
+    focalY: el.focalY,
+  });
 
   // clipFunc lets us draw the image inside a rounded rect while
   // preserving image cover/contain semantics.
+  //
+  // The parameter is Konva's own `Context` wrapper, not a raw
+  // `CanvasRenderingContext2D`. It proxies the path methods used below, but it
+  // is a distinct type — annotating it as `CanvasRenderingContext2D` was a
+  // standing typecheck error here.
   const clip = new Konva.Group({
-    clipFunc: (ctx: CanvasRenderingContext2D) => {
+    clipFunc: (ctx: Konva.Context) => {
       const r = Math.min(radiusPx, w / 2, h / 2);
       ctx.beginPath();
       ctx.moveTo(r, 0);
@@ -236,7 +288,13 @@ async function drawImageInto(group: Konva.Group, el: ImageElement, w: number, h:
   group.add(clip);
 }
 
-function drawShapeInto(group: Konva.Group, el: ShapeElement, w: number, h: number) {
+function drawShapeInto(
+  group: Konva.Group,
+  el: ShapeElement,
+  w: number,
+  h: number,
+  pxPerMm: number,
+) {
   if (el.shape === "ellipse") {
     group.add(
       new Konva.Ellipse({
@@ -246,7 +304,7 @@ function drawShapeInto(group: Konva.Group, el: ShapeElement, w: number, h: numbe
         radiusY: h / 2,
         fill: el.fill === "transparent" ? undefined : el.fill,
         stroke: el.stroke === "transparent" ? undefined : el.stroke,
-        strokeWidth: (el.strokeWidth / 25.4) * EXPORT_DPI,
+        strokeWidth: el.strokeWidth * pxPerMm,
       })
     );
     return;
@@ -259,13 +317,20 @@ function drawShapeInto(group: Konva.Group, el: ShapeElement, w: number, h: numbe
       height: h,
       fill: el.fill === "transparent" ? undefined : el.fill,
       stroke: el.stroke === "transparent" ? undefined : el.stroke,
-      strokeWidth: (el.strokeWidth / 25.4) * EXPORT_DPI,
-      cornerRadius: (el.cornerRadius / 25.4) * EXPORT_DPI,
+      strokeWidth: el.strokeWidth * pxPerMm,
+      cornerRadius: el.cornerRadius * pxPerMm,
     })
   );
 }
 
-function drawPillInto(group: Konva.Group, el: PillElement, w: number, h: number) {
+function drawPillInto(
+  group: Konva.Group,
+  el: PillElement,
+  w: number,
+  h: number,
+  pxPerMm: number,
+  dpi: number = EXPORT_DPI,
+) {
   group.add(
     new Konva.Rect({
       x: 0,
@@ -275,7 +340,7 @@ function drawPillInto(group: Konva.Group, el: PillElement, w: number, h: number)
       cornerRadius: h / 2,
       fill: el.fillColor === "transparent" ? undefined : el.fillColor,
       stroke: el.strokeColor === "transparent" ? undefined : el.strokeColor,
-      strokeWidth: (el.strokeWidth / 25.4) * EXPORT_DPI,
+      strokeWidth: el.strokeWidth * pxPerMm,
     })
   );
   group.add(
@@ -286,7 +351,7 @@ function drawPillInto(group: Konva.Group, el: PillElement, w: number, h: number)
       height: h,
       text: el.text,
       fontFamily: el.fontFamily,
-      fontSize: ptToPx(el.fontSize, EXPORT_DPI),
+      fontSize: ptToPx(el.fontSize, dpi),
       fill: el.textColor,
       align: "center",
       verticalAlign: "middle",
@@ -304,7 +369,11 @@ function drawPillInto(group: Konva.Group, el: PillElement, w: number, h: number)
  */
 export async function exportDocumentToPdf(
   doc: BrochureDocument,
-  onProgress?: (completed: number, total: number) => void
+  onProgress?: (completed: number, total: number) => void,
+  /** Rasterisation resolution. Defaults to print quality; the live preview
+   *  passes `PREVIEW_DPI` so a debounced re-render stays responsive. Layout
+   *  is unaffected — only pixel density changes. */
+  dpi: number = EXPORT_DPI,
 ): Promise<Blob> {
   // Explicitly request every font family used anywhere in the document
   // BEFORE rendering any page. Previously this function only awaited
@@ -344,13 +413,37 @@ export async function exportDocumentToPdf(
     if (i > 0) {
       pdf.addPage([page.width, page.height], page.width > page.height ? "landscape" : "portrait");
     }
-    const canvas = await renderPageToImage(page);
+    const canvas = await renderPageToImage(page, dpi);
     const dataUrl = canvas.toDataURL("image/png");
     pdf.addImage(dataUrl, "PNG", 0, 0, page.width, page.height);
     onProgress?.(i + 1, doc.pages.length);
   }
 
   return pdf.output("blob");
+}
+
+/**
+ * Live-preview path for a `BrochureDocument` — returns a `blob:` object URL
+ * suitable for an `<iframe src>`.
+ *
+ * Deliberately mirrors `buildBrochurePreviewUrl`'s signature and revocation
+ * contract from `brochure-pdf.ts` so `BrochurePreviewFrame` can switch
+ * renderers without changing how it manages URLs: the CALLER revokes the
+ * previous url before requesting a new one.
+ *
+ * This is what makes the editor authoritative. Previously the preview came
+ * from the theme-driven jsPDF pipeline while the editor drew from the
+ * document — two renderers sharing no code, which is why the editor and the
+ * preview could never agree. Rendering the preview from the same document the
+ * editor edits, through the same code path the export uses, makes them
+ * identical by construction rather than by hand-maintained mirroring.
+ */
+export async function buildDocumentPreviewUrl(
+  doc: BrochureDocument,
+  dpi: number = PREVIEW_DPI,
+): Promise<string> {
+  const blob = await exportDocumentToPdf(doc, undefined, dpi);
+  return URL.createObjectURL(blob);
 }
 
 /** Triggers a browser download of the rendered PDF. Mirrors the

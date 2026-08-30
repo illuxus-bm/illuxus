@@ -18,20 +18,46 @@
  *
  * Loads a document from the chosen template seed on first open,
  * maintains an undo/redo history stack, and offers global keyboard
- * shortcuts:
- *   - Delete / Backspace  — delete the selected element
+ * shortcuts. Every one of these acts on the WHOLE selection, which may be
+ * several elements:
+ *   - Delete / Backspace  — delete the selection
+ *   - Escape              — clear the selection
  *   - Cmd/Ctrl-Z          — undo
  *   - Cmd/Ctrl-Shift-Z    — redo (also Cmd/Ctrl-Y)
- *   - Cmd/Ctrl-D          — duplicate the selected element
- *   - Arrow keys          — nudge selected element by 1 mm (10 mm with Shift)
+ *   - Cmd/Ctrl-D          — duplicate the selection
+ *   - Cmd/Ctrl-A          — select everything on the active page
+ *   - Cmd/Ctrl-] / [      — bring forward / send backward
+ *   - Cmd/Ctrl-Shift-] /[ — bring to front / send to back
+ *   - Arrow keys          — nudge the selection by 1 mm (10 mm with Shift)
  *
  * Export renders each page to a Konva canvas at print DPI and stamps
  * into a jsPDF, then triggers a browser download. Save persists the
  * document JSON via `onSaveDocument` (owned by the parent, which
  * writes to `events.page_config.brochureDocument`).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { X, Undo2, Redo2, Download, Loader2, Save, RotateCcw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  X,
+  Undo2,
+  Redo2,
+  Download,
+  Loader2,
+  Save,
+  RotateCcw,
+  BringToFront,
+  SendToBack,
+  ArrowUp,
+  ArrowDown,
+  AlignStartVertical,
+  AlignCenterVertical,
+  AlignEndVertical,
+  AlignStartHorizontal,
+  AlignCenterHorizontal,
+  AlignEndHorizontal,
+  Columns3,
+  Rows3,
+  Copy,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { preloadAllEditorFonts } from "@/lib/brochure/editor/editor-fonts";
@@ -49,15 +75,23 @@ import type { BrochureSectionId, BrochureTheme } from "@/lib/brochure/brochure-t
 import {
   addElement,
   addPage,
-  findElement,
   generateId,
   newPage,
   removePage,
-  updateElement,
   type BrochureDocument,
   type BrochureElement,
   type BrochurePage,
 } from "@/lib/brochure/editor/editor-document";
+import {
+  alignElements,
+  distributeElements,
+  duplicateElements,
+  reorderElements,
+  selectionBounds,
+  translateElements,
+  type AlignAxis,
+  type LayerOp,
+} from "@/lib/brochure/editor/editor-operations";
 import { useHistory } from "@/lib/brochure/editor/editor-history";
 import { downloadDocumentAsPdf } from "@/lib/brochure/editor/editor-pdf";
 
@@ -105,18 +139,36 @@ export default function BrochureEditorDialog({
   // silently and permanently diverging. There was no way for the
   // organizer to know why, or to fix it themselves short of a manual
   // "Reset to template" click they'd have no reason to make.
-  const isStaleSavedDocument =
+  // NOTE — this is now advisory only, and deliberately so.
+  //
+  // It used to DISCARD the organizer's saved document and silently re-seed.
+  // That behaviour existed to hide a symptom of the old dual-renderer
+  // architecture: the theme-driven jsPDF pipeline drew the preview while the
+  // editor drew from the document, so every time the mirrored seed layout was
+  // corrected, an already-saved document froze at the old layout and drifted
+  // from the preview forever.
+  //
+  // The renderers are now unified — `resolveBrochureDocument` makes the saved
+  // document the single source for the preview, the canvas AND the export — so
+  // a "stale" document is no longer inconsistent with anything. It is simply
+  // the organizer's own work, authored against an earlier template. Throwing
+  // that away without asking is strictly worse than keeping it: the drift it
+  // was protecting against cannot happen any more.
+  //
+  // The flag is kept only to OFFER a refresh via the existing, undoable
+  // "Reset to template" button.
+  const isOlderTemplateVersion =
     !!initialDocument &&
     (initialDocument.templateVersion === undefined ||
       initialDocument.templateVersion < EDITOR_SEED_VERSION);
 
   // Initial document is computed once when the dialog first opens.
   // Re-opening resets to a fresh copy so switching templates works.
-  // A stale saved document (see above) is treated the same as "no
-  // saved document" — always re-seeded from current code rather than
-  // trusted verbatim.
   const initial = useMemo<BrochureDocument | null>(() => {
-    if (initialDocument && !isStaleSavedDocument) return initialDocument;
+    // A saved document ALWAYS wins now, regardless of template version. The
+    // previous `&& !isStaleSavedDocument` guard silently replaced the
+    // organizer's work on open; see the comment on `isOlderTemplateVersion`.
+    if (initialDocument) return initialDocument;
     if (!open) return null;
     return seedBrochureDocument(seed, theme, resolvedSectionIds);
     // Only re-seed when the theme, section list, or seed shape changes;
@@ -131,23 +183,16 @@ export default function BrochureEditorDialog({
     seed.logoUrl,
     seed.organizerLogoUrl,
     initialDocument,
-    isStaleSavedDocument,
   ]);
 
-  // Surface the auto-reseed to the organizer once per dialog open —
-  // silently discarding a previously-saved layout without any
-  // explanation would be confusing (and indistinguishable from a bug)
-  // if they'd made custom edits on top of the old seed they wanted to
-  // keep. They can still Undo back to nothing (there's nothing to undo
-  // TO here since this IS the initial state) — practically, this is a
-  // one-time notice: Save afterwards to adopt the corrected layout, or
-  // manually rebuild anything from their old version they want to
-  // preserve.
+  // Non-destructive notice. The saved document is loaded as-is; this only
+  // mentions that a newer starting template exists and points at the
+  // (undoable) "Reset to template" button. Nothing is discarded.
   useEffect(() => {
-    if (open && isStaleSavedDocument) {
-      toast.info("Brochure layout updated", {
+    if (open && isOlderTemplateVersion) {
+      toast.info("A newer starting template is available", {
         description:
-          "This brochure was last edited with an older layout. We've refreshed it to match the current live preview — Save to keep it.",
+          "Your saved layout has been kept exactly as you left it. Use \"Reset to template\" if you'd rather start from the current design — it's undoable.",
       });
     }
     // Fire once per dialog open, not on every dep change within an
@@ -161,9 +206,26 @@ export default function BrochureEditorDialog({
   const [activePageId, setActivePageId] = useState<string | null>(
     initial?.pages[0]?.id ?? null
   );
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  /**
+   * Multi-selection. A "card" in the seeded templates is several loose
+   * primitives, so grabbing a set of them is the only way to move or resize a
+   * card as a unit without introducing a nested `group` element kind into the
+   * document model (which would have to be threaded through the canvas
+   * renderer, the PDF exporter, the properties panel and every seed builder).
+   */
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  /**
+   * The properties panel edits ONE element's kind-specific fields, so it stays
+   * single-selection. With 2+ selected it shows its page-level empty state,
+   * which is the honest thing to show — there is no meaningful "font size" for
+   * a mixed selection of a rect and two text runs.
+   */
+  const selectedElementId = selectedElementIds.length === 1 ? selectedElementIds[0] : null;
+  const hasSelection = selectedElementIds.length > 0;
+  const hasMultiSelection = selectedElementIds.length > 1;
 
   // On template swap (or first mount), reset the history and select
   // the first page.
@@ -172,7 +234,7 @@ export default function BrochureEditorDialog({
     if (initial) {
       history.reset(initial);
       setActivePageId(initial.pages[0]?.id ?? null);
-      setSelectedElementId(null);
+      setSelectedElementIds([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial, open]);
@@ -200,52 +262,81 @@ export default function BrochureEditorDialog({
       // can select it after commit.
       const page = next.pages.find((p) => p.id === activePageId);
       const last = page?.elements[page.elements.length - 1];
-      if (last) setSelectedElementId(last.id);
+      if (last) setSelectedElementIds([last.id]);
     },
     [doc, activePageId, setDoc]
   );
 
+  // Selects the copies rather than leaving the originals selected, so
+  // duplicate-then-drag works without an intermediate click.
   const handleDuplicateSelected = useCallback(() => {
-    if (!doc || !activePageId || !selectedElementId) return;
-    const el = findElement(doc, activePageId, selectedElementId);
-    if (!el) return;
-    // Clone with a new id and offset the position slightly so the
-    // duplicate is visually distinct.
-    const clone: BrochureElement = {
-      ...el,
-      id: generateId(el.kind),
-      x: el.x + 4,
-      y: el.y + 4,
-    } as BrochureElement;
-    handleAddElement(clone);
-  }, [doc, activePageId, selectedElementId, handleAddElement]);
+    if (!doc || !activePageId || !hasSelection) return;
+    const { doc: next, newIds } = duplicateElements(doc, activePageId, selectedElementIds);
+    if (newIds.length === 0) return;
+    setDoc(next);
+    setSelectedElementIds(newIds);
+  }, [doc, activePageId, hasSelection, selectedElementIds, setDoc]);
 
   const handleDeleteSelected = useCallback(() => {
-    if (!doc || !activePageId || !selectedElementId) return;
+    if (!doc || !activePageId || !hasSelection) return;
+    const doomed = new Set(selectedElementIds);
     setDoc({
       ...doc,
       pages: doc.pages.map((p) =>
         p.id === activePageId
-          ? { ...p, elements: p.elements.filter((el) => el.id !== selectedElementId) }
+          ? { ...p, elements: p.elements.filter((el) => !doomed.has(el.id)) }
           : p
       ),
       updatedAt: new Date().toISOString(),
     });
-    setSelectedElementId(null);
-  }, [doc, activePageId, selectedElementId, setDoc]);
+    setSelectedElementIds([]);
+  }, [doc, activePageId, hasSelection, selectedElementIds, setDoc]);
 
   const nudgeSelected = useCallback(
     (dx: number, dy: number) => {
-      if (!doc || !activePageId || !selectedElementId) return;
-      const el = findElement(doc, activePageId, selectedElementId);
-      if (!el) return;
-      setDoc(updateElement(doc, activePageId, selectedElementId, {
-        x: el.x + dx,
-        y: el.y + dy,
-      }));
+      if (!doc || !activePageId || !hasSelection) return;
+      setDoc(translateElements(doc, activePageId, selectedElementIds, dx, dy));
     },
-    [doc, activePageId, selectedElementId, setDoc]
+    [doc, activePageId, hasSelection, selectedElementIds, setDoc]
   );
+
+  // ─── Layer / align / distribute ─────────────────────────────────────────
+  //
+  // The document model always carried `zIndex`, but there was no UI to change
+  // it: an element added later was permanently in front of one added earlier,
+  // which makes a template uneditable in practice (you could not put a caption
+  // over an image, or push a background panel behind text).
+
+  const handleReorder = useCallback(
+    (op: LayerOp) => {
+      if (!doc || !activePageId || !hasSelection) return;
+      setDoc(reorderElements(doc, activePageId, selectedElementIds, op));
+    },
+    [doc, activePageId, hasSelection, selectedElementIds, setDoc]
+  );
+
+  const handleAlign = useCallback(
+    (axis: AlignAxis) => {
+      if (!doc || !activePageId || !hasSelection) return;
+      setDoc(alignElements(doc, activePageId, selectedElementIds, axis));
+    },
+    [doc, activePageId, hasSelection, selectedElementIds, setDoc]
+  );
+
+  const handleDistribute = useCallback(
+    (direction: "horizontal" | "vertical") => {
+      if (!doc || !activePageId) return;
+      setDoc(distributeElements(doc, activePageId, selectedElementIds, direction));
+    },
+    [doc, activePageId, selectedElementIds, setDoc]
+  );
+
+  const handleSelectAllOnPage = useCallback(() => {
+    if (!doc || !activePageId) return;
+    const page = doc.pages.find((p) => p.id === activePageId);
+    if (!page) return;
+    setSelectedElementIds(page.elements.map((el) => el.id));
+  }, [doc, activePageId]);
 
   // ─── Page mutations ─────────────────────────────────────────────────────
   const handleAddPage = useCallback(() => {
@@ -254,7 +345,7 @@ export default function BrochureEditorDialog({
     const next = addPage(doc, page);
     setDoc(next);
     setActivePageId(page.id);
-    setSelectedElementId(null);
+    setSelectedElementIds([]);
   }, [doc, setDoc]);
 
   const handleDuplicatePage = useCallback(
@@ -274,7 +365,7 @@ export default function BrochureEditorDialog({
       };
       setDoc(addPage(doc, cloned));
       setActivePageId(cloned.id);
-      setSelectedElementId(null);
+      setSelectedElementIds([]);
     },
     [doc, setDoc]
   );
@@ -289,7 +380,7 @@ export default function BrochureEditorDialog({
       if (pageId === activePageId) {
         setActivePageId(next.pages[0]?.id ?? null);
       }
-      setSelectedElementId(null);
+      setSelectedElementIds([]);
     },
     [doc, activePageId, setDoc]
   );
@@ -318,13 +409,40 @@ export default function BrochureEditorDialog({
       } else if (isMeta && e.key.toLowerCase() === "d") {
         e.preventDefault();
         handleDuplicateSelected();
+      } else if (isMeta && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        handleSelectAllOnPage();
+        // Matched on `e.code`, not `e.key`. `e.key` reports the SHIFTED
+        // character, so `Cmd+Shift+]` arrives as "}" — comparing against "]"
+        // never matched, nothing called preventDefault, and the browser's
+        // next-tab shortcut fired instead, navigating away from the editor.
+      } else if (isMeta && e.shiftKey && e.code === "BracketRight") {
+        e.preventDefault();
+        handleReorder("front");
+      } else if (isMeta && e.shiftKey && e.code === "BracketLeft") {
+        e.preventDefault();
+        handleReorder("back");
+      } else if (isMeta && e.code === "BracketRight") {
+        e.preventDefault();
+        handleReorder("forward");
+      } else if (isMeta && e.code === "BracketLeft") {
+        e.preventDefault();
+        handleReorder("backward");
+      } else if (e.key === "Escape") {
+        // Only clear the selection; the Dialog's own handler closes the editor
+        // when there's nothing selected to clear.
+        if (hasSelection) {
+          e.preventDefault();
+          e.stopPropagation();
+          setSelectedElementIds([]);
+        }
       } else if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedElementId) {
+        if (hasSelection) {
           e.preventDefault();
           handleDeleteSelected();
         }
       } else if (e.key.startsWith("Arrow")) {
-        if (!selectedElementId) return;
+        if (!hasSelection) return;
         e.preventDefault();
         const step = e.shiftKey ? 10 : 1;
         if (e.key === "ArrowLeft") nudgeSelected(-step, 0);
@@ -335,7 +453,16 @@ export default function BrochureEditorDialog({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, history, selectedElementId, handleDuplicateSelected, handleDeleteSelected, nudgeSelected]);
+  }, [
+    open,
+    history,
+    hasSelection,
+    handleDuplicateSelected,
+    handleDeleteSelected,
+    handleSelectAllOnPage,
+    handleReorder,
+    nudgeSelected,
+  ]);
 
   // ─── Export / save ──────────────────────────────────────────────────────
   const handleExport = useCallback(async () => {
@@ -394,7 +521,7 @@ export default function BrochureEditorDialog({
     const fresh = seedBrochureDocument(seed, theme, resolvedSectionIds);
     history.set(fresh);
     setActivePageId(fresh.pages[0]?.id ?? null);
-    setSelectedElementId(null);
+    setSelectedElementIds([]);
     toast.success("Reset to template", {
       description: "Save to keep the fresh layout, or Undo to restore your edits.",
     });
@@ -404,6 +531,19 @@ export default function BrochureEditorDialog({
     () => (doc && activePageId ? doc.pages.find((p) => p.id === activePageId) : null),
     [doc, activePageId]
   );
+
+  /**
+   * Size of the current selection in millimetres.
+   *
+   * Worth surfacing because the canvas is scaled to fit the viewport, so
+   * on-screen size tells the organizer nothing about how big something will be
+   * on the printed page — which is exactly what they need when resizing an
+   * image or matching two cards.
+   */
+  const selectionSize = useMemo(() => {
+    if (!activePage || selectedElementIds.length === 0) return null;
+    return selectionBounds(activePage, selectedElementIds);
+  }, [activePage, selectedElementIds]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -477,6 +617,121 @@ export default function BrochureEditorDialog({
           </div>
         </div>
 
+        {/* Object toolbar — layer order, alignment, distribution.
+            Its own row rather than crammed into the title bar: these are the
+            operations an organizer reaches for continuously while laying out a
+            page, so they need to be visible at all times rather than hidden
+            behind a menu. */}
+        {doc && activePageId && (
+          <div className="flex items-center gap-1 px-4 py-1.5 border-b border-border shrink-0 bg-muted/30 overflow-x-auto">
+            <span className="text-[11px] text-muted-foreground mr-1 shrink-0">
+              {selectedElementIds.length === 0
+                ? "Nothing selected"
+                : selectedElementIds.length === 1
+                  ? "1 selected"
+                  : `${selectedElementIds.length} selected`}
+            </span>
+            {selectionSize && (
+              <span className="text-[11px] text-muted-foreground/80 tabular-nums shrink-0">
+                {Math.round(selectionSize.width)} × {Math.round(selectionSize.height)} mm
+              </span>
+            )}
+
+            <ToolbarDivider />
+            <ToolbarButton
+              icon={<BringToFront className="h-3.5 w-3.5" />}
+              label="Bring to front (Ctrl+Shift+])"
+              disabled={!hasSelection}
+              onClick={() => handleReorder("front")}
+            />
+            <ToolbarButton
+              icon={<ArrowUp className="h-3.5 w-3.5" />}
+              label="Bring forward (Ctrl+])"
+              disabled={!hasSelection}
+              onClick={() => handleReorder("forward")}
+            />
+            <ToolbarButton
+              icon={<ArrowDown className="h-3.5 w-3.5" />}
+              label="Send backward (Ctrl+[)"
+              disabled={!hasSelection}
+              onClick={() => handleReorder("backward")}
+            />
+            <ToolbarButton
+              icon={<SendToBack className="h-3.5 w-3.5" />}
+              label="Send to back (Ctrl+Shift+[)"
+              disabled={!hasSelection}
+              onClick={() => handleReorder("back")}
+            />
+
+            <ToolbarDivider />
+            {/* With one element selected these align to the PAGE; with 2+ they
+                align to the selection's bounding box. */}
+            <ToolbarButton
+              icon={<AlignStartVertical className="h-3.5 w-3.5" />}
+              label={hasMultiSelection ? "Align left edges" : "Align to page left"}
+              disabled={!hasSelection}
+              onClick={() => handleAlign("left")}
+            />
+            <ToolbarButton
+              icon={<AlignCenterVertical className="h-3.5 w-3.5" />}
+              label={hasMultiSelection ? "Centre horizontally" : "Centre on page"}
+              disabled={!hasSelection}
+              onClick={() => handleAlign("hcenter")}
+            />
+            <ToolbarButton
+              icon={<AlignEndVertical className="h-3.5 w-3.5" />}
+              label={hasMultiSelection ? "Align right edges" : "Align to page right"}
+              disabled={!hasSelection}
+              onClick={() => handleAlign("right")}
+            />
+            <ToolbarButton
+              icon={<AlignStartHorizontal className="h-3.5 w-3.5" />}
+              label={hasMultiSelection ? "Align top edges" : "Align to page top"}
+              disabled={!hasSelection}
+              onClick={() => handleAlign("top")}
+            />
+            <ToolbarButton
+              icon={<AlignCenterHorizontal className="h-3.5 w-3.5" />}
+              label={hasMultiSelection ? "Centre vertically" : "Centre on page"}
+              disabled={!hasSelection}
+              onClick={() => handleAlign("vcenter")}
+            />
+            <ToolbarButton
+              icon={<AlignEndHorizontal className="h-3.5 w-3.5" />}
+              label={hasMultiSelection ? "Align bottom edges" : "Align to page bottom"}
+              disabled={!hasSelection}
+              onClick={() => handleAlign("bottom")}
+            />
+
+            <ToolbarDivider />
+            {/* Needs 3+ — with two elements there is no interior gap. */}
+            <ToolbarButton
+              icon={<Columns3 className="h-3.5 w-3.5" />}
+              label="Distribute horizontally (equal gaps, needs 3+)"
+              disabled={selectedElementIds.length < 3}
+              onClick={() => handleDistribute("horizontal")}
+            />
+            <ToolbarButton
+              icon={<Rows3 className="h-3.5 w-3.5" />}
+              label="Distribute vertically (equal gaps, needs 3+)"
+              disabled={selectedElementIds.length < 3}
+              onClick={() => handleDistribute("vertical")}
+            />
+
+            <ToolbarDivider />
+            <ToolbarButton
+              icon={<Copy className="h-3.5 w-3.5" />}
+              label="Duplicate (Ctrl+D)"
+              disabled={!hasSelection}
+              onClick={handleDuplicateSelected}
+            />
+
+            <span className="text-[11px] text-muted-foreground ml-auto pl-3 shrink-0">
+              Shift-click or drag on empty space to select several
+            </span>
+          </div>
+        )}
+
         {/* Main workspace */}
         {doc && activePageId && activePage ? (
           <>
@@ -492,8 +747,8 @@ export default function BrochureEditorDialog({
                   document={doc}
                   onChange={setDoc}
                   activePageId={activePageId}
-                  selectedElementId={selectedElementId}
-                  onSelect={setSelectedElementId}
+                  selectedElementIds={selectedElementIds}
+                  onSelect={setSelectedElementIds}
                 />
               </div>
               <BrochureEditorProperties
@@ -501,7 +756,7 @@ export default function BrochureEditorDialog({
                 activePageId={activePageId}
                 selectedElementId={selectedElementId}
                 onChange={setDoc}
-                onSelect={setSelectedElementId}
+                onSelect={(id) => setSelectedElementIds(id ? [id] : [])}
               />
             </div>
             <BrochureEditorPages
@@ -509,7 +764,7 @@ export default function BrochureEditorDialog({
               activePageId={activePageId}
               onSelectPage={(id) => {
                 setActivePageId(id);
-                setSelectedElementId(null);
+                setSelectedElementIds([]);
               }}
               onAddPage={handleAddPage}
               onDuplicatePage={handleDuplicatePage}
@@ -524,4 +779,43 @@ export default function BrochureEditorDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+// ─── Object toolbar primitives ─────────────────────────────────────────────
+
+/**
+ * Icon-only toolbar button.
+ *
+ * `label` drives both the native tooltip and `aria-label` — icon-only controls
+ * are unusable with a screen reader otherwise, and this row is entirely
+ * icon-only because there are fourteen of them.
+ */
+function ToolbarButton({
+  icon,
+  label,
+  disabled,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      onClick={onClick}
+      disabled={disabled}
+      className="h-7 w-7 p-0 shrink-0"
+      title={label}
+      aria-label={label}
+    >
+      {icon}
+    </Button>
+  );
+}
+
+function ToolbarDivider() {
+  return <div className="w-px h-5 bg-border mx-1 shrink-0" aria-hidden="true" />;
 }
