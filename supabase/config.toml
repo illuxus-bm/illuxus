@@ -49,3 +49,9 @@ verify_jwt = true
 # during event creation — emails the vendor's owner(s) via SMTP.
 [functions.notify-venue-selection]
 verify_jwt = true
+
+# Fires from the trg_event_venue_selections_notify Postgres trigger (via
+# pg_net) whenever a vendor accepts or declines a venue request. Emails the
+# organizer with the outcome and a deep link back to the event dashboard.
+[functions.notify-organizer-venue-response]
+verify_jwt = true
