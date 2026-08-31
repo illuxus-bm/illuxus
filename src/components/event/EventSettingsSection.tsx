@@ -400,27 +400,30 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
             <Input value={form.title} onChange={(e) => update("title", e.target.value)} />
           </div>
           {/* Sits under Title because that's where an organizer looks for
-              "stop showing this". The usual reason to switch it off is that
-              the cover banner artwork already carries the event name, making
-              the heading below it read as a duplicate. */}
+              "stop showing this". Phrased as the action ("Hide") rather than
+              the state ("Show"), so switching it ON does the thing the label
+              says. The stored field stays positive (`showEventTitle`) — a
+              negative boolean in storage invites `!hideEventTitle`
+              double-negatives at every read site. The inversion lives here, at
+              the single point of presentation. */}
           <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-background px-3 py-2.5">
             <div className="min-w-0">
               <Label
-                htmlFor="settings-show-event-title"
+                htmlFor="settings-hide-event-title"
                 className="text-[12px] cursor-pointer"
               >
-                Show title on the public page
+                Hide title on the public page
               </Label>
               <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
-                Turn off if your banner already shows the name. The title is
+                Turn on if your banner already shows the name. The title is
                 still used for search, sharing and listing cards.
               </p>
             </div>
             <Switch
-              id="settings-show-event-title"
-              checked={form.show_event_title}
-              onCheckedChange={(v) => update("show_event_title", v)}
-              aria-label="Show the event title heading on the public event page"
+              id="settings-hide-event-title"
+              checked={!form.show_event_title}
+              onCheckedChange={(hide) => update("show_event_title", !hide)}
+              aria-label="Hide the event title heading on the public event page"
               className="mt-0.5 shrink-0"
             />
           </div>

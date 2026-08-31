@@ -432,31 +432,37 @@ function SectionListAside({
           </div>
         </button>
 
-        {/* Show/hide the big event-title heading.
+        {/* Hide the big event-title heading.
             Deliberately a top-level control rather than one more field inside
             the collapsed "Theme & SEO" block below: it sits directly under
-            Banner & Cover because the reason to turn it off is almost always
+            Banner & Cover because the reason to turn it on is almost always
             "my banner artwork already shows the event name". Buried in the
-            collapsed section it was, in practice, undiscoverable. */}
+            collapsed section it was, in practice, undiscoverable.
+
+            Phrased as the action, so switching it ON hides the title. The
+            stored field stays positive (`showEventTitle`); the inversion is
+            confined to this one presentation point rather than pushed into
+            storage, where a negative boolean would produce
+            `!hideEventTitle` reads everywhere. */}
         <div className="rounded-lg border border-border bg-background px-3 py-2">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <Label
-                htmlFor="show-event-title"
+                htmlFor="hide-event-title"
                 className="text-[12px] font-semibold cursor-pointer"
               >
-                Show event title
+                Hide event title
               </Label>
               <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
-                Turn off if your banner already shows the name. Search, sharing
+                Turn on if your banner already shows the name. Search, sharing
                 and listings are unaffected.
               </p>
             </div>
             <Switch
-              id="show-event-title"
-              checked={theme.showEventTitle !== false}
-              onCheckedChange={(v) => setTheme({ showEventTitle: v })}
-              aria-label="Show the event title heading on the public page"
+              id="hide-event-title"
+              checked={theme.showEventTitle === false}
+              onCheckedChange={(hide) => setTheme({ showEventTitle: !hide })}
+              aria-label="Hide the event title heading on the public page"
               className="mt-0.5 shrink-0"
             />
           </div>
