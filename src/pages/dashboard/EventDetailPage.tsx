@@ -8,7 +8,7 @@ import {
   Mail, BarChart3, CalendarCheck, Search, Ticket, Presentation,
   UserCheck, UsersRound, Award, Megaphone, Globe, ArrowLeft, ExternalLink,
   Link2, Check, X, Pencil, Copy, Settings, Radio, ChevronDown, RefreshCw, Users2,
-  ImagePlus
+  ImagePlus, Building2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,7 @@ import RegistrationsSection from "@/components/event/RegistrationsSection";
 import EventCommunicate from "@/components/event/EventCommunicate";
 import ReportsSection from "@/components/event/ReportsSection";
 import EventSettingsSection from "@/components/event/EventSettingsSection";
+import EventVenueSection from "@/components/event/EventVenueSection";
 import { checkRouteParam, eventPublicPath, eventPublicUrl } from "@/lib/event-routes";
 import { useAuth } from "@/contexts/AuthContext";
 import { isAuthorizedForEventCreatives } from "@/lib/creatives/creative-storage";
@@ -56,6 +57,7 @@ type Event = Tables<"events">;
 const sidebarNav = [
   { label: "Overview",      icon: LayoutDashboard, key: "dashboard"     },
   { label: "Settings",      icon: Settings,        key: "settings"      },
+  { label: "Venue",         icon: Building2,       key: "venue"         },
   { label: "Webinar",       icon: Radio,           key: "broadcast"     },
   { label: "Speakers",      icon: ClipboardList,   key: "manage"        },
   { label: "Registrations", icon: Users,           key: "registrations" },
@@ -779,6 +781,7 @@ const EventDetailPage = () => {
             {activeSection === "agenda" && <SessionManagement eventId={event.id} eventDate={event.date} eventEndDate={event.end_date} publicUrl={eventPublicUrl(event, org?.slug)} />}
             {activeSection === "exhibitors" && <SponsorManagement eventId={event.id} />}
             {activeSection === "design" && <EventPageForm eventId={event.id} />}
+            {activeSection === "venue" && <EventVenueSection eventId={event.id} />}
             {activeSection === "settings" && (
               <EventSettingsSection
                 eventId={event.id}

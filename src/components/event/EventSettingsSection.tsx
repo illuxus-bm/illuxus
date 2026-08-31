@@ -432,7 +432,19 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
 
       {/* Location */}
       <section className="bg-card border border-border rounded-lg p-4 space-y-4">
-        <h3 className="text-[13px] font-semibold">Location</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-[13px] font-semibold">Location</h3>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 text-[11px]"
+            onClick={() => navigate(`?tab=venue`)}
+            title="Open the Venue tab to book from the vendor marketplace"
+          >
+            Browse vendor marketplace
+          </Button>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <Label className="text-[12px]">Venue</Label>
@@ -443,6 +455,12 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
             <Input value={form.location} onChange={(e) => update("location", e.target.value)} />
           </div>
         </div>
+        <p className="text-[11px] text-muted-foreground">
+          Prefer a booking with escrow, contracts, and vendor response tracking?
+          Use the <span className="font-medium text-foreground">Venue</span> tab
+          to pick from the vendor marketplace. The free-text fields here are
+          used for the public event page and don't require a marketplace pick.
+        </p>
       </section>
 
       {/* Tickets & registration */}
