@@ -503,7 +503,29 @@ function SectionListAside({
               </div>
             </div>
 
-
+            {/* Show/hide the big title heading. Useful when the cover banner
+                artwork already spells out the event name. */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <Label
+                  htmlFor="show-event-title"
+                  className="text-[11px] text-muted-foreground cursor-pointer"
+                >
+                  Show event title
+                </Label>
+                <p className="text-[9px] text-muted-foreground/60 mt-0.5 leading-snug">
+                  Turn off if your banner already shows the name. Search, sharing
+                  and listings are unaffected.
+                </p>
+              </div>
+              <Switch
+                id="show-event-title"
+                checked={theme.showEventTitle !== false}
+                onCheckedChange={(v) => setTheme({ showEventTitle: v })}
+                aria-label="Show the event title heading on the public page"
+                className="mt-0.5 shrink-0"
+              />
+            </div>
 
             <button
               onClick={() => update(c => ({ ...c, theme: { ...DEFAULT_THEME } }))}

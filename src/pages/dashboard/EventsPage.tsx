@@ -46,6 +46,19 @@ const EventsPage = () => {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
+  /**
+   * In-flight guard for the create/update submit.
+   *
+   * Without it, two clicks on Create fire two inserts, and BOTH commit: the
+   * `events_set_slug` DB trigger silently uniquifies the slug (appending `-1`),
+   * so the unique index on `(org_id, slug)` never rejects the second row. There
+   * is no unique constraint on title, so the organizer ends up with two
+   * published copies of the same event and no error to tell them. That is the
+   * cause of duplicate events appearing on public listings.
+   *
+   * `EventQuickCreatePage` already guards its submit this way.
+   */
+  const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [timeFilter, setTimeFilter] = useState("upcoming");
 
@@ -122,6 +135,10 @@ const EventsPage = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !org?.id) return;
+    // Second click while the first insert is still open would commit a second
+    // row — see `submitting`'s declaration for why the DB won't stop it.
+    if (submitting) return;
+    setSubmitting(true);
 
     const eventData = {
       title,
@@ -143,31 +160,42 @@ const EventsPage = () => {
       community_category: createCommunity ? communityCategory : null,
     };
 
-    if (editingEvent) {
-      const { error } = await supabase.from("events").update(eventData as never).eq("id", editingEvent.id);
-      if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-      else toast({ title: "Event updated successfully" });
-      resetForm();
-      fetchEvents();
-    } else {
-      // Try inserting with the chosen slug. If there's a slug collision (23505),
-      // append a short random suffix and retry once.
-      let result = await supabase.from("events").insert(eventData as never).select("id, slug").single();
-      if (result.error?.code === "23505") {
-        const suffix = Math.random().toString(36).slice(2, 6);
-        const retryData = { ...eventData, slug: `${eventData.slug}-${suffix}` };
-        result = await supabase.from("events").insert(retryData as never).select("id, slug").single();
+    try {
+      if (editingEvent) {
+        const { error } = await supabase.from("events").update(eventData as never).eq("id", editingEvent.id);
+        if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+        else toast({ title: "Event updated successfully" });
+        resetForm();
+        fetchEvents();
+      } else {
+        // Slug collisions are normally resolved server-side by the
+        // `events_set_slug` trigger, which uniquifies before the unique index
+        // is checked. A 23505 therefore only reaches us in a genuine race —
+        // two concurrent inserts both passing the trigger's existence check,
+        // with the index rejecting the loser. Retrying once is correct there
+        // because that insert really did fail.
+        let result = await supabase.from("events").insert(eventData as never).select("id, slug").single();
+        if (result.error?.code === "23505") {
+          const suffix = Math.random().toString(36).slice(2, 6);
+          const retryData = { ...eventData, slug: `${eventData.slug}-${suffix}` };
+          result = await supabase.from("events").insert(retryData as never).select("id, slug").single();
+        }
+        if (result.error) {
+          toast({ title: "Error", description: result.error.message, variant: "destructive" });
+          return;
+        }
+        toast({ title: "Event created successfully" });
+        resetForm();
+        fetchEvents();
+        // Navigate directly to the new event detail page
+        const target = result.data?.slug || result.data?.id;
+        if (target) navigate(`/dashboard/events/${target}`);
       }
-      if (result.error) {
-        toast({ title: "Error", description: result.error.message, variant: "destructive" });
-        return;
-      }
-      toast({ title: "Event created successfully" });
-      resetForm();
-      fetchEvents();
-      // Navigate directly to the new event detail page
-      const target = result.data?.slug || result.data?.id;
-      if (target) navigate(`/dashboard/events/${target}`);
+    } finally {
+      // `finally` rather than a call per exit path: the early `return` on
+      // insert error would otherwise leave the button disabled forever,
+      // stranding the organizer on a form they can't resubmit.
+      setSubmitting(false);
     }
   };
 
@@ -414,10 +442,12 @@ const EventsPage = () => {
                 </div>
               </div>
               <div className="md:col-span-2 flex gap-3">
-                <Button type="submit" className="hero-gradient text-primary-foreground font-semibold">
-                  {editingEvent ? "Update Event" : "Create Event"}
+                <Button type="submit" disabled={submitting} className="hero-gradient text-primary-foreground font-semibold">
+                  {submitting
+                    ? (editingEvent ? "Updating…" : "Creating…")
+                    : (editingEvent ? "Update Event" : "Create Event")}
                 </Button>
-                <Button type="button" variant="outline" onClick={resetForm}>Cancel</Button>
+                <Button type="button" variant="outline" disabled={submitting} onClick={resetForm}>Cancel</Button>
               </div>
             </form>
           </motion.div>

@@ -17,7 +17,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useTheme } from "@/contexts/ThemeContext";
 import { SiteContainer } from "@/components/layout/SiteContainer";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
-import { ArrowRight, CalendarDays, ChevronDown, ClipboardList, Command, Compass, LogOut, Mic, Building2, Search, Settings as SettingsIcon, Shield, Ticket, Users2 } from "lucide-react";
+import { ArrowRight, CalendarDays, ChevronDown, ClipboardList, Compass, LogOut, Mic, Building2, Settings as SettingsIcon, Shield, Ticket, Users2 } from "lucide-react";
 
 /**
  * Centralized site header used across every public segment
@@ -49,7 +49,6 @@ export default function SiteHeader({
   transparent?: boolean;
   /**
    * When true, the header renders the marketing landing variant:
-   *  - Quick-search (⌘K) pill on the left of the actions
    *  - "Start for free" CTA button as the rightmost action (when signed out)
    *  - Slightly lifted glass surface tuned for the dark luminous canvas
    * Other surfaces (dashboard, themed event pages) pass nothing and get the
@@ -140,29 +139,6 @@ export default function SiteHeader({
         </a>
 
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {landingMode && (
-            <button
-              type="button"
-              onClick={() => {
-                const ev = new KeyboardEvent("keydown", {
-                  key: "k",
-                  code: "KeyK",
-                  metaKey: true,
-                  ctrlKey: true,
-                  bubbles: true,
-                });
-                window.dispatchEvent(ev);
-              }}
-              className="hidden h-8 items-center gap-2 rounded-full border border-gray-200 dark:border-white/10 bg-gray-100/60 dark:bg-white/[0.04] px-3 text-[12px] text-gray-500 dark:text-white/55 transition-colors hover:border-gray-300 dark:hover:border-white/20 hover:text-gray-700 dark:hover:text-white/85 sm:inline-flex"
-              aria-label="Open quick search"
-            >
-              <Search className="h-3 w-3" />
-              <span>Quick search</span>
-              <span className="ml-2 inline-flex items-center gap-0.5 rounded-md border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/[0.04] px-1 py-0.5 text-[10px] font-medium text-gray-400 dark:text-white/55">
-                <Command className="h-2.5 w-2.5" />K
-              </span>
-            </button>
-          )}
           <Link
             to="/discover"
             className={

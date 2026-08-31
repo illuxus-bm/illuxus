@@ -132,16 +132,22 @@ export default function EventPagePreview({
       {/* ───────── Title block (below banner, on page bg) ───────── */}
       {showHero && (
       <section className={`mx-auto w-full max-w-[1400px] px-4 sm:px-8 lg:px-20 ${hasImage ? "pt-8 sm:pt-12 lg:pt-16" : "pt-6 sm:pt-8 lg:pt-10"}`}>
-        <h1
-          className="font-bold tracking-[-0.02em] leading-[1.05] pb-1 break-words text-[clamp(2rem,8vw,7rem)]"
-          style={{
-            fontFamily: DISPLAY,
-            color: text,
-            zoom: (() => { const s = config.theme.titleScale ?? config.theme.fontScale; return s && s !== 1 ? s : undefined; })(),
-          }}
-        >
-          {event.title}
-        </h1>
+        {/* The heading is suppressed when the organizer's banner artwork already
+            carries the event name, which would otherwise read as a duplicate.
+            Only this heading is hidden — the title still drives the tab, share
+            metadata and every listing card. */}
+        {config.theme.showEventTitle !== false && (
+          <h1
+            className="font-bold tracking-[-0.02em] leading-[1.05] pb-1 break-words text-[clamp(2rem,8vw,7rem)]"
+            style={{
+              fontFamily: DISPLAY,
+              color: text,
+              zoom: (() => { const s = config.theme.titleScale ?? config.theme.fontScale; return s && s !== 1 ? s : undefined; })(),
+            }}
+          >
+            {event.title}
+          </h1>
+        )}
         {/* Organised by line */}
         {org && (() => {
           const orgHandle = org.subdomain || org.slug;

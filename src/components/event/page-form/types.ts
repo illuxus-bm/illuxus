@@ -34,6 +34,23 @@ export interface ThemeConfig {
   bodyScale?: number;
   /** @deprecated use titleScale instead — kept for backward compat with old saves */
   fontScale?: number;
+  /**
+   * Whether the big event-title heading renders above the page body.
+   *
+   * Exists because a cover banner very often already contains the event name
+   * set in the organizer's own artwork, so rendering the title again below it
+   * reads as a duplicate. Turning this off keeps the banner as the only place
+   * the name appears.
+   *
+   * Only the heading is affected. The event's `title` still drives the browser
+   * tab, share/OG metadata, search results and every listing card, so hiding it
+   * here is a purely visual choice on this one surface and never makes the
+   * event harder to find.
+   *
+   * Optional and defaulting to shown, so every config saved before this field
+   * existed keeps its current appearance.
+   */
+  showEventTitle?: boolean;
 }
 
 export interface SeoConfig {
@@ -475,6 +492,9 @@ export const DEFAULT_THEME: ThemeConfig = {
   // render at the correct midpoint position rather than falling back to 0.
   titleScale: 1.0,
   bodyScale:  1.0,
+  // Shown by default — hiding the heading is an opt-in for organizers whose
+  // banner artwork already carries the event name.
+  showEventTitle: true,
 };
 
 function emptyDataFor(id: SectionId): SectionData["data"] {
@@ -567,6 +587,11 @@ export function normalizeConfig(raw: unknown): EventPageConfig {
       // stored 0.75 (= 12px) as a result of a previous buggy slider default.
       titleScale: Math.min(2, Math.max(0.75, (r.theme?.titleScale ?? r.theme?.fontScale ?? fresh.theme.titleScale ?? 1))),
       bodyScale:  Math.min(1.375, Math.max(0.625, (r.theme?.bodyScale ?? fresh.theme.bodyScale ?? 1))),
+      // Coerced explicitly rather than left to the spread above: a stored
+      // `null` would spread over the default and read as falsy, silently
+      // hiding the title on a config that never opted out. Only an explicit
+      // `false` hides it.
+      showEventTitle: r.theme?.showEventTitle === false ? false : true,
     },
     seo:   r.seo || {},
     sections: merged,
