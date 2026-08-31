@@ -36,6 +36,15 @@ interface EventForm {
   create_community: boolean;
   community_category: string;
   video_provider: "default" | "livekit" | "agora";
+  /**
+   * Whether the big title heading renders on the public event page.
+   *
+   * Lives on `page_config.theme.showEventTitle`, not on an `events` column —
+   * it's a presentation choice, and the page builder owns presentation. It is
+   * surfaced here anyway because this is where the title itself is edited, so
+   * it's where an organizer looks for "stop showing this".
+   */
+  show_event_title: boolean;
 }
 
 function toLocalInput(v: string | null): string {
@@ -59,6 +68,17 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
   // React state that would trigger effects.
   const initialStatusRef = useRef<string | null>(null);
 
+  /**
+   * The event's `page_config` as loaded, so the title toggle can be written
+   * back without disturbing anything else the page builder stores there.
+   *
+   * Held in a ref rather than form state because this component never edits
+   * the rest of the config — it only patches one theme field on save. Keeping
+   * the untouched remainder verbatim is what stops Settings from clobbering
+   * sections, SEO or creative prefs authored in the Design tab.
+   */
+  const pageConfigRef = useRef<Record<string, unknown> | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -74,8 +94,19 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
         return;
       }
       initialStatusRef.current = data.status ?? "draft";
+      const rawConfig = (data as { page_config?: unknown }).page_config;
+      pageConfigRef.current =
+        rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
+          ? (rawConfig as Record<string, unknown>)
+          : null;
+      const storedTheme = (pageConfigRef.current?.theme ?? null) as
+        | { showEventTitle?: unknown }
+        | null;
       setForm({
         title: data.title ?? "",
+        // Only an explicit `false` hides the heading, so events saved before
+        // this field existed keep showing their title.
+        show_event_title: storedTheme?.showEventTitle === false ? false : true,
         description: data.description ?? "",
         date: toLocalInput(data.date),
         end_date: toLocalInput(data.end_date),
@@ -171,8 +202,23 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
     }
     setSaving(true);
 
+    // Patch only the one theme field this component owns, preserving every
+    // other key the page builder wrote. Spreading the loaded config (rather
+    // than building a fresh one) is what keeps sections, SEO and creative
+    // prefs intact when saving from Settings.
+    const existingConfig = pageConfigRef.current ?? {};
+    const existingTheme =
+      (existingConfig.theme && typeof existingConfig.theme === "object" && !Array.isArray(existingConfig.theme)
+        ? (existingConfig.theme as Record<string, unknown>)
+        : {});
+    const nextPageConfig = {
+      ...existingConfig,
+      theme: { ...existingTheme, showEventTitle: form.show_event_title },
+    };
+
     // Full payload — includes columns added in migrations 008 + 009.
     const fullPayload = {
+      page_config: nextPageConfig,
       title: form.title.trim(),
       description: form.description || null,
       date: form.date ? new Date(form.date).toISOString() : null,
@@ -194,7 +240,9 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
     };
 
     // Core-only payload — safe for schemas that haven't had migrations 008/009 applied yet.
+    // `page_config` predates those migrations, so it's safe in this payload too.
     const corePayload = {
+      page_config: nextPageConfig,
       title: form.title.trim(),
       description: form.description || null,
       date: form.date ? new Date(form.date).toISOString() : null,
@@ -350,6 +398,31 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
           <div>
             <Label className="text-[12px]">Title</Label>
             <Input value={form.title} onChange={(e) => update("title", e.target.value)} />
+          </div>
+          {/* Sits under Title because that's where an organizer looks for
+              "stop showing this". The usual reason to switch it off is that
+              the cover banner artwork already carries the event name, making
+              the heading below it read as a duplicate. */}
+          <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-background px-3 py-2.5">
+            <div className="min-w-0">
+              <Label
+                htmlFor="settings-show-event-title"
+                className="text-[12px] cursor-pointer"
+              >
+                Show title on the public page
+              </Label>
+              <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+                Turn off if your banner already shows the name. The title is
+                still used for search, sharing and listing cards.
+              </p>
+            </div>
+            <Switch
+              id="settings-show-event-title"
+              checked={form.show_event_title}
+              onCheckedChange={(v) => update("show_event_title", v)}
+              aria-label="Show the event title heading on the public event page"
+              className="mt-0.5 shrink-0"
+            />
           </div>
           <div>
             <Label className="text-[12px]">Description</Label>
