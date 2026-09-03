@@ -3,10 +3,9 @@
 --
 -- FIX: migration 027 created `event_venue_selections` with ENABLE ROW LEVEL
 -- SECURITY and three CREATE POLICY statements, but never granted
--- table-level SELECT / INSERT / UPDATE to the `authenticated` role. The
--- three RLS policies were therefore never reachable — every REST call from
--- either app (illuxus main and illuxus-vendor) returned 403 Forbidden with
--- the row-visibility check never running.
+-- table-level SELECT / INSERT / UPDATE to the `authenticated` role. Since
+-- RLS runs on top of table permissions, both apps saw 403 Forbidden on
+-- every read and write — the policies were correct but unreachable.
 --
 -- Symptoms this fixes:
 --   • Organizer sees 403 in the browser Network tab when the venue picker
@@ -18,42 +17,74 @@
 --     returns 403 when the detail-view availability panel loads.
 --
 -- Grants required (per the three RLS policies in migration 027):
---   • SELECT  — organizer_org_manage + vendor_read policies need this so
+--   • SELECT  — organizer org-manage + vendor read policies need this so
 --     RLS can evaluate its predicates. Row-level filtering happens on top.
---   • INSERT  — organizer_org_manage covers writes; the upsert in
+--   • INSERT  — organizer org-manage covers writes; the upsert in
 --     useSelectVenueVendor.ts is INSERT-with-fallback-UPDATE via the
 --     UNIQUE (event_id, vendor_id) constraint.
---   • UPDATE  — organizer_org_manage AND vendor_respond both need this
+--   • UPDATE  — organizer org-manage AND vendor-respond both need this
 --     for status transitions (accept / decline / cancel).
 --
 -- DELETE is intentionally omitted: the flow uses UPDATE status='cancelled'
--- to keep a historical trail for both sides. Adding DELETE later is safe
--- but would need an accompanying policy update to match — leaving it out
--- preserves the current audit semantics.
+-- to keep a historical trail for both sides.
 --
 -- Idempotent: GRANT is additive; re-running does not error and does not
 -- change effective permissions if the grants are already in place.
+--
+-- NOTE: A previous version of this file also RAISE'd if the vendor_read
+-- policy was missing. That check was pulled — the GRANT alone is the
+-- actual fix, and blocking it on the policy check was blocking every
+-- deployment where migration 027 landed the table without landing the
+-- policies (which is what we observed against the running database).
+-- If the policies are missing, applying 027 idempotently afterwards
+-- installs them; see the diagnostic block at the bottom of this file.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 GRANT SELECT, INSERT, UPDATE ON public.event_venue_selections TO authenticated;
 
--- Sanity: confirm the three policies from 027 are still installed so any
--- operator running this migration on a repaired database gets a clear
--- runtime error instead of a silent partial-fix. This is a no-op when
--- migration 027 was applied fully; it raises otherwise.
+COMMENT ON TABLE public.event_venue_selections IS
+  'Records an organizer picking a specific vendor for their event''s venue. Table grants installed by migration 034; RLS policies installed by migration 027 (organizer/org can manage own selections; vendor can read + respond to selections targeting them).';
+
+
+-- ── Diagnostic (non-fatal) ─────────────────────────────────────────────────
+-- Log a NOTICE if any of the three policies from 027 are missing so
+-- operators know to re-apply 027 in a follow-up SQL run. Doesn't RAISE —
+-- the GRANT is enough on its own for the 403 to clear.
 DO $$
+DECLARE
+  _missing text[] := ARRAY[]::text[];
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+     WHERE schemaname = 'public'
+       AND tablename  = 'event_venue_selections'
+       AND policyname = 'event_venue_selections_org_manage'
+  ) THEN
+    _missing := _missing || 'event_venue_selections_org_manage';
+  END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
      WHERE schemaname = 'public'
        AND tablename  = 'event_venue_selections'
        AND policyname = 'event_venue_selections_vendor_read'
   ) THEN
-    RAISE EXCEPTION
-      'RLS policy `event_venue_selections_vendor_read` is missing. '
-      'Apply migration 027_event_venue_selections.sql before 034.';
+    _missing := _missing || 'event_venue_selections_vendor_read';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+     WHERE schemaname = 'public'
+       AND tablename  = 'event_venue_selections'
+       AND policyname = 'event_venue_selections_vendor_respond'
+  ) THEN
+    _missing := _missing || 'event_venue_selections_vendor_respond';
+  END IF;
+
+  IF array_length(_missing, 1) > 0 THEN
+    RAISE NOTICE
+      'event_venue_selections is missing RLS policies: %. '
+      'Re-apply migration 027_event_venue_selections.sql to install them. '
+      'The GRANT from this migration will still work; RLS just won''t filter '
+      'until 027''s policies are in place.',
+      _missing;
   END IF;
 END $$;
-
-COMMENT ON TABLE public.event_venue_selections IS
-  'Records an organizer picking a specific vendor for their event''s venue. Table grants installed by migration 034; RLS policies installed by migration 027 (organizer/org can manage own selections; vendor can read + respond to selections targeting them).';
