@@ -112,7 +112,10 @@ export default function EventVenueSection({ eventId }: { eventId: string }) {
   }, [eventId, refetchSelection]);
 
   // ─── Handlers ──────────────────────────────────────────────────────────
-  const handleSelect = async (vendor: VenueVendor) => {
+  const handleSelect = async (
+    vendor: VenueVendor,
+    selectedServiceIds: string[],
+  ) => {
     if (!org?.id) {
       toast({
         title: "Missing workspace",
@@ -126,6 +129,7 @@ export default function EventVenueSection({ eventId }: { eventId: string }) {
         eventId,
         vendorId: vendor.id,
         orgId: org.id,
+        selectedServiceIds,
       });
       toast({
         title: "Request sent",

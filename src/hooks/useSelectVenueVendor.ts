@@ -20,6 +20,9 @@ export interface EventVenueSelection {
   selected_by: string | null;
   status: VenueSelectionStatus;
   notes: string | null;
+  /** Ids of vendor_services the organizer picked at request time. Empty
+   *  array = "no specific services chosen". Persisted by migration 032. */
+  selected_service_ids: string[];
   notified_at: string | null;
   responded_at: string | null;
   created_at: string;
@@ -47,6 +50,9 @@ interface SelectVenueInput {
   vendorId: string;
   orgId: string;
   notes?: string;
+  /** Which of the vendor's services the organizer picked. Defaults to []
+   *  when the organizer sends a plain "we want this venue" request. */
+  selectedServiceIds?: string[];
 }
 
 /**
@@ -70,6 +76,7 @@ export function useSelectVenueVendor() {
       vendorId,
       orgId,
       notes,
+      selectedServiceIds,
     }: SelectVenueInput) => {
       if (!user) throw new Error("Not authenticated");
 
@@ -83,6 +90,11 @@ export function useSelectVenueVendor() {
             selected_by: user.id,
             status: "contacted",
             notes: notes ?? null,
+            // NOT NULL DEFAULT ARRAY[]::uuid[] on the DB side, but we
+            // send an explicit empty array so the upsert doesn't reset
+            // a previously-populated value on a re-request unless the
+            // organizer picked a different set.
+            selected_service_ids: selectedServiceIds ?? [],
             notified_at: new Date().toISOString(),
             responded_at: null,
           } as never,
@@ -138,6 +150,7 @@ export function useEventVenueSelection(eventId: string | null | undefined) {
         .select(
           `
             id, event_id, vendor_id, org_id, selected_by, status, notes,
+            selected_service_ids,
             notified_at, responded_at, created_at, updated_at,
             vendor:vendors (
               id, business_name, tagline, city, country, logo_url, cover_url,
