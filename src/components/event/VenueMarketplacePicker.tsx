@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +30,12 @@ import {
 } from "lucide-react";
 import { useVenueVendors, type VenueVendor } from "@/hooks/useVenueVendors";
 import { useVenueDetail, type VendorService } from "@/hooks/useVenueDetail";
+import {
+  useVendorAvailability,
+  type VendorBusyDay,
+} from "@/hooks/useVendorAvailability";
+import { Checkbox } from "@/components/ui/checkbox";
+import { CalendarX2 } from "lucide-react";
 import { formatMoney } from "@/lib/currency";
 import { cn } from "@/lib/utils";
 
@@ -43,8 +49,13 @@ interface Props {
   /** Currently-selected venue vendor id, if any. Used to render a Selected
    *  badge on the matching card. */
   selectedVendorId?: string | null;
-  /** Called when the organizer confirms a request. Parent handles the mutation. */
-  onSelect: (vendor: VenueVendor) => void;
+  /** Called when the organizer confirms a request. Parent handles the mutation.
+   *  `selectedServiceIds` is an array of vendor_services.id — empty when the
+   *  organizer sends a plain "we want this venue" request. */
+  onSelect: (
+    vendor: VenueVendor,
+    selectedServiceIds: string[],
+  ) => void;
   /** Event date — used to hide vendors that are already booked or held for
    *  that date. Pass the raw event.date ISO string. */
   eventDate?: string | null;
@@ -114,8 +125,11 @@ export function VenueMarketplacePicker({
     setMode("detail");
   };
 
-  const handleRequest = (vendor: VenueVendor) => {
-    onSelect(vendor);
+  const handleRequest = (
+    vendor: VenueVendor,
+    selectedServiceIds: string[],
+  ) => {
+    onSelect(vendor, selectedServiceIds);
     // Close on select — matches the v1 picker so callers that only sync-set
     // state (EventQuickCreatePage) don't need to plumb an extra close signal.
     // Callers running an async mutation can re-open the picker themselves if
@@ -244,9 +258,10 @@ export function VenueMarketplacePicker({
             selected={detailVendor?.id === selectedVendorId}
             confirmLabel={confirmLabel ?? "Send request"}
             submitting={submitting}
+            eventDate={eventDate ?? null}
             eventDateLabel={dateLabel}
             onBack={() => setMode("list")}
-            onRequest={(v) => handleRequest(v)}
+            onRequest={(v, ids) => handleRequest(v, ids)}
           />
         )}
       </DialogContent>
@@ -388,6 +403,7 @@ function VendorDetailView({
   selected,
   confirmLabel,
   submitting,
+  eventDate,
   eventDateLabel,
   onBack,
   onRequest,
@@ -396,11 +412,34 @@ function VendorDetailView({
   selected: boolean;
   confirmLabel: string;
   submitting: boolean;
+  eventDate: string | null;
   eventDateLabel: string | null;
   onBack: () => void;
-  onRequest: (vendor: VenueVendor) => void;
+  onRequest: (vendor: VenueVendor, selectedServiceIds: string[]) => void;
 }) {
   const { data: detail, isLoading } = useVenueDetail(vendor?.id ?? null);
+  const { data: busyDays = [], isLoading: busyLoading } = useVendorAvailability(
+    vendor?.id ?? null,
+    { focusDate: eventDate },
+  );
+
+  // Local multi-select state for service checkboxes. Resets when the
+  // organizer opens a different vendor's detail view (we key it on
+  // vendor.id via useState + useEffect below).
+  const [selectedServiceIds, setSelectedServiceIds] = useState<Set<string>>(
+    new Set(),
+  );
+  useEffect(() => {
+    setSelectedServiceIds(new Set());
+  }, [vendor?.id]);
+
+  // Event-date availability status — dominates the top of the detail view
+  // so the organizer knows immediately whether their date is safe.
+  const eventDateIso = useMemo(() => toIsoDate(eventDate), [eventDate]);
+  const eventDateConflict = useMemo(
+    () => busyDays.find((d) => d.date === eventDateIso) ?? null,
+    [busyDays, eventDateIso],
+  );
 
   if (!vendor) {
     return (
@@ -410,6 +449,15 @@ function VendorDetailView({
       </div>
     );
   }
+
+  const toggleService = (id: string) => {
+    setSelectedServiceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   return (
     <>
@@ -567,13 +615,38 @@ function VendorDetailView({
                 </section>
               )}
 
-              {/* Services */}
+              {/* Availability — show event-date conflict and nearby busy
+                  dates so the organizer can gauge how tightly booked the
+                  venue is. Uses vendor_availability + accepted selections. */}
+              <AvailabilityPanel
+                busyDays={busyDays}
+                loading={busyLoading}
+                eventDate={eventDateIso}
+                eventDateLabel={eventDateLabel}
+                conflict={eventDateConflict}
+              />
+
+              {/* Services — each row is a checkbox so the organizer can
+                  pre-select which packages they want. The vendor sees the
+                  chosen titles on their Inbox card. */}
               {detail && detail.services.length > 0 && (
                 <section className="space-y-2">
-                  <h3 className="text-sm font-semibold">Services</h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">Services</h3>
+                    <span className="text-[11px] text-muted-foreground">
+                      {selectedServiceIds.size > 0
+                        ? `${selectedServiceIds.size} selected`
+                        : "Tap to include a service in your request"}
+                    </span>
+                  </div>
                   <div className="space-y-3">
                     {detail.services.map((s) => (
-                      <ServiceCard key={s.id} service={s} />
+                      <ServiceCard
+                        key={s.id}
+                        service={s}
+                        checked={selectedServiceIds.has(s.id)}
+                        onToggle={() => toggleService(s.id)}
+                      />
                     ))}
                   </div>
                 </section>
@@ -614,7 +687,9 @@ function VendorDetailView({
           Back
         </Button>
         <Button
-          onClick={() => onRequest(vendor)}
+          onClick={() =>
+            onRequest(vendor, Array.from(selectedServiceIds))
+          }
           disabled={submitting || selected}
         >
           {submitting ? (
@@ -641,38 +716,62 @@ const UNIT_LABEL: Record<VendorService["unit"], string> = {
   flat: "flat",
 };
 
-function ServiceCard({ service }: { service: VendorService }) {
+function ServiceCard({
+  service,
+  checked,
+  onToggle,
+}: {
+  service: VendorService;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  const cardId = `svc-${service.id}`;
   return (
-    <div className="border border-border rounded-lg p-3.5 space-y-2 bg-card">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h4 className="text-sm font-semibold">{service.title}</h4>
-            {service.is_instant_book && (
-              <Badge className="text-[10px]">Instant book</Badge>
+    <label
+      htmlFor={cardId}
+      className={cn(
+        "flex gap-3 border rounded-lg p-3.5 bg-card cursor-pointer transition-colors",
+        checked
+          ? "border-primary ring-1 ring-primary/40 bg-primary/[0.03]"
+          : "border-border hover:border-primary/40",
+      )}
+    >
+      <Checkbox
+        id={cardId}
+        checked={checked}
+        onCheckedChange={onToggle}
+        className="mt-1 shrink-0"
+      />
+      <div className="flex-1 min-w-0 space-y-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-semibold">{service.title}</h4>
+              {service.is_instant_book && (
+                <Badge className="text-[10px]">Instant book</Badge>
+              )}
+            </div>
+            {service.description && (
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed whitespace-pre-line">
+                {service.description}
+              </p>
             )}
           </div>
-          {service.description && (
-            <p className="text-xs text-muted-foreground mt-1 leading-relaxed whitespace-pre-line">
-              {service.description}
-            </p>
-          )}
+          <div className="text-right shrink-0">
+            {service.quote_on_request || !service.base_price ? (
+              <span className="text-xs text-muted-foreground">Quote on request</span>
+            ) : (
+              <>
+                <div className="text-sm font-semibold whitespace-nowrap">
+                  {formatMoney(service.base_price, service.currency)}
+                </div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                  {UNIT_LABEL[service.unit]}
+                </div>
+              </>
+            )}
+          </div>
         </div>
-        <div className="text-right shrink-0">
-          {service.quote_on_request || !service.base_price ? (
-            <span className="text-xs text-muted-foreground">Quote on request</span>
-          ) : (
-            <>
-              <div className="text-sm font-semibold whitespace-nowrap">
-                {formatMoney(service.base_price, service.currency)}
-              </div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                {UNIT_LABEL[service.unit]}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
 
       {(service.duration || service.addons.length > 0) && (
         <div className="pt-2 border-t border-dashed border-border space-y-2">
@@ -713,6 +812,156 @@ function ServiceCard({ service }: { service: VendorService }) {
           )}
         </div>
       )}
-    </div>
+      </div>
+    </label>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Availability panel — surfaces the vendor's busy dates around the event.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AvailabilityPanel({
+  busyDays,
+  loading,
+  eventDate,
+  eventDateLabel,
+  conflict,
+}: {
+  busyDays: VendorBusyDay[];
+  loading: boolean;
+  eventDate: string;
+  eventDateLabel: string | null;
+  conflict: VendorBusyDay | null;
+}) {
+  if (loading) {
+    return (
+      <section className="space-y-2">
+        <h3 className="text-sm font-semibold">Availability</h3>
+        <div className="text-xs text-muted-foreground inline-flex items-center gap-2">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Checking the vendor's calendar…
+        </div>
+      </section>
+    );
+  }
+
+  // No target event date + no known busy days → skip the section entirely
+  // instead of showing a hollow "nothing to see here" panel.
+  if (!eventDate && busyDays.length === 0) return null;
+
+  // Show at most 8 upcoming busy days so the panel doesn't dominate the
+  // detail view for a fully-booked vendor.
+  const visibleBusy = busyDays.slice(0, 8);
+  const overflow = busyDays.length - visibleBusy.length;
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold">Availability</h3>
+
+      {eventDate && (
+        <div
+          className={cn(
+            "flex items-center gap-2 rounded-md border px-3 py-2 text-sm",
+            conflict
+              ? "border-red-200 bg-red-50 text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200",
+          )}
+        >
+          {conflict ? (
+            <CalendarX2 className="h-4 w-4 shrink-0" />
+          ) : (
+            <CalendarCheck className="h-4 w-4 shrink-0" />
+          )}
+          <span className="flex-1">
+            {conflict ? (
+              <>
+                <span className="font-medium">
+                  Unavailable on {eventDateLabel ?? eventDate}
+                </span>
+                <span className="ml-1 text-xs opacity-80">
+                  ({availabilityReasonLabel(conflict.reason)}
+                  {conflict.note ? ` · ${conflict.note}` : ""})
+                </span>
+              </>
+            ) : (
+              <span className="font-medium">
+                Available on {eventDateLabel ?? eventDate}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+
+      {visibleBusy.length > 0 ? (
+        <div className="space-y-1">
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+            Other busy dates
+          </p>
+          <ul className="space-y-1">
+            {visibleBusy.map((d) => (
+              <li
+                key={d.date}
+                className="flex items-center gap-2 text-xs text-muted-foreground"
+              >
+                <CalendarX2 className="h-3 w-3 text-red-400" />
+                <span className="font-medium text-foreground tabular-nums">
+                  {formatBusyDate(d.date)}
+                </span>
+                <span className="opacity-80">
+                  · {availabilityReasonLabel(d.reason)}
+                  {d.note ? ` — ${d.note}` : ""}
+                </span>
+              </li>
+            ))}
+            {overflow > 0 && (
+              <li className="text-[11px] text-muted-foreground italic">
+                +{overflow} more busy date{overflow === 1 ? "" : "s"} in this window
+              </li>
+            )}
+          </ul>
+        </div>
+      ) : eventDate && !conflict ? (
+        <p className="text-xs text-muted-foreground">
+          No other bookings on record in the next 90 days.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function availabilityReasonLabel(reason: VendorBusyDay["reason"]): string {
+  switch (reason) {
+    case "booked":
+      return "Booked";
+    case "held":
+      return "On hold";
+    case "accepted_selection":
+      return "Reserved for another event";
+    default:
+      return "Unavailable";
+  }
+}
+
+function formatBusyDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/** Extract calendar date (YYYY-MM-DD) from an ISO timestamp — mirrors the
+ *  helper in useVenueVendors / useVendorAvailability so the picker
+ *  compares like-with-like when checking event date vs. busy dates. */
+function toIsoDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }

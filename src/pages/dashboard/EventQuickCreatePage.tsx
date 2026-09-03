@@ -52,6 +52,10 @@ export default function EventQuickCreatePage() {
 
   // Venue-from-marketplace picker state
   const [venueVendor, setVenueVendor] = useState<VenueVendor | null>(null);
+  // Ids the organizer ticked in the vendor detail view. Persisted with the
+  // selection via useSelectVenueVendor so the vendor sees which services
+  // the organizer wants quoted.
+  const [venueServiceIds, setVenueServiceIds] = useState<string[]>([]);
   const [venuePickerOpen, setVenuePickerOpen] = useState(false);
   const selectVenueVendor = useSelectVenueVendor();
 
@@ -130,6 +134,7 @@ export default function EventQuickCreatePage() {
           eventId: data.id,
           vendorId: venueVendor.id,
           orgId: org.id,
+          selectedServiceIds: venueServiceIds,
         });
         toast({
           title: "Venue selected",
@@ -372,8 +377,9 @@ export default function EventQuickCreatePage() {
                 open={venuePickerOpen}
                 onOpenChange={setVenuePickerOpen}
                 selectedVendorId={venueVendor?.id ?? null}
-                onSelect={(v) => {
+                onSelect={(v, selectedIds) => {
                   setVenueVendor(v);
+                  setVenueServiceIds(selectedIds);
                   // Auto-fill venue text field with the vendor's business name
                   // if the organizer hadn't typed anything yet.
                   if (!venue) setVenue(v.business_name);
