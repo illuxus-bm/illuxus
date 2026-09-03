@@ -172,6 +172,48 @@ export function useEventVenueSelection(eventId: string | null | undefined) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Update which services are attached to an existing selection
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Overwrites the `selected_service_ids` array on an existing
+ * `event_venue_selections` row. Used by the "Edit services" flow after a
+ * venue accepts — the organizer can add or remove services from their
+ * request without having to withdraw and re-send the whole booking.
+ *
+ * Does NOT touch status, notified_at, or the vendor's responded_at — this
+ * is a metadata amendment, not a re-request. The vendor's next inbox load
+ * (or realtime tick from the UPDATE) picks up the new service titles the
+ * same way it picked up the initial ones.
+ */
+export function useUpdateVenueSelectionServices() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      selectionId,
+      eventId,
+      selectedServiceIds,
+    }: {
+      selectionId: string;
+      eventId: string;
+      selectedServiceIds: string[];
+    }) => {
+      const { error } = await supabase
+        .from("event_venue_selections" as never)
+        .update({ selected_service_ids: selectedServiceIds } as never)
+        .eq("id", selectionId);
+      if (error) throw error;
+      return { selectionId, eventId, selectedServiceIds };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({
+        queryKey: ["event-venue-selection", data.eventId],
+      });
+    },
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Cancel a pending / declined selection
 // ─────────────────────────────────────────────────────────────────────────────
 

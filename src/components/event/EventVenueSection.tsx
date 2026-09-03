@@ -22,7 +22,9 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { VenueMarketplacePicker } from "@/components/event/VenueMarketplacePicker";
+import { EditVenueServicesDialog } from "@/components/event/EditVenueServicesDialog";
 import { useVenueDetail } from "@/hooks/useVenueDetail";
+import { Pencil } from "lucide-react";
 import {
   useSelectVenueVendor,
   useEventVenueSelection,
@@ -331,6 +333,9 @@ function SelectionCard({
 }) {
   const vendor = selection.vendor;
   const status = selection.status;
+  // Local dialog state — mounted only while accepted so we don't pay the
+  // useVenueDetail fetch on non-accepted views.
+  const [editServicesOpen, setEditServicesOpen] = useState(false);
 
   const statusConfig: Record<
     VenueSelectionStatus,
@@ -460,9 +465,13 @@ function SelectionCard({
         )}
 
         {/* Confirmed extras — surface the vendor's services so the organizer
-            can jump into planning next steps once the venue accepts. */}
+            can jump into planning next steps once the venue accepts.
+            Selected ids highlight the subset the organizer already picked. */}
         {status === "accepted" && vendor && (
-          <SelectionConfirmedExtras vendorId={vendor.id} />
+          <SelectionConfirmedExtras
+            vendorId={vendor.id}
+            selectedServiceIds={selection.selected_service_ids ?? []}
+          />
         )}
 
         {/* Action row */}
@@ -492,6 +501,15 @@ function SelectionCard({
               </Button>
               {vendor?.id && (
                 <Button
+                  variant="outline"
+                  onClick={() => setEditServicesOpen(true)}
+                >
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                  Edit services
+                </Button>
+              )}
+              {vendor?.id && (
+                <Button
                   variant="ghost"
                   size="sm"
                   className="ml-auto text-muted-foreground hover:text-foreground"
@@ -519,6 +537,22 @@ function SelectionCard({
           )}
         </div>
       </CardContent>
+
+      {/* Edit services dialog — mounted only when we have a vendor and the
+          selection is accepted. Keeps useVenueDetail's fetch off the non-
+          accepted paths. Controlled state lives in this component so
+          closing the dialog doesn't disturb the selection card render. */}
+      {status === "accepted" && vendor && (
+        <EditVenueServicesDialog
+          open={editServicesOpen}
+          onOpenChange={setEditServicesOpen}
+          selectionId={selection.id}
+          eventId={selection.event_id}
+          vendorId={vendor.id}
+          vendorName={vendor.business_name}
+          initialServiceIds={selection.selected_service_ids ?? []}
+        />
+      )}
     </Card>
   );
 }
@@ -528,7 +562,13 @@ function SelectionCard({
 // venue's services so the organizer can start planning the run-of-show.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function SelectionConfirmedExtras({ vendorId }: { vendorId: string }) {
+function SelectionConfirmedExtras({
+  vendorId,
+  selectedServiceIds,
+}: {
+  vendorId: string;
+  selectedServiceIds: string[];
+}) {
   const { data: detail, isLoading } = useVenueDetail(vendorId);
   if (isLoading) {
     return (
@@ -539,38 +579,78 @@ function SelectionConfirmedExtras({ vendorId }: { vendorId: string }) {
     );
   }
   if (!detail || detail.services.length === 0) return null;
-  return (
-    <div className="px-4 pb-4">
-      <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
-        Services offered
-      </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {detail.services.slice(0, 4).map((s) => (
-          <div
-            key={s.id}
-            className="rounded-md border border-border px-3 py-2 flex items-center justify-between text-[12px]"
-          >
-            <div className="min-w-0">
-              <p className="font-medium truncate">{s.title}</p>
-              {s.addons.length > 0 && (
-                <p className="text-muted-foreground text-[11px] truncate">
-                  {s.addons.length} add-on{s.addons.length === 1 ? "" : "s"}
-                </p>
-              )}
-            </div>
-            <span className="text-[12px] font-semibold shrink-0 pl-2">
-              {s.quote_on_request || !s.base_price
-                ? "On request"
-                : formatMoney(s.base_price, s.currency)}
-            </span>
-          </div>
-        ))}
+
+  // Partition into "In your request" (checked) and "Also offered". If the
+  // organizer never picked anything the first bucket is empty and we
+  // fall back to showing "Services offered" like before, so accepted rows
+  // predating migration 032 don't render a hollow "In your request" heading.
+  const selectedSet = new Set(selectedServiceIds);
+  const inRequest = detail.services.filter((s) => selectedSet.has(s.id));
+  const alsoOffered = detail.services.filter((s) => !selectedSet.has(s.id));
+  const heading =
+    inRequest.length > 0 ? "In your request" : "Services offered";
+  const primaryList = inRequest.length > 0 ? inRequest : alsoOffered;
+  const secondaryList = inRequest.length > 0 ? alsoOffered : [];
+
+  const renderCard = (s: (typeof detail.services)[number], picked: boolean) => (
+    <div
+      key={s.id}
+      className={cn(
+        "rounded-md border px-3 py-2 flex items-center justify-between text-[12px]",
+        picked
+          ? "border-primary/40 bg-primary/[0.04]"
+          : "border-border",
+      )}
+    >
+      <div className="min-w-0">
+        <p className="font-medium truncate">{s.title}</p>
+        {s.addons.length > 0 && (
+          <p className="text-muted-foreground text-[11px] truncate">
+            {s.addons.length} add-on{s.addons.length === 1 ? "" : "s"}
+          </p>
+        )}
       </div>
-      {detail.services.length > 4 && (
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          Plus {detail.services.length - 4} more service
-          {detail.services.length - 4 === 1 ? "" : "s"}. Contact the venue for full details.
+      <span className="text-[12px] font-semibold shrink-0 pl-2">
+        {s.quote_on_request || !s.base_price
+          ? "On request"
+          : formatMoney(s.base_price, s.currency)}
+      </span>
+    </div>
+  );
+
+  return (
+    <div className="px-4 pb-4 space-y-3">
+      <div>
+        <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+          {heading}
         </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {primaryList
+            .slice(0, 4)
+            .map((s) => renderCard(s, inRequest.length > 0))}
+        </div>
+        {primaryList.length > 4 && (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            +{primaryList.length - 4} more
+          </p>
+        )}
+      </div>
+
+      {secondaryList.length > 0 && (
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+            Also offered — tap Edit services to add
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {secondaryList.slice(0, 4).map((s) => renderCard(s, false))}
+          </div>
+          {secondaryList.length > 4 && (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              +{secondaryList.length - 4} more available. Open Edit services
+              for the full list.
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
