@@ -147,6 +147,18 @@ export default function EventQuickCreatePage() {
           variant: "destructive",
         });
       }
+    } else if (venueVendor && !org?.id) {
+      // Diagnostic: previously this branch silently fell through to the
+      // "Draft created" toast, hiding the bug where an organizer picked a
+      // vendor but no org context was available (e.g. onboarding not
+      // finished, workspace switcher mid-load). Surface it so the vendor
+      // never gets ghosted without the organizer knowing.
+      toast({
+        title: "Vendor request not sent",
+        description:
+          "No workspace selected — switch to a workspace before creating the event, then re-pick the venue from the event page.",
+        variant: "destructive",
+      });
     } else {
       toast({ title: "Draft created", description: "Add details, then publish." });
     }
