@@ -14,9 +14,12 @@ import { Link } from "react-router-dom";
 import EventBannerPicker from "@/components/event/EventBannerPicker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Radio, Globe2, MapPinned, Sparkles, Building2, X } from "lucide-react";
-import { VenueMarketplacePicker } from "@/components/event/VenueMarketplacePicker";
 import { useSelectVenueVendor } from "@/hooks/useSelectVenueVendor";
-import type { VenueVendor } from "@/hooks/useVenueVendors";
+import {
+  VenueBookingForm,
+  EMPTY_BOOKING_BRIEF,
+  type BookingBriefState,
+} from "@/components/event/VenueBookingForm";
 import { SUPPORTED_CURRENCIES, formatMoney, formatPriceOrFree } from "@/lib/currency";
 import { COMMON_TIMEZONES, detectBrowserTimezone, isValidTimezone } from "@/lib/timezones";
 import { formatEventDateTime } from "@/lib/datetime";
@@ -50,14 +53,21 @@ export default function EventQuickCreatePage() {
   const communityCategory = "other"; // Default silently
   const [pastEvents, setPastEvents] = useState<Array<{ id: string; title: string; date: string }>>([]);
 
-  // Venue-from-marketplace picker state
-  const [venueVendor, setVenueVendor] = useState<VenueVendor | null>(null);
-  // Ids the organizer ticked in the vendor detail view. Persisted with the
-  // selection via useSelectVenueVendor so the vendor sees which services
-  // the organizer wants quoted.
-  const [venueServiceIds, setVenueServiceIds] = useState<string[]>([]);
+  // Two-step wizard: step 1 is the event basics form (previously the
+  // whole page). Step 2 is the venue-booking brief — the questionnaire
+  // that lets the vendor understand what's being asked of them. The
+  // organizer can also Save-as-draft from step 1 to skip step 2 entirely
+  // when they're not booking a marketplace venue yet.
+  const [step, setStep] = useState<1 | 2>(1);
+  const [brief, setBrief] = useState<BookingBriefState>(EMPTY_BOOKING_BRIEF);
   const [venuePickerOpen, setVenuePickerOpen] = useState(false);
   const selectVenueVendor = useSelectVenueVendor();
+
+  // Shim: some legacy JSX below still references venueVendor / venueServiceIds.
+  // Keep the old identifier available so we don't have to rewrite every
+  // occurrence — swap the reads into the new brief state.
+  const venueVendor = brief.vendor;
+  const venueServiceIds = brief.selectedServiceIds;
 
   // Load this org's previous events so the user can mark this one as a follow-up.
   useEffect(() => {
@@ -135,6 +145,17 @@ export default function EventQuickCreatePage() {
           vendorId: venueVendor.id,
           orgId: org.id,
           selectedServiceIds: venueServiceIds,
+          brief: {
+            event_type: brief.event_type,
+            event_duration_hours: brief.event_duration_hours,
+            expected_attendees: brief.expected_attendees,
+            seating_capacity: brief.seating_capacity,
+            seating_arrangement: brief.seating_arrangement,
+            needs_pre_function_area: brief.needs_pre_function_area,
+            needs_vip_area: brief.needs_vip_area,
+            needs_additional_rooms: brief.needs_additional_rooms,
+            venue_link: brief.venue_link,
+          },
         });
         toast({
           title: "Venue selected",
@@ -175,6 +196,9 @@ export default function EventQuickCreatePage() {
         <p className="text-[13px] text-muted-foreground mb-6">Add the basics. You can refine the page, sessions and tickets after.</p>
 
         <form onSubmit={create} className="rounded-2xl border border-border bg-card divide-y divide-border overflow-hidden">
+        {/* ───────────────── Step 1: Event basics ─────────────────── */}
+        {step === 1 && (
+          <>
           <div className="p-5 sm:p-6 space-y-3">
             <div>
               <h3 className="text-[13px] font-semibold tracking-tight">Event banner</h3>
@@ -320,84 +344,11 @@ export default function EventQuickCreatePage() {
                 </div>
               </div>
 
-              {/* Marketplace venue picker — connects to shared Vendor Connect DB */}
-              <div className="rounded-md border border-dashed border-border p-3 bg-background/50">
-                <div className="flex items-start gap-3">
-                  <Building2 className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    {venueVendor ? (
-                      <div>
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-[13px] font-semibold truncate">{venueVendor.business_name}</p>
-                            <p className="text-[11px] text-muted-foreground truncate">
-                              {venueVendor.city}
-                              {venueVendor.country ? `, ${venueVendor.country}` : ""}
-                              {" · "}From Illuxus vendor marketplace
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-[11px]"
-                              onClick={() => setVenuePickerOpen(true)}
-                            >
-                              Change
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => setVenueVendor(null)}
-                              aria-label="Remove venue selection"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground mt-2">
-                          On save, this venue's owner will get an email notification with your event details.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-[13px] font-medium">Pick from vendor marketplace</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            Browse verified venues and notify the owner in one click.
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[11px] shrink-0"
-                          onClick={() => setVenuePickerOpen(true)}
-                        >
-                          Browse venues
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <VenueMarketplacePicker
-                open={venuePickerOpen}
-                onOpenChange={setVenuePickerOpen}
-                selectedVendorId={venueVendor?.id ?? null}
-                onSelect={(v, selectedIds) => {
-                  setVenueVendor(v);
-                  setVenueServiceIds(selectedIds);
-                  // Auto-fill venue text field with the vendor's business name
-                  // if the organizer hadn't typed anything yet.
-                  if (!venue) setVenue(v.business_name);
-                  if (!location && v.city) setLocation(`${v.city}${v.country ? `, ${v.country}` : ""}`);
-                }}
-              />
+              {/* Venue marketplace picker moved to step 2 — see the
+                  VenueBookingForm block below. Step 1 keeps only the
+                  free-text venue + location fields so the organizer can
+                  jot a placeholder before deciding to book through the
+                  marketplace. */}
             </>
           )}
 
@@ -520,11 +471,109 @@ export default function EventQuickCreatePage() {
             <Switch checked={requiresApproval} onCheckedChange={setRequiresApproval} />
           </div>
 
+          {/* Step-1 action row — Next advances to the venue-booking
+              questionnaire; Save-as-draft short-circuits and creates the
+              event without any venue booking. Cancel bails out entirely. */}
           <div className="flex items-center justify-end gap-2 pt-1">
-            <Button asChild type="button" variant="ghost" size="sm" className="h-9 text-[13px]"><Link to="/dashboard/events">Cancel</Link></Button>
-            <Button type="submit" size="sm" className="h-9 text-[13px]" disabled={saving}>{saving ? "Creating…" : "Create draft"}</Button>
+            <Button asChild type="button" variant="ghost" size="sm" className="h-9 text-[13px]">
+              <Link to="/dashboard/events">Cancel</Link>
+            </Button>
+            <Button
+              type="submit"
+              variant="outline"
+              size="sm"
+              className="h-9 text-[13px]"
+              disabled={saving}
+            >
+              {saving ? "Saving…" : "Save as draft"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-9 text-[13px]"
+              disabled={saving || !title.trim() || !date}
+              onClick={() => {
+                // Cheap client-side sanity: title + date are the fields
+                // the DB insert would blow up on otherwise. Deeper
+                // validation (timezone parse, virtual-provider url, etc.)
+                // still runs on the actual submit at step 2.
+                if (!title.trim()) {
+                  toast({
+                    title: "Event name required",
+                    description: "Add a name before booking a venue.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                if (!date) {
+                  toast({
+                    title: "Event date required",
+                    description: "Add the event date before booking a venue.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                setStep(2);
+              }}
+            >
+              Next: book venue →
+            </Button>
           </div>
           </div>
+          </>
+        )}
+
+        {/* ───────────────── Step 2: Venue booking questionnaire ────── */}
+        {step === 2 && (
+          <div className="p-5 sm:p-6 space-y-6">
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+                Step 2 of 2
+              </p>
+              <h2 className="text-lg font-semibold tracking-tight">
+                Book your venue
+              </h2>
+              <p className="text-[12px] text-muted-foreground mt-1">
+                Give the venue owner the details they need to quote you accurately.
+                Everything below travels with your request.
+              </p>
+            </div>
+
+            <VenueBookingForm
+              value={brief}
+              onChange={(patch) => setBrief((b) => ({ ...b, ...patch }))}
+              eventDate={date || null}
+              eventCity={location || null}
+              pickerOpen={venuePickerOpen}
+              onPickerOpenChange={setVenuePickerOpen}
+            />
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-9 text-[13px]"
+                onClick={() => setStep(1)}
+                disabled={saving}
+              >
+                ← Back to details
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                className="h-9 text-[13px]"
+                disabled={saving}
+              >
+                {saving
+                  ? "Creating…"
+                  : brief.vendor
+                    ? "Create event & send request"
+                    : "Create event with brief"}
+              </Button>
+            </div>
+          </div>
+        )}
         </form>
       </div>
     </DashboardLayout>
