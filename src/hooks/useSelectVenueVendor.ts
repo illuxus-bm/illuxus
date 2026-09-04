@@ -12,7 +12,19 @@ export type VenueSelectionStatus =
   | "declined"
   | "cancelled";
 
-export interface EventVenueSelection {
+export interface VenueBookingBrief {
+  event_type: string | null;
+  event_duration_hours: number | null;
+  expected_attendees: number | null;
+  seating_capacity: number | null;
+  seating_arrangement: string | null;
+  needs_pre_function_area: boolean;
+  needs_vip_area: boolean;
+  needs_additional_rooms: boolean;
+  venue_link: string | null;
+}
+
+export interface EventVenueSelection extends VenueBookingBrief {
   id: string;
   event_id: string;
   vendor_id: string;
@@ -53,6 +65,10 @@ interface SelectVenueInput {
   /** Which of the vendor's services the organizer picked. Defaults to []
    *  when the organizer sends a plain "we want this venue" request. */
   selectedServiceIds?: string[];
+  /** Optional venue-booking brief captured on the questionnaire step. Any
+   *  unset field is treated as null / false on the DB. Fields land in
+   *  columns added by migration 035. */
+  brief?: Partial<VenueBookingBrief>;
 }
 
 /**
@@ -77,6 +93,7 @@ export function useSelectVenueVendor() {
       orgId,
       notes,
       selectedServiceIds,
+      brief,
     }: SelectVenueInput) => {
       if (!user) throw new Error("Not authenticated");
 
@@ -95,6 +112,17 @@ export function useSelectVenueVendor() {
             // a previously-populated value on a re-request unless the
             // organizer picked a different set.
             selected_service_ids: selectedServiceIds ?? [],
+            // Brief fields — migration 035. Booleans default to false so
+            // an unspecified checkbox reads as "not needed".
+            event_type:              brief?.event_type              ?? null,
+            event_duration_hours:    brief?.event_duration_hours    ?? null,
+            expected_attendees:      brief?.expected_attendees      ?? null,
+            seating_capacity:        brief?.seating_capacity        ?? null,
+            seating_arrangement:     brief?.seating_arrangement     ?? null,
+            needs_pre_function_area: brief?.needs_pre_function_area ?? false,
+            needs_vip_area:          brief?.needs_vip_area          ?? false,
+            needs_additional_rooms:  brief?.needs_additional_rooms  ?? false,
+            venue_link:              brief?.venue_link              ?? null,
             notified_at: new Date().toISOString(),
             responded_at: null,
           } as never,
@@ -151,6 +179,10 @@ export function useEventVenueSelection(eventId: string | null | undefined) {
           `
             id, event_id, vendor_id, org_id, selected_by, status, notes,
             selected_service_ids,
+            event_type, event_duration_hours, expected_attendees,
+            seating_capacity, seating_arrangement,
+            needs_pre_function_area, needs_vip_area, needs_additional_rooms,
+            venue_link,
             notified_at, responded_at, created_at, updated_at,
             vendor:vendors (
               id, business_name, tagline, city, country, logo_url, cover_url,
