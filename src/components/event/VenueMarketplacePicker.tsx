@@ -29,7 +29,11 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useVenueVendors, type VenueVendor } from "@/hooks/useVenueVendors";
-import { useVenueDetail, type VendorService } from "@/hooks/useVenueDetail";
+import {
+  useVenueDetail,
+  type VendorDetail,
+  type VendorService,
+} from "@/hooks/useVenueDetail";
 import {
   useVendorAvailability,
   type VendorBusyDay,
@@ -328,9 +332,17 @@ function VendorCard({
       {/* Body */}
       <div className="flex-1 p-3 space-y-2">
         <div className="flex items-start justify-between gap-2">
-          <h3 className="font-semibold text-sm leading-snug line-clamp-1">
-            {vendor.business_name}
-          </h3>
+          <div className="min-w-0">
+            <h3 className="font-semibold text-sm leading-snug line-clamp-1">
+              {vendor.business_name}
+            </h3>
+            {vendor.vendor_business_name &&
+              vendor.vendor_business_name !== vendor.business_name && (
+                <p className="text-[10px] text-muted-foreground truncate">
+                  by {vendor.vendor_business_name}
+                </p>
+              )}
+          </div>
           {typeof vendor.rating_avg === "number" && vendor.rating_count > 0 && (
             <div className="flex items-center gap-0.5 text-xs text-muted-foreground shrink-0">
               <Star className="h-3 w-3 fill-yellow-500 text-yellow-500" />
@@ -342,8 +354,26 @@ function VendorCard({
           )}
         </div>
 
+        {/* Venue-specific chips: space type + largest capacity. Rendered
+            as small pills instead of body text so they scan at a glance. */}
+        {(vendor.space_type || vendor.max_capacity) && (
+          <div className="flex flex-wrap items-center gap-1">
+            {vendor.space_type && (
+              <Badge variant="secondary" className="text-[10px] capitalize">
+                {vendor.space_type.replace(/_/g, " ")}
+              </Badge>
+            )}
+            {vendor.max_capacity != null && (
+              <Badge variant="outline" className="text-[10px]">
+                Up to {vendor.max_capacity}
+                {vendor.max_capacity_layout ? ` · ${vendor.max_capacity_layout}` : ""}
+              </Badge>
+            )}
+          </div>
+        )}
+
         {vendor.tagline && (
-          <p className="text-xs text-muted-foreground line-clamp-2 min-h-[2.5em]">
+          <p className="text-xs text-muted-foreground line-clamp-2">
             {vendor.tagline}
           </p>
         )}
@@ -586,30 +616,39 @@ function VendorDetailView({
             </div>
           ) : (
             <>
-              {detail && detail.portfolio.length > 0 && (
+              {detail && <VenueDetailSections detail={detail} />}
+              {detail && detail.media.length > 0 && (
                 <section className="space-y-2">
-                  <h3 className="text-sm font-semibold">Photos</h3>
+                  <h3 className="text-sm font-semibold">Photos & floor plan</h3>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {detail.portfolio.slice(0, 9).map((p) => (
-                      <div
-                        key={p.id}
-                        className="aspect-square bg-muted rounded-md overflow-hidden"
+                    {detail.media.slice(0, 12).map((m) => (
+                      <a
+                        key={m.id}
+                        href={m.url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="aspect-square bg-muted rounded-md overflow-hidden block group relative"
                       >
-                        {p.media_type === "video" ? (
-                          <video
-                            src={p.url}
-                            className="w-full h-full object-cover"
-                            controls
-                          />
-                        ) : (
+                        {isImageUrl(m.url) ? (
                           <img
-                            src={p.url}
-                            alt={p.caption ?? ""}
+                            src={m.url}
+                            alt={m.caption ?? ""}
                             className="w-full h-full object-cover"
                             loading="lazy"
                           />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground text-[10px]">
+                            <Building2 className="h-6 w-6 mb-1" />
+                            View {m.media_kind.replace(/_/g, " ")}
+                          </div>
                         )}
-                      </div>
+                        <Badge
+                          variant="secondary"
+                          className="absolute bottom-1 left-1 text-[9px] capitalize bg-background/80"
+                        >
+                          {m.media_kind.replace(/_/g, " ")}
+                        </Badge>
+                      </a>
                     ))}
                   </div>
                 </section>
@@ -652,21 +691,6 @@ function VendorDetailView({
                 </section>
               )}
 
-              {/* Service areas */}
-              {detail && detail.service_areas.length > 0 && (
-                <section className="space-y-2">
-                  <h3 className="text-sm font-semibold">Service areas</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {detail.service_areas.map((a) => (
-                      <Badge key={a.id} variant="outline" className="gap-1">
-                        <MapPin className="h-3 w-3" />
-                        {a.city}, {a.country}
-                        {a.radius_km ? ` · ${a.radius_km}km` : ""}
-                      </Badge>
-                    ))}
-                  </div>
-                </section>
-              )}
             </>
           )}
         </div>
@@ -964,4 +988,193 @@ function toIsoDate(iso: string | null | undefined): string {
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Venue detail sections — dimensions, capacity table, amenities, policies,
+// logistics. Only renders sections that have data so a sparsely-filled venue
+// doesn't show a bunch of empty rows.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function VenueDetailSections({ detail }: { detail: VendorDetail }) {
+  return (
+    <>
+      <DimensionsSection detail={detail} />
+      <CapacityTable detail={detail} />
+      <AmenitiesSection detail={detail} />
+      <PoliciesSection detail={detail} />
+      <LogisticsSection detail={detail} />
+    </>
+  );
+}
+
+function DimensionsSection({ detail }: { detail: VendorDetail }) {
+  const rows: Array<[string, string]> = [];
+  if (detail.area_sqft != null) rows.push(["Total area", `${detail.area_sqft.toLocaleString()} sq ft`]);
+  if (detail.length_ft != null && detail.width_ft != null) {
+    rows.push(["Dimensions", `${detail.length_ft} × ${detail.width_ft} ft`]);
+  }
+  if (detail.ceiling_height_ft != null) rows.push(["Ceiling height", `${detail.ceiling_height_ft} ft`]);
+  if (rows.length === 0) return null;
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold">Dimensions & physical space</h3>
+      <dl className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-1.5 text-[12px]">
+        {rows.map(([k, v]) => (
+          <div key={k}>
+            <dt className="text-muted-foreground text-[11px]">{k}</dt>
+            <dd className="font-medium text-foreground">{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function CapacityTable({ detail }: { detail: VendorDetail }) {
+  const rows: Array<[string, number]> = [];
+  if (detail.capacity_floating != null) rows.push(["Floating / reception", detail.capacity_floating]);
+  if (detail.capacity_theater != null) rows.push(["Theater", detail.capacity_theater]);
+  if (detail.capacity_banquet != null) rows.push(["Banquet", detail.capacity_banquet]);
+  if (detail.capacity_ushape != null) rows.push(["U-Shape", detail.capacity_ushape]);
+  if (detail.capacity_classroom != null) rows.push(["Classroom", detail.capacity_classroom]);
+  if (rows.length === 0) return null;
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold">Seating capacity</h3>
+      <div className="rounded-md border border-border overflow-hidden">
+        <table className="w-full text-[12px]">
+          <tbody>
+            {rows.map(([k, v], i) => (
+              <tr key={k} className={i > 0 ? "border-t border-border" : ""}>
+                <td className="px-3 py-1.5 text-muted-foreground">{k}</td>
+                <td className="px-3 py-1.5 text-right font-medium">{v.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function AmenitiesSection({ detail }: { detail: VendorDetail }) {
+  const chips: string[] = [];
+  if (detail.climate_control) chips.push(climateLabel(detail.climate_control));
+  if (detail.has_stage) {
+    chips.push(detail.stage_dimensions ? `Stage (${detail.stage_dimensions})` : "Stage");
+  }
+  if (detail.green_rooms_count != null && detail.green_rooms_count > 0) {
+    chips.push(`${detail.green_rooms_count} green room${detail.green_rooms_count === 1 ? "" : "s"}`);
+  }
+  if (detail.has_projector) chips.push("Projector");
+  if (detail.has_screen) chips.push("Screen");
+  if (detail.has_sound_system) chips.push("Sound system");
+  if (detail.has_microphones) chips.push("Microphones");
+  if (detail.has_power_backup) chips.push("Power backup");
+  if (detail.has_wifi) chips.push("Wi-Fi");
+  if (chips.length === 0) return null;
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold">Amenities & facilities</h3>
+      <div className="flex flex-wrap gap-1.5">
+        {chips.map((c) => (
+          <Badge key={c} variant="secondary" className="text-[11px] font-normal">
+            {c}
+          </Badge>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PoliciesSection({ detail }: { detail: VendorDetail }) {
+  const rows: Array<[string, string]> = [];
+  if (detail.catering_policy) rows.push(["Catering", policyLabel("catering", detail.catering_policy)]);
+  if (detail.decor_policy) rows.push(["Decor", policyLabel("decor", detail.decor_policy)]);
+  if (detail.alcohol_policy) rows.push(["Alcohol", policyLabel("alcohol", detail.alcohol_policy)]);
+  if (detail.music_curfew_time) {
+    rows.push(["Music curfew", detail.music_curfew_time.slice(0, 5)]);
+  }
+  if (detail.noise_restrictions) rows.push(["Restrictions", detail.noise_restrictions]);
+  if (rows.length === 0) return null;
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold">Policies & rules</h3>
+      <dl className="space-y-1 text-[12px]">
+        {rows.map(([k, v]) => (
+          <div key={k} className="grid grid-cols-[minmax(0,110px)_1fr] gap-2">
+            <dt className="text-muted-foreground">{k}</dt>
+            <dd className="text-foreground">{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function LogisticsSection({ detail }: { detail: VendorDetail }) {
+  const items: Array<[string, string]> = [];
+  if (detail.parking_car_capacity != null) {
+    items.push(["Parking (cars)", detail.parking_car_capacity.toLocaleString()]);
+  }
+  if (detail.parking_two_wheeler_capacity != null) {
+    items.push(["Parking (two-wheelers)", detail.parking_two_wheeler_capacity.toLocaleString()]);
+  }
+  const chips: string[] = [];
+  if (detail.has_valet) chips.push("Valet service");
+  if (detail.wheelchair_accessible) chips.push("Wheelchair accessible");
+  if (detail.has_elevator) chips.push("Elevator access");
+  if (items.length === 0 && chips.length === 0) return null;
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold">Logistics & accessibility</h3>
+      {items.length > 0 && (
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-[12px]">
+          {items.map(([k, v]) => (
+            <div key={k}>
+              <dt className="text-muted-foreground text-[11px]">{k}</dt>
+              <dd className="font-medium">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {chips.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {chips.map((c) => (
+            <Badge key={c} variant="outline" className="text-[11px]">
+              {c}
+            </Badge>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function climateLabel(v: string): string {
+  switch (v) {
+    case "central_ac": return "Central AC";
+    case "split_ac":   return "Split AC";
+    case "non_ac":     return "Non-AC";
+    default:            return v;
+  }
+}
+
+function policyLabel(kind: "catering" | "decor" | "alcohol", v: string): string {
+  const map: Record<string, string> = {
+    in_house_only:        "In-house only",
+    outside_permitted:    "Outside permitted",
+    empanelled_only:      "Empanelled decorators only",
+    client_choice:        "Client can bring own",
+    outside_with_license: "Outside permitted with license",
+    prohibited:           "Not allowed",
+    both:                 "Both allowed",
+  };
+  return map[v] ?? v;
+}
+
+function isImageUrl(url: string): boolean {
+  return /\.(png|jpe?g|gif|webp|avif|svg)(\?|$)/i.test(url);
 }

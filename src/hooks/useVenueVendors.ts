@@ -2,23 +2,25 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 /**
- * A venue in the marketplace = a `vendors` row that has been mapped to
- * the "venue" category in `vendor_category_map`. Both apps share the same
- * Supabase project so we query the shared table directly.
+ * Marketplace list of venues (physical spaces), one row per
+ * `public.venues` (created by illuxus-vendor migration 106).
  *
- * Columns we surface to the organizer while picking:
- *  - business_name, tagline, bio, city, country
- *  - cover_url, logo_url
- *  - rating_avg, rating_count
- *  - notify_email (used for the outbound notification)
- *  - default_currency (starting price)
- *  - starting_price — cheapest active service, computed client-side so
- *    we can render a Product-Card style "from $X" price on the browse grid
+ * Historically this file returned rows from `vendors` filtered by the
+ * `venue` category — one vendor = one venue. That model broke the
+ * moment aman's Bizmillennium wanted to list a ballroom AND a terrace
+ * AND a poolside space. Now every venue is a first-class row.
+ *
+ * The exported type stays named `VenueVendor` to avoid touching every
+ * call site (the picker, the booking form, etc.). Semantically it's
+ * now "a marketplace venue card", not "a vendor".
  */
 
 export interface VenueVendor {
   id: string;
+  /** Venue name — what the organizer sees on the card (e.g. "Grand Ballroom"). */
   business_name: string;
+  /** Free-text one-liner from the venue's description field. Trimmed
+   *  in the card, expanded in the detail view. */
   tagline: string | null;
   bio: string | null;
   city: string | null;
@@ -30,31 +32,66 @@ export interface VenueVendor {
   default_currency: string;
   notify_email: boolean;
   verification_status: string | null;
-  /** Denormalised for display — the vendor's owner email (may be blank) */
   contact_email: string | null;
-  /** Cheapest active vendor_services.base_price for this vendor, in the
-   *  vendor's default_currency. `null` when the vendor has no active
-   *  services or every service is quote-on-request. */
+  /** Cheapest active vendor_services.base_price for the venue's vendor,
+   *  kept for continuity with the old marketplace card. Null when the
+   *  vendor has no priced services. */
   starting_price: number | null;
   starting_price_unit: string | null;
-  /** Number of active services offered by this vendor. */
   service_count: number;
+
+  // ─── New in the venues model (migration 106) ─────────────────────
+  /** Space taxonomy — "indoor_hall", "outdoor_lawn", "terrace", etc. */
+  space_type: string | null;
+  /** Largest capacity across all seating arrangements, with the
+   *  matching layout name. Rendered as "Up to 400 · Banquet" on the
+   *  card so the organizer can gauge fit at a glance. */
+  max_capacity: number | null;
+  max_capacity_layout: string | null;
+  /** The vendor that owns this venue — needed for the outbound request
+   *  (email + vendor_members RLS both key off vendor_id). */
+  vendor_id: string;
+  vendor_business_name: string;
 }
 
 interface Filters {
   city?: string;
   search?: string;
   /**
-   * When set, restrict the result to vendors that are available on this
-   * specific date. Accepts a full ISO timestamp — only the calendar-date
-   * portion is used, because vendor_availability is a plain DATE column.
-   *
-   * A vendor is treated as UNavailable on date D when either:
-   *   - vendor_availability has a row with date = D AND status IN ('booked','held')
-   *   - event_venue_selections has an ACCEPTED row for that vendor pointing
-   *     at another event whose event.date falls on D
+   * When set, restrict the result to venues whose owning vendor is
+   * available on this date. A venue is treated as unavailable when
+   * the owning vendor has vendor_availability with status IN
+   * ('booked','held') on that date, OR when an accepted
+   * event_venue_selections row exists for the venue's vendor on that
+   * date.
    */
   eventDate?: string | null;
+}
+
+interface VenueRow {
+  id: string;
+  vendor_id: string;
+  name: string;
+  space_type: string | null;
+  description: string | null;
+  is_active: boolean;
+  capacity_floating: number | null;
+  capacity_theater: number | null;
+  capacity_banquet: number | null;
+  capacity_ushape: number | null;
+  capacity_classroom: number | null;
+  vendor: {
+    id: string;
+    business_name: string;
+    city: string | null;
+    country: string | null;
+    logo_url: string | null;
+    rating_avg: number | null;
+    rating_count: number;
+    default_currency: string;
+    notify_email: boolean;
+    verification_status: string | null;
+  } | null;
 }
 
 export function useVenueVendors(filters?: Filters) {
@@ -66,103 +103,110 @@ export function useVenueVendors(filters?: Filters) {
       filters?.eventDate ?? "",
     ],
     queryFn: async (): Promise<VenueVendor[]> => {
-      // Vendors that have the "venue" category
-      const { data: catRow, error: catErr } = await supabase
-        .from("vendor_categories" as never)
-        .select("id")
-        .eq("slug", "venue")
-        .maybeSingle();
-      if (catErr) throw catErr;
-      const category = catRow as { id: string } | null;
-      if (!category) return [];
+      // ─── Venues + owning vendor ───────────────────────────────────
+      let query = supabase
+        .from("venues" as never)
+        .select(
+          `id, vendor_id, name, space_type, description, is_active,
+           capacity_floating, capacity_theater, capacity_banquet,
+           capacity_ushape, capacity_classroom,
+           vendor:vendors!inner (
+             id, business_name, city, country, logo_url,
+             rating_avg, rating_count, default_currency,
+             notify_email, verification_status
+           )`,
+        )
+        .eq("is_active", true)
+        .order("name", { ascending: true });
 
-      const { data: mapRows, error: mapErr } = await supabase
-        .from("vendor_category_map" as never)
-        .select("vendor_id")
-        .eq("category_id", category.id);
-      if (mapErr) throw mapErr;
+      if (filters?.search) {
+        // Search across the venue's own text fields.
+        query = query.or(
+          `name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`,
+        );
+      }
 
-      const vendorIds = ((mapRows ?? []) as Array<{ vendor_id: string }>).map(
-        (r) => r.vendor_id,
-      );
-      if (vendorIds.length === 0) return [];
+      const { data, error } = (await query) as unknown as {
+        data: VenueRow[] | null;
+        error: Error | null;
+      };
+      if (error) throw error;
 
-      // ─── Availability filter ────────────────────────────────────────────
-      // Compute the set of vendor ids that CANNOT take a booking on the
-      // requested date, then drop them from the candidate list before we
-      // even ask for their profile row. Doing this pre-filter (versus
-      // filtering after the SELECT) keeps the round-trips predictable
-      // when the marketplace grows.
-      let candidateIds = vendorIds;
+      let venues = (data ?? []) as VenueRow[];
+
+      // ─── Post-filter by city (search on the joined vendor) ──────
+      // PostgREST's `.ilike()` doesn't cross an embedded relation
+      // easily, so filter client-side. Small marketplace = cheap.
+      if (filters?.city) {
+        const needle = filters.city.toLowerCase();
+        venues = venues.filter(
+          (v) =>
+            v.vendor?.city?.toLowerCase().includes(needle) ?? false,
+        );
+      }
+      if (venues.length === 0) return [];
+
+      // ─── Availability filter ────────────────────────────────────
+      let filteredIds = venues.map((v) => v.id);
       const isoDate = toDateOnly(filters?.eventDate);
       if (isoDate) {
+        const vendorIds = Array.from(
+          new Set(venues.map((v) => v.vendor_id)),
+        );
         const [busyRes, takenRes] = await Promise.all([
           supabase
             .from("vendor_availability" as never)
             .select("vendor_id, status")
-            .in("vendor_id", candidateIds)
+            .in("vendor_id", vendorIds)
             .eq("date", isoDate)
             .in("status", ["booked", "held"]),
-          // Any vendor already accepted for another event on the same date
-          // is effectively booked — even if the vendor hasn't manually
-          // populated vendor_availability yet.
           supabase
             .from("event_venue_selections" as never)
             .select("vendor_id, event:events!inner(date)")
-            .in("vendor_id", candidateIds)
+            .in("vendor_id", vendorIds)
             .eq("status", "accepted"),
         ]);
-
-        const unavailable = new Set<string>();
-        for (const row of (busyRes.data ?? []) as Array<{ vendor_id: string }>) {
-          unavailable.add(row.vendor_id);
+        const unavailableVendors = new Set<string>();
+        for (const r of (busyRes.data ?? []) as Array<{ vendor_id: string }>) {
+          unavailableVendors.add(r.vendor_id);
         }
-        for (const row of (takenRes.data ?? []) as Array<{
+        for (const r of (takenRes.data ?? []) as Array<{
           vendor_id: string;
           event: { date: string | null } | null;
         }>) {
-          const takenDate = toDateOnly(row.event?.date ?? null);
-          if (takenDate === isoDate) unavailable.add(row.vendor_id);
+          if (toDateOnly(r.event?.date ?? null) === isoDate) {
+            unavailableVendors.add(r.vendor_id);
+          }
         }
-        candidateIds = candidateIds.filter((id) => !unavailable.has(id));
-        if (candidateIds.length === 0) return [];
+        filteredIds = venues
+          .filter((v) => !unavailableVendors.has(v.vendor_id))
+          .map((v) => v.id);
+        if (filteredIds.length === 0) return [];
+        venues = venues.filter((v) => filteredIds.includes(v.id));
       }
 
-      // ─── Vendor rows ────────────────────────────────────────────────────
-      let query = supabase
-        .from("vendors" as never)
-        .select(
-          "id, business_name, tagline, bio, city, country, cover_url, logo_url, rating_avg, rating_count, default_currency, notify_email, verification_status",
-        )
-        .in("id", candidateIds)
-        .order("rating_avg", { ascending: false, nullsFirst: false });
-
-      if (filters?.city) {
-        query = query.ilike("city", `%${filters.city}%`);
-      }
-      if (filters?.search) {
-        query = query.or(
-          `business_name.ilike.%${filters.search}%,tagline.ilike.%${filters.search}%,bio.ilike.%${filters.search}%`,
-        );
+      // ─── Cover media ────────────────────────────────────────────
+      // One extra fetch to grab every venue's cover photo. Non-cover
+      // media is loaded lazily by the detail view.
+      const { data: mediaRows } = await supabase
+        .from("venue_media" as never)
+        .select("venue_id, url, is_cover")
+        .in("venue_id", filteredIds)
+        .eq("is_cover", true);
+      const coverByVenueId = new Map<string, string>();
+      for (const m of (mediaRows ?? []) as Array<{ venue_id: string; url: string }>) {
+        if (!coverByVenueId.has(m.venue_id)) {
+          coverByVenueId.set(m.venue_id, m.url);
+        }
       }
 
-      const { data: vendors, error } = await query;
-      if (error) throw error;
-      const rows = (vendors ?? []) as Array<Omit<VenueVendor, "contact_email" | "starting_price" | "starting_price_unit" | "service_count">>;
-      if (rows.length === 0) return [];
-
-      // ─── Starting price & service count ─────────────────────────────────
-      // One extra query for all vendors on-screen — pulls every active
-      // service, then we bucket-min per vendor in memory. Keeps the vendor
-      // list query itself flat, which lets us pipe it through the standard
-      // ilike / order builder above.
-      const shownIds = rows.map((v) => v.id);
+      // ─── Service pricing per vendor (starting price on the card) ─
+      const vendorIds = Array.from(new Set(venues.map((v) => v.vendor_id)));
       const { data: services } = await supabase
         .from("vendor_services" as never)
         .select("vendor_id, base_price, unit, quote_on_request, is_active")
-        .in("vendor_id", shownIds)
+        .in("vendor_id", vendorIds)
         .eq("is_active", true);
-
       const priceIndex = new Map<
         string,
         { min: number | null; unit: string | null; count: number }
@@ -188,14 +232,36 @@ export function useVenueVendors(filters?: Filters) {
         priceIndex.set(svc.vendor_id, bucket);
       }
 
-      return rows.map((v) => {
-        const info = priceIndex.get(v.id);
+      // ─── Shape into VenueVendor cards ────────────────────────────
+      return venues.map<VenueVendor>((v) => {
+        const owner = v.vendor;
+        const priceInfo = priceIndex.get(v.vendor_id);
+        const cap = pickMaxCapacity(v);
         return {
-          ...v,
+          id: v.id,
+          business_name: v.name,
+          tagline: v.description
+            ? v.description.slice(0, 140)
+            : null,
+          bio: v.description ?? null,
+          city: owner?.city ?? null,
+          country: owner?.country ?? null,
+          cover_url: coverByVenueId.get(v.id) ?? null,
+          logo_url: owner?.logo_url ?? null,
+          rating_avg: owner?.rating_avg ?? null,
+          rating_count: owner?.rating_count ?? 0,
+          default_currency: owner?.default_currency ?? "INR",
+          notify_email: owner?.notify_email ?? true,
+          verification_status: owner?.verification_status ?? null,
           contact_email: null,
-          starting_price: info?.min ?? null,
-          starting_price_unit: info?.unit ?? null,
-          service_count: info?.count ?? 0,
+          starting_price: priceInfo?.min ?? null,
+          starting_price_unit: priceInfo?.unit ?? null,
+          service_count: priceInfo?.count ?? 0,
+          space_type: v.space_type,
+          max_capacity: cap?.value ?? null,
+          max_capacity_layout: cap?.layout ?? null,
+          vendor_id: v.vendor_id,
+          vendor_business_name: owner?.business_name ?? "Unknown vendor",
         };
       });
     },
@@ -203,10 +269,8 @@ export function useVenueVendors(filters?: Filters) {
   });
 }
 
-/** Extract the calendar date (YYYY-MM-DD) from an ISO timestamp. Uses the
- *  local timezone deliberately — vendor_availability stores plain dates,
- *  and event.date is displayed in the organizer's local timezone throughout
- *  the app, so we treat them consistently. */
+// ─── Helpers ────────────────────────────────────────────────────────
+
 function toDateOnly(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const d = new Date(iso);
@@ -215,4 +279,21 @@ function toDateOnly(iso: string | null | undefined): string | null {
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function pickMaxCapacity(v: VenueRow): { value: number; layout: string } | null {
+  const options: Array<{ value: number | null; layout: string }> = [
+    { value: v.capacity_floating, layout: "Floating" },
+    { value: v.capacity_theater, layout: "Theater" },
+    { value: v.capacity_banquet, layout: "Banquet" },
+    { value: v.capacity_ushape, layout: "U-Shape" },
+    { value: v.capacity_classroom, layout: "Classroom" },
+  ];
+  let best: { value: number; layout: string } | null = null;
+  for (const o of options) {
+    if (o.value != null && (best === null || o.value > best.value)) {
+      best = { value: o.value, layout: o.layout };
+    }
+  }
+  return best;
 }

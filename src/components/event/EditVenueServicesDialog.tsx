@@ -42,7 +42,7 @@ export function EditVenueServicesDialog({
   onOpenChange,
   selectionId,
   eventId,
-  vendorId,
+  venueId,
   vendorName,
   initialServiceIds,
 }: {
@@ -50,12 +50,13 @@ export function EditVenueServicesDialog({
   onOpenChange: (open: boolean) => void;
   selectionId: string;
   eventId: string;
-  vendorId: string;
+  /** Persisted on event_venue_selections.venue_id (migration 036). */
+  venueId: string;
   vendorName: string;
   initialServiceIds: string[];
 }) {
   const { toast } = useToast();
-  const { data: detail, isLoading } = useVenueDetail(open ? vendorId : null);
+  const { data: detail, isLoading } = useVenueDetail(open ? venueId : null);
   const updateServices = useUpdateVenueSelectionServices();
 
   // Local ticked-state driven off the persisted list. We copy on open so a

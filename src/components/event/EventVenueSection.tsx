@@ -129,7 +129,10 @@ export default function EventVenueSection({ eventId }: { eventId: string }) {
     try {
       await selectVendor.mutateAsync({
         eventId,
-        vendorId: vendor.id,
+        // Card `id` is now a venue id (migration 106); `vendor_id` is
+        // the owning business the request routes to.
+        vendorId: vendor.vendor_id,
+        venueId: vendor.id,
         orgId: org.id,
         selectedServiceIds,
       });
@@ -469,7 +472,7 @@ function SelectionCard({
             Selected ids highlight the subset the organizer already picked. */}
         {status === "accepted" && vendor && (
           <SelectionConfirmedExtras
-            vendorId={vendor.id}
+            venueId={selection.venue_id}
             selectedServiceIds={selection.selected_service_ids ?? []}
           />
         )}
@@ -542,13 +545,13 @@ function SelectionCard({
           selection is accepted. Keeps useVenueDetail's fetch off the non-
           accepted paths. Controlled state lives in this component so
           closing the dialog doesn't disturb the selection card render. */}
-      {status === "accepted" && vendor && (
+      {status === "accepted" && vendor && selection.venue_id && (
         <EditVenueServicesDialog
           open={editServicesOpen}
           onOpenChange={setEditServicesOpen}
           selectionId={selection.id}
           eventId={selection.event_id}
-          vendorId={vendor.id}
+          venueId={selection.venue_id}
           vendorName={vendor.business_name}
           initialServiceIds={selection.selected_service_ids ?? []}
         />
@@ -563,13 +566,17 @@ function SelectionCard({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function SelectionConfirmedExtras({
-  vendorId,
+  venueId,
   selectedServiceIds,
 }: {
-  vendorId: string;
+  /** Post-migration 036: rows carry venue_id. Legacy rows (pre-036)
+   *  have venue_id = null; in that case we skip the details section
+   *  entirely rather than fall back to the old vendor-level fetch. */
+  venueId: string | null;
   selectedServiceIds: string[];
 }) {
-  const { data: detail, isLoading } = useVenueDetail(vendorId);
+  const { data: detail, isLoading } = useVenueDetail(venueId);
+  if (!venueId) return null;
   if (isLoading) {
     return (
       <div className="px-4 pb-4 text-[12px] text-muted-foreground flex items-center gap-1.5">
