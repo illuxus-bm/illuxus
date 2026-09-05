@@ -180,6 +180,25 @@ export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:#fff;color:#111;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     body{font-family:Poppins,system-ui,sans-serif}
+    ${fullBleed ? `
+    /* Center each label within the ACTUAL physical page the printer
+     * feeds, not just the CSS @page box we requested. Many thermal /
+     * label drivers silently substitute their own default page size
+     * (or round the requested mm size) when the exact @page size
+     * isn't a recognized preset — otherwise every label prints pinned
+     * to the top-left corner of that larger substituted page, which is
+     * the "off-center, uneven padding" symptom reported on thermal
+     * name-tag / badge prints. Scoped to full-bleed (thermal/custom/
+     * designed-full-bleed) mode only — multi-row sheet layouts
+     * (Avery, A4-2up) keep their normal top-anchored grid flow since
+     * centering a taller-than-one-page grid vertically would overflow
+     * both above and below the first page and lose content.
+     * html/body are sized to 100% so the flex centering below
+     * resolves against whatever the printer's actual page turns out
+     * to be, not just our requested @page box. */
+    html,body{width:100%;height:100%}
+    body{display:flex;align-items:center;justify-content:center;min-height:100vh}
+    ` : ""}
     .sheet{${sheetCss}}
     .card{
       width:${dims.w}mm;height:${dims.h}mm;position:relative;overflow:hidden;background:#fff;
