@@ -20,6 +20,7 @@ import {
   buildPrintHtml, printBadges, printCalibration,
   type BadgeData, type PrintMode, type PrintSize, type PrintUnit,
 } from "@/lib/print-badges";
+import type { FitWarning } from "@/lib/fit-engine";
 import { loadSizes, saveSizes, badgeSizeMm, type SavedSize } from "@/lib/badge-design";
 
 // ─── Font options ─────────────────────────────────────────────────────────────
@@ -80,6 +81,15 @@ type Prefs = {
    *  `print-badges.ts`. Persisted per browser so an organizer with a
    *  specific printer doesn't re-pick it every session. */
   thermalDpi: 203 | 300;
+  /**
+   * Per-printer hardware-margin compensation, in millimeters. Populated
+   * by the organizer after printing the calibration sheet: `topMm` shifts
+   * every badge DOWN by that many mm; `leftMm` shifts it RIGHT. Applied
+   * only when thermal mode is active. Existing prefs blobs without this
+   * field load as `undefined` and preserve today's rendering behavior
+   * (bugfix.md 3.1).
+   */
+  thermalOffset?: { topMm: number; leftMm: number };
   font: FontStyle;
 };
 
@@ -306,8 +316,18 @@ export default function PrintBadgesDialog({
   const [cu,          setCu         ] = useState<PrintUnit >(p.cu          ?? "in");
   const [thermalMode, setThermalMode] = useState<boolean   >(p.thermalMode ?? false);
   const [thermalDpi,  setThermalDpi ] = useState<203 | 300 >(p.thermalDpi  ?? 203);
+  const [thermalOffsetTop, setThermalOffsetTop] = useState<number>(p.thermalOffset?.topMm ?? 0);
+  const [thermalOffsetLeft, setThermalOffsetLeft] = useState<number>(p.thermalOffset?.leftMm ?? 0);
   const [sizes,       setSizes      ] = useState<SavedSize[]>(() => loadSizes());
   const [font,        setFont       ] = useState<FontStyle >(p.font        ?? defaultFontStyle());
+  // Fit warnings surfaced from the last `buildPrintHtml` preview run. Empty
+  // by default; populated when the fit engine had to shrink or hard-break a
+  // value (bugfix.md 2.4).
+  const [previewWarnings, setPreviewWarnings] = useState<FitWarning[]>([]);
+  // Raw string state for thermal-offset inputs — same pattern as other
+  // numeric fields in this dialog to avoid mid-keystroke clamping.
+  const [thermalOffsetTopStr,  setThermalOffsetTopStr ] = useState(String(p.thermalOffset?.topMm  ?? 0));
+  const [thermalOffsetLeftStr, setThermalOffsetLeftStr] = useState(String(p.thermalOffset?.leftMm ?? 0));
 
   // Raw string values for numeric inputs — avoids mid-keystroke clamping
   const [cwStr, setCwStr] = useState(String(p.cw ?? 4));
@@ -331,15 +351,25 @@ export default function PrintBadgesDialog({
     setCu(pCu);
     setThermalMode(prefs.thermalMode ?? false);
     setThermalDpi(prefs.thermalDpi ?? 203);
+    const offTop = prefs.thermalOffset?.topMm ?? 0;
+    const offLeft = prefs.thermalOffset?.leftMm ?? 0;
+    setThermalOffsetTop(offTop); setThermalOffsetTopStr(String(offTop));
+    setThermalOffsetLeft(offLeft); setThermalOffsetLeftStr(String(offLeft));
     setFont(prefs.font ?? defaultFontStyle());
     setSizes(loadSizes());
   }, [open, defaultMode]);
 
   useEffect(() => {
+    // Only persist thermalOffset when either component is non-zero — keeps
+    // existing prefs blobs identical for the common "no offset needed" case.
+    const thermalOffset =
+      thermalOffsetTop !== 0 || thermalOffsetLeft !== 0
+        ? { topMm: thermalOffsetTop, leftMm: thermalOffsetLeft }
+        : undefined;
     localStorage.setItem(PREF_KEY, JSON.stringify({
-      mode, size, copies, cw, ch, cu, thermalMode, thermalDpi, font,
+      mode, size, copies, cw, ch, cu, thermalMode, thermalDpi, thermalOffset, font,
     }));
-  }, [mode, size, copies, cw, ch, cu, thermalMode, thermalDpi, font]);
+  }, [mode, size, copies, cw, ch, cu, thermalMode, thermalDpi, thermalOffsetTop, thermalOffsetLeft, font]);
 
   const dims = useMemo(
     () => badgeSizeMm(size, { width: cw, height: ch, unit: cu }),
@@ -352,11 +382,16 @@ export default function PrintBadgesDialog({
 
   const runPrint = async (rows: BadgeData[]) => {
     try {
+      const thermalActive = thermalMode || isThermalSize;
       await printBadges(rows, {
         mode, size, copies, eventTitle,
         custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
-        thermalMode: thermalMode || isThermalSize,
-        thermalDpi: (thermalMode || isThermalSize) ? thermalDpi : undefined,
+        thermalMode: thermalActive,
+        thermalDpi: thermalActive ? thermalDpi : undefined,
+        thermalOffset:
+          thermalActive && (thermalOffsetTop !== 0 || thermalOffsetLeft !== 0)
+            ? { topMm: thermalOffsetTop, leftMm: thermalOffsetLeft }
+            : undefined,
         font,
       });
     } catch (err) {
@@ -430,20 +465,26 @@ export default function PrintBadgesDialog({
           name: "Jane Doe", email: "jane@example.com", company: "Acme Inc.",
           ticket_type: "general", qr_payload: "PREVIEW", event_title: eventTitle,
         };
-        const html = await buildPrintHtml([sample], {
+        const thermalActive = thermalMode || isThermalSize;
+        const { html, warnings } = await buildPrintHtml([sample], {
           mode, size, copies: 1, eventTitle,
           custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
-          thermalMode: thermalMode || isThermalSize,
-          thermalDpi: (thermalMode || isThermalSize) ? thermalDpi : undefined,
+          thermalMode: thermalActive,
+          thermalDpi: thermalActive ? thermalDpi : undefined,
+          thermalOffset:
+            thermalActive && (thermalOffsetTop !== 0 || thermalOffsetLeft !== 0)
+              ? { topMm: thermalOffsetTop, leftMm: thermalOffsetLeft }
+              : undefined,
           font,
         });
         setPreviewHtml(html);
+        setPreviewWarnings(warnings);
       } finally {
         setPreviewLoading(false);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mode, size, cw, ch, cu, thermalMode, thermalDpi, isThermalSize, font, eventTitle, badges],
+    [mode, size, cw, ch, cu, thermalMode, thermalDpi, thermalOffsetTop, thermalOffsetLeft, isThermalSize, font, eventTitle, badges],
   );
 
   // Refresh preview when key settings change (debounced 400ms)
@@ -655,6 +696,62 @@ export default function PrintBadgesDialog({
                     </Button>
                   </div>
                 </div>
+
+                {/* THERMAL HARDWARE-MARGIN OFFSET — bugfix.md 2.11.
+                    Thermal print heads have small unprintable strips at the
+                    edges that the browser cannot see. After running the
+                    calibration print above, the organizer measures how far
+                    the frame sits from the physical label edge on the top
+                    and left sides, and enters those millimeter values here.
+                    The badge renderer then shifts content DOWN and RIGHT by
+                    that amount so the printed result lands centered on the
+                    physical label. Leaving both at 0 preserves the current
+                    (uncompensated) rendering. */}
+                <div className="border-t border-border/50 pt-2 space-y-1.5">
+                  <div className="text-[11px] font-medium">Thermal offset (measured)</div>
+                  <div className="text-[10.5px] text-muted-foreground leading-snug">
+                    After the calibration print, measure the gap between the outer frame
+                    and the physical label edge and enter the values in millimeters. Use
+                    positive numbers to shift content down / right; zero leaves the
+                    print uncompensated.
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        Top offset (mm)
+                      </Label>
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        value={thermalOffsetTopStr}
+                        onChange={(e) => setThermalOffsetTopStr(e.target.value)}
+                        onBlur={() => {
+                          const v = parseFloat(thermalOffsetTopStr);
+                          if (!isNaN(v)) setThermalOffsetTop(v);
+                          else setThermalOffsetTopStr(String(thermalOffsetTop));
+                        }}
+                        className="h-8 text-[13px]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        Left offset (mm)
+                      </Label>
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        value={thermalOffsetLeftStr}
+                        onChange={(e) => setThermalOffsetLeftStr(e.target.value)}
+                        onBlur={() => {
+                          const v = parseFloat(thermalOffsetLeftStr);
+                          if (!isNaN(v)) setThermalOffsetLeft(v);
+                          else setThermalOffsetLeftStr(String(thermalOffsetLeft));
+                        }}
+                        className="h-8 text-[13px]"
+                      />
+                    </div>
+                  </div>
+                </div>
               </>
             )}
           </section>
@@ -672,6 +769,34 @@ export default function PrintBadgesDialog({
                 {dims.w.toFixed(0)} × {dims.h.toFixed(0)} mm
               </span>
             </div>
+            {/* Fit warnings — bugfix.md 2.4. Surfaces every value the fit
+                engine had to shrink to its legibility floor or hard-break
+                at the grapheme boundary. Empty on short-fit inputs so this
+                pill never appears when nothing was reflowed. */}
+            {previewWarnings.length > 0 && (
+              <div className="px-4 py-2 border-b border-border bg-amber-50 dark:bg-amber-950/30 space-y-1 shrink-0">
+                <div className="text-[11px] font-semibold text-amber-900 dark:text-amber-200">
+                  Some text was shrunk to fit
+                </div>
+                <ul className="text-[10.5px] text-amber-900/80 dark:text-amber-200/80 space-y-0.5">
+                  {previewWarnings.slice(0, 5).map((w, i) => (
+                    <li key={`${w.role}-${i}`} className="leading-tight">
+                      <span className="font-medium">{w.role}</span>
+                      {w.reason === "hardBreak" ? " — hard-broken at grapheme boundary" : " — reduced to legibility floor"}
+                      {": "}
+                      <span className="italic">
+                        {w.text.length > 40 ? `${w.text.slice(0, 40)}…` : w.text}
+                      </span>
+                    </li>
+                  ))}
+                  {previewWarnings.length > 5 && (
+                    <li className="text-amber-900/60 dark:text-amber-200/60 italic">
+                      …and {previewWarnings.length - 5} more
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
             <div className="flex-1 min-h-0 p-4 flex items-stretch justify-stretch overflow-hidden">
               {previewHtml ? (
                 <iframe

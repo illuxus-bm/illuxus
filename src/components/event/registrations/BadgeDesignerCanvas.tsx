@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { bgTransformToCss, frontBgStyleToCss, type BadgeDesign, type ElementKey, type ElementPlacement } from "@/lib/badge-design";
+import { MIN_PAD_MM } from "@/lib/fit-engine";
 
 interface Props {
   design: BadgeDesign;
@@ -155,6 +156,25 @@ export default function BadgeDesignerCanvas({
           if (!text) return null;
           const fontPx = el.size * PT_TO_PX * scale;
           const transformMap: Record<string, string> = { uppercase: "uppercase", lowercase: "lowercase", capitalize: "capitalize", none: "none" };
+          // Match the print path's per-element width box (see
+          // `maxWidthFor` in `print-badges.ts:renderDesignedFace`): a
+          // center-aligned element gets `2 × min(x, 100 - x)` percent of
+          // the safe width; left/right aligned elements get the width
+          // between their anchor and the opposite edge. This is a
+          // WYSIWYG-only change — the designer preview now shows the
+          // wrap that the printed output will produce so the organizer
+          // spots any overflow risk while placing elements (bugfix.md
+          // 2.9). No fit engine call here: the user's stored `el.size`
+          // (pt) is honored as-is; wrap/shrink runs at print time only.
+          const safeWmm = Math.max(4, widthMm - 2 * MIN_PAD_MM);
+          const align = el.align ?? "center";
+          const xPct = Math.max(0, Math.min(100, el.x));
+          const boxPct =
+            align === "center" ? 2 * Math.min(xPct, 100 - xPct) :
+            align === "left" ? 100 - xPct :
+            xPct;
+          const maxWidthMm = Math.max(4, (boxPct / 100) * safeWmm);
+          const maxWidthPx = maxWidthMm * PX_PER_MM * scale;
           const css: React.CSSProperties = {
             left: `${el.x}%`,
             top: `${el.y}%`,
@@ -168,7 +188,10 @@ export default function BadgeDesignerCanvas({
             letterSpacing: `${(el.letterSpacing ?? 0).toFixed(3)}em`,
             lineHeight: el.lineHeight ?? 1.1,
             fontSize: `${fontPx}px`,
-            whiteSpace: "nowrap",
+            maxWidth: `${maxWidthPx}px`,
+            whiteSpace: "normal",
+            wordBreak: "break-word",
+            overflowWrap: "anywhere",
           };
           return (
             <div

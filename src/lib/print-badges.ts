@@ -1,5 +1,16 @@
 import QRCode from "qrcode";
 import { badgeSizeMm, bgTransformToCss, frontBgStyleToCss, fontsUsedInDesign, googleFontsUrl, type BadgeDesign, type NameDesignId, NAME_DESIGNS } from "./badge-design";
+import {
+  computeCenteringPadding,
+  fitText,
+  FLOOR_PT_BY_ROLE,
+  MIN_PAD_MM,
+  QR_MIN_MM,
+  type FitResult,
+  type FitWarning,
+  type FontSpec,
+  type Role,
+} from "./fit-engine";
 
 export type BadgeData = {
   name: string;
@@ -60,6 +71,17 @@ export type PrintOptions = {
    * previous fixed 320px generation.
    */
   thermalDpi?: 203 | 300;
+  /**
+   * Per-printer hardware-margin compensation, in millimeters. Applied only
+   * when `thermalMode` (or a `thermal-*` size preset) is active — laser /
+   * inkjet paths ignore this field. Populated by the organizer after
+   * printing the calibration sheet: `topMm` shifts the content DOWN by
+   * that many mm; `leftMm` shifts it RIGHT. Persisted per browser under
+   * `lovable.print-badges.v2` by `PrintBadgesDialog`.
+   *
+   * Requirement: bugfix.md 2.11.
+   */
+  thermalOffset?: { topMm: number; leftMm: number };
   /** Name-only design variant to apply when mode === "name". */
   nameDesign?: NameDesignId;
   /** Custom font style applied to name-only labels. Overrides the preset typography. */
@@ -126,8 +148,15 @@ function qrPixelSizeForMm(mm: number, thermalDpi: number | undefined): number {
 /**
  * Build the complete print HTML for the given badges and options.
  * Exported so the dialog can render it in an iframe for live preview.
+ *
+ * Returns `{ html, warnings }`. `warnings` is empty on all short-fit
+ * inputs; downstream renderer tasks push `FitWarning`s here when the
+ * auto-fit engine had to shrink or hard-break a value (bugfix.md 2.4).
  */
-export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {}): Promise<string> {
+export async function buildPrintHtml(
+  badges: BadgeData[],
+  opts: PrintOptions = {},
+): Promise<{ html: string; warnings: FitWarning[] }> {
   const mode = opts.mode ?? "badge";
   const size = opts.size ?? "a4-2up";
   const copies = Math.max(1, Math.min(10, opts.copies ?? 1));
@@ -149,11 +178,21 @@ export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {
 
   const isDesigned = mode === "badge" && opts.design && (opts.design.frontBg || hasAnyEnabled(opts.design));
 
+  // Collect fit warnings across every rendered card. Empty on short-fit
+  // inputs; populated by `renderDefaultBadge` / `renderName` when the fit
+  // engine had to shrink or hard-break a value (bugfix.md 2.4).
+  const warnings: FitWarning[] = [];
+
+  // Thermal-offset compensation is only applied on thermal / full-bleed
+  // paths — laser / inkjet paths ignore the field entirely so their
+  // preservation baseline is unaffected.
+  const thermalOffset = thermalMode ? opts.thermalOffset : undefined;
+
   const cards = await Promise.all(
     expanded.map(async (b) => {
-      if (isDesigned) return await renderDesigned(b, opts.design!, dims, fullBleed, thermalDpi);
-      if (mode === "name") return renderName(b, dims, eventTitle, opts.nameDesign, opts.font);
-      return await renderDefaultBadge(b, dims, eventTitle, opts.font, thermalDpi);
+      if (isDesigned) return await renderDesigned(b, opts.design!, dims, fullBleed, thermalDpi, warnings);
+      if (mode === "name") return renderName(b, dims, eventTitle, opts.nameDesign, opts.font, warnings);
+      return await renderDefaultBadge(b, dims, eventTitle, opts.font, thermalDpi, thermalOffset, warnings);
     })
   );
 
@@ -172,7 +211,7 @@ export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {
   if (opts.font?.family) usedFonts.push(opts.font.family);
   const fontsLink = googleFontsUrl([...new Set(usedFonts)]);
 
-  return `<!doctype html><html><head><meta charset="utf-8"/>
+  const html = `<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print ${mode === "name" ? "Names" : "Badges"}</title>
   ${fontsLink ? `<link rel="stylesheet" href="${fontsLink}" />` : ""}
   <style>
@@ -253,6 +292,8 @@ export async function buildPrintHtml(badges: BadgeData[], opts: PrintOptions = {
     ` : ""}
   </style></head>
   <body><div class="sheet">${cards.join("")}</div></body></html>`;
+
+  return { html, warnings };
 }
 
 /**
@@ -400,7 +441,7 @@ export async function printCalibration(opts: Parameters<typeof buildCalibrationH
 }
 
 export async function printBadges(badges: BadgeData[], opts: PrintOptions = {}) {
-  const html = await buildPrintHtml(badges, opts);
+  const { html } = await buildPrintHtml(badges, opts);
   const w = window.open("", "_blank", "width=900,height=1000");
   if (!w) throw new Error("popup-blocked");
   w.document.open();
@@ -437,13 +478,13 @@ async function renderDesigned(
   d: BadgeDesign,
   dims: { w: number; h: number },
   fullBleed: boolean,
-  thermalDpi: number | undefined
+  thermalDpi: number | undefined,
+  warnings?: FitWarning[],
 ): Promise<string> {
-  void dims;
-  const front = await renderDesignedFace(b, d, true, false, thermalDpi);
+  const front = await renderDesignedFace(b, d, true, dims, false, thermalDpi, warnings);
   if (d.back === "none") return front;
   const backHtml = d.back === "same"
-    ? await renderDesignedFace(b, d, true, true, thermalDpi)
+    ? await renderDesignedFace(b, d, true, dims, true, thermalDpi, warnings)
     : renderStaticBack(d);
   return front + backHtml;  function renderStaticBack(des: BadgeDesign) {
     const bg = des.backBg
@@ -457,8 +498,10 @@ async function renderDesignedFace(
   b: BadgeData,
   d: BadgeDesign,
   _isFront: boolean,
+  dims: { w: number; h: number },
   asBack = false,
-  thermalDpi?: number
+  thermalDpi?: number,
+  warnings?: FitWarning[],
 ): Promise<string> {
   const e = d.elements;
   let bgEl = "";
@@ -491,6 +534,40 @@ async function renderDesignedFace(
     }
   };
 
+  // Map a designer element key to a fit-engine Role. The role determines
+  // the legibility floor via `FLOOR_PT_BY_ROLE` (bugfix.md 2.3).
+  const roleFor = (k: keyof typeof e): Role => {
+    switch (k) {
+      case "name":       return "name";
+      case "company":    return "company";
+      case "email":      return "customText";
+      case "title":      return "title";
+      case "ticket":     return "ticket";
+      case "eventTitle": return "event";
+      case "eventDate":  return "eventDate";
+      case "orgName":    return "org";
+      case "customText": return "customText";
+      default:           return "customText";
+    }
+  };
+
+  // Safe area for the designer face. Elements are placed as
+  // `translate(-50%, -50%)` around their `left:x%`/`top:y%` anchor, so
+  // the width box an element gets is determined by which edge is nearer:
+  // for a centered element (align:center) the box is
+  // `2 × min(x, 100 - x)` percent of the safe width.
+  const safeW = dims.w - 2 * MIN_PAD_MM;
+
+  function maxWidthFor(el: import("./badge-design").ElementPlacement): number {
+    const xPct = Math.max(0, Math.min(100, el.x));
+    const align = el.align ?? "center";
+    let boxPct: number;
+    if (align === "center") boxPct = 2 * Math.min(xPct, 100 - xPct);
+    else if (align === "left") boxPct = 100 - xPct;
+    else boxPct = xPct; // right
+    return Math.max(4, (boxPct / 100) * safeW);
+  }
+
   // Render every text element with its font styling
   const textKeys: (keyof typeof e)[] = ["orgName", "eventTitle", "eventDate", "ticket", "name", "title", "company", "email", "customText"];
   for (const k of textKeys) {
@@ -498,24 +575,86 @@ async function renderDesignedFace(
     if (!el?.enabled) continue;
     const text = valueFor(k);
     if (!text) continue;
-    els.push(renderTextElement(el, text));
+
+    // Run the fit engine for this element. Fast-path (short-fit) returns
+    // the requested pt and a single-line `lines[0].text === text`, so the
+    // emitted HTML stays byte-identical to the current implementation
+    // for every fitting value (bugfix.md 3.1, 3.7).
+    const maxWidthMm = maxWidthFor(el);
+    const spec: FontSpec = {
+      family: el.fontFamily ?? "system-ui",
+      weightCss: el.fontWeight ?? 400,
+      italic: !!el.italic,
+      sizePt: el.size,
+    };
+    const role = roleFor(k);
+    const fit = fitTextRole({
+      role,
+      text,
+      spec,
+      safeWmm: maxWidthMm,
+      // Designer faces have no explicit vertical budget per element (elements
+      // are absolutely positioned), so use the full safe height as an upper
+      // bound. Reflow that consumes >1 line still fits so long as the
+      // element's anchor leaves room.
+      maxHeightMm: dims.h - 2 * MIN_PAD_MM,
+      warnings,
+    });
+
+    const reflowed = fit.sizePt !== el.size || fit.lines.length > 1;
+    if (!reflowed) {
+      // Byte-identical to today's output.
+      els.push(renderTextElement(el, text));
+    } else {
+      // Fit-adjusted output: use the shrunk pt via a shadow element, and
+      // emit the escaped, `<br/>`-joined lines as pre-escaped body so
+      // wrapping is preserved.
+      const adjustedEl: import("./badge-design").ElementPlacement = { ...el, size: fit.sizePt };
+      const lineHtml = fit.lines.map((l) => escapeHtml(l.text)).join("<br/>");
+      els.push(renderTextElement(adjustedEl, lineHtml, maxWidthMm, true));
+    }
   }
 
   // QR last so it sits on top. Source pixel size matches the thermal
   // head DPI when configured (see `qrPixelSizeForMm`) so the printer
   // renders modules dot-for-dot without downsampling artifacts that
-  // some scanners refuse to decode.
+  // some scanners refuse to decode. Post-clamp the mm side to
+  // `QR_MIN_MM` before pixel derivation so shrunk designer QRs stay
+  // scannable (bugfix.md 2.7).
   if (e.qr?.enabled) {
-    const qrPx = qrPixelSizeForMm(e.qr.size, thermalDpi);
+    const qrMm = Math.max(QR_MIN_MM, e.qr.size);
+    const qrPx = qrPixelSizeForMm(qrMm, thermalDpi);
     const qr = await QRCode.toDataURL(b.qr_payload, { width: qrPx, margin: 1 });
-    els.push(`<div class="el qr" style="left:${e.qr.x}%;top:${e.qr.y}%"><img src="${qr}" style="width:${e.qr.size}mm;height:${e.qr.size}mm" alt="QR" /></div>`);
+    els.push(`<div class="el qr" style="left:${e.qr.x}%;top:${e.qr.y}%"><img src="${qr}" style="width:${qrMm}mm;height:${qrMm}mm" alt="QR" /></div>`);
   }
   const pageBreak = asBack && d.fullBleed ? " page-break" : "";
   return `<div class="card${pageBreak}">${bgEl}${els.join("")}</div>`;
 }
 
-/** Serialize one text element placement into a positioned <div> with inline font styling. */
-function renderTextElement(el: import("./badge-design").ElementPlacement, text: string): string {
+/**
+ * Serialize one text element placement into a positioned <div> with inline
+ * font styling.
+ *
+ * @param el          - Element placement (position, size, font styling).
+ * @param text        - Rendered text; may contain `<br/>` between wrapped lines
+ *                      already inserted by the caller.
+ * @param maxWidthMm  - Optional width constraint in millimeters. When
+ *                      `Number.isFinite(maxWidthMm)` is true, emits
+ *                      `max-width; word-break; overflow-wrap` so long values
+ *                      wrap inside the element box. When omitted or infinite,
+ *                      emits today's exact CSS byte-for-byte — preserving
+ *                      designer-anchor snapshots for short-fit inputs
+ *                      (bugfix.md 3.1, 3.7).
+ * @param preEscaped  - When true, `text` is treated as already-safe HTML
+ *                      (typically `<br/>`-joined lines from `fitText`);
+ *                      otherwise it is escaped. Defaults to false.
+ */
+function renderTextElement(
+  el: import("./badge-design").ElementPlacement,
+  text: string,
+  maxWidthMm?: number,
+  preEscaped = false,
+): string {
   const fontFamily = el.fontFamily ? `${el.fontFamily}, system-ui, sans-serif` : "system-ui, sans-serif";
   const weight = el.fontWeight ?? 400;
   const italic = el.italic ? "italic" : "normal";
@@ -524,6 +663,18 @@ function renderTextElement(el: import("./badge-design").ElementPlacement, text: 
   const transform = transformMap[el.transform ?? "none"] || "none";
   const letter = (el.letterSpacing ?? 0).toFixed(3) + "em";
   const lh = el.lineHeight ?? 1.1;
+  // Only emit `max-width` when the caller has computed a real bound. This
+  // keeps designer-anchor short-fit snapshots byte-identical until Task 16
+  // wires per-element widths through `renderDesignedFace`.
+  const widthConstraint =
+    typeof maxWidthMm === "number" && Number.isFinite(maxWidthMm) && maxWidthMm > 0
+      ? [
+          `max-width:${maxWidthMm}mm`,
+          `white-space:normal`,
+          `word-break:break-word`,
+          `overflow-wrap:anywhere`,
+        ]
+      : [];
   const style = [
     `left:${el.x}%`,
     `top:${el.y}%`,
@@ -536,8 +687,10 @@ function renderTextElement(el: import("./badge-design").ElementPlacement, text: 
     `text-transform:${transform}`,
     `letter-spacing:${letter}`,
     `line-height:${lh}`,
+    ...widthConstraint,
   ].join(";");
-  return `<div class="el text" style="${style}">${escapeHtml(text)}</div>`;
+  const body = preEscaped ? text : escapeHtml(text);
+  return `<div class="el text" style="${style}">${body}</div>`;
 }
 
 /** Serialize a `BgTransform` into inline CSS for the print sheet's `.bg` div. */
@@ -552,16 +705,26 @@ function cssBgStyle(t: Parameters<typeof bgTransformToCss>[0]): string {
   return parts.join(";");
 }
 
-function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: string, nameDesignId?: NameDesignId, fontOverride?: PrintOptions["font"]): string {
+function renderName(b: BadgeData, dims: { w: number; h: number }, eventTitle: string, nameDesignId?: NameDesignId, fontOverride?: PrintOptions["font"], warnings?: FitWarning[]): string {
   const company = (b.company || "").trim();
   const nd = NAME_DESIGNS.find((d) => d.id === nameDesignId) ?? NAME_DESIGNS[0];
 
   const fontSizeMultiplier = nd.fontSize === "3xl" ? 1.8 : nd.fontSize === "2xl" ? 1.4 : 1.0;
   const basePt = fontOverride?.sizePt ?? Math.round(18 * fontSizeMultiplier);
-  const namePt = basePt;
-  // companySizePt can be set independently; falls back to 55% of namePt
-  const companyPt = fontOverride?.companySizePt ?? Math.round(namePt * 0.55);
-  const eventPt = Math.round(namePt * 0.4);
+  const namePtRequested = basePt;
+  // companySizePt can be set independently; falls back to 55% of namePt.
+  const companyPtRequested = fontOverride?.companySizePt ?? Math.round(namePtRequested * 0.55);
+  const eventPt = Math.round(namePtRequested * 0.4);
+
+  // Safe width for the name-only layouts. Every preset shell has its own
+  // horizontal padding (see the preset render blocks below), which is
+  // subtracted alongside `MIN_PAD_MM` so the fit engine constrains text
+  // to what will actually be visible on the physical label.
+  const shellPadMm = nd.id === "monogram" ? 5 : nd.id === "ticket-stub" ? 4 : 6;
+  const safeWmm = Math.max(10, dims.w - 2 * MIN_PAD_MM - 2 * shellPadMm);
+  // Height budget is generous — name-only labels have vertical slack — so
+  // most reflow is width-driven. Cap at the safe height to prevent runaway.
+  const safeHmm = dims.h - 2 * MIN_PAD_MM;
 
   // Font override takes precedence over the preset's typography
   const fontFamily = fontOverride?.family ?? nd.fontFamily;
@@ -573,6 +736,35 @@ function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: s
                    : fontOverride?.align === "right" ? "right"
                    : nd.layout === "left-aligned" ? "left"
                    : "center";
+
+  // ─── Fit engine dispatch ───────────────────────────────────────────────
+  // The name and company lines each pass through `fitText`. The preset
+  // shell (monogram / ticket-stub / event-card / default) is left
+  // untouched — only the point size and the emitted text of these two
+  // lines can change (bugfix.md 3.9).
+  const nameFit = fitTextRole({
+    role: "nameLabel",
+    text: b.name,
+    spec: { family: fontFamily, weightCss: fontWeight, italic: fontItalic, sizePt: namePtRequested },
+    safeWmm,
+    maxHeightMm: safeHmm,
+    warnings,
+  });
+  const companyFit = company
+    ? fitTextRole({
+        role: "companyLabel",
+        text: company,
+        spec: { family: fontFamily, weightCss: fontWeight, italic: fontItalic, sizePt: companyPtRequested },
+        safeWmm,
+        maxHeightMm: safeHmm,
+        warnings,
+      })
+    : null;
+
+  const namePt = nameFit.sizePt;
+  const companyPt = companyFit ? companyFit.sizePt : companyPtRequested;
+  const nameHtml = nameFit.lines.map((l) => escapeHtml(l.text)).join("<br/>");
+  const companyHtml = companyFit ? companyFit.lines.map((l) => escapeHtml(l.text)).join("<br/>") : "";
   const wordSpacing = fontOverride?.wordSpacingPt ? `word-spacing:${fontOverride.wordSpacingPt}pt;` : "";
   const scale      = fontOverride?.scalePct && fontOverride.scalePct !== 100
                    ? `transform:scaleX(${fontOverride.scalePct / 100});transform-origin:${textAlign};`
@@ -598,8 +790,8 @@ function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: s
       <div class="card name-only" style="text-align:left;padding:5mm;flex-direction:row;align-items:center;gap:4mm;border:${borderCss}">
         <div style="font-size:${namePt * 1.6}pt;${fontStyle}color:${nd.accentColor};line-height:1;flex-shrink:0">${escapeHtml(initial)}</div>
         <div>
-          <div style="font-size:${namePt}pt;${fontStyle}${nameTransform}line-height:1.05;color:#111">${escapeHtml(b.name)}</div>
-          ${company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:${companyColor};margin-top:2mm">${escapeHtml(company)}</div>` : ""}
+          <div style="font-size:${namePt}pt;${fontStyle}${nameTransform}line-height:1.05;color:#111">${nameHtml}</div>
+          ${company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:${companyColor};margin-top:2mm">${companyHtml}</div>` : ""}
         </div>
       </div>
     `;
@@ -609,8 +801,8 @@ function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: s
     return `
       <div class="card name-only" style="padding:4mm;gap:2mm;border:${borderCss}">
         ${accentBand}
-        <div style="font-size:${namePt}pt;${fontStyle}${nameTransform}line-height:1.05;color:#111;text-align:${textAlign}">${escapeHtml(b.name)}</div>
-        ${company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:#555;text-align:${textAlign}">${escapeHtml(company)}</div>` : ""}
+        <div style="font-size:${namePt}pt;${fontStyle}${nameTransform}line-height:1.05;color:#111;text-align:${textAlign}">${nameHtml}</div>
+        ${company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:#555;text-align:${textAlign}">${companyHtml}</div>` : ""}
       </div>
     `;
   }
@@ -619,8 +811,8 @@ function renderName(b: BadgeData, _dims: { w: number; h: number }, eventTitle: s
     <div class="card name-only" style="border:${borderCss}">
       ${accentBand}
       ${nd.showEvent && (eventTitle || b.event_title) && nd.id !== "event-card" ? `<div style="font-size:${eventPt}pt;letter-spacing:.12em;text-transform:uppercase;color:#666;margin-bottom:3mm;text-align:${textAlign}">${escapeHtml(eventTitle || b.event_title || "")}</div>` : ""}
-      <div style="font-size:${namePt}pt;${fontStyle}${nameTransform}line-height:1.05;color:#111;text-align:${textAlign}">${escapeHtml(b.name)}</div>
-      ${company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:#444;margin-top:3mm;text-align:${textAlign}">${escapeHtml(company)}</div>` : ""}
+      <div style="font-size:${namePt}pt;${fontStyle}${nameTransform}line-height:1.05;color:#111;text-align:${textAlign}">${nameHtml}</div>
+      ${company ? `<div style="font-size:${companyPt}pt;${fontStyle}color:#444;margin-top:3mm;text-align:${textAlign}">${companyHtml}</div>` : ""}
     </div>
   `;
 }
@@ -631,13 +823,15 @@ async function renderDefaultBadge(
   eventTitle: string,
   fontOverride?: PrintOptions["font"],
   thermalDpi?: number,
+  thermalOffset?: { topMm: number; leftMm: number },
+  warnings?: FitWarning[],
 ): Promise<string> {
   // Compute layout sizes proportional to the badge dimensions so the same
   // template scales cleanly from a 63×34mm Avery cell up to A6 / A4-2up.
   const clamp = (lo: number, v: number, hi: number) => Math.max(lo, Math.min(hi, v));
   const padMm = clamp(2.5, dims.w * 0.05, 6);
   const bannerHeightMm = clamp(14, dims.h * 0.36, 60);
-  const qrMm = clamp(14, Math.min(dims.w * 0.42, dims.h * 0.34), 36);
+  const qrMm = clamp(QR_MIN_MM, Math.min(dims.w * 0.42, dims.h * 0.34), 36);
   const orgPt = clamp(5, dims.h * 0.045, 10);
   const eventPt = clamp(8, dims.h * 0.095, 16);
   const metaPt = clamp(5, dims.h * 0.04, 9);
@@ -649,6 +843,11 @@ async function renderDefaultBadge(
     ? clamp(8, baseNamePt * (fontOverride.sizePt / 22), 48)
     : baseNamePt;
   const gapMm = clamp(0.8, dims.h * 0.015, 2.5);
+
+  // Safe content area — the axis-aligned rectangle the fit engine constrains
+  // every text run within (bugfix.md 2.5).
+  const safeW = dims.w - 2 * MIN_PAD_MM;
+  const safeH = dims.h - 2 * MIN_PAD_MM;
 
   // On a thermal printer with a known DPI, generate the QR at exactly
   // the print-head resolution so modules land dot-for-dot without
@@ -673,13 +872,6 @@ async function renderDefaultBadge(
     ? `<div class="banner" style="height:${bannerHeightMm}mm;background-image:url('${banner}')"></div>`
     : `<div class="banner placeholder" style="height:${bannerHeightMm}mm;font-size:${placeholderFontPt}pt;padding:0 ${padMm}mm">${escapeHtml(placeholderText)}</div>`;
 
-  const metaParts: string[] = [];
-  if (dateText) metaParts.push(`<span>${escapeHtml(dateText)}</span>`);
-  if (locText)  metaParts.push(`<span>${escapeHtml(locText)}</span>`);
-  const metaEl = metaParts.length
-    ? `<div class="meta" style="font-size:${metaPt}pt;margin-top:${gapMm}mm">${metaParts.join(`<span class="dot">·</span>`)}</div>`
-    : "";
-
   // Resolve the FontStylePanel choices into inline CSS applied to the name.
   // Defaults match the global Poppins so unchanged settings produce the same
   // output as before.
@@ -696,8 +888,102 @@ async function renderDefaultBadge(
   const scale       = fontOverride?.scalePct && fontOverride.scalePct !== 100
                     ? `transform:scaleX(${fontOverride.scalePct / 100});transform-origin:${align};`
                     : "";
+
+  // ─── Fit engine dispatch ───────────────────────────────────────────────
+  // For each text role, ask the fit engine whether the value fits at the
+  // requested point size. Short-fit inputs return unchanged from the fast
+  // path (`sizePt === requested`, `lines.length === 1`), so the emitted
+  // HTML below stays byte-identical to the current implementation. Long
+  // values return a shrunk `sizePt` and/or a wrapped `lines[]`, which the
+  // emit step joins with `<br/>` and the centering path picks up.
+  //
+  // Fit-engine calls are pure and synchronous; no I/O beyond the shared
+  // canvas measurement.
+  const nameFit = fitTextRole({
+    role: "name",
+    text: b.name,
+    spec: { family, weightCss: weight, italic: italic === "italic", sizePt: namePt },
+    safeWmm: safeW,
+    maxHeightMm: safeH,
+    warnings,
+  });
+  const orgFit = org
+    ? fitTextRole({
+        role: "org",
+        text: org,
+        spec: { family: "Poppins", weightCss: 600, italic: false, sizePt: orgPt },
+        safeWmm: safeW,
+        maxHeightMm: safeH,
+        warnings,
+      })
+    : null;
+  const eventFit = title
+    ? fitTextRole({
+        role: "event",
+        text: title,
+        spec: { family: "Poppins", weightCss: 700, italic: false, sizePt: eventPt },
+        safeWmm: safeW,
+        maxHeightMm: safeH,
+        warnings,
+      })
+    : null;
+  // Meta line contains one or two independent spans joined by a dot. We
+  // never wrap or shrink the meta line — it's short by construction — but
+  // we do measure it to catch pathological overflow (dateText + locText
+  // longer than safeW). If it overflows, fitText re-emits the combined
+  // string at a smaller pt.
+  const metaCombined = [dateText, locText].filter(Boolean).join(" · ");
+  const metaFit = metaCombined
+    ? fitTextRole({
+        role: "meta",
+        text: metaCombined,
+        spec: { family: "Poppins", weightCss: 400, italic: false, sizePt: metaPt },
+        safeWmm: safeW,
+        maxHeightMm: safeH,
+        warnings,
+      })
+    : null;
+
+  // Detect whether any role was reflowed. When nothing was, we emit the
+  // same HTML today produces — preservation for bugfix.md 3.1.
+  const reflowHappened =
+    nameFit.sizePt !== namePt ||
+    nameFit.lines.length > 1 ||
+    (orgFit ? orgFit.sizePt !== orgPt || orgFit.lines.length > 1 : false) ||
+    (eventFit ? eventFit.sizePt !== eventPt || eventFit.lines.length > 1 : false) ||
+    (metaFit ? metaFit.sizePt !== metaPt || metaFit.lines.length > 1 : false);
+
+  // Bytes emitted for name / org / event / meta content. When the fast
+  // path took, the joined output equals `escapeHtml(text)` for each role,
+  // so preservation snapshots hold.
+  const nameContent = nameFit.lines.map((l) => escapeHtml(l.text)).join("<br/>");
+  const nameSizePt = nameFit.sizePt;
+  const orgContent = orgFit ? orgFit.lines.map((l) => escapeHtml(l.text)).join("<br/>") : "";
+  const orgSizePt = orgFit ? orgFit.sizePt : orgPt;
+  const eventContent = eventFit ? eventFit.lines.map((l) => escapeHtml(l.text)).join("<br/>") : "";
+  const eventSizePt = eventFit ? eventFit.sizePt : eventPt;
+  const metaSizePt = metaFit ? metaFit.sizePt : metaPt;
+
+  // Meta line: preserve the dot-separated span shape when the fit engine
+  // did NOT reflow (fast path == today's output). When reflow ran, emit
+  // the combined single-line text at the fitted pt.
+  const metaEl = (() => {
+    if (!metaFit) return "";
+    const metaReflowed = metaFit.sizePt !== metaPt || metaFit.lines.length > 1;
+    if (!metaReflowed) {
+      const parts: string[] = [];
+      if (dateText) parts.push(`<span>${escapeHtml(dateText)}</span>`);
+      if (locText) parts.push(`<span>${escapeHtml(locText)}</span>`);
+      return `<div class="meta" style="font-size:${metaPt}pt;margin-top:${gapMm}mm">${parts.join(`<span class="dot">·</span>`)}</div>`;
+    }
+    const joinedLines = metaFit.lines.map((l) => escapeHtml(l.text)).join("<br/>");
+    return `<div class="meta" style="font-size:${metaSizePt}pt;margin-top:${gapMm}mm">${joinedLines}</div>`;
+  })();
+
+  // Name style — computed from the fitted point size. In the fast path
+  // this equals today's `font-size:${namePt}pt` byte-for-byte.
   const nameStyle = [
-    `font-size:${namePt}pt`,
+    `font-size:${nameSizePt}pt`,
     `font-family:'${family}',Poppins,system-ui,sans-serif`,
     `font-weight:${weight}`,
     `font-style:${italic}`,
@@ -715,21 +1001,82 @@ async function renderDefaultBadge(
                   : bodyAlign === "right" ? "flex-end"
                   : "center";
 
+  // ─── Body style resolution ─────────────────────────────────────────────
+  // Fast path: emit today's exact string (`padding: N * 1.2mm Mmm; gap: Kmm;
+  // align-items: ...; text-align: ...`).
+  // Reflow path: compute optical centering padding and switch
+  // `justify-content` to `center` so the shrunk / wrapped content stack is
+  // rebalanced within the safe area (bugfix.md 2.6). When `thermalOffset`
+  // is set, the padding also shifts content by the printer's hardware
+  // margin (bugfix.md 2.11).
+  let bodyStyle: string;
+  let dividerStyle: string;
+  if (!reflowHappened && !thermalOffset) {
+    bodyStyle = `padding:${padMm * 1.2}mm ${padMm}mm;gap:${gapMm}mm;align-items:${itemsAlign};text-align:${bodyAlign}`;
+    dividerStyle = `margin:${gapMm * 1.4}mm 0`;
+  } else {
+    // Content-height estimate for the centering calc: sum every role's
+    // fitted heightMm + qr side + banner height + inter-block gaps.
+    const contentH =
+      bannerHeightMm +
+      (orgFit?.heightMm ?? 0) +
+      (eventFit?.heightMm ?? 0) +
+      (metaFit?.heightMm ?? 0) +
+      nameFit.heightMm +
+      qrMm +
+      gapMm * 4; // dividers/margins between the six blocks
+    const padding = computeCenteringPadding(
+      safeH,
+      contentH,
+      padMm * 1.2,
+      thermalOffset ?? { topMm: 0, leftMm: 0 },
+    );
+    bodyStyle =
+      `padding:${padding.topMm.toFixed(3)}mm ${padding.rightMm.toFixed(3)}mm ${padding.botMm.toFixed(3)}mm ${padding.leftMm.toFixed(3)}mm;` +
+      `gap:${gapMm}mm;justify-content:center;align-items:${itemsAlign};text-align:${bodyAlign}`;
+    dividerStyle = `margin:${gapMm * 1.4}mm 0`;
+  }
+
   return `
     <div class="card basic">
       ${bannerEl}
-      <div class="body" style="padding:${padMm * 1.2}mm ${padMm}mm;gap:${gapMm}mm;align-items:${itemsAlign};text-align:${bodyAlign}">
-        ${org ? `<div class="org" style="font-size:${orgPt}pt">${escapeHtml(org)}</div>` : ""}
-        ${title ? `<div class="event" style="font-size:${eventPt}pt;margin-top:${gapMm * 0.6}mm">${escapeHtml(title)}</div>` : ""}
+      <div class="body" style="${bodyStyle}">
+        ${org ? `<div class="org" style="font-size:${orgSizePt}pt">${orgContent}</div>` : ""}
+        ${title ? `<div class="event" style="font-size:${eventSizePt}pt;margin-top:${gapMm * 0.6}mm">${eventContent}</div>` : ""}
         ${metaEl}
-        <div class="divider" style="margin:${gapMm * 1.4}mm 0"></div>
-        <div class="name" style="${nameStyle}">${escapeHtml(b.name)}</div>
+        <div class="divider" style="${dividerStyle}"></div>
+        <div class="name" style="${nameStyle}">${nameContent}</div>
         <div class="qr-wrap" style="width:${qrMm}mm;height:${qrMm}mm;margin-top:${gapMm * 1.2}mm">
           <img src="${qr}" alt="QR" />
         </div>
       </div>
     </div>
   `;
+}
+
+/**
+ * Fit-engine dispatch wrapper. Runs `fitText` and pushes a `FitWarning`
+ * onto `warnings` when the result was shrunk to the floor or hard-broken.
+ * Never throws — a bug in the fit engine cannot break the print pipeline.
+ */
+function fitTextRole(args: {
+  role: Role;
+  text: string;
+  spec: FontSpec;
+  safeWmm: number;
+  maxHeightMm: number;
+  warnings?: FitWarning[];
+}): FitResult {
+  const floor = FLOOR_PT_BY_ROLE[args.role] ?? 6;
+  const result = fitText(args.text, args.spec, args.safeWmm, args.maxHeightMm, floor);
+  if (args.warnings) {
+    if (result.overflow) {
+      args.warnings.push({ role: args.role, text: args.text, reason: "hardBreak" });
+    } else if (result.atFloor && result.sizePt < args.spec.sizePt) {
+      args.warnings.push({ role: args.role, text: args.text, reason: "atFloor" });
+    }
+  }
+  return result;
 }
 
 function escapeHtml(s: string) {
