@@ -142,7 +142,10 @@ export default function EventQuickCreatePage() {
       try {
         await selectVenueVendor.mutateAsync({
           eventId: data.id,
-          vendorId: venueVendor.id,
+          // venueVendor.id is now the venues.id after the marketplace
+          // rewrite; venueVendor.vendor_id is the owning business.
+          vendorId: venueVendor.vendor_id,
+          venueId: venueVendor.id,
           orgId: org.id,
           selectedServiceIds: venueServiceIds,
           brief: {

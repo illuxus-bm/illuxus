@@ -28,6 +28,8 @@ export interface EventVenueSelection extends VenueBookingBrief {
   id: string;
   event_id: string;
   vendor_id: string;
+  /** Persisted by migration 036. Null on legacy rows. */
+  venue_id: string | null;
   org_id: string;
   selected_by: string | null;
   status: VenueSelectionStatus;
@@ -60,6 +62,11 @@ export interface EventVenueSelection extends VenueBookingBrief {
 interface SelectVenueInput {
   eventId: string;
   vendorId: string;
+  /** The specific venue the organizer picked (from `public.venues`).
+   *  Optional for backwards compatibility; new picks should always
+   *  supply it so the vendor's Inbox shows which space is being
+   *  requested. Persisted in `event_venue_selections.venue_id`. */
+  venueId?: string;
   orgId: string;
   notes?: string;
   /** Which of the vendor's services the organizer picked. Defaults to []
@@ -90,6 +97,7 @@ export function useSelectVenueVendor() {
     mutationFn: async ({
       eventId,
       vendorId,
+      venueId,
       orgId,
       notes,
       selectedServiceIds,
@@ -103,6 +111,11 @@ export function useSelectVenueVendor() {
           {
             event_id: eventId,
             vendor_id: vendorId,
+            // venue_id column added by migration 036. Old requests
+            // (pre-multi-venue) omitted it; new requests pin the
+            // specific venue picked so the vendor knows which of
+            // their spaces is being asked for.
+            venue_id: venueId ?? null,
             org_id: orgId,
             selected_by: user.id,
             status: "contacted",
@@ -177,7 +190,7 @@ export function useEventVenueSelection(eventId: string | null | undefined) {
         .from("event_venue_selections" as never)
         .select(
           `
-            id, event_id, vendor_id, org_id, selected_by, status, notes,
+            id, event_id, vendor_id, venue_id, org_id, selected_by, status, notes,
             selected_service_ids,
             event_type, event_duration_hours, expected_attendees,
             seating_capacity, seating_arrangement,
