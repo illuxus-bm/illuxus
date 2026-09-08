@@ -1,22 +1,25 @@
 /**
  * notify-organizer-venue-response
  *
- * Fired by the `trg_event_venue_selections_notify` Postgres trigger whenever
- * a vendor accepts or declines a venue request. Emails the organizer with
- * the outcome and a link back into the dashboard.
+ * Fired by the `trg_event_venue_selections_notify` Postgres trigger
+ * whenever a vendor accepts or declines a venue request. Emails the
+ * organizer (the person who created the event) with the outcome. Also
+ * safe to invoke directly from clients as a retry-friendly fallback —
+ * the function is idempotent for a given (selection_id, status) pair.
  *
- * Also invocable directly from clients (Illuxus dashboard, vendor-connect
- * standalone) as a fallback — the function is idempotent for a given
- * (selection_id, status) pair thanks to the `responded_at` timestamp.
+ * Enriched in v2 (migrations 032 / 036) to include the event banner
+ * and the specific venue name the organizer requested, so a vendor
+ * with multiple venues sends confirmations that read "Grand Ballroom
+ * confirmed for …" instead of just "Bizmillennium confirmed for …".
  *
  * Request body:
  *   {
- *     selection_id: string,   // event_venue_selections.id
- *     event_id?: string,      // reserved for future filtering / auditing
+ *     selection_id: string,   // event_venue_selections.id (required)
+ *     event_id?: string,      // for audit; resolved from selection too
  *     vendor_id?: string,
  *     status: "accepted" | "declined",
  *     previous_status?: string,
- *     notes?: string | null,  // vendor-supplied note (optional)
+ *     notes?: string | null,
  *   }
  */
 
@@ -45,7 +48,7 @@ Deno.serve(async (req) => {
         {
           ok: false,
           error:
-            "SMTP not configured. Set SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD in Supabase secrets.",
+            "SMTP not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_FROM in Supabase secrets.",
         },
         { status: 500, cors },
       );
@@ -68,7 +71,6 @@ Deno.serve(async (req) => {
         { status: 400, cors },
       );
     }
-
     if (status !== "accepted" && status !== "declined") {
       return corsJson(
         { ok: false, error: `unsupported status "${status}"` },
@@ -81,20 +83,23 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // ─── Load selection + event + vendor ─────────────────────────────────
-    // Deliberately a single round-trip via an embedded select. Keeps the
-    // trigger fast enough that a burst of accepts/declines from a busy
-    // vendor doesn't back up the connection pool.
+    // ─── Selection + event + vendor + venue in one round-trip ───────
+    // `venue` (post-migration 036) is optional — old selections had no
+    // venue_id and will render with just the vendor's business name.
     const { data: selection, error: selErr } = await supabase
       .from("event_venue_selections")
       .select(
         `
-          id, event_id, vendor_id, status, notes, selected_by, responded_at,
+          id, event_id, vendor_id, venue_id, status, notes, selected_by, responded_at,
           event:events (
-            id, title, date, end_date, venue, location, capacity, user_id, org_id, slug
+            id, title, date, end_date, venue, location, capacity, user_id, org_id, slug,
+            banner_landscape_url, banner_portrait_url
           ),
           vendor:vendors (
             id, business_name, city, country, logo_url
+          ),
+          venue:venues (
+            id, name, space_type
           )
         `,
       )
@@ -108,9 +113,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Defensive: don't spam if the current row status doesn't match what the
-    // caller told us. Prevents late trigger retries from firing after the
-    // vendor already changed their mind again.
+    // Guard against out-of-order trigger retries: skip if the row moved
+    // on to a different status already.
     if (selection.status !== status) {
       return corsJson(
         { ok: true, skipped: `current status is ${selection.status}` },
@@ -129,6 +133,8 @@ Deno.serve(async (req) => {
       user_id: string;
       org_id: string | null;
       slug: string;
+      banner_landscape_url: string | null;
+      banner_portrait_url: string | null;
     } | null;
 
     const vendor = selection.vendor as {
@@ -139,6 +145,12 @@ Deno.serve(async (req) => {
       logo_url: string | null;
     } | null;
 
+    const venue = selection.venue as {
+      id: string;
+      name: string;
+      space_type: string | null;
+    } | null;
+
     if (!event || !vendor) {
       return corsJson(
         { ok: false, error: "Event or vendor row missing" },
@@ -146,25 +158,22 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ─── Resolve organizer email + name ──────────────────────────────────
+    // ─── Organizer (recipient) email + display name ─────────────────
     const { data: usersPage } = await supabase.auth.admin.listUsers();
     const users = usersPage?.users ?? [];
     const organizer = users.find((u) => u.id === event.user_id);
     const organizerEmail = organizer?.email;
-
     if (!organizerEmail) {
       return corsJson(
         { ok: false, error: "Organizer email could not be resolved" },
         { status: 404, cors },
       );
     }
-
     const organizerName =
       (organizer?.user_metadata?.display_name as string | undefined) ??
       (organizer?.user_metadata?.first_name as string | undefined) ??
       organizerEmail.split("@")[0];
 
-    // ─── Load org name (for the From line) ───────────────────────────────
     let orgName = "Illuxus";
     if (event.org_id) {
       const { data: org } = await supabase
@@ -175,7 +184,7 @@ Deno.serve(async (req) => {
       if (org?.name) orgName = org.name;
     }
 
-    // ─── Build the email ─────────────────────────────────────────────────
+    // ─── Presentational bits ────────────────────────────────────────
     const eventDate = event.date ? new Date(event.date) : null;
     const dateStr = eventDate
       ? eventDate.toLocaleDateString("en-US", {
@@ -185,37 +194,45 @@ Deno.serve(async (req) => {
           day: "numeric",
         })
       : "TBD";
-
+    const bannerUrl = event.banner_landscape_url ?? event.banner_portrait_url ?? null;
+    const venueName = venue?.name ?? vendor.business_name;
+    const spaceLabel = venue?.space_type
+      ? venue.space_type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+      : null;
     const dashboardUrl = `${ORGANIZER_DASHBOARD_URL.replace(/\/$/, "")}/dashboard/events/${
       event.slug || event.id
     }?tab=venue`;
 
     const accepted = status === "accepted";
     const heading = accepted
-      ? `${vendor.business_name} accepted your venue request`
-      : `${vendor.business_name} declined your venue request`;
+      ? `${venueName} accepted your venue request`
+      : `${venueName} declined your venue request`;
     const subject = accepted
-      ? `${vendor.business_name} confirmed for "${event.title}"`
-      : `${vendor.business_name} declined for "${event.title}"`;
+      ? `${venueName} confirmed for "${event.title}"`
+      : `${venueName} declined for "${event.title}"`;
 
     const bodyText = [
       `Hi ${organizerName},`,
       "",
       accepted
-        ? `Good news — ${vendor.business_name} has accepted your request to host "${event.title}".`
-        : `${vendor.business_name} won't be able to host "${event.title}" on the date you selected.`,
+        ? `Good news — ${venueName} (operated by ${vendor.business_name}) has accepted your request to host "${event.title}".`
+        : `${venueName} (operated by ${vendor.business_name}) won't be able to host "${event.title}" on the date you selected.`,
       "",
       "── Event details ──",
-      `Event: ${event.title}`,
-      `Date:  ${dateStr}`,
-      event.location ? `Location: ${event.location}` : "",
-      event.capacity ? `Capacity: ${event.capacity} attendees` : "",
+      `Event:        ${event.title}`,
+      `Organised by: ${orgName}`,
+      `Date:         ${dateStr}`,
+      event.location ? `Location:     ${event.location}` : "",
+      event.capacity ? `Capacity:     ${event.capacity} attendees` : "",
+      "",
+      "── Venue ──",
+      `${venueName}${spaceLabel ? ` (${spaceLabel})` : ""} · ${vendor.business_name}`,
       "",
       notes ? `Vendor note: ${notes}` : "",
       "",
       accepted
-        ? `Head over to your dashboard to finalise the booking:`
-        : `You can pick another venue from your event dashboard:`,
+        ? "Head over to your dashboard to finalise the booking:"
+        : "You can pick another venue from your event dashboard:",
       `  ${dashboardUrl}`,
       "",
       "— Illuxus",
@@ -223,13 +240,23 @@ Deno.serve(async (req) => {
       .filter(Boolean)
       .join("\n");
 
-    const accentBg = accepted ? "#ecfdf5" : "#fef2f2";
+    const accentBg   = accepted ? "#ecfdf5" : "#fef2f2";
     const accentText = accepted ? "#065f46" : "#991b1b";
-    const btnBg = accepted ? "#059669" : "#111827";
+    const btnBg      = accepted ? "#059669" : "#111827";
 
     const html = `
-      <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 16px; color: #111827;">
-        <div style="background:${accentBg}; color:${accentText}; padding: 6px 12px; border-radius: 999px; display:inline-block; font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;">
+      <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 16px; color: #111827;">
+        ${
+          bannerUrl
+            ? `<img
+                 src="${escapeAttr(bannerUrl)}"
+                 alt="${escapeAttr(event.title)}"
+                 style="width: 100%; height: auto; border-radius: 12px; margin-bottom: 24px; display: block;"
+               />`
+            : ""
+        }
+
+        <div style="background:${accentBg}; color:${accentText}; padding: 6px 12px; border-radius: 999px; display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;">
           ${accepted ? "Venue confirmed" : "Venue declined"}
         </div>
 
@@ -245,19 +272,31 @@ Deno.serve(async (req) => {
         <p style="font-size: 14px; line-height: 1.6; color: #374151; margin: 0 0 20px;">
           ${
             accepted
-              ? `Good news — <strong>${escapeHtml(vendor.business_name)}</strong> has accepted your request to host <strong>${escapeHtml(event.title)}</strong>.`
-              : `<strong>${escapeHtml(vendor.business_name)}</strong> won't be able to host <strong>${escapeHtml(event.title)}</strong> on the date you selected.`
+              ? `Good news — <strong>${escapeHtml(venueName)}</strong>${spaceLabel ? ` <span style="color:#6b7280;">(${escapeHtml(spaceLabel)})</span>` : ""}, operated by <strong>${escapeHtml(vendor.business_name)}</strong>, has accepted your request to host <strong>${escapeHtml(event.title)}</strong>.`
+              : `<strong>${escapeHtml(venueName)}</strong>, operated by <strong>${escapeHtml(vendor.business_name)}</strong>, won't be able to host <strong>${escapeHtml(event.title)}</strong> on the date you selected.`
           }
         </p>
 
-        <div style="background: #f9fafb; border-radius: 8px; padding: 16px 20px; margin: 0 0 24px;">
+        <div style="background: #f9fafb; border-radius: 8px; padding: 16px 20px; margin: 0 0 20px;">
+          <p style="text-transform: uppercase; letter-spacing: 0.05em; font-size: 11px; color: #6b7280; margin: 0 0 8px;">Event</p>
           <table style="width: 100%; font-size: 14px; color: #111827;">
-            <tr><td style="padding: 4px 0; color: #6b7280; width: 90px;">Event</td><td style="padding: 4px 0; font-weight: 600;">${escapeHtml(event.title)}</td></tr>
+            <tr><td style="padding: 4px 0; color: #6b7280; width: 110px;">Name</td><td style="padding: 4px 0; font-weight: 600;">${escapeHtml(event.title)}</td></tr>
+            <tr><td style="padding: 4px 0; color: #6b7280;">Organised by</td><td style="padding: 4px 0; font-weight: 600;">${escapeHtml(orgName)}</td></tr>
             <tr><td style="padding: 4px 0; color: #6b7280;">Date</td><td style="padding: 4px 0;">${escapeHtml(dateStr)}</td></tr>
             ${event.capacity ? `<tr><td style="padding: 4px 0; color: #6b7280;">Capacity</td><td style="padding: 4px 0;">${event.capacity} attendees</td></tr>` : ""}
             ${event.location ? `<tr><td style="padding: 4px 0; color: #6b7280;">Location</td><td style="padding: 4px 0;">${escapeHtml(event.location)}</td></tr>` : ""}
-            <tr><td style="padding: 4px 0; color: #6b7280;">Venue</td><td style="padding: 4px 0;">${escapeHtml(vendor.business_name)}${vendor.city ? " · " + escapeHtml(vendor.city) : ""}</td></tr>
           </table>
+        </div>
+
+        <div style="background: ${accepted ? "#ecfdf5" : "#f9fafb"}; border-left: 4px solid ${accepted ? "#059669" : "#9ca3af"}; border-radius: 8px; padding: 16px 20px; margin: 0 0 24px;">
+          <p style="text-transform: uppercase; letter-spacing: 0.05em; font-size: 11px; color: ${accepted ? "#047857" : "#6b7280"}; margin: 0 0 6px;">Venue</p>
+          <p style="margin: 0; font-size: 15px; font-weight: 600; color: #111827;">
+            ${escapeHtml(venueName)}
+            ${spaceLabel ? `<span style="color: #6b7280; font-weight: 400; font-size: 13px;"> · ${escapeHtml(spaceLabel)}</span>` : ""}
+          </p>
+          <p style="margin: 4px 0 0; font-size: 12px; color: #6b7280;">
+            Operated by ${escapeHtml(vendor.business_name)}${vendor.city ? " · " + escapeHtml(vendor.city) : ""}
+          </p>
         </div>
 
         ${
@@ -270,7 +309,7 @@ Deno.serve(async (req) => {
         }
 
         <p style="margin: 0 0 24px;">
-          <a href="${dashboardUrl}"
+          <a href="${escapeAttr(dashboardUrl)}"
              style="display: inline-block; background: ${btnBg}; color: #fff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px;">
             ${accepted ? "Open event dashboard" : "Pick another venue"}
           </a>
@@ -298,17 +337,17 @@ Deno.serve(async (req) => {
     }
 
     // Best-effort in-app notification so the organizer sees the decision
-    // inside the dashboard even if their email is delayed / filtered.
+    // inside the dashboard even when their email is delayed / filtered.
     try {
       await supabase.from("app_notifications").insert({
         user_id: event.user_id,
         type: accepted ? "venue_accepted" : "venue_declined",
         title: heading,
         body: notes
-          ? `${vendor.business_name} added a note: ${notes}`
+          ? `${venueName} added a note: ${notes}`
           : accepted
-            ? `${vendor.business_name} confirmed for "${event.title}".`
-            : `${vendor.business_name} won't be able to host "${event.title}".`,
+            ? `${venueName} confirmed for "${event.title}".`
+            : `${venueName} won't be able to host "${event.title}".`,
         link: `/dashboard/events/${event.slug || event.id}?tab=venue`,
       });
     } catch {
@@ -331,4 +370,8 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function escapeAttr(s: string): string {
+  return escapeHtml(s);
 }
