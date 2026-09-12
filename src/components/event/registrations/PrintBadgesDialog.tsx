@@ -535,7 +535,15 @@ export default function PrintBadgesDialog({
             <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">Type</Label>
             <RadioGroup value={mode} onValueChange={(v) => setMode(v as PrintMode)} className="grid grid-cols-2 gap-2">
               {TYPE_OPTIONS.map((opt) => (
-                <label key={opt.v} className={`border rounded-lg px-3 py-2 cursor-pointer transition-colors ${mode === opt.v ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}>
+                // `relative` is REQUIRED: RadioGroupItem is `sr-only`, which is
+                // `position:absolute`. Without a positioned ancestor the radio
+                // escapes to the `fixed` DialogContent, so its box detaches
+                // from this card and stops scrolling with the settings pane.
+                // Radix focuses that radio on selection, and the browser then
+                // scrolls the pane to reveal the off-screen phantom — the whole
+                // dialog appears to jump. Keeping the radio inside the label
+                // box prevents it.
+                <label key={opt.v} className={`relative border rounded-lg px-3 py-2 cursor-pointer transition-colors ${mode === opt.v ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}>
                   <RadioGroupItem value={opt.v} className="sr-only" />
                   <div className="text-[13px] font-medium leading-tight">{opt.label}</div>
                   <div className="text-[11px] text-muted-foreground leading-tight">{opt.sub}</div>
@@ -559,7 +567,8 @@ export default function PrintBadgesDialog({
             <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">Label size</Label>
             <RadioGroup value={size} onValueChange={(v) => setSize(v as PrintSize)} className="grid grid-cols-2 gap-2">
               {SIZE_OPTIONS.map((opt) => (
-                <label key={opt.v} className={`border rounded-lg px-3 py-2 cursor-pointer transition-colors ${size === opt.v ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}>
+                // `relative` required — see the TYPE_OPTIONS comment above.
+                <label key={opt.v} className={`relative border rounded-lg px-3 py-2 cursor-pointer transition-colors ${size === opt.v ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}>
                   <RadioGroupItem value={opt.v} className="sr-only" />
                   <div className="text-[13px] font-medium leading-tight">{opt.label}</div>
                   <div className="text-[11px] text-muted-foreground leading-tight">{opt.sub}</div>
@@ -657,15 +666,20 @@ export default function PrintBadgesDialog({
                     onValueChange={(v) => setThermalDpi(Number(v) as 203 | 300)}
                     className="grid grid-cols-2 gap-2"
                   >
+                    {/* `relative` required — see the TYPE_OPTIONS comment above.
+                        This is the group where the jump was reported: switching
+                        203 -> 300 DPI focused a radio whose phantom box sat
+                        ~512px below its card, yanking the settings pane. */}
                     <label
-                      className={`border rounded-lg px-3 py-1.5 cursor-pointer transition-colors ${thermalDpi === 203 ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}
+                      className={`relative border rounded-lg px-3 py-1.5 cursor-pointer transition-colors ${thermalDpi === 203 ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}
                     >
                       <RadioGroupItem value="203" className="sr-only" />
                       <div className="text-[12px] font-medium leading-tight">203 DPI</div>
                       <div className="text-[10.5px] text-muted-foreground leading-tight">helett H30C, Dymo, Zebra ZP450</div>
                     </label>
+                    {/* `relative` required — see the TYPE_OPTIONS comment above. */}
                     <label
-                      className={`border rounded-lg px-3 py-1.5 cursor-pointer transition-colors ${thermalDpi === 300 ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}
+                      className={`relative border rounded-lg px-3 py-1.5 cursor-pointer transition-colors ${thermalDpi === 300 ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}
                     >
                       <RadioGroupItem value="300" className="sr-only" />
                       <div className="text-[12px] font-medium leading-tight">300 DPI</div>
