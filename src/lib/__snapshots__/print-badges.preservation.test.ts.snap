@@ -1619,6 +1619,9 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
     body{font-family:Poppins,system-ui,sans-serif}
     
     .sheet{display:grid;grid-template-columns:repeat(1,186mm);gap:6mm;justify-content:center;padding:0}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 702.99px), calc(100vh / 506.46px), 1));transform-origin:center center;}}
     .card{
       width:186mm;height:134mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -1644,7 +1647,16 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -1656,7 +1668,7 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -1736,6 +1748,9 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 384.00px), calc(100vh / 576.00px), 1));transform-origin:center center;}}
     .card{
       width:101.6mm;height:152.4mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -1761,7 +1776,16 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -1773,7 +1797,7 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -1862,6 +1886,9 @@ exports[`preservation baseline — designer element anchors > renders identicall
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 384.00px), calc(100vh / 576.00px), 1));transform-origin:center center;}}
     .card{
       width:101.6mm;height:152.4mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -1887,7 +1914,16 @@ exports[`preservation baseline — designer element anchors > renders identicall
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -1899,7 +1935,7 @@ exports[`preservation baseline — designer element anchors > renders identicall
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -1914,7 +1950,7 @@ exports[`preservation baseline — designer element anchors > renders identicall
       .card .el.name, .card .el.company { color: #000 !important; text-shadow: none !important; }
     
   </style></head>
-  <body><div class="sheet"><div class="card"><div class="el text" style="left:30%;top:42%;font-size:22pt;color:#111111;font-family:Poppins, system-ui, sans-serif;font-weight:700;font-style:normal;text-align:center;text-transform:none;letter-spacing:-0.010em;line-height:1.1">Jane Doe</div><div class="el text" style="left:50%;top:56%;font-size:12pt;color:#555555;font-family:Poppins, system-ui, sans-serif;font-weight:400;font-style:normal;text-align:center;text-transform:none;letter-spacing:0.000em;line-height:1.2">Acme Inc.</div><div class="el qr" style="left:50%;top:80%"><img src="data:image/png;base64,QR(https://ev.example/j)" style="width:26mm;height:26mm" alt="QR" /></div></div></div></body></html>"
+  <body><div class="sheet"><div class="card"><div class="el text" style="left:30%;top:42%;font-size:22pt;color:#111111;font-family:Poppins, system-ui, sans-serif;font-weight:700;font-style:normal;text-align:center;text-transform:none;letter-spacing:-0.010em;line-height:1.1">Jane Doe</div><div class="el text" style="left:50%;top:56%;font-size:12pt;color:#555555;font-family:Poppins, system-ui, sans-serif;font-weight:400;font-style:normal;text-align:center;text-transform:none;letter-spacing:0.000em;line-height:1.2">Acme Inc.</div><div class="el qr" style="left:50%;top:80%;width:26mm;height:26mm"><img src="data:image/png;base64,QR(https://ev.example/j)" style="width:100%;height:100%;display:block" alt="QR" /></div></div></div></body></html>"
 `;
 
 exports[`preservation baseline — font override applied to short name > renders identically for a full FontStyle override on a4-2up name mode 1`] = `
@@ -1928,6 +1964,9 @@ exports[`preservation baseline — font override applied to short name > renders
     body{font-family:Poppins,system-ui,sans-serif}
     
     .sheet{display:grid;grid-template-columns:repeat(1,186mm);gap:6mm;justify-content:center;padding:0}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 702.99px), calc(100vh / 506.46px), 1));transform-origin:center center;}}
     .card{
       width:186mm;height:134mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -1953,7 +1992,16 @@ exports[`preservation baseline — font override applied to short name > renders
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -1965,7 +2013,7 @@ exports[`preservation baseline — font override applied to short name > renders
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -2010,6 +2058,9 @@ exports[`preservation baseline — font override applied to short name > renders
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 384.00px), calc(100vh / 576.00px), 1));transform-origin:center center;}}
     .card{
       width:101.6mm;height:152.4mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -2035,7 +2086,16 @@ exports[`preservation baseline — font override applied to short name > renders
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -2047,7 +2107,7 @@ exports[`preservation baseline — font override applied to short name > renders
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -2090,6 +2150,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{font-family:Poppins,system-ui,sans-serif}
     
     .sheet{display:grid;grid-template-columns:repeat(1,186mm);gap:6mm;justify-content:center;padding:0}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 702.99px), calc(100vh / 506.46px), 1));transform-origin:center center;}}
     .card{
       width:186mm;height:134mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -2115,7 +2178,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -2127,7 +2199,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -2161,6 +2233,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{font-family:Poppins,system-ui,sans-serif}
     
     .sheet{display:grid;grid-template-columns:repeat(1,186mm);gap:6mm;justify-content:center;padding:0}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 702.99px), calc(100vh / 506.46px), 1));transform-origin:center center;}}
     .card{
       width:186mm;height:134mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -2186,7 +2261,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -2198,7 +2282,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -2225,6 +2309,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{font-family:Poppins,system-ui,sans-serif}
     
     .sheet{display:grid;grid-template-columns:repeat(1,148mm);gap:0;justify-content:center;padding:0}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 559.37px), calc(100vh / 396.85px), 1));transform-origin:center center;}}
     .card{
       width:148mm;height:105mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -2250,7 +2337,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -2262,7 +2358,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -2296,6 +2392,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{font-family:Poppins,system-ui,sans-serif}
     
     .sheet{display:grid;grid-template-columns:repeat(1,148mm);gap:0;justify-content:center;padding:0}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 559.37px), calc(100vh / 396.85px), 1));transform-origin:center center;}}
     .card{
       width:148mm;height:105mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -2321,7 +2420,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -2333,7 +2441,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -2360,6 +2468,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{font-family:Poppins,system-ui,sans-serif}
     
     .sheet{display:grid;grid-template-columns:repeat(3,63mm);gap:3mm;justify-content:center;padding:0}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 238.11px), calc(100vh / 128.50px), 1));transform-origin:center center;}}
     .card{
       width:63mm;height:34mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -2385,7 +2496,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -2397,7 +2517,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -2431,6 +2551,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{font-family:Poppins,system-ui,sans-serif}
     
     .sheet{display:grid;grid-template-columns:repeat(3,63mm);gap:3mm;justify-content:center;padding:0}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 238.11px), calc(100vh / 128.50px), 1));transform-origin:center center;}}
     .card{
       width:63mm;height:34mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -2456,7 +2579,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -2468,7 +2600,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -2513,6 +2645,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 384.00px), calc(100vh / 288.00px), 1));transform-origin:center center;}}
     .card{
       width:101.6mm;height:76.19999999999999mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -2538,7 +2673,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -2550,7 +2694,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -2611,6 +2755,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 384.00px), calc(100vh / 288.00px), 1));transform-origin:center center;}}
     .card{
       width:101.6mm;height:76.19999999999999mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -2636,7 +2783,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -2648,7 +2804,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -2702,6 +2858,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 384.00px), calc(100vh / 576.00px), 1));transform-origin:center center;}}
     .card{
       width:101.6mm;height:152.4mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -2727,7 +2886,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -2739,7 +2907,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -2800,6 +2968,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 384.00px), calc(100vh / 576.00px), 1));transform-origin:center center;}}
     .card{
       width:101.6mm;height:152.4mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -2825,7 +2996,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -2837,7 +3017,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -2891,6 +3071,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 188.98px), calc(100vh / 302.36px), 1));transform-origin:center center;}}
     .card{
       width:50mm;height:80mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -2916,7 +3099,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -2928,7 +3120,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -2989,6 +3181,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 188.98px), calc(100vh / 302.36px), 1));transform-origin:center center;}}
     .card{
       width:50mm;height:80mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -3014,7 +3209,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -3026,7 +3230,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -3080,6 +3284,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 219.21px), calc(100vh / 302.36px), 1));transform-origin:center center;}}
     .card{
       width:58mm;height:80mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -3105,7 +3312,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -3117,7 +3333,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -3178,6 +3394,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 219.21px), calc(100vh / 302.36px), 1));transform-origin:center center;}}
     .card{
       width:58mm;height:80mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -3203,7 +3422,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -3215,7 +3443,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -3269,6 +3497,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 302.36px), calc(100vh / 377.95px), 1));transform-origin:center center;}}
     .card{
       width:80mm;height:100mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -3294,7 +3525,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -3306,7 +3546,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -3367,6 +3607,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 302.36px), calc(100vh / 377.95px), 1));transform-origin:center center;}}
     .card{
       width:80mm;height:100mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -3392,7 +3635,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -3404,7 +3656,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -3458,6 +3710,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 377.95px), calc(100vh / 566.93px), 1));transform-origin:center center;}}
     .card{
       width:100mm;height:150mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -3483,7 +3738,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -3495,7 +3759,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -3556,6 +3820,9 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     
     .sheet{display:block}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    @media screen {html,body{width:100vw;height:100vh;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.sheet{transform:scale(min(calc(100vw / 377.95px), calc(100vh / 566.93px), 1));transform-origin:center center;}}
     .card{
       width:100mm;height:150mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -3581,7 +3848,16 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -3593,7 +3869,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}

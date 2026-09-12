@@ -211,6 +211,36 @@ export async function buildPrintHtml(
   if (opts.font?.family) usedFonts.push(opts.font.family);
   const fontsLink = googleFontsUrl([...new Set(usedFonts)]);
 
+  // On-screen preview fit-to-viewport.
+  //
+  // The same HTML is used as (a) the print document sent to the popup that
+  // calls window.print() and (b) the live preview iframe embedded in
+  // PrintBadgesDialog. In print, .card is 1:1 mm-accurate — the printer
+  // needs exact physical dimensions. In the preview iframe, though, a wide
+  // badge (a4-2up 186mm ~ 703px, thermal-4x6 101.6mm ~ 384px) can overflow
+  // the pane's available width, producing a horizontal scrollbar and only
+  // showing part of the badge — the part where the QR happens to sit,
+  // which reads visually as "the QR is huge and everything else is
+  // missing".
+  //
+  // This @media screen block scales the badge to fit inside the iframe
+  // whenever the badge's CSS-pixel size (dims * 96/25.4) exceeds the
+  // viewport. The min(..., ..., 1) caps the scale factor at 1x so we
+  // never upscale a small thermal-50 label into blurry territory. Print
+  // output is completely unaffected because these rules only apply inside
+  // @media screen.
+  const cardPxW = (dims.w * 96 / 25.4).toFixed(2);
+  const cardPxH = (dims.h * 96 / 25.4).toFixed(2);
+  const screenFitCss =
+    "@media screen {" +
+    "html,body{width:100vw;height:100vh;overflow:hidden}" +
+    "body{display:flex;align-items:center;justify-content:center}" +
+    ".sheet{" +
+    `transform:scale(min(calc(100vw / ${cardPxW}px), calc(100vh / ${cardPxH}px), 1));` +
+    "transform-origin:center center;" +
+    "}" +
+    "}";
+
   const html = `<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print ${mode === "name" ? "Names" : "Badges"}</title>
   ${fontsLink ? `<link rel="stylesheet" href="${fontsLink}" />` : ""}
@@ -239,6 +269,9 @@ export async function buildPrintHtml(
     body{display:flex;align-items:center;justify-content:center;min-height:100vh}
     ` : ""}
     .sheet{${sheetCss}}
+    /* On-screen preview only: fit-to-viewport (see the JS-side comment
+     * next to the screenFitCss declaration above for the full rationale). */
+    ${screenFitCss}
     .card{
       width:${dims.w}mm;height:${dims.h}mm;position:relative;overflow:hidden;background:#fff;
       border:none;
@@ -264,7 +297,16 @@ export async function buildPrintHtml(
     .card .bg{position:absolute;inset:0;background-size:cover;background-position:center;background-repeat:no-repeat}
     .card .el{position:absolute;transform:translate(-50%,-50%);text-align:center;line-height:1.1}
     .card .el.name{font-weight:700}
-    .card .el img{display:block}
+    /* Belt-and-suspenders — see the JS-side rationale next to
+     * renderDesignedFace: designer-face QR images have their intended
+     * size on an inline style, but if that inline style is missing during
+     * a rapid iframe doc.write, the browser would fall back to the img's
+     * natural bitmap dimensions (which at 300 DPI reach ~300px, enough to
+     * visibly overflow the badge). Capping to the parent .el's box size
+     * plus overflow:hidden on the wrapper prevents a huge bitmap from
+     * bursting through the layout in any code path. */
+    .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+    .card .el.qr{overflow:hidden}
     .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
     .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
     .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
@@ -276,7 +318,7 @@ export async function buildPrintHtml(
     .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
     .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
     .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
@@ -625,7 +667,16 @@ async function renderDesignedFace(
     const qrMm = Math.max(QR_MIN_MM, e.qr.size);
     const qrPx = qrPixelSizeForMm(qrMm, thermalDpi);
     const qr = await QRCode.toDataURL(b.qr_payload, { width: qrPx, margin: 1 });
-    els.push(`<div class="el qr" style="left:${e.qr.x}%;top:${e.qr.y}%"><img src="${qr}" style="width:${qrMm}mm;height:${qrMm}mm" alt="QR" /></div>`);
+    // Size the WRAPPER div in mm rather than only the child img. When the
+    // container has an explicit CSS-mm box the img can never overflow —
+    // `.card .el img { max-width:100%; max-height:100% }` (see the style
+    // block above) caps it to the wrapper. Previously only the img itself
+    // had an inline mm size; if that inline style was ever missed by the
+    // browser (rapid iframe doc.write during preview refresh) the img fell
+    // back to its natural bitmap dimensions, which at 300 DPI approaches
+    // ~300px — enough to make the QR visually explode out of the badge
+    // preview. This makes the fix impossible to bypass.
+    els.push(`<div class="el qr" style="left:${e.qr.x}%;top:${e.qr.y}%;width:${qrMm}mm;height:${qrMm}mm"><img src="${qr}" style="width:100%;height:100%;display:block" alt="QR" /></div>`);
   }
   const pageBreak = asBack && d.fullBleed ? " page-break" : "";
   return `<div class="card${pageBreak}">${bgEl}${els.join("")}</div>`;
