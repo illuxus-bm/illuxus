@@ -467,6 +467,12 @@ export default function PrintBadgesDialog({
         };
         const thermalActive = thermalMode || isThermalSize;
         const { html, warnings } = await buildPrintHtml([sample], {
+          // previewFit scales the badge down so the WHOLE label is visible
+          // inside the preview pane. Without it the iframe renders the badge
+          // at its true physical size (a4-2up = 186mm ~ 703px), which is
+          // wider than the pane — the badge gets cropped and scrollbars
+          // appear, so only a mid-badge slice (usually the QR) is visible.
+          previewFit: true,
           mode, size, copies: 1, eventTitle,
           custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
           thermalMode: thermalActive,

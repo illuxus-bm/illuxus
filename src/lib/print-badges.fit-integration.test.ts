@@ -62,6 +62,79 @@ const LONG_NAME_BADGE: BadgeData = {
   banner_url: null,
 };
 
+describe("previewFit — on-screen fit-to-viewport scoping", () => {
+  it("emits the @media screen fit block when previewFit is true", async () => {
+    const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
+      mode: "badge",
+      size: "a4-2up",
+      copies: 1,
+      eventTitle: "TestConf",
+      previewFit: true,
+    });
+    expect(html).toContain("@media screen");
+    // a4-2up is 186mm wide -> 186 * 96/25.4 = 702.99 CSS px.
+    expect(html).toContain("702.99px");
+    expect(html).toContain("transform-origin:center center");
+  });
+
+  it("does NOT emit the @media screen fit block on real print paths", async () => {
+    // printBadges / printCalibration never set previewFit — the print
+    // document must stay 1:1 mm-accurate and remain scrollable in the
+    // popup when it contains many stacked cards.
+    const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
+      mode: "badge",
+      size: "a4-2up",
+      copies: 1,
+      eventTitle: "TestConf",
+    });
+    expect(html).not.toContain("@media screen");
+  });
+
+  it("scales to fit BOTH axes so a tall label is not cropped vertically", async () => {
+    // thermal-4x6 is 101.6 x 152.4 mm -> 384.00 x 576.00 CSS px. The height
+    // term must be present so a tall label fits the pane's height too.
+    const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
+      mode: "badge",
+      size: "thermal-4x6",
+      copies: 1,
+      eventTitle: "TestConf",
+      previewFit: true,
+    });
+    expect(html).toContain("calc(100vw / 384.00px)");
+    expect(html).toContain("calc(100vh / 576.00px)");
+  });
+
+  it("never upscales — the min() is capped at 1", async () => {
+    const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
+      mode: "badge",
+      size: "thermal-50",
+      copies: 1,
+      eventTitle: "TestConf",
+      previewFit: true,
+    });
+    // The trailing `, 1)` in min(...) prevents scaling a small label above 1x.
+    expect(html).toMatch(/min\(calc\(100vw \/ [\d.]+px\), calc\(100vh \/ [\d.]+px\), 1\)/);
+  });
+
+  it("keeps the QR image bounded by its wrapper in the designer path", async () => {
+    const { defaultDesign } = await import("./badge-design");
+    const design = defaultDesign();
+    const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
+      mode: "badge",
+      size: "thermal-4x6",
+      copies: 1,
+      eventTitle: "TestConf",
+      design,
+      previewFit: true,
+    });
+    // The wrapper carries the mm box and the img fills it at 100% — so a
+    // large-DPI bitmap can never render at its natural pixel size.
+    expect(html).toMatch(/class="el qr"[^>]*width:\d+(\.\d+)?mm;height:\d+(\.\d+)?mm/);
+    expect(html).toContain('style="width:100%;height:100%;display:block"');
+    expect(html).toContain("max-width:100%;max-height:100%;object-fit:contain");
+  });
+});
+
 describe("bug-condition — thermal-58 badge mode", () => {
   it("wraps the long name into multiple lines and emits <br/>", async () => {
     const { html, warnings } = await buildPrintHtml([LONG_NAME_BADGE], {

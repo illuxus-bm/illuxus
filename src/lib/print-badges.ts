@@ -82,6 +82,27 @@ export type PrintOptions = {
    * Requirement: bugfix.md 2.11.
    */
   thermalOffset?: { topMm: number; leftMm: number };
+  /**
+   * Render for an on-screen preview pane rather than for a printer.
+   *
+   * When true, an `@media screen` block is emitted that scales the badge
+   * down to fit whatever viewport it is rendered into (see `screenFitCss`
+   * in `buildPrintHtml`). This is what keeps the live preview iframe in
+   * `PrintBadgesDialog` showing the WHOLE badge instead of cropping it and
+   * exposing scrollbars — a 186mm-wide a4-2up badge is ~703 CSS px, far
+   * wider than the preview pane, so at 1:1 the pane would show only the
+   * middle slice of the badge.
+   *
+   * MUST stay false/undefined for real print paths (`printBadges`,
+   * `printCalibration`): the print document has to remain 1:1 mm-accurate,
+   * and the popup window may legitimately contain many stacked cards that
+   * the user needs to scroll through before confirming the print dialog.
+   *
+   * Assumes a single-card sheet (the preview always renders `copies: 1`
+   * with one sample badge), so the fit maths is derived from one card's
+   * dimensions.
+   */
+  previewFit?: boolean;
   /** Name-only design variant to apply when mode === "name". */
   nameDesign?: NameDesignId;
   /** Custom font style applied to name-only labels. Overrides the preset typography. */
@@ -211,35 +232,41 @@ export async function buildPrintHtml(
   if (opts.font?.family) usedFonts.push(opts.font.family);
   const fontsLink = googleFontsUrl([...new Set(usedFonts)]);
 
-  // On-screen preview fit-to-viewport.
+  // On-screen preview fit-to-viewport — emitted ONLY when the caller asks
+  // for a preview render (opts.previewFit). See the PrintOptions.previewFit
+  // docblock for why this must never leak into a real print document.
   //
-  // The same HTML is used as (a) the print document sent to the popup that
-  // calls window.print() and (b) the live preview iframe embedded in
-  // PrintBadgesDialog. In print, .card is 1:1 mm-accurate — the printer
-  // needs exact physical dimensions. In the preview iframe, though, a wide
-  // badge (a4-2up 186mm ~ 703px, thermal-4x6 101.6mm ~ 384px) can overflow
-  // the pane's available width, producing a horizontal scrollbar and only
-  // showing part of the badge — the part where the QR happens to sit,
-  // which reads visually as "the QR is huge and everything else is
-  // missing".
+  // A badge is sized in physical millimetres, so at 1:1 an a4-2up badge is
+  // 186mm ~ 703 CSS px and a thermal-4x6 is 101.6mm ~ 384 px — both wider
+  // than the dialog's preview pane. Without scaling, the iframe crops the
+  // badge and shows scrollbars, so the visible slice is whatever happens
+  // to sit mid-badge (usually the QR), which reads as "the QR is huge and
+  // everything else is missing".
   //
-  // This @media screen block scales the badge to fit inside the iframe
-  // whenever the badge's CSS-pixel size (dims * 96/25.4) exceeds the
-  // viewport. The min(..., ..., 1) caps the scale factor at 1x so we
-  // never upscale a small thermal-50 label into blurry territory. Print
-  // output is completely unaffected because these rules only apply inside
-  // @media screen.
+  // min(fitW, fitH, 1) scales down to fit both axes and never upscales, so
+  // a small thermal-50 label stays crisp at 1:1 rather than being blown up.
+  // The sheet is collapsed to a single-card block first. Non-full-bleed
+  // sizes lay the sheet out as a multi-column grid (avery-3x8 is
+  // `repeat(3, 63mm)` = 195mm ~ 737px wide) and CSS grid reserves every
+  // column track even when only one badge is rendered. Left as a grid, the
+  // sheet is far wider than the pane, the flex centering centres that
+  // oversized box, and the single card ends up in the off-screen left
+  // column — the badge appears cropped at the left edge. Forcing
+  // `display:block` makes the sheet exactly one card, so the scale maths
+  // below (derived from one card's dimensions) is correct for every size.
   const cardPxW = (dims.w * 96 / 25.4).toFixed(2);
   const cardPxH = (dims.h * 96 / 25.4).toFixed(2);
-  const screenFitCss =
-    "@media screen {" +
-    "html,body{width:100vw;height:100vh;overflow:hidden}" +
-    "body{display:flex;align-items:center;justify-content:center}" +
-    ".sheet{" +
-    `transform:scale(min(calc(100vw / ${cardPxW}px), calc(100vh / ${cardPxH}px), 1));` +
-    "transform-origin:center center;" +
-    "}" +
-    "}";
+  const screenFitCss = opts.previewFit
+    ? "@media screen {" +
+      "html,body{width:100vw;height:100vh;overflow:hidden}" +
+      "body{display:flex;align-items:center;justify-content:center}" +
+      ".sheet{" +
+      "display:block;grid-template-columns:none;gap:0;padding:0;" +
+      `transform:scale(min(calc(100vw / ${cardPxW}px), calc(100vh / ${cardPxH}px), 1));` +
+      "transform-origin:center center;" +
+      "}" +
+      "}"
+    : "";
 
   const html = `<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print ${mode === "name" ? "Names" : "Badges"}</title>
