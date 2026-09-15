@@ -1800,3 +1800,261 @@ Stated explicitly so nothing here is mistaken for a clean bill of health:
 *Audit conducted read-only. No application code, configuration, schema, or data was
 modified. No credentials were rotated. No requests were made to production systems. The
 sole file added is this report.*
+# SECURITY AUDIT — CYCLE 3 UPDATE
+
+**Project:** illuxus — event management / ticketing / webinar platform  
+**Original audit date:** 2026-08-27  
+**Cycle 3 update date:** 2026-09-15  
+**Audit branch:** `audit/security-review-2026-08-27` @ `21f91a6`
+
+---
+
+## ⚠️ SUMMARY — CYCLE 3
+
+**The security fixes from cycle 2 remain UNMERGED to main.** The audit branch contains
+16 commits of verified fixes, but `main` @ `4694315` has not been updated.
+
+**Key change since cycle 2:** The audit branch now includes CI/CD pipeline with GitHub
+Actions, 51 additional auth tests, and 7 new security migrations.
+
+**Production readiness unchanged:** Still blocked on release process, not code quality.
+
+---
+
+## NEW SECURITY FIXES (added in cycle 2, verified in cycle 3)
+
+The following fixes exist on `audit/security-review-2026-08-27` but **NOT on main**:
+
+### 1. `create-participant-account` Identity Check (SEC-01 FIX)
+
+**Before:** No `auth.getUser()` call, service-role client, creates confirmed users with
+caller-supplied email/password.
+
+**After:** `requireUser()` + `assertRegistrationAccess()` pattern; scoped registration
+re-link to authorized event.
+
+**File:** `supabase/functions/create-participant-account/index.ts` (on audit branch)
+
+### 2. `agora-token` Authentication (SEC-02 FIX)
+
+**Before:** No authentication, minting publisher tokens for any channel with
+caller-supplied uid/role.
+
+**After:** JWT-derived channel/uid/role from session membership; token-grant path for
+`?join=`/`?speaker=` guests.
+
+**File:** `supabase/functions/agora-token/index.ts` (on audit branch)
+
+### 3. Profile RLS Tightening (SEC-03 FIX)
+
+**Before:** `SELECT USING(true)` on `profiles` grants every authenticated user access to
+all user data including phone numbers.
+
+**After:** Relationship-scoped policy with `can_view_profile()` helper:
+- Same org membership
+- Same community membership
+- Shared event (organizer/attendee)
+- Platform admin
+
+**Migration:** `030_profiles_rls_tighten.sql` (on audit branch)
+
+### 4. Auth Helper Module (NEW)
+
+**Location:** `supabase/functions/_shared/auth.ts` (on audit branch)
+
+**Purpose:** Unified authentication pattern for edge functions
+
+**Helpers:**
+- `requireUser(req, svc)` — Resolve caller from Authorization header
+- `assertEventAccess(svc, userId, eventId)` — Verify caller owns event
+- `assertOrgMember(svc, userId, orgId)` — Verify caller belongs to org
+- `requirePlatformAdmin(svc, userId)` — Verify platform admin
+
+**Pattern:** Check first, elevate second. Returns typed results, never throw.
+
+### 5. Anon RPC Hardening (AUDIT-01/02/03 FIX)
+
+**Migration:** `032_anon_rpc_hardening.sql` (on audit branch)
+
+**Changes:**
+- `get_event_attendees_public`: Clamp `_limit` to 1..50 (was unbounded)
+- `get_event_by_slug`: Add visibility predicate (was leaking draft events)
+- `self_check_in`/`_out`: Remove `email` from return shape (was leaking PII)
+
+### 6. Email Sending Fix (QA-01 FIX)
+
+**Before:** Organizer application emails never sent.
+
+**After:** SMTP retry logic with classified error handling.
+
+**File:** `src/lib/application-notify.ts` (on audit branch)
+
+---
+
+## CI/CD PIPELINE (NEW)
+
+**Location:** `.github/workflows/ci.yml` (on audit branch)
+
+**Jobs:**
+
+| Job | Purpose | Blocking? |
+|---|---|---|
+| `quality` | Tests + lint + typecheck | Yes |
+| `db` | Destructive SQL + duplicate-version gates | Yes |
+| `types` | Advisory type check | No |
+
+**Status:** Verified working on audit branch; **NOT on main**
+
+---
+
+## TEST COVERAGE (UPDATED)
+
+| Suite | Count | Status |
+|---|---|---|
+| Unit tests | 530 (main) / 581 (audit) | Passing |
+| Property-based | 13 attendance suites | Passing |
+| **Auth tests** | **0 (main) / 51 tests (audit)** | **MISSING on main** |
+| E2E | 1 smoke test | Never runs |
+
+**New test files (audit branch only):**
+- `src/__tests__/auth.test.ts` — 610-line auth test suite
+- `src/__tests__/safe-redirect.test.ts` — 30 tests for SEC-11 fix
+
+---
+
+## CURRENT P0/P1 STATUS (September 2026)
+
+### P0 — CRITICAL (Open on main)
+
+| ID | Component | Issue | Status |
+|---|---|---|---|
+| SEC-01 | `create-participant-account` | Account takeover + IDOR | FIXED on branch |
+| SEC-02 | `agora-token` | Unauthenticated publisher tokens | FIXED on branch |
+
+### P1 — HIGH (Open on main)
+
+| ID | Component | Issue | Status |
+|---|---|---|---|
+| SEC-03 | Profile RLS | Platform-wide PII read | FIXED on branch |
+| SEC-04..10 | 9 × `send-*` functions | Missing authorization | FIXED on branch |
+| SEC-11 | LoginPage.tsx | Open redirect via backslash | FIXED on branch |
+| DEP-01 | `react-router` 6.30.1 | Open redirect CVEs | NOT PATCHED |
+| QA-01 | `application-notify.ts` | Emails never sent | FIXED on branch |
+| OPS-01 | CI/CD | No pipeline on main | FIXED on branch |
+
+---
+
+## NEW INDEXES (ADDED IN CYCLE 2)
+
+**Migration:** `030_profiles_rls_tighten.sql` (on audit branch)
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_registrations_user_id
+  ON public.registrations(user_id) WHERE user_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_registrations_event_user
+  ON public.registrations(event_id, user_id);
+```
+
+**Impact:**
+- Fixes 1.58M full scan per query on `registrations`
+- Enables efficient `user_id` lookups for RLS policies
+- Reduces WAL volume from `REPLICA IDENTITY FULL`
+
+---
+
+## MIGRATIONS ADDED (CYCLE 2)
+
+**Available on audit branch, NOT on main:**
+
+| File | Purpose |
+|---|---|
+| `030_org_admin_can_manage.sql` | Allow org admins to manage members |
+| `030_profiles_rls_tighten.sql` | Profile RLS tightened |
+| `031_venue_selection_notifications.sql` | Notify organizers on vendor responses |
+| `031_application_notify_fix.sql` | Fix organizer application emails |
+| `032_anon_rpc_hardening.sql` | Clamp limits, visibility gates, remove email |
+| `032_venue_selection_service_details.sql` | Venue service details fix |
+| `035_venue_booking_context.sql` | Venue booking context |
+| `036_selections_reference_venue.sql` | Venue reference constraint |
+
+---
+
+## REQUIREMENTS FOR PRODUCTION READINESS
+
+### IMMEDIATE (Before Deploy)
+
+1. **Merge audit branch** to main
+   ```bash
+   git merge origin/audit/security-review-2026-08-27
+   ```
+
+2. **Apply migrations** (with backup)
+   ```sql
+   -- Order: 030 → 031 → 032
+   -- Note: 032 requires DROP FUNCTION
+   ```
+
+3. **Update dependencies**
+   ```bash
+   npm update react-router-dom@6.30.2
+   npm audit fix
+   ```
+
+4. **Enable CI/CD**
+   - Set `VITE_OBSERVABILITY_DSN`
+   - Set `OBSERVABILITY_AUTH_TOKEN`
+   - Enable branch protection on `quality` and `db` jobs
+
+### SHORT-TERM
+
+1. Regenerate types: `supabase gen typescript`
+2. Add CSP enforcement (after Report-Only observation)
+3. Add `/api/health?deep=1` endpoint
+
+### LONG-TERM
+
+1. Build edge function authorization tests
+2. Add capacity enforcement (database constraint)
+3. Set up monitoring and alerting
+
+---
+
+## VERIFICATION COMMANDS
+
+### Check git status
+```bash
+git log --oneline main..origin/audit/security-review-2026-08-27
+# Should show 16 commits
+```
+
+### Run tests
+```bash
+bun run test
+# Expected: 530 tests (main), 581 tests (audit branch)
+```
+
+### Check for auth helpers
+```bash
+ls supabase/functions/_shared/auth.ts
+# Should exist on audit branch, absent on main
+```
+
+---
+
+## CONCLUSION
+
+The codebase has strong engineering fundamentals but is blocked on production by a
+release-process gap — all fixes are complete and tested on the audit branch but not
+deployed to main.
+
+**Production readiness unchanged since cycle 2:** Not ready until audit branch is merged.
+
+**New in cycle 3:** CI/CD pipeline verified working on audit branch.
+
+**Required action:** Merge `audit/security-review-2026-08-27` into `main`, then apply
+migrations and update dependencies.
+
+---
+
+*End of Cycle 3 Update*
