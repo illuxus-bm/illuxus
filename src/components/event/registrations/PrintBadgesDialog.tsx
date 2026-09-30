@@ -16,12 +16,13 @@ import {
   AlignLeft, AlignCenter, AlignRight, AlignJustify, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toast } from "sonner";
 import {
   buildPrintHtml, printBadges, printCalibration,
   type BadgeData, type PrintMode, type PrintSize, type PrintUnit,
 } from "@/lib/print-badges";
 import type { FitWarning } from "@/lib/fit-engine";
-import { loadSizes, saveSizes, badgeSizeMm, type SavedSize } from "@/lib/badge-design";
+import { loadSizes, saveSizes, badgeSizeMm, type SavedSize, createCompanyBrandedDesign } from "@/lib/badge-design";
 
 // ─── Font options ─────────────────────────────────────────────────────────────
 
@@ -109,6 +110,7 @@ const SIZE_OPTIONS: { v: PrintSize; label: string; sub: string }[] = [
   { v: "a4-2up",      label: "A4 · 2-up",        sub: "186 × 134 mm · 2/page" },
   { v: "avery-3x8",   label: "Avery 3×8",         sub: "63 × 34 mm · 24/sheet" },
   { v: "thermal-4x6", label: "Thermal 4×6 in",   sub: "101.6 × 152.4 mm · helett H30C, Dymo 4XL" },
+  { v: "thermal-4x5", label: "Thermal 4×5 in",   sub: "101.6 × 127 mm · compact badge" },
   { v: "thermal-50",  label: "Thermal 50 mm",    sub: "50 × 80 mm" },
   { v: "thermal-58",  label: "Thermal 58 mm",    sub: "58 × 80 mm" },
   { v: "thermal-80",  label: "Thermal 80 mm",    sub: "80 × 100 mm" },
@@ -318,6 +320,7 @@ export default function PrintBadgesDialog({
   const [thermalDpi,  setThermalDpi ] = useState<203 | 300 >(p.thermalDpi  ?? 203);
   const [thermalOffsetTop, setThermalOffsetTop] = useState<number>(p.thermalOffset?.topMm ?? 0);
   const [thermalOffsetLeft, setThermalOffsetLeft] = useState<number>(p.thermalOffset?.leftMm ?? 0);
+  const [designOverride, setDesignOverride] = useState<ReturnType<typeof createCompanyBrandedDesign> | null>(null);
   const [sizes,       setSizes      ] = useState<SavedSize[]>(() => loadSizes());
   const [font,        setFont       ] = useState<FontStyle >(p.font        ?? defaultFontStyle());
   // Fit warnings surfaced from the last `buildPrintHtml` preview run. Empty
@@ -386,6 +389,7 @@ export default function PrintBadgesDialog({
       await printBadges(rows, {
         mode, size, copies, eventTitle,
         custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
+        design: designOverride || undefined,
         thermalMode: thermalActive,
         thermalDpi: thermalActive ? thermalDpi : undefined,
         thermalOffset:
@@ -475,6 +479,7 @@ export default function PrintBadgesDialog({
           previewFit: true,
           mode, size, copies: 1, eventTitle,
           custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
+          design: designOverride || undefined,
           thermalMode: thermalActive,
           thermalDpi: thermalActive ? thermalDpi : undefined,
           thermalOffset:
@@ -490,7 +495,7 @@ export default function PrintBadgesDialog({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mode, size, cw, ch, cu, thermalMode, thermalDpi, thermalOffsetTop, thermalOffsetLeft, isThermalSize, font, eventTitle, badges],
+    [mode, size, cw, ch, cu, thermalMode, thermalDpi, thermalOffsetTop, thermalOffsetLeft, isThermalSize, font, eventTitle, badges, designOverride],
   );
 
   // Refresh preview when key settings change (debounced 400ms)
@@ -628,6 +633,47 @@ export default function PrintBadgesDialog({
                 Badge dimensions: {dims.w.toFixed(0)} × {dims.h.toFixed(0)} mm
               </p>
             )}
+
+            {/* Quick preset for company branding layout */}
+            <div className="mt-3 pt-2 border-t border-border/50">
+              <div className="flex gap-2">
+                <Button
+                  size="sm" 
+                  variant="outline" 
+                  className="flex-1 h-8 text-[12px] gap-2"
+                  onClick={() => {
+                    // Apply 4×5 inch size and company-branded design
+                    setSize("thermal-4x5");
+                    const brandedDesign = createCompanyBrandedDesign();
+                    setDesignOverride(brandedDesign);
+                    toast.success("Applied company-branded layout! Use thermal 4×5 inch size.");
+                  }}
+                >
+                  🏢 Company Branded Layout (4×5")
+                </Button>
+                {designOverride && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 text-[12px]"
+                    onClick={() => {
+                      setDesignOverride(null);
+                      toast.success("Reset to default badge design");
+                    }}
+                  >
+                    Reset
+                  </Button>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Sets up horizontal banner with org name, attendee name & company
+              </p>
+              {designOverride && (
+                <p className="text-[10px] text-primary mt-1">
+                  ✓ Using custom company-branded design
+                </p>
+              )}
+            </div>
           </section>
 
           {/* COPIES */}

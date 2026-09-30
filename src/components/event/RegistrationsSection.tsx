@@ -869,25 +869,73 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   };
 
   const exportCSV = () => {
+    // Complete export with all available registration fields including
     // First-touch UTM attribution columns (utm_source / utm_medium /
     // utm_campaign / utm_content / utm_term) are threaded through from the
     // `registrations` row when `source === "registration"`. Speaker/sponsor
     // rows have no registration linkage — they get blank values so the
     // column stays present + aligned across every row.
     const headers = [
+      // Basic Information
+      "Registration ID",
       "Name",
+      "Title",
+      "First Name", 
+      "Last Name",
       "Email",
       "Role",
+      // Contact Information
+      "Mobile Country Code",
+      "Mobile Number",
+      "LinkedIn URL",
+      // Company Information
+      "Designation",
+      "Company",
+      "Company Website",
+      "Company Employee Count",
+      "Industry",
+      // Ticket & Payment
       "Ticket Type",
-      "Status",
       "Amount Paid",
+      "Status",
+      // Approval Information
+      "Approval Status",
+      "Approved At",
+      "Approved By",
+      "Decline Reason",
+      // Attendance Information
+      "Attendance State",
+      "Checked In",
+      "Checked In At",
+      "Check-in Method",
+      "Last In At",
+      "Last Out At",
+      "Total Minutes",
+      // System Information
+      "User ID",
+      "QR Code",
+      "Join Token",
+      "Active Session ID",
+      "Active Session Started At",
       "Registered At",
+      "Updated At",
+      // UTM Attribution
       "UTM Source",
       "UTM Medium",
       "UTM Campaign",
       "UTM Content",
       "UTM Term",
     ];
+    
+    const formatDateTime = (dateStr: string | null) => {
+      return dateStr ? new Date(dateStr).toLocaleString() : "";
+    };
+    
+    const formatPhone = (countryCode: string | null, number: string | null) => {
+      if (!number) return "";
+      return countryCode ? `${countryCode} ${number}` : number;
+    };
+    
     const rows = filtered.map((r) => {
       const reg = r.registration as (Registration & {
         utm_source?: string | null;
@@ -897,13 +945,50 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         utm_term?: string | null;
       }) | undefined;
       return [
+        // Basic Information
+        reg?.id ?? "",
         r.name,
+        reg?.title ?? "",
+        reg?.first_name ?? "",
+        reg?.last_name ?? "",
         r.email,
         r.kind,
+        // Contact Information
+        reg?.mobile_country_code ?? "",
+        reg?.mobile_number ?? "",
+        reg?.linkedin_url ?? "",
+        // Company Information
+        reg?.designation ?? "",
+        reg?.company ?? "",
+        reg?.company_website ?? "",
+        reg?.company_employee_count ?? "",
+        reg?.industry ?? "",
+        // Ticket & Payment
         r.ticket_type,
-        r.status,
         r.amount_paid ?? 0,
-        new Date(r.created_at).toLocaleString(),
+        r.status,
+        // Approval Information
+        reg?.approval_status ?? "",
+        formatDateTime(reg?.approved_at),
+        reg?.approved_by ?? "",
+        reg?.decline_reason ?? "",
+        // Attendance Information
+        reg?.attendance_state ?? "",
+        reg?.checked_in ? "Yes" : "No",
+        formatDateTime(reg?.checked_in_at),
+        reg?.checked_in_method ?? "",
+        formatDateTime(reg?.last_in_at),
+        formatDateTime(reg?.last_out_at),
+        reg?.total_minutes ?? 0,
+        // System Information
+        reg?.user_id ?? "",
+        reg?.qr_code ?? "",
+        reg?.join_token ?? "",
+        reg?.active_session_id ?? "",
+        formatDateTime(reg?.active_session_started_at),
+        formatDateTime(r.created_at),
+        formatDateTime(reg?.updated_at),
+        // UTM Attribution
         reg?.utm_source ?? "",
         reg?.utm_medium ?? "",
         reg?.utm_campaign ?? "",
@@ -1296,9 +1381,9 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       </div>
 
       {/* Bulk action bar */}
-      {selected.size > 0 && (
+      {filtered.filter((r) => selected.has(r.id)).length > 0 && (
         <div className="flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-lg px-4 py-2.5 flex-wrap">
-          <span className="text-[13px] font-medium text-primary">{selected.size} selected</span>
+          <span className="text-[13px] font-medium text-primary">{filtered.filter((r) => selected.has(r.id)).length} selected</span>
           <div className="flex items-center gap-2 ml-auto flex-wrap">
             {/* Bulk approve / decline — only show when at least one selected
                 row is pending-approval. Keeps the bar uncluttered for the
@@ -1350,10 +1435,10 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         </div>
       ) : (
         <div className="bg-card border border-border rounded-lg overflow-hidden">
-          {selected.size > 0 && (
+          {filtered.filter((r) => selected.has(r.id)).length > 0 && (
             <div className="flex items-center gap-3 px-3 py-2 bg-primary/5 border-b border-primary/20 text-[12px]">
               <span className="font-medium text-foreground">
-                {selected.size} selected
+                {filtered.filter((r) => selected.has(r.id)).length} selected
               </span>
               <span className="text-muted-foreground hidden sm:inline">·</span>
               <button

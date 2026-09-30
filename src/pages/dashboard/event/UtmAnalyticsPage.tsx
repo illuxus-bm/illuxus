@@ -60,6 +60,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
@@ -155,6 +161,151 @@ function exportCsv(rows: UtmRow[]): void {
   a.download = "utm-analytics.csv";
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/* ─── Enhanced CSV Export with Participants ──────────────────────────────── */
+
+async function exportDetailedCsv(eventId: string, rows: UtmRow[]): Promise<void> {
+  try {
+    // Fetch all registrations with UTM data for this event
+    const { data: registrations, error } = await supabase
+      .from("registrations")
+      .select(`
+        id,
+        name,
+        email,
+        ticket_type,
+        status,
+        amount_paid,
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        utm_content,
+        utm_term,
+        created_at
+      `)
+      .eq("event_id", eventId)
+      .not("utm_source", "is", null); // Only registrations with UTM data
+
+    if (error) {
+      console.error("Error fetching registrations:", error);
+      toast.error("Failed to fetch participant data for detailed export");
+      return;
+    }
+
+    // Group registrations by UTM source, medium, and campaign
+    const utmGroups = new Map<string, typeof registrations>();
+    
+    (registrations || []).forEach((reg) => {
+      const key = `${reg.utm_source || ""}|${reg.utm_medium || ""}|${reg.utm_campaign || ""}`;
+      if (!utmGroups.has(key)) {
+        utmGroups.set(key, []);
+      }
+      utmGroups.get(key)!.push(reg);
+    });
+
+    // Create detailed CSV with two sections:
+    // 1. UTM Summary
+    // 2. Individual Participants by UTM Source
+
+    const csvLines: string[] = [];
+    
+    // Section 1: UTM Summary
+    csvLines.push("=== UTM ANALYTICS SUMMARY ===");
+    csvLines.push("Source,Medium,Campaign,Content,Clicks,Registrations,Conversion%");
+    
+    rows.forEach((r) => {
+      csvLines.push([
+        r.utm_source,
+        r.utm_medium,
+        r.utm_campaign,
+        "—",
+        r.clicks,
+        r.registrations,
+        Number(r.conversion_rate).toFixed(1),
+      ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
+    });
+
+    csvLines.push(""); // Empty line separator
+
+    // Section 2: Individual Participants by UTM Source
+    csvLines.push("=== PARTICIPANTS BY UTM SOURCE ===");
+    csvLines.push("UTM Source,UTM Medium,UTM Campaign,UTM Content,UTM Term,Participant Name,Email,Ticket Type,Status,Amount Paid,Registration Date");
+
+    // Sort UTM groups by source name for better organization
+    const sortedGroups = Array.from(utmGroups.entries()).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
+    
+    sortedGroups.forEach(([key, participants]) => {
+      participants.forEach((participant) => {
+        csvLines.push([
+          participant.utm_source || "",
+          participant.utm_medium || "",
+          participant.utm_campaign || "",
+          participant.utm_content || "",
+          participant.utm_term || "",
+          participant.name || "",
+          participant.email || "",
+          participant.ticket_type || "",
+          participant.status || "",
+          participant.amount_paid || 0,
+          participant.created_at ? new Date(participant.created_at).toLocaleString() : "",
+        ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
+      });
+    });
+
+    // Also add participants without UTM data (direct registrations)
+    const { data: directRegistrations, error: directError } = await supabase
+      .from("registrations")
+      .select(`
+        id,
+        name,
+        email,
+        ticket_type,
+        status,
+        amount_paid,
+        created_at
+      `)
+      .eq("event_id", eventId)
+      .is("utm_source", null);
+
+    if (!directError && directRegistrations && directRegistrations.length > 0) {
+      csvLines.push(""); // Empty line separator
+      csvLines.push("=== DIRECT REGISTRATIONS (NO UTM DATA) ===");
+      csvLines.push("UTM Source,UTM Medium,UTM Campaign,UTM Content,UTM Term,Participant Name,Email,Ticket Type,Status,Amount Paid,Registration Date");
+      
+      directRegistrations.forEach((participant) => {
+        csvLines.push([
+          "Direct",
+          "Direct",
+          "Direct",
+          "",
+          "",
+          participant.name || "",
+          participant.email || "",
+          participant.ticket_type || "",
+          participant.status || "",
+          participant.amount_paid || 0,
+          participant.created_at ? new Date(participant.created_at).toLocaleString() : "",
+        ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
+      });
+    }
+
+    // Download the enhanced CSV
+    const csv = csvLines.join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `utm-analytics-detailed-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    toast.success(`Exported ${(registrations?.length || 0) + (directRegistrations?.length || 0)} participant records with UTM data`);
+    
+  } catch (error) {
+    console.error("Error exporting detailed UTM data:", error);
+    toast.error("Failed to export detailed UTM analytics");
+  }
 }
 
 /* ─── KPI Card ───────────────────────────────────────────────────────────── */
@@ -898,15 +1049,25 @@ export default function UtmAnalyticsPage({
           </p>
         </div>
         {rows.length > 0 && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 gap-1.5 text-[12px]"
-            onClick={() => exportCsv(rows)}
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export CSV
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-[12px]">
+                <Download className="h-3.5 w-3.5" />
+                Export CSV
+                <ChevronDown className="h-3 w-3 ml-0.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem onClick={() => exportCsv(rows)}>
+                <Download className="h-3.5 w-3.5 mr-2" />
+                Quick Export (Summary Only)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportDetailedCsv(eventId, rows)}>
+                <Users className="h-3.5 w-3.5 mr-2" />
+                Detailed Export (With Participants)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </div>
 

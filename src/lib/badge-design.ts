@@ -282,7 +282,8 @@ export type LayoutPresetId =
   | "corporate"
   | "compact"
   | "vip"
-  | "lanyard";
+  | "lanyard"
+  | "company-branded";
 
 export interface LayoutPreset {
   id: LayoutPresetId;
@@ -396,6 +397,26 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
       title:      { enabled: false }, email: { enabled: false }, eventDate: { enabled: false }, orgName: { enabled: false }, customText: { enabled: false },
     },
   },
+  {
+    id: "company-branded",
+    name: "Company Branded",
+    description: "Horizontal banner with name, company, and org branding",
+    elements: {
+      // Top banner area for company branding
+      orgName:    { enabled: true,  x: 50, y: 15, size: 11, fontFamily: "Poppins", fontWeight: 700, color: "#ffffff", align: "center", transform: "uppercase", letterSpacing: 0.14 },
+      // Main attendee information
+      name:       { enabled: true,  x: 50, y: 45, size: 22, fontFamily: "Poppins", fontWeight: 700, color: "#111111", align: "center" },
+      company:    { enabled: true,  x: 50, y: 58, size: 12, fontFamily: "Poppins", fontWeight: 500, color: "#555555", align: "center" },
+      // Disable other elements to focus on the key information
+      qr:         { enabled: false },
+      title:      { enabled: false }, 
+      email:      { enabled: false }, 
+      ticket:     { enabled: false },
+      eventTitle: { enabled: false }, 
+      eventDate:  { enabled: false }, 
+      customText: { enabled: false },
+    },
+  },
 ];
 
 /** Apply a preset's element overrides on top of the current design, preserving backgrounds + back side. */
@@ -409,6 +430,38 @@ export function applyPreset(design: BadgeDesign, presetId: LayoutPresetId): Badg
     nextElements[k] = { ...def.elements[k], ...nextElements[k], ...preset.elements[k] };
   });
   return { ...design, elements: nextElements };
+}
+
+/**
+ * Create a company-branded badge design optimized for 4×5 inch badges.
+ * Features a horizontal banner with org branding and clean attendee info below.
+ */
+export function createCompanyBrandedDesign(): BadgeDesign {
+  const base = defaultDesign();
+  return {
+    ...base,
+    frontBgStyle: {
+      type: "gradient",
+      gradientFrom: "#1e40af",  // Professional blue
+      gradientTo: "#3b82f6",    // Lighter blue
+      gradientAngle: 90,        // Horizontal gradient
+    },
+    elements: {
+      // Top banner area for company branding - white text on blue gradient
+      orgName:    { enabled: true,  x: 50, y: 15, size: 12, fontFamily: "Poppins", fontWeight: 700, color: "#ffffff", align: "center", transform: "uppercase", letterSpacing: 0.14, lineHeight: 1.2 },
+      // Main attendee information in clean layout
+      name:       { enabled: true,  x: 50, y: 45, size: 24, fontFamily: "Poppins", fontWeight: 700, color: "#111111", align: "center", transform: "none", letterSpacing: -0.01, lineHeight: 1.1 },
+      company:    { enabled: true,  x: 50, y: 58, size: 13, fontFamily: "Poppins", fontWeight: 500, color: "#555555", align: "center", transform: "none", letterSpacing: 0, lineHeight: 1.2 },
+      // Disable other elements to focus on the key information
+      qr:         { enabled: false, x: 50, y: 80, size: 26, color: "#000000" },
+      title:      { enabled: false, x: 50, y: 50, size: 11, color: "#666666", fontFamily: "Poppins", fontWeight: 500, align: "center", transform: "none", letterSpacing: 0, lineHeight: 1.2 },
+      email:      { enabled: false, x: 50, y: 64, size: 9,  color: "#777777", fontFamily: "Poppins", fontWeight: 400, align: "center", transform: "lowercase", letterSpacing: 0, lineHeight: 1.2 },
+      ticket:     { enabled: false, x: 50, y: 18, size: 9,  color: "#ffffff", fontFamily: "Poppins", fontWeight: 700, align: "center", transform: "uppercase", letterSpacing: 0.12, lineHeight: 1.2 },
+      eventTitle: { enabled: false, x: 50, y: 14, size: 10, color: "#111111", fontFamily: "Poppins", fontWeight: 600, align: "center", transform: "uppercase", letterSpacing: 0.14, lineHeight: 1.2 },
+      eventDate:  { enabled: false, x: 50, y: 26, size: 8,  color: "#666666", fontFamily: "Poppins", fontWeight: 400, align: "center", transform: "none", letterSpacing: 0, lineHeight: 1.2 },
+      customText: { enabled: false, x: 50, y: 70, size: 10, color: "#666666", fontFamily: "Poppins", fontWeight: 400, align: "center", transform: "none", letterSpacing: 0, lineHeight: 1.3, staticText: "" },
+    },
+  };
 }
 
 /** Map font family → weight axis to request when fetching from Google Fonts. */
@@ -501,6 +554,8 @@ export function badgeSizeMm(
   if (size === "thermal-100") return { w: 100,   h: 150 };
   // 4×6 inch shipping/badge label — helett H30C Lite, Dymo 4XL, Zebra ZP450, etc.
   if (size === "thermal-4x6") return { w: 101.6, h: 152.4 };
+  // 4×5 inch compact badge — good for name tags with horizontal banner
+  if (size === "thermal-4x5") return { w: 101.6, h: 127 };
   return { w: 63, h: 34 }; // avery-3x8
 }
 

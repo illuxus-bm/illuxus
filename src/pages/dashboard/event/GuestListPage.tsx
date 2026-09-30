@@ -97,9 +97,28 @@ export default function GuestListPage() {
   };
 
   const exportCsv = () => {
-    const header = ["Name", "Email", "Ticket", "Status", "Approval", "Checked in"];
+    const header = [
+      // Basic Information
+      "Registration ID",
+      "Name", 
+      "Email", 
+      "Ticket Type", 
+      "Status", 
+      "Approval Status", 
+      "Checked In",
+      "Registered At"
+    ];
     const lines = [header.join(",")].concat(
-      filtered.map((r) => [r.name, r.email, r.ticket_type, r.status, r.approval_status, r.checked_in ? "Yes" : "No"].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")),
+      filtered.map((r) => [
+        r.id,
+        r.name, 
+        r.email, 
+        r.ticket_type, 
+        r.status, 
+        r.approval_status, 
+        r.checked_in ? "Yes" : "No",
+        new Date(r.created_at).toLocaleString()
+      ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")),
     );
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
