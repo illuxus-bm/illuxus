@@ -294,6 +294,19 @@ export interface LayoutPreset {
 
 export const LAYOUT_PRESETS: LayoutPreset[] = [
   {
+    id: "horizontal-banner",
+    name: "Horizontal Banner",
+    description: "4×5 inch edge-to-edge: Company branding + Name + Company",
+    elements: {
+      orgName:    { enabled: true,  x: 50, y: 8,  size: 12, fontFamily: "Poppins", fontWeight: 700, color: "#ffffff", align: "center", transform: "uppercase", letterSpacing: 0.16 },
+      name:       { enabled: true,  x: 50, y: 40, size: 28, fontFamily: "Poppins", fontWeight: 700, color: "#111111", align: "center", transform: "none", letterSpacing: -0.015 },
+      company:    { enabled: true,  x: 50, y: 58, size: 15, fontFamily: "Poppins", fontWeight: 500, color: "#555555", align: "center", transform: "none" },
+      qr:         { enabled: false },
+      email:      { enabled: false }, title: { enabled: false }, ticket: { enabled: false },
+      eventTitle: { enabled: false }, eventDate: { enabled: false }, customText: { enabled: false },
+    },
+  },
+  {
     id: "classic",
     name: "Classic",
     description: "Name big, company under, QR at bottom",
@@ -448,12 +461,14 @@ export function createCompanyBrandedDesign(): BadgeDesign {
       gradientAngle: 90,        // Horizontal gradient for banner effect
     },
     elements: {
-      // Top banner area for company branding - white text on blue gradient
-      orgName:    { enabled: true,  x: 50, y: 12, size: 11, fontFamily: "Poppins", fontWeight: 700, color: "#ffffff", align: "center", transform: "uppercase", letterSpacing: 0.15, lineHeight: 1.2 },
-      // Main attendee information in clean, centered layout
-      name:       { enabled: true,  x: 50, y: 42, size: 26, fontFamily: "Poppins", fontWeight: 700, color: "#111111", align: "center", transform: "none", letterSpacing: -0.01, lineHeight: 1.1 },
-      company:    { enabled: true,  x: 50, y: 60, size: 14, fontFamily: "Poppins", fontWeight: 500, color: "#555555", align: "center", transform: "none", letterSpacing: 0, lineHeight: 1.2 },
-      // Disable other elements to maintain clean horizontal banner focus
+      // TOP BANNER: Company Branding - Edge-to-edge horizontal banner
+      orgName:    { enabled: true,  x: 50, y: 8,  size: 12, fontFamily: "Poppins", fontWeight: 700, color: "#ffffff", align: "center", transform: "uppercase", letterSpacing: 0.16, lineHeight: 1.2 },
+      
+      // MAIN CONTENT: Name (prominent) and Company
+      name:       { enabled: true,  x: 50, y: 40, size: 28, fontFamily: "Poppins", fontWeight: 700, color: "#111111", align: "center", transform: "none", letterSpacing: -0.015, lineHeight: 1.1 },
+      company:    { enabled: true,  x: 50, y: 58, size: 15, fontFamily: "Poppins", fontWeight: 500, color: "#555555", align: "center", transform: "none", letterSpacing: 0, lineHeight: 1.2 },
+      
+      // DISABLED ELEMENTS - Clean horizontal banner focus only
       qr:         { enabled: false, x: 50, y: 80, size: 26, color: "#000000" },
       title:      { enabled: false, x: 50, y: 50, size: 11, color: "#666666", fontFamily: "Poppins", fontWeight: 500, align: "center", transform: "none", letterSpacing: 0, lineHeight: 1.2 },
       email:      { enabled: false, x: 50, y: 64, size: 9,  color: "#777777", fontFamily: "Poppins", fontWeight: 400, align: "center", transform: "lowercase", letterSpacing: 0, lineHeight: 1.2 },

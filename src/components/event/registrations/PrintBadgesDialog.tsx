@@ -651,10 +651,10 @@ export default function PrintBadgesDialog({
                     setSize("thermal-4x5");
                     const brandedDesign = createCompanyBrandedDesign();
                     setDesignOverride(brandedDesign);
-                    toast.success("Applied horizontal banner layout! Using thermal 4×5 inch size.");
+                    toast.success("Applied horizontal banner layout - 4×5 inch edge-to-edge format!");
                   }}
                 >
-                  🏢 Horizontal Banner (4×5" Default)
+                  🏢 Horizontal Banner (4×5" Edge-to-Edge)
                 </Button>
                 {designOverride && (
                   <Button
@@ -671,11 +671,11 @@ export default function PrintBadgesDialog({
                 )}
               </div>
               <p className="text-[10px] text-muted-foreground mt-1">
-                Edge-to-edge horizontal banner with company branding, name & company (now default)
+                Edge-to-edge horizontal banner: Company branding header + Name + Company (4×5 inch default)
               </p>
               {designOverride && (
                 <p className="text-[10px] text-primary mt-1">
-                  ✓ Using horizontal banner design
+                  ✓ Using horizontal banner design (4×5 inch edge-to-edge)
                 </p>
               )}
             </div>
