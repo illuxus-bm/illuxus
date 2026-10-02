@@ -138,7 +138,7 @@ const SHEET_CSS: Record<Exclude<PrintSize, "custom">, { page: string; cols: numb
   // 4×6 inch label — matches helett H30C Lite, Dymo 4XL, Zebra ZP450 and
   // other common USB direct-thermal shipping/badge label printers.
   "thermal-4x6": { page: "@page { size: 101.6mm 152.4mm; margin: 0 }", cols: 1, gap: "0",   pad: "0" },
-  // 4×5 inch label — compact badge size for name tags with company branding
+  // 4×5 inch horizontal banner — default edge-to-edge format with company branding
   "thermal-4x5": { page: "@page { size: 101.6mm 127mm; margin: 0 }",   cols: 1, gap: "0",   pad: "0" },
 };
 

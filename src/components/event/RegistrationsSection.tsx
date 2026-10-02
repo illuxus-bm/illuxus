@@ -475,32 +475,33 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   };
 
   const stats = (() => {
-    // Derive the attendance partition from `allRows` instead of the
-    // registrations-only counters so the sum of (Inside + Checked out + Not
-    // arrived) always equals All. Virtual rows (speakers/sponsors without a
-    // registration row) carry their own `attendance_state` — they were never
-    // bucketed in `liveCounters`, causing the tally to be off by the number
-    // of extras (e.g. All=41 but 0+0+38+0=38 → 3 extras unaccounted).
+    // Derive the attendance partition from `filtered` instead of `allRows` 
+    // so the counts update when filters (search, role, etc.) are applied.
+    // This ensures tab counts reflect the current filtered view.
     let insideNow = 0;
     let outside = 0;
     let notArrived = 0;
-    for (const r of allRows) {
+    for (const r of filtered) {
       if (r.attendance_state === "inside") insideNow += 1;
       else if (r.attendance_state === "outside") outside += 1;
       else notArrived += 1;
     }
+    
+    // For other stats, also use filtered data for consistency
+    const filteredRegistrations = filtered.filter(r => r.registration);
+    
     return {
-      total: allRows.length,
-      confirmed: registrations.filter((r) => r.status === "confirmed").length,
-      pending: registrations.filter((r) => r.status === "pending").length,
-      pendingApprovals: registrations.filter((r) => (r as { approval_status?: string }).approval_status === "pending").length,
-      cancelled: registrations.filter((r) => r.status === "cancelled").length,
-      checkedIn: registrations.filter((r) => r.checked_in === true).length,
+      total: filtered.length,
+      confirmed: filteredRegistrations.filter((r) => r.status === "confirmed").length,
+      pending: filteredRegistrations.filter((r) => r.status === "pending").length,
+      pendingApprovals: filteredRegistrations.filter((r) => (r as { approval_status?: string }).approval_status === "pending").length,
+      cancelled: filteredRegistrations.filter((r) => r.status === "cancelled").length,
+      checkedIn: filteredRegistrations.filter((r) => r.checked_in === true).length,
       insideNow,
       outside,
       notArrived,
-      speakers: allRows.filter((r) => r.kind === "speaker").length,
-      sponsors: allRows.filter((r) => r.kind === "sponsor").length,
+      speakers: filtered.filter((r) => r.kind === "speaker").length,
+      sponsors: filtered.filter((r) => r.kind === "sponsor").length,
     };
   })();
   // `useEventCheckinCounters` is still mounted (the hook subscribes to the

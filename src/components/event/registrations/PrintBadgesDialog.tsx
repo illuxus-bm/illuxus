@@ -311,7 +311,7 @@ export default function PrintBadgesDialog({
   const p = loadPrefs();
 
   const [mode,        setMode       ] = useState<PrintMode >(p.mode        ?? defaultMode);
-  const [size,        setSize       ] = useState<PrintSize >(p.size        ?? "a4-2up");
+  const [size,        setSize       ] = useState<PrintSize >(p.size        ?? "thermal-4x5");
   const [copies,      setCopies     ] = useState<number    >(p.copies      ?? 1);
   const [cw,          setCw         ] = useState<number    >(p.cw          ?? 4);
   const [ch,          setCh         ] = useState<number    >(p.ch          ?? 3);
@@ -343,7 +343,7 @@ export default function PrintBadgesDialog({
     if (!open) return;
     const prefs = loadPrefs();
     setMode(defaultMode ?? prefs.mode ?? "badge");
-    setSize(prefs.size ?? "a4-2up");
+    setSize(prefs.size ?? "thermal-4x5");
     const pCopies = prefs.copies ?? 1;
     const pCw = prefs.cw ?? 4;
     const pCh = prefs.ch ?? 3;
@@ -360,6 +360,11 @@ export default function PrintBadgesDialog({
     setThermalOffsetLeft(offLeft); setThermalOffsetLeftStr(String(offLeft));
     setFont(prefs.font ?? defaultFontStyle());
     setSizes(loadSizes());
+    
+    // Auto-apply company branded design for horizontal banner by default
+    if (!prefs.designOverride) {
+      setDesignOverride(createCompanyBrandedDesign());
+    }
   }, [open, defaultMode]);
 
   useEffect(() => {
@@ -646,10 +651,10 @@ export default function PrintBadgesDialog({
                     setSize("thermal-4x5");
                     const brandedDesign = createCompanyBrandedDesign();
                     setDesignOverride(brandedDesign);
-                    toast.success("Applied company-branded layout! Use thermal 4×5 inch size.");
+                    toast.success("Applied horizontal banner layout! Using thermal 4×5 inch size.");
                   }}
                 >
-                  🏢 Company Branded Layout (4×5")
+                  🏢 Horizontal Banner (4×5" Default)
                 </Button>
                 {designOverride && (
                   <Button
@@ -666,11 +671,11 @@ export default function PrintBadgesDialog({
                 )}
               </div>
               <p className="text-[10px] text-muted-foreground mt-1">
-                Sets up horizontal banner with org name, attendee name & company
+                Edge-to-edge horizontal banner with company branding, name & company (now default)
               </p>
               {designOverride && (
                 <p className="text-[10px] text-primary mt-1">
-                  ✓ Using custom company-branded design
+                  ✓ Using horizontal banner design
                 </p>
               )}
             </div>
