@@ -182,10 +182,15 @@ async function exportDetailedCsv(eventId: string, rows: UtmRow[]): Promise<void>
         utm_campaign,
         utm_content,
         utm_term,
-        created_at
+        created_at,
+        user_id,
+        company,
+        mobile_number,
+        designation,
+        linkedin_url
       `)
       .eq("event_id", eventId)
-      .not("utm_source", "is", null); // Only registrations with UTM data
+      .order("created_at", { ascending: false });
 
     if (error) {
       console.error("Error fetching registrations:", error);
@@ -193,51 +198,134 @@ async function exportDetailedCsv(eventId: string, rows: UtmRow[]): Promise<void>
       return;
     }
 
+    // Fetch click tracking data to correlate with registrations
+    const { data: clickData, error: clickError } = await supabase
+      .from("utm_clicks")
+      .select(`
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        utm_content,
+        utm_term,
+        created_at,
+        ip_address,
+        user_agent,
+        referrer
+      `)
+      .eq("event_id", eventId)
+      .order("created_at", { ascending: false });
+
+    if (clickError) {
+      console.warn("Could not fetch click data:", clickError);
+    }
+
     // Group registrations by UTM source, medium, and campaign
     const utmGroups = new Map<string, typeof registrations>();
+    const utmRegistrations: typeof registrations = [];
+    const directRegistrations: typeof registrations = [];
     
     (registrations || []).forEach((reg) => {
-      const key = `${reg.utm_source || ""}|${reg.utm_medium || ""}|${reg.utm_campaign || ""}`;
-      if (!utmGroups.has(key)) {
-        utmGroups.set(key, []);
+      if (reg.utm_source || reg.utm_medium || reg.utm_campaign) {
+        const key = `${reg.utm_source || ""}|${reg.utm_medium || ""}|${reg.utm_campaign || ""}`;
+        if (!utmGroups.has(key)) {
+          utmGroups.set(key, []);
+        }
+        utmGroups.get(key)!.push(reg);
+        utmRegistrations.push(reg);
+      } else {
+        directRegistrations.push(reg);
       }
-      utmGroups.get(key)!.push(reg);
     });
 
-    // Create detailed CSV with two sections:
-    // 1. UTM Summary
-    // 2. Individual Participants by UTM Source
-
+    // Create enhanced CSV with multiple detailed sections
     const csvLines: string[] = [];
     
-    // Section 1: UTM Summary
-    csvLines.push("=== UTM ANALYTICS SUMMARY ===");
-    csvLines.push("Source,Medium,Campaign,Content,Clicks,Registrations,Conversion%");
+    // Section 1: Executive Summary
+    csvLines.push("=== EXECUTIVE SUMMARY ===");
+    csvLines.push(`Event ID: ${eventId}`);
+    csvLines.push(`Generated: ${new Date().toLocaleString()}`);
+    csvLines.push(`Total Registrations: ${(registrations || []).length}`);
+    csvLines.push(`UTM-Attributed Registrations: ${utmRegistrations.length}`);
+    csvLines.push(`Direct Registrations: ${directRegistrations.length}`);
+    csvLines.push(`Attribution Rate: ${registrations?.length ? ((utmRegistrations.length / registrations.length) * 100).toFixed(1) : 0}%`);
+    csvLines.push("");
+
+    // Section 2: UTM Performance Summary
+    csvLines.push("=== UTM PERFORMANCE SUMMARY ===");
+    csvLines.push("Source,Medium,Campaign,Content,Term,Clicks,Registrations,Conversion%,Revenue");
     
     rows.forEach((r) => {
+      const revenue = utmGroups.get(`${r.utm_source}|${r.utm_medium}|${r.utm_campaign}`)
+        ?.reduce((sum, reg) => sum + (reg.amount_paid || 0), 0) || 0;
+      
       csvLines.push([
         r.utm_source,
         r.utm_medium,
         r.utm_campaign,
         "—",
+        "—",
         r.clicks,
         r.registrations,
         Number(r.conversion_rate).toFixed(1),
+        revenue.toFixed(2),
       ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
     });
 
     csvLines.push(""); // Empty line separator
 
-    // Section 2: Individual Participants by UTM Source
-    csvLines.push("=== PARTICIPANTS BY UTM SOURCE ===");
-    csvLines.push("UTM Source,UTM Medium,UTM Campaign,UTM Content,UTM Term,Participant Name,Email,Ticket Type,Status,Amount Paid,Registration Date");
+    // Section 3: Source Performance Analysis
+    csvLines.push("=== SOURCE PERFORMANCE ANALYSIS ===");
+    const sourceAnalysis = new Map<string, { clicks: number; registrations: number; revenue: number; participants: string[] }>();
+    
+    rows.forEach((r) => {
+      const source = r.utm_source || "(unknown)";
+      if (!sourceAnalysis.has(source)) {
+        sourceAnalysis.set(source, { clicks: 0, registrations: 0, revenue: 0, participants: [] });
+      }
+      const analysis = sourceAnalysis.get(source)!;
+      analysis.clicks += r.clicks;
+      analysis.registrations += r.registrations;
+      
+      const sourceParticipants = utmGroups.get(`${r.utm_source}|${r.utm_medium}|${r.utm_campaign}`) || [];
+      sourceParticipants.forEach(p => {
+        analysis.revenue += p.amount_paid || 0;
+        analysis.participants.push(p.name || p.email || "Unknown");
+      });
+    });
+
+    csvLines.push("UTM Source,Total Clicks,Total Registrations,Conversion Rate %,Total Revenue,Revenue per Registration,Participant Count");
+    Array.from(sourceAnalysis.entries())
+      .sort(([, a], [, b]) => b.registrations - a.registrations)
+      .forEach(([source, data]) => {
+        const convRate = data.clicks > 0 ? ((data.registrations / data.clicks) * 100).toFixed(1) : "0.0";
+        const revenuePerReg = data.registrations > 0 ? (data.revenue / data.registrations).toFixed(2) : "0.00";
+        csvLines.push([
+          source,
+          data.clicks,
+          data.registrations,
+          convRate,
+          data.revenue.toFixed(2),
+          revenuePerReg,
+          data.participants.length,
+        ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
+      });
+
+    csvLines.push(""); // Empty line separator
+
+    // Section 4: Individual Participants by UTM Attribution
+    csvLines.push("=== DETAILED PARTICIPANT ATTRIBUTION ===");
+    csvLines.push("Registration Date,UTM Source,UTM Medium,UTM Campaign,UTM Content,UTM Term,Participant Name,Email,Company,Designation,Ticket Type,Status,Amount Paid,Mobile,LinkedIn");
 
     // Sort UTM groups by source name for better organization
     const sortedGroups = Array.from(utmGroups.entries()).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
     
     sortedGroups.forEach(([key, participants]) => {
+      // Sort participants within each group by registration date (newest first)
+      participants.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      
       participants.forEach((participant) => {
         csvLines.push([
+          participant.created_at ? new Date(participant.created_at).toLocaleString() : "",
           participant.utm_source || "",
           participant.utm_medium || "",
           participant.utm_campaign || "",
@@ -245,62 +333,100 @@ async function exportDetailedCsv(eventId: string, rows: UtmRow[]): Promise<void>
           participant.utm_term || "",
           participant.name || "",
           participant.email || "",
+          participant.company || "",
+          participant.designation || "",
           participant.ticket_type || "",
           participant.status || "",
-          participant.amount_paid || 0,
-          participant.created_at ? new Date(participant.created_at).toLocaleString() : "",
+          (participant.amount_paid || 0).toFixed(2),
+          participant.mobile_number || "",
+          participant.linkedin_url || "",
         ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
       });
     });
 
-    // Also add participants without UTM data (direct registrations)
-    const { data: directRegistrations, error: directError } = await supabase
-      .from("registrations")
-      .select(`
-        id,
-        name,
-        email,
-        ticket_type,
-        status,
-        amount_paid,
-        created_at
-      `)
-      .eq("event_id", eventId)
-      .is("utm_source", null);
+    csvLines.push(""); // Empty line separator
 
-    if (!directError && directRegistrations && directRegistrations.length > 0) {
-      csvLines.push(""); // Empty line separator
+    // Section 5: Direct Registrations (No UTM Data)
+    if (directRegistrations.length > 0) {
       csvLines.push("=== DIRECT REGISTRATIONS (NO UTM DATA) ===");
-      csvLines.push("UTM Source,UTM Medium,UTM Campaign,UTM Content,UTM Term,Participant Name,Email,Ticket Type,Status,Amount Paid,Registration Date");
+      csvLines.push("Registration Date,Attribution,Participant Name,Email,Company,Designation,Ticket Type,Status,Amount Paid,Mobile,LinkedIn");
+      
+      // Sort by registration date (newest first)
+      directRegistrations.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       
       directRegistrations.forEach((participant) => {
         csvLines.push([
-          "Direct",
-          "Direct",
-          "Direct",
-          "",
-          "",
+          participant.created_at ? new Date(participant.created_at).toLocaleString() : "",
+          "Direct / Organic",
           participant.name || "",
           participant.email || "",
+          participant.company || "",
+          participant.designation || "",
           participant.ticket_type || "",
           participant.status || "",
-          participant.amount_paid || 0,
-          participant.created_at ? new Date(participant.created_at).toLocaleString() : "",
+          (participant.amount_paid || 0).toFixed(2),
+          participant.mobile_number || "",
+          participant.linkedin_url || "",
         ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
       });
     }
 
-    // Download the enhanced CSV
+    // Section 6: Click Tracking Data (if available)
+    if (clickData && clickData.length > 0) {
+      csvLines.push(""); // Empty line separator
+      csvLines.push("=== CLICK TRACKING DATA ===");
+      csvLines.push("Click Date,UTM Source,UTM Medium,UTM Campaign,UTM Content,UTM Term,IP Address,User Agent,Referrer");
+      
+      // Sort by click date (newest first)
+      clickData.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      
+      clickData.forEach((click) => {
+        csvLines.push([
+          click.created_at ? new Date(click.created_at).toLocaleString() : "",
+          click.utm_source || "",
+          click.utm_medium || "",
+          click.utm_campaign || "",
+          click.utm_content || "",
+          click.utm_term || "",
+          click.ip_address || "",
+          click.user_agent || "",
+          click.referrer || "",
+        ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
+      });
+    }
+
+    // Section 7: UTM Link Performance Map
+    csvLines.push(""); // Empty line separator
+    csvLines.push("=== UTM LINK PERFORMANCE MAP ===");
+    csvLines.push("Link Combination,Participants,Revenue,Average Ticket Value");
+    
+    Array.from(utmGroups.entries())
+      .sort(([, a], [, b]) => b.length - a.length)
+      .forEach(([key, participants]) => {
+        const [source, medium, campaign] = key.split("|");
+        const totalRevenue = participants.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+        const avgTicketValue = participants.length > 0 ? (totalRevenue / participants.length).toFixed(2) : "0.00";
+        const linkDesc = `${source || 'Unknown'} > ${medium || 'Unknown'} > ${campaign || 'Unknown'}`;
+        
+        csvLines.push([
+          linkDesc,
+          participants.length,
+          totalRevenue.toFixed(2),
+          avgTicketValue,
+        ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
+      });
+
+    // Download the comprehensive CSV
     const csv = csvLines.join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `utm-analytics-detailed-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `utm-detailed-attribution-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
 
-    toast.success(`Exported ${(registrations?.length || 0) + (directRegistrations?.length || 0)} participant records with UTM data`);
+    toast.success(`Exported detailed UTM attribution for ${(registrations?.length || 0)} total participants (${utmRegistrations.length} with UTM data, ${directRegistrations.length} direct)`);
     
   } catch (error) {
     console.error("Error exporting detailed UTM data:", error);
@@ -512,6 +638,220 @@ function MultiSelect({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* ─── Participant Attribution Section ────────────────────────────────────── */
+
+function ParticipantAttributionSection({ eventId }: { eventId: string }) {
+  const [expanded, setExpanded] = useState(false);
+  
+  const { data: participants, isLoading } = useQuery({
+    queryKey: ["participant-attribution", eventId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("registrations")
+        .select(`
+          id,
+          name,
+          email,
+          company,
+          ticket_type,
+          status,
+          amount_paid,
+          utm_source,
+          utm_medium,
+          utm_campaign,
+          utm_content,
+          utm_term,
+          created_at
+        `)
+        .eq("event_id", eventId)
+        .order("created_at", { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: expanded,
+  });
+
+  const utmParticipants = participants?.filter(p => p.utm_source || p.utm_medium || p.utm_campaign) || [];
+  const directParticipants = participants?.filter(p => !p.utm_source && !p.utm_medium && !p.utm_campaign) || [];
+
+  if (isLoading && expanded) {
+    return (
+      <div className="border border-border rounded-xl bg-card p-8">
+        <div className="flex items-center justify-center gap-2 text-[13px] text-muted-foreground">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+          Loading participant attribution data...
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-border rounded-xl bg-card overflow-hidden">
+      <div className="px-4 py-3 border-b border-border bg-muted/30">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Individual Participant Attribution</h3>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              See exactly who came from which UTM source and link
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setExpanded(!expanded)}
+            className="h-8 gap-1.5 text-[12px]"
+          >
+            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {expanded ? "Collapse" : "View Details"}
+          </Button>
+        </div>
+      </div>
+
+      {expanded && participants && (
+        <div className="p-4 space-y-4">
+          {/* UTM-Attributed Participants */}
+          {utmParticipants.length > 0 && (
+            <div>
+              <h4 className="text-[13px] font-semibold mb-2 flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-blue-500" />
+                UTM-Attributed Registrations ({utmParticipants.length})
+              </h4>
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {utmParticipants.map((participant) => (
+                  <div
+                    key={participant.id}
+                    className="border border-border rounded-lg p-3 bg-background/50"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-[13px]">{participant.name}</span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {participant.email}
+                          </span>
+                        </div>
+                        
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          {participant.utm_source && (
+                            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/30 text-[10px] font-medium">
+                              <span
+                                className="h-1.5 w-1.5 rounded-full"
+                                style={{ backgroundColor: sourceColor(participant.utm_source) }}
+                              />
+                              {participant.utm_source}
+                            </div>
+                          )}
+                          {participant.utm_medium && (
+                            <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/30 text-[10px] font-medium">
+                              {participant.utm_medium}
+                            </div>
+                          )}
+                          {participant.utm_campaign && (
+                            <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-green-50 dark:bg-green-950/30 text-[10px] font-medium">
+                              {participant.utm_campaign}
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
+                          {participant.company && (
+                            <span>{participant.company}</span>
+                          )}
+                          <span>{participant.ticket_type}</span>
+                          <span className="font-medium">₹{(participant.amount_paid || 0).toLocaleString()}</span>
+                        </div>
+                      </div>
+                      
+                      <div className="text-right text-[11px] text-muted-foreground shrink-0">
+                        <div>{new Date(participant.created_at).toLocaleDateString()}</div>
+                        <div>{new Date(participant.created_at).toLocaleTimeString()}</div>
+                      </div>
+                    </div>
+                    
+                    {(participant.utm_content || participant.utm_term) && (
+                      <div className="mt-2 pt-2 border-t border-border/50">
+                        <div className="flex gap-3 text-[10px] text-muted-foreground">
+                          {participant.utm_content && (
+                            <span>Content: <span className="text-foreground">{participant.utm_content}</span></span>
+                          )}
+                          {participant.utm_term && (
+                            <span>Term: <span className="text-foreground">{participant.utm_term}</span></span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Direct Participants */}
+          {directParticipants.length > 0 && (
+            <div>
+              <h4 className="text-[13px] font-semibold mb-2 flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-gray-400" />
+                Direct Registrations ({directParticipants.length})
+              </h4>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {directParticipants.slice(0, 10).map((participant) => (
+                  <div
+                    key={participant.id}
+                    className="border border-border rounded-lg p-3 bg-background/50"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-[13px]">{participant.name}</span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {participant.email}
+                          </span>
+                        </div>
+                        
+                        <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-50 dark:bg-gray-950/30 text-[10px] font-medium mb-2">
+                          Direct / Organic
+                        </div>
+                        
+                        <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
+                          {participant.company && (
+                            <span>{participant.company}</span>
+                          )}
+                          <span>{participant.ticket_type}</span>
+                          <span className="font-medium">₹{(participant.amount_paid || 0).toLocaleString()}</span>
+                        </div>
+                      </div>
+                      
+                      <div className="text-right text-[11px] text-muted-foreground shrink-0">
+                        <div>{new Date(participant.created_at).toLocaleDateString()}</div>
+                        <div>{new Date(participant.created_at).toLocaleTimeString()}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                
+                {directParticipants.length > 10 && (
+                  <div className="text-center py-2">
+                    <span className="text-[11px] text-muted-foreground">
+                      and {directParticipants.length - 10} more direct registrations...
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {participants.length === 0 && (
+            <div className="text-center py-8 text-[13px] text-muted-foreground">
+              No registrations yet for this event.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1053,18 +1393,24 @@ export default function UtmAnalyticsPage({
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="outline" className="h-8 gap-1.5 text-[12px]">
                 <Download className="h-3.5 w-3.5" />
-                Export CSV
+                Export Attribution Data
                 <ChevronDown className="h-3 w-3 ml-0.5" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuContent align="end" className="w-64">
               <DropdownMenuItem onClick={() => exportCsv(rows)}>
                 <Download className="h-3.5 w-3.5 mr-2" />
-                Quick Export (Summary Only)
+                <div className="flex flex-col">
+                  <span>Quick Summary Export</span>
+                  <span className="text-xs text-muted-foreground">UTM performance overview</span>
+                </div>
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => exportDetailedCsv(eventId, rows)}>
                 <Users className="h-3.5 w-3.5 mr-2" />
-                Detailed Export (With Participants)
+                <div className="flex flex-col">
+                  <span>Detailed Attribution Export</span>
+                  <span className="text-xs text-muted-foreground">Individual participant tracking by UTM source</span>
+                </div>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1345,6 +1691,9 @@ export default function UtmAnalyticsPage({
           </div>
         </div>
       )}
+
+      {/* ── Individual Participant Attribution ── */}
+      <ParticipantAttributionSection eventId={eventId} />
 
       {/* ── Saved links ── */}
       <SavedLinksSection
