@@ -90,7 +90,7 @@ export default function PersonFieldsForm({ value, onChange, hideEmail }: Props) 
       <div className="grid grid-cols-[110px_1fr_1fr] gap-2">
         <div>
           <Label className="text-[12px]">Title</Label>
-          <Select value={value.title || undefined} onValueChange={(v) => set("title", v)}>
+          <Select value={value.title ?? ""} onValueChange={(v) => set("title", v)}>
             <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
             <SelectContent>
               {TITLE_OPTIONS.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}

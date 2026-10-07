@@ -66,8 +66,10 @@ export default defineConfig(({ mode }) => {
       // - clientsClaim: true — once activated, take control of all open tabs.
       // - cleanupOutdatedCaches: true — drop precached assets from prior
       //   deploys so users don't accumulate stale chunks over time.
-      // - navigationPreload: true — start fetching the navigation request in
-      //   parallel with SW boot for snappier cold navigations.
+      // - navigationPreload: false — page navigations are answered from the
+      //   precached `index.html` (navigateFallback), so a preload request would
+      //   never be consumed: it wastes a network round trip and Chrome logs
+      //   "navigation preload request was cancelled" on every page load.
       VitePWA({
         registerType: "prompt",
         injectRegister: false,
@@ -103,7 +105,7 @@ export default defineConfig(({ mode }) => {
             /^\/auth\//,
             // Edge function URLs (full https URLs are denylisted automatically).
           ],
-          navigationPreload: true,
+          navigationPreload: false,
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: false,
