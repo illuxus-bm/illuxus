@@ -184,7 +184,15 @@ const LoginPage = () => {
         },
       });
       if (error) {
-        toast({ title: "Error", description: error.message, variant: "destructive" });
+        // Gateway timeouts (504) from GoTrue come back with an empty JSON body,
+        // so `error.message` is literally "{}". Show something actionable.
+        const status = (error as { status?: number }).status;
+        const raw = error.message?.trim();
+        const description =
+          !raw || raw === "{}" || status === 504
+            ? "Sign-up is taking longer than expected. If you receive a verification email, use it to activate your account; otherwise please try again in a minute."
+            : raw;
+        toast({ title: "Error", description, variant: "destructive" });
       } else if (signUpResult?.session) {
         // Auto-session path: email confirmation is disabled OR auto-confirm
         // fired. Two sub-cases that both need handling here, otherwise the
