@@ -54,3 +54,14 @@ Object.defineProperty(window, "matchMedia", {
     dispatchEvent: () => {},
   }),
 });
+
+// jsdom prints a "Not implemented: HTMLCanvasElement.prototype.getContext"
+// stderr warning on every first-time invocation, which the fit engine's
+// canvas measurement path triggers by design. Stubbing getContext to return
+// null lets our fallback DOM-span measurement kick in without the noise —
+// tests that legitimately need canvas rendering mock it explicitly.
+if (typeof HTMLCanvasElement !== "undefined") {
+  HTMLCanvasElement.prototype.getContext = function () {
+    return null;
+  } as typeof HTMLCanvasElement.prototype.getContext;
+}
