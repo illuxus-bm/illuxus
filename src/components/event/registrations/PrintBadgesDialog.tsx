@@ -619,13 +619,6 @@ export default function PrintBadgesDialog({
       setDownloading(false);
     }
   };
-  const handleTestPrint = async () => {
-    const sample = badges[0] ?? {
-      name: "Jane Doe", email: "jane@example.com", company: "Acme Inc.",
-      ticket_type: "general", participant_type: "Attendee", qr_payload: "TEST-CODE", event_title: eventTitle,
-    };
-    await runPrint([sample]);
-  };
 
   // ── Custom size presets ────────────────────────────────────────────────────
 
@@ -652,7 +645,6 @@ export default function PrintBadgesDialog({
 
   // ── Live preview ──────────────────────────────────────────────────────────
 
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [previewHtml, setPreviewHtml] = useState<string>("");
   const [previewLoading, setPreviewLoading] = useState(false);
 
@@ -686,11 +678,11 @@ export default function PrintBadgesDialog({
     [sample, printOptions],
   );
 
-  // Last HTML written into the current iframe — reset when the dialog closes
-  // because the iframe is unmounted with it.
-  const writtenHtmlRef = useRef("");
+  // Whether a preview has been scheduled since the dialog opened: the first
+  // one runs immediately, later setting changes are debounced.
+  const previewScheduledRef = useRef(false);
   useEffect(() => {
-    if (!open) writtenHtmlRef.current = "";
+    if (!open) previewScheduledRef.current = false;
   }, [open]);
 
   // Warm the browser cache with the banner as soon as the dialog opens.
@@ -702,21 +694,11 @@ export default function PrintBadgesDialog({
   // rendered while the dialog is closed.
   useEffect(() => {
     if (!open) return;
-    const t = setTimeout(() => { void refreshPreview(); }, writtenHtmlRef.current ? 250 : 0);
+    const delay = previewScheduledRef.current ? 250 : 0;
+    previewScheduledRef.current = true;
+    const t = setTimeout(() => { void refreshPreview(); }, delay);
     return () => clearTimeout(t);
   }, [open, refreshPreview]);
-
-  // Write HTML into the iframe when it changes
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!open || !iframe || !previewHtml || previewHtml === writtenHtmlRef.current) return;
-    const doc = iframe.contentDocument;
-    if (!doc) return;
-    writtenHtmlRef.current = previewHtml;
-    doc.open();
-    doc.write(previewHtml);
-    doc.close();
-  }, [open, previewHtml]);
 
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -1084,7 +1066,7 @@ export default function PrintBadgesDialog({
             <div className="flex-1 min-h-0 p-4 flex items-stretch justify-stretch overflow-hidden">
               {previewHtml ? (
                 <iframe
-                  ref={iframeRef}
+                  srcDoc={previewHtml}
                   title="Badge preview"
                   className="rounded border border-border/50 shadow-sm bg-white w-full h-full"
                   style={{ border: "none" }}
@@ -1101,23 +1083,30 @@ export default function PrintBadgesDialog({
 
         </div>
 
-        <DialogFooter className="px-4 sm:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-border bg-background sm:bg-muted/30 shrink-0 flex-col sm:flex-row sm:justify-between gap-2 sm:space-x-0">
-          <span className="hidden sm:block text-[12px] text-muted-foreground self-center">
+        <DialogFooter className="px-4 sm:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-border bg-background sm:bg-muted/30 shrink-0 flex-row items-center justify-between sm:justify-between gap-3 sm:space-x-0">
+          <span className="hidden sm:block text-[12px] text-muted-foreground">
             <span className="font-medium text-foreground">{total}</span>{" "}label{total === 1 ? "" : "s"} total
           </span>
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-            <Button size="sm" variant="outline" onClick={handleTestPrint} className="h-10 sm:h-9 gap-1.5 text-[13px] sm:text-[12px] sm:border-transparent sm:bg-transparent sm:shadow-none sm:hover:bg-accent">
-              <FlaskConical className="h-3.5 w-3.5" /> Test print
+          <div className="flex w-full sm:w-auto items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="hidden sm:inline-flex h-9 px-4 text-[13px]"
+            >
+              Cancel
             </Button>
-            <Button size="sm" variant="outline" onClick={() => onOpenChange(false)} className="hidden sm:inline-flex">Cancel</Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" disabled={badges.length === 0 || downloading} className="h-10 sm:h-9 gap-1.5">
+                <Button
+                  variant="outline"
+                  disabled={badges.length === 0 || downloading}
+                  className="flex-1 sm:flex-none h-11 sm:h-9 px-4 gap-2 text-[14px] sm:text-[13px]"
+                >
                   {downloading
-                    ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                    : <Download className="h-3.5 w-3.5" />}
+                    ? <RefreshCw className="h-4 w-4 animate-spin" />
+                    : <Download className="h-4 w-4" />}
                   Download
-                  <ChevronDown className="h-3 w-3 opacity-60" />
+                  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
@@ -1129,8 +1118,12 @@ export default function PrintBadgesDialog({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button size="sm" onClick={handlePrint} disabled={badges.length === 0} className="col-span-2 h-11 sm:h-9 gap-1.5 text-[14px] sm:text-[13px]">
-              <Printer className="h-4 w-4 sm:h-3.5 sm:w-3.5" /> Print {total > 1 ? `${total} badges` : "badge"}
+            <Button
+              onClick={handlePrint}
+              disabled={badges.length === 0}
+              className="flex-1 sm:flex-none h-11 sm:h-9 px-4 gap-2 text-[14px] sm:text-[13px]"
+            >
+              <Printer className="h-4 w-4" /> Print {total > 1 ? `${total} badges` : "badge"}
             </Button>
           </div>
         </DialogFooter>
