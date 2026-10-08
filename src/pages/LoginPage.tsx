@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { publicOrigin } from "@/lib/publicUrl";
@@ -25,9 +25,11 @@ import PersonFieldsForm, {
   type PersonFields,
 } from "@/components/people/PersonFieldsForm";
 
-/** Digits in the sign-up verification code. Must match Supabase →
- *  Authentication → Providers → Email → "Email OTP Length". */
-const SIGNUP_OTP_LENGTH = 6;
+/** Digit range accepted for the sign-up verification code. Supabase's
+ *  "Email OTP Length" decides what is emailed (6–10); this project sends 8,
+ *  and 6 is accepted too so the step keeps working if that setting changes. */
+const SIGNUP_OTP_MIN = 6;
+const SIGNUP_OTP_MAX = 8;
 
 const LoginPage = () => {
   const [email, setEmail] = useState("");
@@ -57,6 +59,9 @@ const LoginPage = () => {
   const [verifyFrom, setVerifyFrom] = useState<"signup" | "signin">("signup");
   const [otp, setOtp] = useState("");
   const [resendIn, setResendIn] = useState(0);
+  // One verification at a time: a pasted full code fires both onChange and
+  // onComplete, and a second call with the spent code would report failure.
+  const verifyingRef = useRef(false);
 
   // Resend cooldown — Supabase rejects a second email within 60s anyway.
   useEffect(() => {
@@ -184,7 +189,8 @@ const LoginPage = () => {
   };
 
   const verifyCode = async (code: string) => {
-    if (!verifyEmail || code.length !== SIGNUP_OTP_LENGTH || loading) return;
+    if (!verifyEmail || code.length < SIGNUP_OTP_MIN || code.length > SIGNUP_OTP_MAX || verifyingRef.current) return;
+    verifyingRef.current = true;
     setLoading(true);
     let { data, error } = await supabase.auth.verifyOtp({ email: verifyEmail, token: code, type: "email" });
     if (error) {
@@ -201,10 +207,12 @@ const LoginPage = () => {
       });
       setOtp("");
       setLoading(false);
+      verifyingRef.current = false;
       return;
     }
     setLoading(false);
     await finishSignup(data.user?.user_metadata?.account_type);
+    verifyingRef.current = false;
   };
 
   const resendCode = async () => {
@@ -488,16 +496,22 @@ const LoginPage = () => {
                   <MailCheck className="h-5 w-5 text-primary" />
                 </div>
                 <p className="text-[13px] text-muted-foreground leading-relaxed">
-                  We sent a {SIGNUP_OTP_LENGTH}-digit code to{" "}
+                  We sent a verification code to{" "}
                   <span className="font-medium text-foreground break-all">{verifyEmail}</span>.
                   Enter it below to verify your email{inviteToken ? " and join the workspace" : ""}.
                 </p>
               </div>
               <div className="flex justify-center">
                 <InputOTP
-                  maxLength={SIGNUP_OTP_LENGTH}
+                  maxLength={SIGNUP_OTP_MAX}
                   value={otp}
-                  onChange={setOtp}
+                  onChange={(code) => {
+                    // A pasted or autofilled code arrives in one change —
+                    // verify it straight away, whatever its length.
+                    const filledAtOnce = code.length - otp.length > 1;
+                    setOtp(code);
+                    if (filledAtOnce && code.length >= SIGNUP_OTP_MIN) void verifyCode(code);
+                  }}
                   onComplete={(code) => void verifyCode(code)}
                   pattern={REGEXP_ONLY_DIGITS}
                   inputMode="numeric"
@@ -506,8 +520,8 @@ const LoginPage = () => {
                   disabled={loading}
                 >
                   <InputOTPGroup>
-                    {Array.from({ length: SIGNUP_OTP_LENGTH }, (_, i) => (
-                      <InputOTPSlot key={i} index={i} />
+                    {Array.from({ length: SIGNUP_OTP_MAX }, (_, i) => (
+                      <InputOTPSlot key={i} index={i} className="h-10 w-7 min-[380px]:w-9" />
                     ))}
                   </InputOTPGroup>
                 </InputOTP>
@@ -515,7 +529,7 @@ const LoginPage = () => {
               <Button
                 type="submit"
                 className="w-full h-9 text-sm font-medium"
-                disabled={loading || otp.length !== SIGNUP_OTP_LENGTH}
+                disabled={loading || otp.length < SIGNUP_OTP_MIN}
               >
                 {loading ? "Verifying…" : "Verify & continue"}
               </Button>
