@@ -16,13 +16,12 @@ import {
   AlignLeft, AlignCenter, AlignRight, AlignJustify, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
-import { toast } from "sonner";
 import {
-  buildPrintHtml, printBadges, printCalibration,
+  buildPrintHtml, printBadges, printCalibration, normalizePrintSize, DEFAULT_PRINT_SIZE,
   type BadgeData, type PrintMode, type PrintSize, type PrintUnit,
 } from "@/lib/print-badges";
 import type { FitWarning } from "@/lib/fit-engine";
-import { loadSizes, saveSizes, badgeSizeMm, type SavedSize, createCompanyBrandedDesign } from "@/lib/badge-design";
+import { loadSizes, saveSizes, badgeSizeMm, type SavedSize } from "@/lib/badge-design";
 
 // ─── Font options ─────────────────────────────────────────────────────────────
 
@@ -78,6 +77,8 @@ type Prefs = {
   ch: number;
   cu: PrintUnit;
   thermalMode: boolean;
+  /** Print the attendee's check-in QR code under the company name. */
+  showQr?: boolean;
   /** Thermal print-head DPI — see `PrintOptions.thermalDpi` in
    *  `print-badges.ts`. Persisted per browser so an organizer with a
    *  specific printer doesn't re-pick it every session. */
@@ -106,16 +107,11 @@ const TYPE_OPTIONS: { v: PrintMode; label: string; sub: string }[] = [
 ];
 
 const SIZE_OPTIONS: { v: PrintSize; label: string; sub: string }[] = [
-  { v: "a6",          label: "A6 single",        sub: "148 × 105 mm · 1/page" },
-  { v: "a4-2up",      label: "A4 · 2-up",        sub: "186 × 134 mm · 2/page" },
-  { v: "avery-3x8",   label: "Avery 3×8",         sub: "63 × 34 mm · 24/sheet" },
-  { v: "thermal-4x6", label: "Thermal 4×6 in",   sub: "101.6 × 152.4 mm · helett H30C, Dymo 4XL" },
-  { v: "thermal-4x5", label: "Thermal 4×5 in",   sub: "101.6 × 127 mm · compact badge" },
-  { v: "thermal-50",  label: "Thermal 50 mm",    sub: "50 × 80 mm" },
-  { v: "thermal-58",  label: "Thermal 58 mm",    sub: "58 × 80 mm" },
-  { v: "thermal-80",  label: "Thermal 80 mm",    sub: "80 × 100 mm" },
-  { v: "thermal-100", label: "Thermal 100 mm",   sub: "100 × 150 mm" },
-  { v: "custom",      label: "Custom",            sub: "Enter W × H" },
+  { v: "thermal-4x5", label: "4 × 5 in",       sub: "101.6 × 127 mm · label printer (default)" },
+  { v: "thermal-4x6", label: "4 × 6 in",       sub: "101.6 × 152.4 mm · helett H30C, Dymo 4XL" },
+  { v: "a6",          label: "A6",             sub: "105 × 148 mm · badge-holder insert" },
+  { v: "a4-4up",      label: "A4 · 4 per sheet", sub: "105 × 148 mm · office printer, cut to size" },
+  { v: "custom",      label: "Custom",         sub: "Enter W × H" },
 ];
 
 // ─── FontStylePanel ───────────────────────────────────────────────────────────
@@ -311,16 +307,16 @@ export default function PrintBadgesDialog({
   const p = loadPrefs();
 
   const [mode,        setMode       ] = useState<PrintMode >(p.mode        ?? defaultMode);
-  const [size,        setSize       ] = useState<PrintSize >(p.size        ?? "thermal-4x5");
+  const [size,        setSize       ] = useState<PrintSize >(normalizePrintSize(p.size));
   const [copies,      setCopies     ] = useState<number    >(p.copies      ?? 1);
   const [cw,          setCw         ] = useState<number    >(p.cw          ?? 4);
   const [ch,          setCh         ] = useState<number    >(p.ch          ?? 3);
   const [cu,          setCu         ] = useState<PrintUnit >(p.cu          ?? "in");
   const [thermalMode, setThermalMode] = useState<boolean   >(p.thermalMode ?? false);
+  const [showQr,      setShowQr     ] = useState<boolean   >(p.showQr      ?? false);
   const [thermalDpi,  setThermalDpi ] = useState<203 | 300 >(p.thermalDpi  ?? 203);
   const [thermalOffsetTop, setThermalOffsetTop] = useState<number>(p.thermalOffset?.topMm ?? 0);
   const [thermalOffsetLeft, setThermalOffsetLeft] = useState<number>(p.thermalOffset?.leftMm ?? 0);
-  const [designOverride, setDesignOverride] = useState<ReturnType<typeof createCompanyBrandedDesign> | null>(null);
   const [sizes,       setSizes      ] = useState<SavedSize[]>(() => loadSizes());
   const [font,        setFont       ] = useState<FontStyle >(p.font        ?? defaultFontStyle());
   // Fit warnings surfaced from the last `buildPrintHtml` preview run. Empty
@@ -343,7 +339,7 @@ export default function PrintBadgesDialog({
     if (!open) return;
     const prefs = loadPrefs();
     setMode(defaultMode ?? prefs.mode ?? "badge");
-    setSize(prefs.size ?? "thermal-4x5");
+    setSize(normalizePrintSize(prefs.size ?? DEFAULT_PRINT_SIZE));
     const pCopies = prefs.copies ?? 1;
     const pCw = prefs.cw ?? 4;
     const pCh = prefs.ch ?? 3;
@@ -353,6 +349,7 @@ export default function PrintBadgesDialog({
     setCh(pCh); setChStr(String(pCh));
     setCu(pCu);
     setThermalMode(prefs.thermalMode ?? false);
+    setShowQr(prefs.showQr ?? false);
     setThermalDpi(prefs.thermalDpi ?? 203);
     const offTop = prefs.thermalOffset?.topMm ?? 0;
     const offLeft = prefs.thermalOffset?.leftMm ?? 0;
@@ -360,11 +357,6 @@ export default function PrintBadgesDialog({
     setThermalOffsetLeft(offLeft); setThermalOffsetLeftStr(String(offLeft));
     setFont(prefs.font ?? defaultFontStyle());
     setSizes(loadSizes());
-    
-    // Auto-apply company branded design for horizontal banner by default
-    if (!prefs.designOverride) {
-      setDesignOverride(createCompanyBrandedDesign());
-    }
   }, [open, defaultMode]);
 
   useEffect(() => {
@@ -375,9 +367,9 @@ export default function PrintBadgesDialog({
         ? { topMm: thermalOffsetTop, leftMm: thermalOffsetLeft }
         : undefined;
     localStorage.setItem(PREF_KEY, JSON.stringify({
-      mode, size, copies, cw, ch, cu, thermalMode, thermalDpi, thermalOffset, font,
+      mode, size, copies, cw, ch, cu, thermalMode, showQr, thermalDpi, thermalOffset, font,
     }));
-  }, [mode, size, copies, cw, ch, cu, thermalMode, thermalDpi, thermalOffsetTop, thermalOffsetLeft, font]);
+  }, [mode, size, copies, cw, ch, cu, thermalMode, showQr, thermalDpi, thermalOffsetTop, thermalOffsetLeft, font]);
 
   const dims = useMemo(
     () => badgeSizeMm(size, { width: cw, height: ch, unit: cu }),
@@ -394,8 +386,8 @@ export default function PrintBadgesDialog({
       await printBadges(rows, {
         mode, size, copies, eventTitle,
         custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
-        design: designOverride || undefined,
-        thermalMode: thermalActive,
+        thermalMode,
+        showQr,
         thermalDpi: thermalActive ? thermalDpi : undefined,
         thermalOffset:
           thermalActive && (thermalOffsetTop !== 0 || thermalOffsetLeft !== 0)
@@ -432,7 +424,7 @@ export default function PrintBadgesDialog({
   const handleTestPrint = async () => {
     const sample = badges[0] ?? {
       name: "Jane Doe", email: "jane@example.com", company: "Acme Inc.",
-      ticket_type: "general", qr_payload: "TEST-CODE", event_title: eventTitle,
+      ticket_type: "general", participant_type: "Attendee", qr_payload: "TEST-CODE", event_title: eventTitle,
     };
     await runPrint([sample]);
   };
@@ -472,7 +464,7 @@ export default function PrintBadgesDialog({
       try {
         const sample = badges[0] ?? {
           name: "Jane Doe", email: "jane@example.com", company: "Acme Inc.",
-          ticket_type: "general", qr_payload: "PREVIEW", event_title: eventTitle,
+          ticket_type: "general", participant_type: "Attendee", qr_payload: "PREVIEW", event_title: eventTitle,
         };
         const thermalActive = thermalMode || isThermalSize;
         const { html, warnings } = await buildPrintHtml([sample], {
@@ -484,8 +476,8 @@ export default function PrintBadgesDialog({
           previewFit: true,
           mode, size, copies: 1, eventTitle,
           custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
-          design: designOverride || undefined,
-          thermalMode: thermalActive,
+          thermalMode,
+          showQr,
           thermalDpi: thermalActive ? thermalDpi : undefined,
           thermalOffset:
             thermalActive && (thermalOffsetTop !== 0 || thermalOffsetLeft !== 0)
@@ -500,7 +492,7 @@ export default function PrintBadgesDialog({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mode, size, cw, ch, cu, thermalMode, thermalDpi, thermalOffsetTop, thermalOffsetLeft, isThermalSize, font, eventTitle, badges, designOverride],
+    [mode, size, cw, ch, cu, thermalMode, showQr, thermalDpi, thermalOffsetTop, thermalOffsetLeft, isThermalSize, font, eventTitle, badges],
   );
 
   // Refresh preview when key settings change (debounced 400ms)
@@ -639,46 +631,6 @@ export default function PrintBadgesDialog({
               </p>
             )}
 
-            {/* Quick preset for company branding layout */}
-            <div className="mt-3 pt-2 border-t border-border/50">
-              <div className="flex gap-2">
-                <Button
-                  size="sm" 
-                  variant="outline" 
-                  className="flex-1 h-8 text-[12px] gap-2"
-                  onClick={() => {
-                    // Apply 4×5 inch size and company-branded design
-                    setSize("thermal-4x5");
-                    const brandedDesign = createCompanyBrandedDesign();
-                    setDesignOverride(brandedDesign);
-                    toast.success("Applied horizontal banner layout - 4×5 inch edge-to-edge format!");
-                  }}
-                >
-                  🏢 Horizontal Banner (4×5" Edge-to-Edge)
-                </Button>
-                {designOverride && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 text-[12px]"
-                    onClick={() => {
-                      setDesignOverride(null);
-                      toast.success("Reset to default badge design");
-                    }}
-                  >
-                    Reset
-                  </Button>
-                )}
-              </div>
-              <p className="text-[10px] text-muted-foreground mt-1">
-                Edge-to-edge horizontal banner: Company branding header + Name + Company (4×5 inch default)
-              </p>
-              {designOverride && (
-                <p className="text-[10px] text-primary mt-1">
-                  ✓ Using horizontal banner design (4×5 inch edge-to-edge)
-                </p>
-              )}
-            </div>
           </section>
 
           {/* COPIES */}
@@ -691,14 +643,27 @@ export default function PrintBadgesDialog({
             />
           </section>
 
+          {/* QR CODE */}
+          <section>
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <Checkbox checked={showQr} onCheckedChange={(v) => setShowQr(!!v)} className="mt-0.5 shrink-0" />
+              <div>
+                <div className="text-[12px] font-medium">Include check-in QR code</div>
+                <div className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
+                  Adds the attendee's QR under their company so staff can scan badges at the door.
+                </div>
+              </div>
+            </label>
+          </section>
+
           {/* THERMAL MODE */}
           <section className="border border-border rounded-lg p-3 bg-muted/30 space-y-2">
             <label className="flex items-start gap-2.5 cursor-pointer">
               <Checkbox checked={thermalMode} onCheckedChange={(v) => setThermalMode(!!v)} className="mt-0.5 shrink-0" />
               <div>
-                <div className="text-[12px] font-medium">Thermal printer mode</div>
+                <div className="text-[12px] font-medium">Black &amp; white (thermal printer)</div>
                 <div className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
-                  Strips backgrounds and colours. Use with USB or Bluetooth thermal printers for crisp black-and-white output.
+                  Converts the banner to greyscale and prints the participant band in black. Use with monochrome thermal printers.
                 </div>
               </div>
             </label>

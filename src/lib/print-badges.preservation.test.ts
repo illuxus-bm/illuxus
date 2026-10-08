@@ -54,7 +54,7 @@ import { defaultDesign, type BadgeDesign } from "./badge-design";
 /**
  * A short "already-fits" badge used across every preservation case. Every
  * text value here is short enough to fit within the safe area of the
- * smallest preset (thermal-50, 50×80 mm) at the default point sizes, so
+ * narrowest preset (4 in, 101.6 mm wide) at the default point sizes, so
  * `isBugCondition(X)` returns false for every corpus row.
  */
 const SHORT_BADGE: BadgeData = {
@@ -76,14 +76,10 @@ const SHORT_BADGE: BadgeData = {
  * exercised separately with a fixed 4×3-in payload.
  */
 const PRESET_SIZES: readonly PrintSize[] = [
-  "a6",
-  "a4-2up",
-  "avery-3x8",
-  "thermal-50",
-  "thermal-58",
-  "thermal-80",
-  "thermal-100",
+  "thermal-4x5",
   "thermal-4x6",
+  "a6",
+  "a4-4up",
 ] as const;
 
 /**
@@ -190,10 +186,10 @@ describe("preservation baseline — font override applied to short name", () => 
     expect(html).toMatchSnapshot();
   });
 
-  it("renders identically for a full FontStyle override on a4-2up name mode", async () => {
+  it("renders identically for a full FontStyle override on a4-4up name mode", async () => {
     const { html, warnings } = await buildPrintHtml([SHORT_BADGE], {
       mode: "name",
-      size: "a4-2up",
+      size: "a4-4up",
       copies: 1,
       eventTitle: "DemoConf",
       font: FULL_FONT_OVERRIDE,
@@ -233,10 +229,10 @@ describe("preservation baseline — copies=3 page-break behavior", () => {
     expect(html).toMatchSnapshot();
   });
 
-  it("renders identically for copies=3 on a4-2up badge mode", async () => {
+  it("renders identically for copies=3 on a4-4up badge mode", async () => {
     const { html, warnings } = await buildPrintHtml([SHORT_BADGE], {
       mode: "badge",
-      size: "a4-2up",
+      size: "a4-4up",
       copies: 3,
       eventTitle: "DemoConf",
     });
@@ -248,9 +244,9 @@ describe("preservation baseline — copies=3 page-break behavior", () => {
 // ─── Sanity — the fixtures do not spuriously trigger the fit condition ────
 
 describe("preservation baseline — fixture sanity", () => {
-  it("short-badge name fits within thermal-50 safe width at default point size", () => {
-    // Poppins 800 at 11.2pt (renderDefaultBadge's clamp for thermal-50 height
-    // 80mm) renders "Jane Doe" at ~13mm — well within 45mm safeW.
+  it("short-badge name fits the narrowest preset at default point size", () => {
+    // "Jane Doe" at the default name size is well within the ~90mm safe
+    // width of the narrowest preset (4 in / 101.6mm).
     // This assertion is a smoke check: if a future refactor causes SHORT_BADGE
     // to accidentally exceed the safe width, all downstream snapshot cases
     // become bug-condition inputs and preservation loses meaning.

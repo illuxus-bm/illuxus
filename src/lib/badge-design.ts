@@ -543,36 +543,21 @@ export function frontBgStyleToCss(s: FrontBgStyle | undefined): string {
 }
 
 export function badgeSizeMm(
-  size:
-    | "a6"
-    | "a4-2up"
-    | "avery-3x8"
-    | "thermal-50"
-    | "thermal-58"
-    | "thermal-80"
-    | "thermal-100"
-    | "thermal-4x6"
-    | "custom",
+  size: "thermal-4x5" | "thermal-4x6" | "a6" | "a4-4up" | "custom",
   custom?: { width: number; height: number; unit: "in" | "cm" | "mm" }
 ): { w: number; h: number } {
   if (size === "custom" && custom) {
     const f = custom.unit === "in" ? 25.4 : custom.unit === "cm" ? 10 : 1;
     return { w: custom.width * f, h: custom.height * f };
   }
-  if (size === "a6") return { w: 148, h: 105 };
-  if (size === "a4-2up") return { w: 186, h: 134 };
-  // Thermal printer roll widths — common portable / handheld sizes.
-  // Width = paper roll width minus a small margin; height set to a
-  // reasonable badge proportion for the visible content.
-  if (size === "thermal-50")  return { w: 50,    h: 80 };
-  if (size === "thermal-58")  return { w: 58,    h: 80 };
-  if (size === "thermal-80")  return { w: 80,    h: 100 };
-  if (size === "thermal-100") return { w: 100,   h: 150 };
-  // 4×6 inch shipping/badge label — helett H30C Lite, Dymo 4XL, Zebra ZP450, etc.
+  // Portrait A6 — the standard badge-holder insert.
+  if (size === "a6") return { w: 105, h: 148 };
+  // A quarter of an A4 sheet (210 × 297 mm), so four tile the page exactly.
+  if (size === "a4-4up") return { w: 105, h: 148.5 };
+  // 4×6 inch label — helett H30C Lite, Dymo 4XL, Zebra ZP450, etc.
   if (size === "thermal-4x6") return { w: 101.6, h: 152.4 };
-  // 4×5 inch horizontal banner badge — default edge-to-edge format with company branding
-  if (size === "thermal-4x5") return { w: 101.6, h: 127 };
-  return { w: 63, h: 34 }; // avery-3x8
+  // 4×5 inch label — the default badge size.
+  return { w: 101.6, h: 127 };
 }
 
 /**

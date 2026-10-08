@@ -1,7 +1,6 @@
 import QRCode from "qrcode";
 import { badgeSizeMm, bgTransformToCss, frontBgStyleToCss, fontsUsedInDesign, googleFontsUrl, type BadgeDesign, type NameDesignId, NAME_DESIGNS } from "./badge-design";
 import {
-  computeCenteringPadding,
   fitText,
   FLOOR_PT_BY_ROLE,
   MIN_PAD_MM,
@@ -19,6 +18,9 @@ export type BadgeData = {
   /** Designation / job title displayed under the name. */
   title?: string | null;
   ticket_type?: string | null;
+  /** Label for the coloured band at the bottom of the badge — e.g.
+   *  "Speaker", "Partner", "Attendee". See `participantLabel`. */
+  participant_type?: string | null;
   qr_payload: string;
   /** Event banner image URL. Rendered at the top of the default badge. */
   banner_url?: string | null;
@@ -31,17 +33,21 @@ export type BadgeData = {
   event_location_text?: string | null;
 };
 
-export type PrintSize =
-  | "a6"
-  | "a4-2up"
-  | "avery-3x8"
-  | "thermal-50"
-  | "thermal-58"
-  | "thermal-80"
-  | "thermal-100"
-  | "thermal-4x6"
-  | "thermal-4x5"
-  | "custom";
+export type PrintSize = "thermal-4x5" | "thermal-4x6" | "a6" | "a4-4up" | "custom";
+
+export const DEFAULT_PRINT_SIZE: PrintSize = "thermal-4x5";
+const PRINT_SIZES: readonly PrintSize[] = ["thermal-4x5", "thermal-4x6", "a6", "a4-4up", "custom"];
+
+/** Narrow an untrusted value (e.g. a persisted preference from an older
+ *  version that offered sizes since removed) to a supported size. */
+export function normalizePrintSize(v: unknown): PrintSize {
+  return PRINT_SIZES.includes(v as PrintSize) ? (v as PrintSize) : DEFAULT_PRINT_SIZE;
+}
+
+/** Sizes fed by a label printer: one badge per label, zero page margin. */
+function isLabelPrinterSize(size: PrintSize): boolean {
+  return size === "thermal-4x5" || size === "thermal-4x6" || size === "custom";
+}
 export type PrintMode = "badge" | "name";
 export type PrintUnit = "in" | "cm" | "mm";
 
@@ -52,8 +58,11 @@ export type PrintOptions = {
   eventTitle?: string;
   custom?: { width: number; height: number; unit: PrintUnit };
   design?: BadgeDesign;
-  /** When true, strip background images/colours so a black-and-white thermal printer renders cleanly. */
+  /** When true, render in black and white for monochrome thermal printers:
+   *  the banner is converted to greyscale and the participant band is black. */
   thermalMode?: boolean;
+  /** Add the attendee's check-in QR code under the company name. */
+  showQr?: boolean;
   /**
    * Thermal print head resolution in dots-per-inch. Common values are
    * 203 (8 dots/mm — most affordable 4×6 label printers including the
@@ -122,25 +131,11 @@ export type PrintOptions = {
   };
 };
 
-const SHEET_CSS: Record<Exclude<PrintSize, "custom">, { page: string; cols: number; gap: string; pad: string }> = {
-  "a6":          { page: "@page { size: A6 landscape; margin: 4mm }", cols: 1, gap: "0",   pad: "0" },
-  // Two landscape badges stacked on a portrait A4. The badge itself is
-  // 186×134mm, so a single column fits the 190mm usable width.
-  "a4-2up":      { page: "@page { size: A4 portrait; margin: 10mm }", cols: 1, gap: "6mm", pad: "0" },
-  "avery-3x8":   { page: "@page { size: A4; margin: 8mm }",           cols: 3, gap: "3mm", pad: "0" },
-  // Thermal printer roll sizes — one badge per page, edge-to-edge.
-  // Margin is 0 because thermal printers don't have side margins; any
-  // CSS margin shifts the print off the label.
-  "thermal-50":  { page: "@page { size: 50mm 80mm; margin: 0 }",        cols: 1, gap: "0",   pad: "0" },
-  "thermal-58":  { page: "@page { size: 58mm 80mm; margin: 0 }",        cols: 1, gap: "0",   pad: "0" },
-  "thermal-80":  { page: "@page { size: 80mm 100mm; margin: 0 }",       cols: 1, gap: "0",   pad: "0" },
-  "thermal-100": { page: "@page { size: 100mm 150mm; margin: 0 }",      cols: 1, gap: "0",   pad: "0" },
-  // 4×6 inch label — matches helett H30C Lite, Dymo 4XL, Zebra ZP450 and
-  // other common USB direct-thermal shipping/badge label printers.
-  "thermal-4x6": { page: "@page { size: 101.6mm 152.4mm; margin: 0 }", cols: 1, gap: "0",   pad: "0" },
-  // 4×5 inch horizontal banner — default edge-to-edge format with company branding
-  "thermal-4x5": { page: "@page { size: 101.6mm 127mm; margin: 0 }",   cols: 1, gap: "0",   pad: "0" },
-};
+// Only the A4 sheet lays several badges out on one page; every other size
+// prints one badge per page edge-to-edge (see `fullBleed` below).
+// Four A6 quarters tile the A4 page exactly, so cutting along the halves
+// yields four badges. Margin 0 — set Margins to "None" in the print dialog.
+const A4_SHEET_CSS = { page: "@page { size: A4 portrait; margin: 0 }", cols: 2, gap: "0", pad: "0" };
 
 function fmtSize(w: number, h: number) { return `${w.toFixed(2)}mm ${h.toFixed(2)}mm`; }
 
@@ -182,16 +177,18 @@ export async function buildPrintHtml(
   opts: PrintOptions = {},
 ): Promise<{ html: string; warnings: FitWarning[] }> {
   const mode = opts.mode ?? "badge";
-  const size = opts.size ?? "a4-2up";
+  const size = normalizePrintSize(opts.size ?? DEFAULT_PRINT_SIZE);
   const copies = Math.max(1, Math.min(10, opts.copies ?? 1));
   const eventTitle = opts.eventTitle ?? "";
   const dims = badgeSizeMm(size, opts.custom);
-  const isThermal = size === "thermal-50" || size === "thermal-58" || size === "thermal-80" || size === "thermal-100" || size === "thermal-4x6" || size === "thermal-4x5";
-  const thermalMode = !!opts.thermalMode || isThermal || size === "custom";
-  // Custom sizes are always treated as full-bleed (edge-to-edge, zero margin)
-  // because they target thermal/label printers that have no printable margin.
-  // Named thermal sizes already set fullBleed; custom inherits the same rule.
-  const fullBleed = isThermal || size === "custom" || !!(mode === "badge" && opts.design?.fullBleed);
+  // Black-and-white output is an explicit choice (the "Thermal printer
+  // mode" checkbox) — picking a label size no longer strips the banner.
+  const bwMode = !!opts.thermalMode;
+  // Label printers (and explicit thermal mode) get head-DPI-exact QR codes
+  // and the measured hardware-margin offset.
+  const thermalMode = bwMode || isLabelPrinterSize(size);
+  // Everything except the A4 sheet prints one badge per page, edge-to-edge.
+  const fullBleed = size !== "a4-4up" || !!(mode === "badge" && opts.design?.fullBleed);
   // Only pass the print-head DPI through when we're actually targeting
   // a thermal printer. On laser / inkjet paths, keep the historical
   // 320-px QR source so nothing regresses.
@@ -216,7 +213,7 @@ export async function buildPrintHtml(
     expanded.map(async (b) => {
       if (isDesigned) return await renderDesigned(b, opts.design!, dims, fullBleed, thermalDpi, warnings);
       if (mode === "name") return renderName(b, dims, eventTitle, opts.nameDesign, opts.font, warnings);
-      return await renderDefaultBadge(b, dims, eventTitle, opts.font, thermalDpi, thermalOffset, warnings);
+      return await renderDefaultBadge(b, dims, eventTitle, opts.font, thermalDpi, thermalOffset, !!opts.showQr, warnings);
     })
   );
 
@@ -226,7 +223,7 @@ export async function buildPrintHtml(
     pageCss = `@page { size: ${fmtSize(dims.w, dims.h)}; margin: 0 }`;
     sheetCss = `display:block`;
   } else {
-    const cfg = SHEET_CSS[(size === "custom" ? "a4-2up" : size) as Exclude<PrintSize, "custom">];
+    const cfg = A4_SHEET_CSS;
     pageCss = cfg.page;
     sheetCss = `display:grid;grid-template-columns:repeat(${cfg.cols},${dims.w}mm);gap:${cfg.gap};justify-content:center;padding:${cfg.pad}`;
   }
@@ -337,29 +334,29 @@ export async function buildPrintHtml(
      * bursting through the layout in any code path. */
     .card .el img{display:block;max-width:100%;max-height:100%;object-fit:contain}
     .card .el.qr{overflow:hidden}
-    .card.basic{display:flex;flex-direction:column;align-items:stretch;text-align:center;color:#0f172a}
-    .card.basic .banner{width:100%;background-size:cover;background-position:center;background-repeat:no-repeat;flex-shrink:0}
-    .card.basic .banner.placeholder{background:linear-gradient(135deg,#0f172a 0%,#312e81 60%,#581c87 100%);display:flex;align-items:center;justify-content:center;color:#fff;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
-    .card.basic .body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;min-height:0}
-    .card.basic .org{letter-spacing:.16em;text-transform:uppercase;color:#64748b;font-weight:600}
-    .card.basic .event{font-weight:700;color:#0f172a;line-height:1.15;word-break:break-word}
-    .card.basic .meta{color:#475569;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:.5em;line-height:1.2}
-    .card.basic .meta .dot{opacity:.45}
-    .card.basic .divider{width:60%;height:1px;background:#e2e8f0;margin:auto 0}
-    .card.basic .name{font-weight:800;color:#0f172a;line-height:1.1;word-break:break-word;letter-spacing:-0.01em}
-    .card.basic .qr-wrap{background:#fff;border-radius:2mm;display:inline-flex;align-items:center;justify-content:center;padding:1.5mm}
-    .card.basic .qr-wrap img{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain}
+    /* Default badge: banner header (edge-to-edge) → name + company →
+     * full-width participant-type band. The .inner wrapper carries the
+     * thermal hardware-margin offset so the whole layout shifts together. */
+    .card.basic{color:#0f172a}
+    .card.basic .inner{position:absolute;inset:0;display:flex;flex-direction:column}
+    .card.basic .banner{display:block;width:100%;height:auto;object-fit:cover;object-position:center;flex-shrink:0}
+    .card.basic .banner.placeholder{display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);color:#fff;font-weight:700;letter-spacing:.06em;text-transform:uppercase;text-align:center;line-height:1.15}
+    .card.basic .body{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center}
+    .card.basic .name{font-weight:800;line-height:1.08;letter-spacing:-0.01em;word-break:break-word}
+    .card.basic .company{font-weight:500;color:#475569;line-height:1.2;word-break:break-word}
+    .card.basic .qr-wrap{align-self:center}
+    .card.basic .qr-wrap img{display:block;width:100%;height:100%;object-fit:contain}
+    .card.basic .ptype{flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;letter-spacing:.06em;text-transform:uppercase;text-align:center;line-height:1}
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
-    ${thermalMode ? `
+    ${bwMode ? `
       .card { border: none !important; border-radius: 0 !important; background: #fff !important; }
-      .card .bg, .card.basic .banner { display: none !important; }
-      .card.basic .banner.placeholder { background: #000 !important; color: #fff !important; display: flex !important; }
-      .card.basic .org, .card.basic .event, .card.basic .name { color: #000 !important; }
-      .card.basic .meta { color: #000 !important; }
-      .card.basic .divider { background: #000 !important; height: 2px !important; }
-      .card.basic .qr-wrap { border-radius: 0 !important; }
+      .card .bg { display: none !important; }
+      .card.basic .banner { filter: grayscale(1) contrast(1.15); }
+      .card.basic .banner.placeholder { background: #000 !important; }
+      .card.basic .name, .card.basic .company { color: #000 !important; }
+      .card.basic .ptype { background: #000 !important; color: #fff !important; }
       .card .el.name, .card .el.company { color: #000 !important; text-shadow: none !important; }
     ` : ""}
   </style></head>
@@ -397,11 +394,7 @@ export async function buildCalibrationHtml(opts: {
 } = { size: "thermal-4x6" }): Promise<string> {
   const dims = badgeSizeMm(opts.size, opts.custom);
   const thermalDpi = opts.thermalDpi;
-  const isThermal =
-    opts.size === "thermal-50" || opts.size === "thermal-58" ||
-    opts.size === "thermal-80" || opts.size === "thermal-100" ||
-    opts.size === "thermal-4x6" || opts.size === "custom";
-  const pageCss = isThermal
+  const pageCss = opts.size !== "a4-4up"
     ? `@page { size: ${dims.w.toFixed(2)}mm ${dims.h.toFixed(2)}mm; margin: 0 }`
     : "@page { size: A4 portrait; margin: 10mm }";
 
@@ -898,6 +891,34 @@ function renderName(b: BadgeData, dims: { w: number; h: number }, eventTitle: st
   `;
 }
 
+/** Colour of the participant band per type; anything else uses the attendee teal. */
+const PARTICIPANT_COLORS: Record<string, string> = {
+  speaker: "#6d28d9",
+  partner: "#b45309",
+  sponsor: "#b45309",
+  organizer: "#1f2937",
+  staff: "#1f2937",
+};
+const DEFAULT_PARTICIPANT_COLOR = "#00a5b1";
+
+/** Ticket types that just mean "a regular registration" and so print as "Attendee". */
+const GENERIC_TICKET_TYPES = new Set(["", "general", "free", "paid", "standard", "regular", "attendee", "ticket"]);
+
+/**
+ * Text for the participant band. Speakers and sponsors are identified by the
+ * registrations list (`kind`); sponsors print as "Partner". Attendees with a
+ * named ticket type (e.g. "VIP", "Delegate") show that, otherwise "Attendee".
+ */
+export function participantLabel(kind: "attendee" | "speaker" | "sponsor", ticketType?: string | null): string {
+  if (kind === "speaker") return "Speaker";
+  if (kind === "sponsor") return "Partner";
+  const t = (ticketType ?? "").trim();
+  if (GENERIC_TICKET_TYPES.has(t.toLowerCase())) return "Attendee";
+  return t.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const MM_TO_PT = 72 / 25.4;
+
 async function renderDefaultBadge(
   b: BadgeData,
   dims: { w: number; h: number },
@@ -905,231 +926,118 @@ async function renderDefaultBadge(
   fontOverride?: PrintOptions["font"],
   thermalDpi?: number,
   thermalOffset?: { topMm: number; leftMm: number },
+  showQr = false,
   warnings?: FitWarning[],
 ): Promise<string> {
-  // Compute layout sizes proportional to the badge dimensions so the same
-  // template scales cleanly from a 63×34mm Avery cell up to A6 / A4-2up.
   const clamp = (lo: number, v: number, hi: number) => Math.max(lo, Math.min(hi, v));
-  const padMm = clamp(2.5, dims.w * 0.05, 6);
-  const bannerHeightMm = clamp(14, dims.h * 0.36, 60);
-  const qrMm = clamp(QR_MIN_MM, Math.min(dims.w * 0.42, dims.h * 0.34), 36);
-  const orgPt = clamp(5, dims.h * 0.045, 10);
-  const eventPt = clamp(8, dims.h * 0.095, 16);
-  const metaPt = clamp(5, dims.h * 0.04, 9);
-  // Base name size derived from badge height, allowing the user's chosen
-  // font.sizePt (default 22 in FontStylePanel) to scale it proportionally.
-  // sizePt = 22 → no change; 44 → double; 11 → half.
-  const baseNamePt = clamp(11, dims.h * 0.14, 26);
-  const namePt = fontOverride?.sizePt
-    ? clamp(8, baseNamePt * (fontOverride.sizePt / 22), 48)
-    : baseNamePt;
-  const gapMm = clamp(0.8, dims.h * 0.015, 2.5);
 
-  // Safe content area — the axis-aligned rectangle the fit engine constrains
-  // every text run within (bugfix.md 2.5).
-  const safeW = dims.w - 2 * MIN_PAD_MM;
-  const safeH = dims.h - 2 * MIN_PAD_MM;
+  // ── Vertical budget ────────────────────────────────────────────────────
+  // Banner: full width at its natural aspect ratio, capped so a very tall
+  // image can't push the name off the badge. Band: fixed share of height.
+  const bannerMaxMm = dims.h * 0.45;
+  const placeholderMm = Math.min(dims.w * 0.42, bannerMaxMm);
+  const bandMm = clamp(10, dims.h * 0.13, 24);
+  const padXmm = clamp(4, dims.w * 0.06, 8);
+  const safeW = dims.w - 2 * padXmm;
+  // Height left for name + company (+ QR), using the placeholder height as
+  // the banner estimate — real banners are typically wider than 2.4:1.
+  const bodyHmm = Math.max(10, dims.h - placeholderMm - bandMm - 6);
 
-  // On a thermal printer with a known DPI, generate the QR at exactly
-  // the print-head resolution so modules land dot-for-dot without
-  // resampling. On laser / inkjet paths (`thermalDpi` unset), keep the
-  // previous derived target so the visual quality is unchanged.
-  const qrPxTarget = thermalDpi
-    ? qrPixelSizeForMm(qrMm, thermalDpi)
-    : Math.max(160, Math.round(qrMm * 12));
-  const qr = await QRCode.toDataURL(b.qr_payload, { width: qrPxTarget, margin: 1 });
+  // ── Name + company ─────────────────────────────────────────────────────
+  // Sizes scale with badge width; the Font Style panel's sizes act as
+  // multipliers (22pt name / 12pt company = the defaults = ×1).
+  const baseNamePt = clamp(14, dims.w * 0.27, 40);
+  const namePt = clamp(10, baseNamePt * ((fontOverride?.sizePt ?? 22) / 22), 56);
+  const baseCompanyPt = clamp(9, dims.w * 0.15, 22);
+  const companyPt = clamp(7, baseCompanyPt * ((fontOverride?.companySizePt ?? 12) / 12), 32);
 
-  const title = (eventTitle || b.event_title || "").trim();
-  const org = (b.org_name || "").trim();
-  const dateText = (b.event_date_text || "").trim();
-  const locText = (b.event_location_text || "").trim();
-  const banner = (b.banner_url || "").trim();
-
-  // Placeholder text for the gradient banner falls back to the event title.
-  const placeholderText = title || "EVENT";
-  const placeholderFontPt = clamp(7, bannerHeightMm * 0.18, 12);
-
-  const bannerEl = banner
-    ? `<div class="banner" style="height:${bannerHeightMm}mm;background-image:url('${banner}')"></div>`
-    : `<div class="banner placeholder" style="height:${bannerHeightMm}mm;font-size:${placeholderFontPt}pt;padding:0 ${padMm}mm">${escapeHtml(placeholderText)}</div>`;
-
-  // Resolve the FontStylePanel choices into inline CSS applied to the name.
-  // Defaults match the global Poppins so unchanged settings produce the same
-  // output as before.
-  const family    = fontOverride?.family || "Poppins";
-  const fontColor = fontOverride?.color  || "#0f172a";
-  const align     = fontOverride?.align  || "center";
-  const weight    = fontOverride?.bold   ? 800 : 700;
-  const italic    = fontOverride?.italic ? "italic" : "normal";
-  const decor     = [
-    fontOverride?.underline     ? "underline"    : "",
+  const family = fontOverride?.family || "Poppins";
+  const fontColor = fontOverride?.color || "#0f172a";
+  const align = fontOverride?.align === "justify" ? "center" : fontOverride?.align || "center";
+  const italic = fontOverride?.italic ? "italic" : "normal";
+  const decor = [
+    fontOverride?.underline ? "underline" : "",
     fontOverride?.strikethrough ? "line-through" : "",
   ].filter(Boolean).join(" ");
   const wordSpacing = fontOverride?.wordSpacingPt ? `word-spacing:${fontOverride.wordSpacingPt}pt;` : "";
-  const scale       = fontOverride?.scalePct && fontOverride.scalePct !== 100
-                    ? `transform:scaleX(${fontOverride.scalePct / 100});transform-origin:${align};`
-                    : "";
+  const scale = fontOverride?.scalePct && fontOverride.scalePct !== 100
+    ? `transform:scaleX(${fontOverride.scalePct / 100});transform-origin:${align};`
+    : "";
 
-  // ─── Fit engine dispatch ───────────────────────────────────────────────
-  // For each text role, ask the fit engine whether the value fits at the
-  // requested point size. Short-fit inputs return unchanged from the fast
-  // path (`sizePt === requested`, `lines.length === 1`), so the emitted
-  // HTML below stays byte-identical to the current implementation. Long
-  // values return a shrunk `sizePt` and/or a wrapped `lines[]`, which the
-  // emit step joins with `<br/>` and the centering path picks up.
-  //
-  // Fit-engine calls are pure and synchronous; no I/O beyond the shared
-  // canvas measurement.
+  const company = (b.company || "").trim();
+  const qrMm = showQr ? clamp(QR_MIN_MM, dims.w * 0.22, 26) : 0;
+  const gapMm = clamp(1.5, dims.h * 0.02, 4);
+  const textHmm = Math.max(8, bodyHmm - (showQr ? qrMm + gapMm : 0));
+
   const nameFit = fitTextRole({
     role: "name",
     text: b.name,
-    spec: { family, weightCss: weight, italic: italic === "italic", sizePt: namePt },
+    spec: { family, weightCss: 800, italic: italic === "italic", sizePt: namePt },
     safeWmm: safeW,
-    maxHeightMm: safeH,
+    maxHeightMm: company ? textHmm * 0.68 : textHmm,
     warnings,
   });
-  const orgFit = org
+  const companyFit = company
     ? fitTextRole({
-        role: "org",
-        text: org,
-        spec: { family: "Poppins", weightCss: 600, italic: false, sizePt: orgPt },
+        role: "company",
+        text: company,
+        spec: { family, weightCss: 500, italic: italic === "italic", sizePt: companyPt },
         safeWmm: safeW,
-        maxHeightMm: safeH,
-        warnings,
-      })
-    : null;
-  const eventFit = title
-    ? fitTextRole({
-        role: "event",
-        text: title,
-        spec: { family: "Poppins", weightCss: 700, italic: false, sizePt: eventPt },
-        safeWmm: safeW,
-        maxHeightMm: safeH,
-        warnings,
-      })
-    : null;
-  // Meta line contains one or two independent spans joined by a dot. We
-  // never wrap or shrink the meta line — it's short by construction — but
-  // we do measure it to catch pathological overflow (dateText + locText
-  // longer than safeW). If it overflows, fitText re-emits the combined
-  // string at a smaller pt.
-  const metaCombined = [dateText, locText].filter(Boolean).join(" · ");
-  const metaFit = metaCombined
-    ? fitTextRole({
-        role: "meta",
-        text: metaCombined,
-        spec: { family: "Poppins", weightCss: 400, italic: false, sizePt: metaPt },
-        safeWmm: safeW,
-        maxHeightMm: safeH,
+        maxHeightMm: textHmm * 0.32,
         warnings,
       })
     : null;
 
-  // Detect whether any role was reflowed. When nothing was, we emit the
-  // same HTML today produces — preservation for bugfix.md 3.1.
-  const reflowHappened =
-    nameFit.sizePt !== namePt ||
-    nameFit.lines.length > 1 ||
-    (orgFit ? orgFit.sizePt !== orgPt || orgFit.lines.length > 1 : false) ||
-    (eventFit ? eventFit.sizePt !== eventPt || eventFit.lines.length > 1 : false) ||
-    (metaFit ? metaFit.sizePt !== metaPt || metaFit.lines.length > 1 : false);
-
-  // Bytes emitted for name / org / event / meta content. When the fast
-  // path took, the joined output equals `escapeHtml(text)` for each role,
-  // so preservation snapshots hold.
-  const nameContent = nameFit.lines.map((l) => escapeHtml(l.text)).join("<br/>");
-  const nameSizePt = nameFit.sizePt;
-  const orgContent = orgFit ? orgFit.lines.map((l) => escapeHtml(l.text)).join("<br/>") : "";
-  const orgSizePt = orgFit ? orgFit.sizePt : orgPt;
-  const eventContent = eventFit ? eventFit.lines.map((l) => escapeHtml(l.text)).join("<br/>") : "";
-  const eventSizePt = eventFit ? eventFit.sizePt : eventPt;
-  const metaSizePt = metaFit ? metaFit.sizePt : metaPt;
-
-  // Meta line: preserve the dot-separated span shape when the fit engine
-  // did NOT reflow (fast path == today's output). When reflow ran, emit
-  // the combined single-line text at the fitted pt.
-  const metaEl = (() => {
-    if (!metaFit) return "";
-    const metaReflowed = metaFit.sizePt !== metaPt || metaFit.lines.length > 1;
-    if (!metaReflowed) {
-      const parts: string[] = [];
-      if (dateText) parts.push(`<span>${escapeHtml(dateText)}</span>`);
-      if (locText) parts.push(`<span>${escapeHtml(locText)}</span>`);
-      return `<div class="meta" style="font-size:${metaPt}pt;margin-top:${gapMm}mm">${parts.join(`<span class="dot">·</span>`)}</div>`;
-    }
-    const joinedLines = metaFit.lines.map((l) => escapeHtml(l.text)).join("<br/>");
-    return `<div class="meta" style="font-size:${metaSizePt}pt;margin-top:${gapMm}mm">${joinedLines}</div>`;
-  })();
-
-  // Name style — computed from the fitted point size. In the fast path
-  // this equals today's `font-size:${namePt}pt` byte-for-byte.
-  const nameStyle = [
-    `font-size:${nameSizePt}pt`,
+  const textStyle = [
     `font-family:'${family}',Poppins,system-ui,sans-serif`,
-    `font-weight:${weight}`,
     `font-style:${italic}`,
     decor ? `text-decoration:${decor}` : "",
-    `color:${fontColor}`,
     `text-align:${align}`,
-    wordSpacing,
-    scale,
   ].filter(Boolean).join(";");
+  const nameHtml = nameFit.lines.map((l) => escapeHtml(l.text)).join("<br/>");
+  const companyHtml = companyFit ? companyFit.lines.map((l) => escapeHtml(l.text)).join("<br/>") : "";
 
-  // Body alignment follows the user's text-align choice so name + meta + QR
-  // visually anchor consistently (left / center / right / justify→left).
-  const bodyAlign = align === "justify" ? "left" : align;
-  const itemsAlign = bodyAlign === "left" ? "flex-start"
-                  : bodyAlign === "right" ? "flex-end"
-                  : "center";
+  // ── Banner ─────────────────────────────────────────────────────────────
+  const banner = (b.banner_url || "").trim();
+  const title = (eventTitle || b.event_title || "").trim() || "Event";
+  const bannerEl = banner
+    ? `<img class="banner" src="${escapeHtml(banner)}" alt="" style="max-height:${bannerMaxMm.toFixed(2)}mm" />`
+    : `<div class="banner placeholder" style="height:${placeholderMm.toFixed(2)}mm;padding:0 ${padXmm}mm;font-size:${clamp(10, dims.w * 0.16, 24).toFixed(1)}pt">${escapeHtml(title)}</div>`;
 
-  // ─── Body style resolution ─────────────────────────────────────────────
-  // Fast path: emit today's exact string (`padding: N * 1.2mm Mmm; gap: Kmm;
-  // align-items: ...; text-align: ...`).
-  // Reflow path: compute optical centering padding and switch
-  // `justify-content` to `center` so the shrunk / wrapped content stack is
-  // rebalanced within the safe area (bugfix.md 2.6). When `thermalOffset`
-  // is set, the padding also shifts content by the printer's hardware
-  // margin (bugfix.md 2.11).
-  let bodyStyle: string;
-  let dividerStyle: string;
-  if (!reflowHappened && !thermalOffset) {
-    bodyStyle = `padding:${padMm * 1.2}mm ${padMm}mm;gap:${gapMm}mm;align-items:${itemsAlign};text-align:${bodyAlign}`;
-    dividerStyle = `margin:${gapMm * 1.4}mm 0`;
-  } else {
-    // Content-height estimate for the centering calc: sum every role's
-    // fitted heightMm + qr side + banner height + inter-block gaps.
-    const contentH =
-      bannerHeightMm +
-      (orgFit?.heightMm ?? 0) +
-      (eventFit?.heightMm ?? 0) +
-      (metaFit?.heightMm ?? 0) +
-      nameFit.heightMm +
-      qrMm +
-      gapMm * 4; // dividers/margins between the six blocks
-    const padding = computeCenteringPadding(
-      safeH,
-      contentH,
-      padMm * 1.2,
-      thermalOffset ?? { topMm: 0, leftMm: 0 },
-    );
-    bodyStyle =
-      `padding:${padding.topMm.toFixed(3)}mm ${padding.rightMm.toFixed(3)}mm ${padding.botMm.toFixed(3)}mm ${padding.leftMm.toFixed(3)}mm;` +
-      `gap:${gapMm}mm;justify-content:center;align-items:${itemsAlign};text-align:${bodyAlign}`;
-    dividerStyle = `margin:${gapMm * 1.4}mm 0`;
+  // ── Participant band ───────────────────────────────────────────────────
+  const ptype = (b.participant_type || "").trim() || "Attendee";
+  const bandColor = PARTICIPANT_COLORS[ptype.toLowerCase()] ?? DEFAULT_PARTICIPANT_COLOR;
+  const bandFit = fitTextRole({
+    role: "ticket",
+    text: ptype.toUpperCase(),
+    spec: { family: "Poppins", weightCss: 700, italic: false, sizePt: bandMm * 0.5 * MM_TO_PT },
+    safeWmm: safeW,
+    maxHeightMm: bandMm * 0.8,
+    warnings,
+  });
+
+  // ── QR (optional) ──────────────────────────────────────────────────────
+  let qrEl = "";
+  if (showQr) {
+    const qrPx = thermalDpi ? qrPixelSizeForMm(qrMm, thermalDpi) : Math.max(160, Math.round(qrMm * 12));
+    const qr = await QRCode.toDataURL(b.qr_payload, { width: qrPx, margin: 1 });
+    qrEl = `<div class="qr-wrap" style="width:${qrMm}mm;height:${qrMm}mm;margin-top:${gapMm}mm"><img src="${qr}" alt="QR" /></div>`;
   }
+
+  const offset = thermalOffset && (thermalOffset.topMm || thermalOffset.leftMm)
+    ? ` style="transform:translate(${thermalOffset.leftMm}mm,${thermalOffset.topMm}mm)"`
+    : "";
 
   return `
     <div class="card basic">
-      ${bannerEl}
-      <div class="body" style="${bodyStyle}">
-        ${org ? `<div class="org" style="font-size:${orgSizePt}pt">${orgContent}</div>` : ""}
-        ${title ? `<div class="event" style="font-size:${eventSizePt}pt;margin-top:${gapMm * 0.6}mm">${eventContent}</div>` : ""}
-        ${metaEl}
-        <div class="divider" style="${dividerStyle}"></div>
-        <div class="name" style="${nameStyle}">${nameContent}</div>
-        <div class="qr-wrap" style="width:${qrMm}mm;height:${qrMm}mm;margin-top:${gapMm * 1.2}mm">
-          <img src="${qr}" alt="QR" />
+      <div class="inner"${offset}>
+        ${bannerEl}
+        <div class="body" style="padding:${gapMm}mm ${padXmm}mm">
+          <div class="name" style="font-size:${nameFit.sizePt.toFixed(2)}pt;font-weight:${fontOverride?.bold === false ? 700 : 800};color:${fontColor};${textStyle};${wordSpacing}${scale}">${nameHtml}</div>
+          ${company ? `<div class="company" style="font-size:${companyFit!.sizePt.toFixed(2)}pt;margin-top:${(gapMm * 0.6).toFixed(2)}mm;${textStyle};${wordSpacing}${scale}">${companyHtml}</div>` : ""}
+          ${qrEl}
         </div>
+        <div class="ptype" style="height:${bandMm.toFixed(2)}mm;background:${bandColor};font-size:${bandFit.sizePt.toFixed(2)}pt;padding:0 ${padXmm}mm">${bandFit.lines.map((l) => escapeHtml(l.text)).join(" ")}</div>
       </div>
     </div>
   `;

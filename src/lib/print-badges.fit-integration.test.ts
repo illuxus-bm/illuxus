@@ -23,7 +23,7 @@ vi.mock("qrcode", () => ({
   },
 }));
 
-import { buildPrintHtml, type BadgeData } from "./print-badges";
+import { buildPrintHtml, participantLabel, type BadgeData } from "./print-badges";
 import {
   __resetContextForTesting,
   __setContextForTesting,
@@ -50,7 +50,7 @@ afterEach(() => __resetContextForTesting());
 // ─── Long-name bug condition ──────────────────────────────────────────────
 
 const LONG_NAME_BADGE: BadgeData = {
-  name: "Aakarshan Singh Chadha", // 22 chars — 121 mm at 11pt = way over thermal-58's ~53mm safeW
+  name: "Aakarshan Singh Chadha", // 22 chars — far wider than a 50mm label at any legible size
   company: "Infomerics Valuations and Ratings",
   email: "aakarshan@example.com",
   ticket_type: "VIP",
@@ -62,18 +62,21 @@ const LONG_NAME_BADGE: BadgeData = {
   banner_url: null,
 };
 
+/** A narrow custom label (50 × 80 mm) so long values are forced to reflow. */
+const NARROW = { size: "custom" as const, custom: { width: 50, height: 80, unit: "mm" as const } };
+
 describe("previewFit — on-screen fit-to-viewport scoping", () => {
   it("emits the @media screen fit block when previewFit is true", async () => {
     const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
       mode: "badge",
-      size: "a4-2up",
+      size: "a4-4up",
       copies: 1,
       eventTitle: "TestConf",
       previewFit: true,
     });
     expect(html).toContain("@media screen");
-    // a4-2up is 186mm wide -> 186 * 96/25.4 = 702.99 CSS px.
-    expect(html).toContain("702.99px");
+    // a4-4up badges are 105mm wide -> 105 * 96/25.4 = 396.85 CSS px.
+    expect(html).toContain("396.85px");
     expect(html).toContain("transform-origin:center center");
   });
 
@@ -83,7 +86,7 @@ describe("previewFit — on-screen fit-to-viewport scoping", () => {
     // popup when it contains many stacked cards.
     const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
       mode: "badge",
-      size: "a4-2up",
+      size: "a4-4up",
       copies: 1,
       eventTitle: "TestConf",
     });
@@ -107,7 +110,7 @@ describe("previewFit — on-screen fit-to-viewport scoping", () => {
   it("never upscales — the min() is capped at 1", async () => {
     const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
       mode: "badge",
-      size: "thermal-50",
+      ...NARROW,
       copies: 1,
       eventTitle: "TestConf",
       previewFit: true,
@@ -135,53 +138,94 @@ describe("previewFit — on-screen fit-to-viewport scoping", () => {
   });
 });
 
-describe("bug-condition — thermal-58 badge mode", () => {
+describe("default badge layout — banner, name, company, participant band", () => {
+  it("renders the event banner as the edge-to-edge header", async () => {
+    const { html } = await buildPrintHtml(
+      [{ ...LONG_NAME_BADGE, banner_url: "https://cdn.example/banner.png" }],
+      { mode: "badge", size: "thermal-4x5", copies: 1 },
+    );
+    expect(html).toMatch(/<img class="banner" src="https:\/\/cdn\.example\/banner\.png"/);
+    // Banner first, then body, then the participant band.
+    expect(html.indexOf('<img class="banner"')).toBeLessThan(html.indexOf('<div class="body"'));
+    expect(html.indexOf('<div class="body"')).toBeLessThan(html.indexOf('<div class="ptype"'));
+  });
+
+  it("falls back to an event-title header when the event has no banner", async () => {
+    const { html } = await buildPrintHtml([LONG_NAME_BADGE], { mode: "badge", size: "thermal-4x5", copies: 1 });
+    expect(html).toMatch(/<div class="banner placeholder"[^>]*>TestConf<\/div>/);
+  });
+
+  it("prints the participant type in the band, defaulting to Attendee", async () => {
+    const speaker = await buildPrintHtml(
+      [{ ...LONG_NAME_BADGE, participant_type: "Speaker" }],
+      { mode: "badge", size: "thermal-4x5", copies: 1 },
+    );
+    expect(speaker.html).toMatch(/<div class="ptype"[^>]*>SPEAKER<\/div>/);
+    const unset = await buildPrintHtml([LONG_NAME_BADGE], { mode: "badge", size: "thermal-4x5", copies: 1 });
+    expect(unset.html).toMatch(/<div class="ptype"[^>]*>ATTENDEE<\/div>/);
+  });
+
+  it("keeps the banner on label sizes and only greys it out in black & white mode", async () => {
+    const badge = { ...LONG_NAME_BADGE, banner_url: "https://cdn.example/banner.png" };
+    const colour = await buildPrintHtml([badge], { mode: "badge", size: "thermal-4x5", copies: 1 });
+    expect(colour.html).not.toContain("grayscale");
+    const bw = await buildPrintHtml([badge], { mode: "badge", size: "thermal-4x5", copies: 1, thermalMode: true });
+    expect(bw.html).toContain(".card.basic .banner { filter: grayscale(1)");
+    expect(bw.html).not.toMatch(/\.banner[^{]*\{[^}]*display:\s*none/);
+  });
+
+  it("only adds the QR code when asked", async () => {
+    const without = await buildPrintHtml([LONG_NAME_BADGE], { mode: "badge", size: "thermal-4x5", copies: 1 });
+    expect(without.html).not.toContain('class="qr-wrap"');
+    const withQr = await buildPrintHtml([LONG_NAME_BADGE], { mode: "badge", size: "thermal-4x5", copies: 1, showQr: true });
+    expect(withQr.html).toContain('class="qr-wrap"');
+  });
+
+  it("tiles four badges per A4 sheet and prints label sizes one per page", async () => {
+    const sheet = await buildPrintHtml([LONG_NAME_BADGE], { mode: "badge", size: "a4-4up", copies: 4 });
+    expect(sheet.html).toContain("@page { size: A4 portrait; margin: 0 }");
+    expect(sheet.html).toContain("grid-template-columns:repeat(2,105mm)");
+    const label = await buildPrintHtml([LONG_NAME_BADGE], { mode: "badge", size: "thermal-4x5", copies: 1 });
+    expect(label.html).toContain("@page { size: 101.60mm 127.00mm; margin: 0 }");
+  });
+});
+
+describe("participantLabel", () => {
+  it("maps speakers and sponsors, and keeps named ticket types for attendees", () => {
+    expect(participantLabel("speaker", "general")).toBe("Speaker");
+    expect(participantLabel("sponsor", "sponsor")).toBe("Partner");
+    expect(participantLabel("attendee", "general")).toBe("Attendee");
+    expect(participantLabel("attendee", null)).toBe("Attendee");
+    expect(participantLabel("attendee", "vip_delegate")).toBe("Vip Delegate");
+  });
+});
+
+describe("bug-condition — long name on a narrow label", () => {
   it("wraps the long name into multiple lines and emits <br/>", async () => {
     const { html, warnings } = await buildPrintHtml([LONG_NAME_BADGE], {
       mode: "badge",
-      size: "thermal-58",
+      ...NARROW,
       copies: 1,
       eventTitle: "TestConf",
     });
     // Multi-line wrap emits `<br/>` between lines.
     expect(html.match(/<div class="name"[^>]*>[^<]*<br\/>/)).not.toBeNull();
-    // No warning is strictly required — wrap alone is often enough. But
-    // if the value did shrink to the floor, a warning should surface.
     expect(warnings).toBeInstanceOf(Array);
   });
 
   it("emits a name font-size at or below the requested value after reflow", async () => {
     const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
       mode: "badge",
-      size: "thermal-58",
+      ...NARROW,
       copies: 1,
       eventTitle: "TestConf",
     });
-    // Requested name pt on thermal-58 (h=80mm) is clamp(11, 80*0.14, 26)
-    // = 11.2 pt (with floating-point noise, ≈ 11.200000000000001). After
-    // reflow the sizePt is either equal to the request (wrap alone worked)
-    // or strictly lower (shrink was needed). Allow a small epsilon for
-    // the base-case float representation.
+    // Requested name pt on a 50mm-wide label is clamp(14, 50 * 0.27, 40) = 14.
     const match = html.match(/<div class="name" style="font-size:([\d.]+)pt/);
     expect(match).not.toBeNull();
     const nameSizePt = parseFloat(match![1]);
     expect(nameSizePt).toBeGreaterThan(0);
-    // Requested was ≤ 11.2; result must be ≤ requested (with epsilon).
-    expect(nameSizePt).toBeLessThanOrEqual(11.201);
-  });
-
-  it("emits inline .body { justify-content:center } when reflow ran", async () => {
-    const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
-      mode: "badge",
-      size: "thermal-58",
-      copies: 1,
-      eventTitle: "TestConf",
-    });
-    // The INLINE body style (not the static stylesheet) should include
-    // `justify-content:center` on the reflow branch.
-    const bodyStyleMatch = html.match(/<div class="body" style="([^"]+)"/);
-    expect(bodyStyleMatch).not.toBeNull();
-    expect(bodyStyleMatch![1]).toContain("justify-content:center");
+    expect(nameSizePt).toBeLessThanOrEqual(14);
   });
 });
 
@@ -191,15 +235,9 @@ describe("bug-condition — name-only long company on thermal-4x6", () => {
       [{ ...LONG_NAME_BADGE, name: "J. Q. Public", company: "Infomerics Valuations and Ratings" }],
       { mode: "name", size: "thermal-4x6", copies: 1, eventTitle: "TestConf" },
     );
-    // Company line should contain a wrap (either <br/> or multiple words on
-    // separate lines).
     // On thermal-4x6 (safeW ~96mm), "Infomerics Valuations and Ratings"
     // at 12pt = 33 chars × 12 × 0.5 = 198mm > 96mm → must wrap.
-    // Multi-line wrap emits `<br/>` in the last div (the company line).
-    // The presence of `<br/>` in the emitted HTML is proof of reflow.
     expect(html).toContain("<br/>");
-    // Warnings may or may not surface depending on whether shrink was needed
-    // in addition to wrap. Just assert the shape.
     expect(Array.isArray(warnings)).toBe(true);
   });
 });
@@ -213,11 +251,9 @@ describe("bug-condition — unbreakable token triggers hardBreak warning", () =>
           name: "supercalifragilisticexpialidocioussupercalifragilisticexpialidocious",
         },
       ],
-      { mode: "badge", size: "thermal-50", copies: 1, eventTitle: "TestConf" },
+      { mode: "badge", ...NARROW, copies: 1, eventTitle: "TestConf" },
     );
-    // The 66-char token at floor 8pt = 264 mm; thermal-50 safeW is 45mm.
-    // Wrap alone can't help (no word boundaries); shrink alone can't get
-    // below 8pt floor. Must hard-break.
+    // No word boundaries and a legibility floor → must hard-break.
     const hardBreakWarnings = warnings.filter((w) => w.reason === "hardBreak");
     expect(hardBreakWarnings.length).toBeGreaterThan(0);
     expect(hardBreakWarnings[0].role).toBe("name");
@@ -239,50 +275,36 @@ describe("bug-condition — designer face long name", () => {
 
     const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
       mode: "badge",
-      size: "thermal-58",
+      ...NARROW,
       copies: 1,
       eventTitle: "TestConf",
       design,
     });
-    // On the designer face, the reflow emits `max-width` on the text
-    // element and `<br/>`-joined lines when wrapping happens.
     expect(html).toMatch(/max-width:[\d.]+mm/);
     expect(html).toContain("<br/>");
   });
 });
 
-describe("thermal offset — applied only in thermal mode", () => {
-  it("shifts padding when thermalOffset is set on a long-name print", async () => {
+describe("thermal offset — shifts the whole badge", () => {
+  it("translates the badge content by the measured offset", async () => {
     const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
       mode: "badge",
-      size: "thermal-58",
+      size: "thermal-4x5",
       copies: 1,
       eventTitle: "TestConf",
-      thermalMode: true,
       thermalOffset: { topMm: 2, leftMm: 1 },
     });
-    // Thermal offset shifts content DOWN and RIGHT via computed
-    // padding in the inline `.body` style.
-    const bodyStyleMatch = html.match(/<div class="body" style="([^"]+)"/);
-    expect(bodyStyleMatch).not.toBeNull();
-    const inlineBodyStyle = bodyStyleMatch![1];
-    expect(inlineBodyStyle).toContain("padding:");
-    expect(inlineBodyStyle).toContain("justify-content:center");
+    expect(html).toContain('<div class="inner" style="transform:translate(1mm,2mm)">');
   });
 
-  it("does NOT emit inline .body { justify-content:center } when thermalOffset is undefined and value fits (preservation)", async () => {
-    const { html } = await buildPrintHtml(
-      [{ ...LONG_NAME_BADGE, name: "J. Doe", company: "Acme" }],
-      { mode: "badge", size: "thermal-58", copies: 1, eventTitle: "TestConf" },
-    );
-    // Short-fit case: bodyStyle emits today's format (padding:XmmYmm;
-    // gap:...; align-items:...; text-align:...). The historical form does
-    // NOT include `justify-content:center` in the INLINE body style —
-    // that string only appears in the static stylesheet block above.
-    // Match the inline body style specifically.
-    const bodyStyleMatch = html.match(/<div class="body" style="([^"]+)"/);
-    expect(bodyStyleMatch).not.toBeNull();
-    const inlineBodyStyle = bodyStyleMatch![1];
-    expect(inlineBodyStyle).not.toContain("justify-content");
+  it("leaves the badge untranslated when no offset is set", async () => {
+    const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
+      mode: "badge",
+      size: "thermal-4x5",
+      copies: 1,
+      eventTitle: "TestConf",
+    });
+    expect(html).toContain('<div class="inner">');
+    expect(html).not.toContain("<div class=\"inner\" style=");
   });
 });
