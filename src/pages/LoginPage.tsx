@@ -113,6 +113,24 @@ const LoginPage = () => {
     });
     return "/dashboard";
   };
+  // Already signed in with an invite token in the URL — e.g. the invitee
+  // clicked the email-verification link (which redirects here with the
+  // token), or an existing user opened the invite while logged in. The
+  // submit handlers only redeem on a fresh sign-in, so redeem here.
+  useEffect(() => {
+    if (!inviteToken) return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (cancelled || !data.session) return;
+      const inviteNext = await consumeInviteIfAny();
+      // Full reload so OrgContext picks up the new org_members row.
+      if (!cancelled && inviteNext) window.location.assign(inviteNext);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteToken]);
+
   const { content } = useSiteContent();
   const { theme: appTheme } = useTheme();
   const { brandName, logoUrl, logoUrlDark } = content.navbar;
@@ -160,7 +178,12 @@ const LoginPage = () => {
         email,
         password,
         options: {
-          emailRedirectTo: publicOrigin(),
+          // Invitees come back to `/login?invite=<token>` after verifying so
+          // the effect below redeems the invitation; otherwise the token is
+          // lost and they land in onboarding instead of the workspace.
+          emailRedirectTo: inviteToken
+            ? `${publicOrigin()}/login?invite=${encodeURIComponent(inviteToken)}`
+            : publicOrigin(),
           data: {
             account_type: accountType,
             title: personCheck.data.title || "",

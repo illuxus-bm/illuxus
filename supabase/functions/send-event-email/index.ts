@@ -151,6 +151,7 @@ Deno.serve(async (req) => {
     // Sending one-by-one keeps deliverability predictable and lets us
     // record exactly which addresses failed.
     const failures: string[] = [];
+    let firstSmtpError: string | undefined;
     for (const to of normalizedRecipients) {
       const result = await sendViaSmtp({
         from,
@@ -163,6 +164,7 @@ Deno.serve(async (req) => {
       if (!result.ok) {
         log.error("smtp send failed", { to, error_message: result.error });
         failures.push(to);
+        firstSmtpError ??= result.error;
       }
     }
 
@@ -174,7 +176,7 @@ Deno.serve(async (req) => {
           .eq("id", email_id);
       }
       return json({
-        error: "All email sends failed. Check SMTP credentials and that the From address matches your verified sender.",
+        error: `All email sends failed (${firstSmtpError?.slice(0, 200) ?? "unknown SMTP error"}). Check SMTP credentials and that the From address matches your verified sender.`,
         failed_count: failures.length,
       }, 500);
     }
