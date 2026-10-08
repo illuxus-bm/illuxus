@@ -12,14 +12,19 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Printer, Trash2, Plus, FlaskConical,
   AlignLeft, AlignCenter, AlignRight, AlignJustify, RefreshCw,
+  Download, ChevronDown, FileText, FileImage,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   buildPrintHtml, printBadges, printCalibration, normalizePrintSize, DEFAULT_PRINT_SIZE,
-  type BadgeData, type PrintMode, type PrintSize, type PrintUnit,
+  type BadgeData, type PrintMode, type PrintOptions, type PrintSize, type PrintUnit,
 } from "@/lib/print-badges";
+import { downloadBadges, type BadgeExportFormat } from "@/lib/badge-export";
 import type { FitWarning } from "@/lib/fit-engine";
 import { loadSizes, saveSizes, badgeSizeMm, type SavedSize } from "@/lib/badge-design";
 
@@ -380,21 +385,27 @@ export default function PrintBadgesDialog({
 
   // ── Print ──────────────────────────────────────────────────────────────────
 
+  // One options object for print, preview and download, so a downloaded
+  // badge is exactly what would print.
+  const printOptions = useMemo<PrintOptions>(() => {
+    const thermalActive = thermalMode || isThermalSize;
+    return {
+      mode, size, copies, eventTitle,
+      custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
+      thermalMode,
+      showQr,
+      thermalDpi: thermalActive ? thermalDpi : undefined,
+      thermalOffset:
+        thermalActive && (thermalOffsetTop !== 0 || thermalOffsetLeft !== 0)
+          ? { topMm: thermalOffsetTop, leftMm: thermalOffsetLeft }
+          : undefined,
+      font,
+    };
+  }, [mode, size, copies, eventTitle, cw, ch, cu, thermalMode, isThermalSize, showQr, thermalDpi, thermalOffsetTop, thermalOffsetLeft, font]);
+
   const runPrint = async (rows: BadgeData[]) => {
     try {
-      const thermalActive = thermalMode || isThermalSize;
-      await printBadges(rows, {
-        mode, size, copies, eventTitle,
-        custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
-        thermalMode,
-        showQr,
-        thermalDpi: thermalActive ? thermalDpi : undefined,
-        thermalOffset:
-          thermalActive && (thermalOffsetTop !== 0 || thermalOffsetLeft !== 0)
-            ? { topMm: thermalOffsetTop, leftMm: thermalOffsetLeft }
-            : undefined,
-        font,
-      });
+      await printBadges(rows, printOptions);
     } catch (err) {
       if ((err as Error).message === "popup-blocked") {
         toast.error("Pop-up blocked", { description: "Allow pop-ups for this site to print badges." });
@@ -421,6 +432,34 @@ export default function PrintBadgesDialog({
   };
 
   const handlePrint     = async () => { await runPrint(badges); onOpenChange(false); };
+
+  const [downloading, setDownloading] = useState(false);
+  const handleDownload = async (format: BadgeExportFormat) => {
+    if (badges.length === 0 || downloading) return;
+    setDownloading(true);
+    const label = format === "pdf" ? "PDF" : "JPG";
+    const id = toast.loading(`Preparing ${label}…`, {
+      description: badges.length > 1 ? `0 of ${badges.length} badges` : undefined,
+    });
+    try {
+      await downloadBadges(badges, printOptions, format, (done, totalBadges) => {
+        if (totalBadges > 1) {
+          toast.loading(`Preparing ${label}…`, { id, description: `${done} of ${totalBadges} badges` });
+        }
+      });
+      toast.success(`${label} downloaded`, {
+        id,
+        description: format === "jpg" && badges.length > 1 ? "Saved as a ZIP of JPG files." : undefined,
+      });
+    } catch (err) {
+      toast.error(`Couldn't create the ${label}`, {
+        id,
+        description: (err as Error)?.message || "Please try again.",
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
   const handleTestPrint = async () => {
     const sample = badges[0] ?? {
       name: "Jane Doe", email: "jane@example.com", company: "Acme Inc.",
@@ -458,59 +497,67 @@ export default function PrintBadgesDialog({
   const [previewHtml, setPreviewHtml] = useState<string>("");
   const [previewLoading, setPreviewLoading] = useState(false);
 
+  // The parent rebuilds `badges` on every render (e.g. each realtime
+  // registration update). Key the preview on the sample's content instead of
+  // the array's identity, otherwise every parent render rebuilt the preview
+  // and rewrote the iframe, re-fetching the banner and fonts each time.
+  const sampleKey = JSON.stringify(badges[0] ?? null);
+  const sample = useMemo<BadgeData>(
+    () => badges[0] ?? {
+      name: "Jane Doe", email: "jane@example.com", company: "Acme Inc.",
+      ticket_type: "general", participant_type: "Attendee", qr_payload: "PREVIEW", event_title: eventTitle,
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sampleKey, eventTitle],
+  );
+
   const refreshPreview = useMemo(
     () => async () => {
       setPreviewLoading(true);
       try {
-        const sample = badges[0] ?? {
-          name: "Jane Doe", email: "jane@example.com", company: "Acme Inc.",
-          ticket_type: "general", participant_type: "Attendee", qr_payload: "PREVIEW", event_title: eventTitle,
-        };
-        const thermalActive = thermalMode || isThermalSize;
-        const { html, warnings } = await buildPrintHtml([sample], {
-          // previewFit scales the badge down so the WHOLE label is visible
-          // inside the preview pane. Without it the iframe renders the badge
-          // at its true physical size (a4-2up = 186mm ~ 703px), which is
-          // wider than the pane — the badge gets cropped and scrollbars
-          // appear, so only a mid-badge slice (usually the QR) is visible.
-          previewFit: true,
-          mode, size, copies: 1, eventTitle,
-          custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
-          thermalMode,
-          showQr,
-          thermalDpi: thermalActive ? thermalDpi : undefined,
-          thermalOffset:
-            thermalActive && (thermalOffsetTop !== 0 || thermalOffsetLeft !== 0)
-              ? { topMm: thermalOffsetTop, leftMm: thermalOffsetLeft }
-              : undefined,
-          font,
-        });
+        // previewFit scales the badge down so the WHOLE label is visible
+        // inside the preview pane instead of being cropped at physical size.
+        const { html, warnings } = await buildPrintHtml([sample], { ...printOptions, copies: 1, previewFit: true });
         setPreviewHtml(html);
         setPreviewWarnings(warnings);
       } finally {
         setPreviewLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mode, size, cw, ch, cu, thermalMode, showQr, thermalDpi, thermalOffsetTop, thermalOffsetLeft, isThermalSize, font, eventTitle, badges],
+    [sample, printOptions],
   );
 
-  // Refresh preview when key settings change (debounced 400ms)
+  // Last HTML written into the current iframe — reset when the dialog closes
+  // because the iframe is unmounted with it.
+  const writtenHtmlRef = useRef("");
   useEffect(() => {
-    const t = setTimeout(() => { void refreshPreview(); }, 400);
+    if (!open) writtenHtmlRef.current = "";
+  }, [open]);
+
+  // Warm the browser cache with the banner as soon as the dialog opens.
+  useEffect(() => {
+    if (open && sample.banner_url) new Image().src = sample.banner_url;
+  }, [open, sample.banner_url]);
+
+  // Render immediately on open; debounce later setting changes. Nothing is
+  // rendered while the dialog is closed.
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(() => { void refreshPreview(); }, writtenHtmlRef.current ? 250 : 0);
     return () => clearTimeout(t);
-  }, [refreshPreview]);
+  }, [open, refreshPreview]);
 
   // Write HTML into the iframe when it changes
   useEffect(() => {
     const iframe = iframeRef.current;
-    if (!iframe || !previewHtml) return;
+    if (!open || !iframe || !previewHtml || previewHtml === writtenHtmlRef.current) return;
     const doc = iframe.contentDocument;
     if (!doc) return;
+    writtenHtmlRef.current = previewHtml;
     doc.open();
     doc.write(previewHtml);
     doc.close();
-  }, [previewHtml]);
+  }, [open, previewHtml]);
 
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -862,6 +909,25 @@ export default function PrintBadgesDialog({
               <FlaskConical className="h-3.5 w-3.5" /> Test print
             </Button>
             <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" disabled={badges.length === 0 || downloading} className="gap-1.5">
+                  {downloading
+                    ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    : <Download className="h-3.5 w-3.5" />}
+                  Download
+                  <ChevronDown className="h-3 w-3 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onSelect={() => void handleDownload("pdf")} className="gap-2 text-[13px]">
+                  <FileText className="h-3.5 w-3.5" /> Save as PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void handleDownload("jpg")} className="gap-2 text-[13px]">
+                  <FileImage className="h-3.5 w-3.5" /> Save as JPG
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button size="sm" onClick={handlePrint} disabled={badges.length === 0} className="gap-1.5">
               <Printer className="h-3.5 w-3.5" /> Print
             </Button>

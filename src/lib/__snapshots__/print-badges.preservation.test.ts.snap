@@ -807,7 +807,7 @@ exports[`preservation baseline — calibration path > renders identically for ca
 exports[`preservation baseline — copies=3 page-break behavior > renders identically for copies=3 on a4-4up badge mode 1`] = `
 "<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print Badges</title>
-  
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" />
   <style>
     @page { size: A4 portrait; margin: 0 }
     *{box-sizing:border-box}
@@ -913,7 +913,7 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
 exports[`preservation baseline — copies=3 page-break behavior > renders identically for copies=3 on thermal-4x6 badge mode 1`] = `
 "<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print Badges</title>
-  
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" />
   <style>
     @page { size: 101.60mm 152.40mm; margin: 0 }
     *{box-sizing:border-box}
@@ -1037,7 +1037,7 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
 exports[`preservation baseline — designer element anchors > renders identically for a design with elements.name anchored at (30,42) on thermal-4x6 1`] = `
 "<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print Badges</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" />
   <style>
     @page { size: 101.60mm 152.40mm; margin: 0 }
     *{box-sizing:border-box}
@@ -1125,7 +1125,7 @@ exports[`preservation baseline — designer element anchors > renders identicall
 exports[`preservation baseline — font override applied to short name > renders identically for a full FontStyle override on a4-4up name mode 1`] = `
 "<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print Names</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap" />
   <style>
     @page { size: A4 portrait; margin: 0 }
     *{box-sizing:border-box}
@@ -1202,7 +1202,7 @@ exports[`preservation baseline — font override applied to short name > renders
 exports[`preservation baseline — font override applied to short name > renders identically for a full FontStyle override on thermal-4x6 badge mode 1`] = `
 "<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print Badges</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Merriweather:wght@400;700&display=swap" />
   <style>
     @page { size: 101.60mm 152.40mm; margin: 0 }
     *{box-sizing:border-box}
@@ -1302,7 +1302,7 @@ exports[`preservation baseline — font override applied to short name > renders
 exports[`preservation baseline — short-fit identity > renders identically for size=a4-4up mode=badge 1`] = `
 "<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print Badges</title>
-  
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" />
   <style>
     @page { size: A4 portrait; margin: 0 }
     *{box-sizing:border-box}
@@ -1461,7 +1461,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
 exports[`preservation baseline — short-fit identity > renders identically for size=a6 mode=badge 1`] = `
 "<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print Badges</title>
-  
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" />
   <style>
     @page { size: 105.00mm 148.00mm; margin: 0 }
     *{box-sizing:border-box}
@@ -1656,7 +1656,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
 exports[`preservation baseline — short-fit identity > renders identically for size=custom 4x3in mode=badge 1`] = `
 "<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print Badges</title>
-  
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" />
   <style>
     @page { size: 101.60mm 76.20mm; margin: 0 }
     *{box-sizing:border-box}
@@ -1851,7 +1851,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
 exports[`preservation baseline — short-fit identity > renders identically for size=thermal-4x5 mode=badge 1`] = `
 "<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print Badges</title>
-  
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" />
   <style>
     @page { size: 101.60mm 127.00mm; margin: 0 }
     *{box-sizing:border-box}
@@ -2046,7 +2046,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
 exports[`preservation baseline — short-fit identity > renders identically for size=thermal-4x6 mode=badge 1`] = `
 "<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print Badges</title>
-  
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" />
   <style>
     @page { size: 101.60mm 152.40mm; margin: 0 }
     *{box-sizing:border-box}

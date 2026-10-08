@@ -229,6 +229,9 @@ export async function buildPrintHtml(
   }
 
   const usedFonts = mode === "badge" && opts.design ? fontsUsedInDesign(opts.design) : [];
+  // The default badge sets the participant band (and the name, unless a
+  // font is picked) in Poppins, so it must be loaded alongside the choice.
+  if (mode === "badge" && !isDesigned) usedFonts.push("Poppins");
   if (opts.font?.family) usedFonts.push(opts.font.family);
   const fontsLink = googleFontsUrl([...new Set(usedFonts)]);
 
@@ -270,7 +273,7 @@ export async function buildPrintHtml(
 
   const html = `<!doctype html><html><head><meta charset="utf-8"/>
   <title>Print ${mode === "name" ? "Names" : "Badges"}</title>
-  ${fontsLink ? `<link rel="stylesheet" href="${fontsLink}" />` : ""}
+  ${fontsLink ? `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="${fontsLink}" />` : ""}
   <style>
     ${pageCss}
     *{box-sizing:border-box}
