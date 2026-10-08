@@ -17,14 +17,17 @@ import {
 import {
   Printer, Trash2, Plus, FlaskConical,
   AlignLeft, AlignCenter, AlignRight, AlignJustify, RefreshCw,
-  Download, ChevronDown, FileText, FileImage,
+  Download, ChevronDown, FileText, FileImage, RotateCcw, Save, X,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   buildPrintHtml, printBadges, printCalibration, normalizePrintSize, DEFAULT_PRINT_SIZE,
+  DEFAULT_BAND_COLORS, sanitizeBandColors, bandTextColor, type BandColors,
   type BadgeData, type PrintMode, type PrintOptions, type PrintSize, type PrintUnit,
 } from "@/lib/print-badges";
 import { downloadBadges, type BadgeExportFormat } from "@/lib/badge-export";
+import { loadBandPresets, saveBandPresets, sameBandColors, type BandColorPreset } from "@/lib/badge-band-presets";
 import type { FitWarning } from "@/lib/fit-engine";
 import { loadSizes, saveSizes, badgeSizeMm, type SavedSize } from "@/lib/badge-design";
 
@@ -84,6 +87,8 @@ type Prefs = {
   thermalMode: boolean;
   /** Print the attendee's check-in QR code under the company name. */
   showQr?: boolean;
+  /** Participant band colours last used (validated on load). */
+  bandColors?: BandColors;
   /** Thermal print-head DPI — see `PrintOptions.thermalDpi` in
    *  `print-badges.ts`. Persisted per browser so an organizer with a
    *  specific printer doesn't re-pick it every session. */
@@ -162,12 +167,13 @@ function FontStylePanel({
 
   return (
     <div className="space-y-3 pt-1">
-      {/* Row 1: Family + Name size + Company size */}
-      <div className="flex gap-2">
+      {/* Row 1: Family, then name / company sizes */}
+      <div className="space-y-1">
+        <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Font</Label>
         <select
           value={font.family}
           onChange={(e) => set({ family: e.target.value })}
-          className="flex-1 h-9 rounded-md border border-input bg-background text-[13px] px-2"
+          className="w-full h-9 rounded-md border border-input bg-background text-[13px] px-2"
           style={{ fontFamily: font.family }}
           aria-label="Font family"
         >
@@ -175,28 +181,29 @@ function FontStylePanel({
             <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
           ))}
         </select>
-        <div className="flex flex-col gap-0.5">
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Name size (pt)</Label>
           <select
             value={font.sizePt}
             onChange={(e) => { const v = Number(e.target.value); setSizeStr(String(v)); set({ sizePt: v }); }}
-            className="w-16 h-[18px] rounded border border-input bg-background text-[10px] px-1"
+            className="w-full h-9 rounded-md border border-input bg-background text-[13px] px-2"
             aria-label="Name font size"
-            title="Name size (pt)"
           >
             {FONT_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Company size (pt)</Label>
           <select
             value={font.companySizePt ?? 12}
             onChange={(e) => { const v = Number(e.target.value); setCoSizeStr(String(v)); set({ companySizePt: v }); }}
-            className="w-16 h-[18px] rounded border border-input bg-background text-[10px] px-1"
+            className="w-full h-9 rounded-md border border-input bg-background text-[13px] px-2"
             aria-label="Company font size"
-            title="Company size (pt)"
           >
             {FONT_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
-          <div className="flex justify-between text-[8px] text-muted-foreground px-0.5">
-            <span>Name</span><span>Co.</span>
-          </div>
         </div>
       </div>
 
@@ -295,6 +302,149 @@ function FontStylePanel({
   );
 }
 
+// ─── BandColorsPanel ──────────────────────────────────────────────────────────
+
+const BAND_ROWS: { key: keyof BandColors; label: string; hint: string }[] = [
+  { key: "attendee", label: "Attendee", hint: "Attendees and named ticket types" },
+  { key: "speaker",  label: "Speaker",  hint: "Speakers" },
+  { key: "partner",  label: "Partner",  hint: "Sponsors and partners" },
+];
+
+function BandColorsPanel({
+  colors, onChange, presets, onPresetsChange,
+}: {
+  colors: BandColors;
+  onChange: (c: BandColors) => void;
+  presets: BandColorPreset[];
+  onPresetsChange: (p: BandColorPreset[]) => void;
+}) {
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState("");
+  const [hexDraft, setHexDraft] = useState<BandColors>(colors);
+  useEffect(() => { setHexDraft(colors); }, [colors]);
+
+  const isDefault = sameBandColors(colors, DEFAULT_BAND_COLORS);
+  const savePreset = () => {
+    const trimmed = name.trim().slice(0, 40);
+    if (!trimmed) return;
+    const next = [...presets.filter((p) => p.name.toLowerCase() !== trimmed.toLowerCase()), { name: trimmed, colors }];
+    onPresetsChange(next);
+    setNaming(false);
+    setName("");
+    toast.success(`Saved preset "${trimmed}"`);
+  };
+
+  const chip = (label: string, c: BandColors, active: boolean, onApply: () => void, onDelete?: () => void) => (
+    <div
+      key={label}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border pl-1.5 pr-2 py-1 text-[12px] transition-colors",
+        active ? "border-primary bg-primary/5 text-primary" : "border-border bg-background hover:bg-muted/50",
+      )}
+    >
+      <button type="button" onClick={onApply} className="inline-flex items-center gap-1.5 font-medium">
+        <span className="flex -space-x-1">
+          {(["attendee", "speaker", "partner"] as const).map((k) => (
+            <span key={k} className="h-3.5 w-3.5 rounded-full border border-background" style={{ background: c[k] }} />
+          ))}
+        </span>
+        {label}
+      </button>
+      {onDelete && (
+        <button type="button" onClick={onDelete} className="opacity-50 hover:opacity-100" aria-label={`Delete preset ${label}`}>
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
+        {BAND_ROWS.map(({ key, label, hint }) => (
+          <div key={key} className="flex items-center gap-3">
+            <div
+              className="flex-1 min-w-0 h-9 rounded-md flex items-center justify-center text-[11px] font-bold uppercase tracking-[0.08em]"
+              style={{ background: colors[key], color: bandTextColor(colors[key]) }}
+              title={hint}
+            >
+              {label}
+            </div>
+            <input
+              type="color"
+              value={colors[key]}
+              onChange={(e) => onChange({ ...colors, [key]: e.target.value })}
+              className="h-9 w-10 shrink-0 rounded-md border border-border cursor-pointer p-0.5 bg-background"
+              aria-label={`${label} band colour`}
+            />
+            <Input
+              value={hexDraft[key]}
+              onChange={(e) => setHexDraft({ ...hexDraft, [key]: e.target.value })}
+              onBlur={() => {
+                const v = hexDraft[key].trim();
+                const hex = v.startsWith("#") ? v : `#${v}`;
+                const next = sanitizeBandColors({ ...colors, [key]: hex });
+                if (next[key] === hex.toLowerCase()) onChange(next);
+                else setHexDraft(colors);
+              }}
+              className="h-9 w-[92px] shrink-0 font-mono text-[12px] uppercase"
+              aria-label={`${label} band colour hex`}
+              maxLength={7}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Presets</div>
+        <div className="flex flex-wrap gap-1.5">
+          {chip("Default", DEFAULT_BAND_COLORS, isDefault, () => onChange(DEFAULT_BAND_COLORS))}
+          {presets.map((p, i) =>
+            chip(
+              p.name,
+              p.colors,
+              sameBandColors(colors, p.colors),
+              () => onChange(p.colors),
+              () => onPresetsChange(presets.filter((_, idx) => idx !== i)),
+            ),
+          )}
+        </div>
+        {naming ? (
+          <div className="flex gap-2">
+            <Input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); savePreset(); }
+                if (e.key === "Escape") { setNaming(false); setName(""); }
+              }}
+              placeholder="Preset name, e.g. CFO Connect"
+              className="h-9 text-[13px]"
+              maxLength={40}
+            />
+            <Button size="sm" className="h-9" onClick={savePreset} disabled={!name.trim()}>Save</Button>
+            <Button size="sm" variant="ghost" className="h-9 px-2" onClick={() => { setNaming(false); setName(""); }} aria-label="Cancel">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-[12px]" onClick={() => setNaming(true)}>
+              <Save className="h-3.5 w-3.5" /> Save as preset
+            </Button>
+            {!isDefault && (
+              <Button size="sm" variant="ghost" className="h-8 gap-1.5 text-[12px]" onClick={() => onChange(DEFAULT_BAND_COLORS)}>
+                <RotateCcw className="h-3.5 w-3.5" /> Reset
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -319,6 +469,11 @@ export default function PrintBadgesDialog({
   const [cu,          setCu         ] = useState<PrintUnit >(p.cu          ?? "in");
   const [thermalMode, setThermalMode] = useState<boolean   >(p.thermalMode ?? false);
   const [showQr,      setShowQr     ] = useState<boolean   >(p.showQr      ?? false);
+  const [bandColors,  setBandColors ] = useState<BandColors>(sanitizeBandColors(p.bandColors));
+  const [bandPresets, setBandPresets] = useState<BandColorPreset[]>(() => loadBandPresets());
+  const updateBandPresets = (next: BandColorPreset[]) => { setBandPresets(next); saveBandPresets(next); };
+  // Phones show one pane at a time; md+ shows settings and preview side by side.
+  const [mobilePane, setMobilePane] = useState<"settings" | "preview">("settings");
   const [thermalDpi,  setThermalDpi ] = useState<203 | 300 >(p.thermalDpi  ?? 203);
   const [thermalOffsetTop, setThermalOffsetTop] = useState<number>(p.thermalOffset?.topMm ?? 0);
   const [thermalOffsetLeft, setThermalOffsetLeft] = useState<number>(p.thermalOffset?.leftMm ?? 0);
@@ -355,6 +510,9 @@ export default function PrintBadgesDialog({
     setCu(pCu);
     setThermalMode(prefs.thermalMode ?? false);
     setShowQr(prefs.showQr ?? false);
+    setBandColors(sanitizeBandColors(prefs.bandColors));
+    setBandPresets(loadBandPresets());
+    setMobilePane("settings");
     setThermalDpi(prefs.thermalDpi ?? 203);
     const offTop = prefs.thermalOffset?.topMm ?? 0;
     const offLeft = prefs.thermalOffset?.leftMm ?? 0;
@@ -372,9 +530,9 @@ export default function PrintBadgesDialog({
         ? { topMm: thermalOffsetTop, leftMm: thermalOffsetLeft }
         : undefined;
     localStorage.setItem(PREF_KEY, JSON.stringify({
-      mode, size, copies, cw, ch, cu, thermalMode, showQr, thermalDpi, thermalOffset, font,
+      mode, size, copies, cw, ch, cu, thermalMode, showQr, bandColors, thermalDpi, thermalOffset, font,
     }));
-  }, [mode, size, copies, cw, ch, cu, thermalMode, showQr, thermalDpi, thermalOffsetTop, thermalOffsetLeft, font]);
+  }, [mode, size, copies, cw, ch, cu, thermalMode, showQr, bandColors, thermalDpi, thermalOffsetTop, thermalOffsetLeft, font]);
 
   const dims = useMemo(
     () => badgeSizeMm(size, { width: cw, height: ch, unit: cu }),
@@ -394,6 +552,7 @@ export default function PrintBadgesDialog({
       custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
       thermalMode,
       showQr,
+      bandColors,
       thermalDpi: thermalActive ? thermalDpi : undefined,
       thermalOffset:
         thermalActive && (thermalOffsetTop !== 0 || thermalOffsetLeft !== 0)
@@ -401,7 +560,7 @@ export default function PrintBadgesDialog({
           : undefined,
       font,
     };
-  }, [mode, size, copies, eventTitle, cw, ch, cu, thermalMode, isThermalSize, showQr, thermalDpi, thermalOffsetTop, thermalOffsetLeft, font]);
+  }, [mode, size, copies, eventTitle, cw, ch, cu, thermalMode, isThermalSize, showQr, bandColors, thermalDpi, thermalOffsetTop, thermalOffsetLeft, font]);
 
   const runPrint = async (rows: BadgeData[]) => {
     try {
@@ -563,21 +722,42 @@ export default function PrintBadgesDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-6xl w-[96vw] p-0 gap-0 max-h-[94vh] flex flex-col overflow-hidden">
+      <DialogContent className="p-0 gap-0 flex flex-col overflow-hidden w-full max-w-none h-[100dvh] max-h-[100dvh] rounded-none border-0 sm:h-auto sm:max-h-[94vh] sm:w-[96vw] sm:max-w-6xl sm:rounded-lg sm:border">
 
-        <DialogHeader className="px-5 pt-5 pb-3 border-b border-border shrink-0 space-y-0.5">
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <Printer className="h-4 w-4" /> Print settings
+        <DialogHeader className="px-4 sm:px-5 pt-4 sm:pt-5 pb-3 border-b border-border shrink-0 space-y-0.5 text-left">
+          <DialogTitle className="flex items-center gap-2 text-base pr-8">
+            <Printer className="h-4 w-4" /> Print badges
           </DialogTitle>
           <DialogDescription className="text-[12px]">
-            {badges.length} attendee{badges.length === 1 ? "" : "s"} selected
+            {badges.length} attendee{badges.length === 1 ? "" : "s"} selected · {total} label{total === 1 ? "" : "s"}
           </DialogDescription>
+          {/* Phone-only pane switcher */}
+          <div className="md:hidden grid grid-cols-2 gap-1 p-1 mt-3 bg-muted rounded-lg" role="tablist" aria-label="Print dialog view">
+            {(["settings", "preview"] as const).map((pane) => (
+              <button
+                key={pane}
+                type="button"
+                role="tab"
+                aria-selected={mobilePane === pane}
+                onClick={() => setMobilePane(pane)}
+                className={cn(
+                  "h-8 rounded-md text-[13px] font-medium transition-colors",
+                  mobilePane === pane ? "bg-card text-foreground shadow-sm" : "text-muted-foreground",
+                )}
+              >
+                {pane === "settings" ? "Settings" : "Preview"}
+              </button>
+            ))}
+          </div>
         </DialogHeader>
 
         <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
 
           {/* LEFT — settings (scrollable) */}
-          <div className="overflow-y-auto px-5 py-4 space-y-5 md:border-r border-border min-h-0">
+          <div className={cn(
+            "overflow-y-auto overscroll-contain px-4 sm:px-5 py-4 space-y-5 md:border-r border-border min-h-0",
+            mobilePane !== "settings" && "max-md:hidden",
+          )}>
 
           {/* TYPE */}
           <section>
@@ -599,16 +779,6 @@ export default function PrintBadgesDialog({
                 </label>
               ))}
             </RadioGroup>
-          </section>
-
-          {/* FONT STYLE */}
-          <section className="border border-border rounded-lg overflow-hidden">
-            <div className="px-3 py-2 bg-muted/30 border-b border-border">
-              <span className="text-[12px] font-semibold">Font Style</span>
-            </div>
-            <div className="px-3 pb-3 pt-1">
-              <FontStylePanel font={font} onChange={setFont} />
-            </div>
           </section>
 
           {/* LABEL SIZE */}
@@ -680,15 +850,23 @@ export default function PrintBadgesDialog({
 
           </section>
 
-          {/* COPIES */}
-          <section>
-            <Label htmlFor="copies" className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">Copies per attendee</Label>
-            <Input
-              id="copies" type="number" min={1} max={10} value={copies}
-              onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) setCopies(Math.max(1, Math.min(10, v))); }}
-              className="h-8 w-28 text-[13px]"
-            />
-          </section>
+          {/* PARTICIPANT BAND COLOURS — default badge layout only */}
+          {mode === "badge" && (
+            <section className="border border-border rounded-lg overflow-hidden">
+              <div className="px-3 py-2 bg-muted/30 border-b border-border">
+                <span className="text-[12px] font-semibold">Participant band colours</span>
+                <p className="text-[11px] text-muted-foreground mt-0.5">The strip at the bottom of the badge. Saved for next time.</p>
+              </div>
+              <div className="p-3">
+                <BandColorsPanel
+                  colors={bandColors}
+                  onChange={(c) => setBandColors(sanitizeBandColors(c))}
+                  presets={bandPresets}
+                  onPresetsChange={updateBandPresets}
+                />
+              </div>
+            </section>
+          )}
 
           {/* QR CODE */}
           <section>
@@ -701,6 +879,26 @@ export default function PrintBadgesDialog({
                 </div>
               </div>
             </label>
+          </section>
+
+          {/* FONT STYLE */}
+          <section className="border border-border rounded-lg overflow-hidden">
+            <div className="px-3 py-2 bg-muted/30 border-b border-border">
+              <span className="text-[12px] font-semibold">Font Style</span>
+            </div>
+            <div className="px-3 pb-3 pt-1">
+              <FontStylePanel font={font} onChange={setFont} />
+            </div>
+          </section>
+
+          {/* COPIES */}
+          <section>
+            <Label htmlFor="copies" className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">Copies per attendee</Label>
+            <Input
+              id="copies" type="number" min={1} max={10} value={copies}
+              onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) setCopies(Math.max(1, Math.min(10, v))); }}
+              className="h-8 w-28 text-[13px]"
+            />
           </section>
 
           {/* THERMAL MODE */}
@@ -842,7 +1040,10 @@ export default function PrintBadgesDialog({
           </div>
 
           {/* RIGHT — live preview (full height) */}
-          <div className="flex flex-col bg-muted/20 min-h-0 border-t md:border-t-0 border-border">
+          <div className={cn(
+            "flex flex-col bg-muted/20 min-h-0",
+            mobilePane !== "preview" && "max-md:hidden",
+          )}>
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-background/60 shrink-0">
               <div className="flex items-center gap-2">
                 <span className="text-[12px] font-semibold">Live preview</span>
@@ -886,7 +1087,7 @@ export default function PrintBadgesDialog({
                   ref={iframeRef}
                   title="Badge preview"
                   className="rounded border border-border/50 shadow-sm bg-white w-full h-full"
-                  style={{ border: "none", minHeight: "320px" }}
+                  style={{ border: "none" }}
                   sandbox="allow-same-origin"
                 />
               ) : (
@@ -900,18 +1101,18 @@ export default function PrintBadgesDialog({
 
         </div>
 
-        <DialogFooter className="px-5 py-3 border-t border-border bg-muted/30 shrink-0 sm:justify-between gap-2 flex-wrap">
-          <span className="text-[12px] text-muted-foreground self-center">
+        <DialogFooter className="px-4 sm:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-border bg-background sm:bg-muted/30 shrink-0 flex-col sm:flex-row sm:justify-between gap-2 sm:space-x-0">
+          <span className="hidden sm:block text-[12px] text-muted-foreground self-center">
             <span className="font-medium text-foreground">{total}</span>{" "}label{total === 1 ? "" : "s"} total
           </span>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={handleTestPrint} className="gap-1.5 text-[12px]">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+            <Button size="sm" variant="outline" onClick={handleTestPrint} className="h-10 sm:h-9 gap-1.5 text-[13px] sm:text-[12px] sm:border-transparent sm:bg-transparent sm:shadow-none sm:hover:bg-accent">
               <FlaskConical className="h-3.5 w-3.5" /> Test print
             </Button>
-            <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button size="sm" variant="outline" onClick={() => onOpenChange(false)} className="hidden sm:inline-flex">Cancel</Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" disabled={badges.length === 0 || downloading} className="gap-1.5">
+                <Button size="sm" variant="outline" disabled={badges.length === 0 || downloading} className="h-10 sm:h-9 gap-1.5">
                   {downloading
                     ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                     : <Download className="h-3.5 w-3.5" />}
@@ -928,8 +1129,8 @@ export default function PrintBadgesDialog({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button size="sm" onClick={handlePrint} disabled={badges.length === 0} className="gap-1.5">
-              <Printer className="h-3.5 w-3.5" /> Print
+            <Button size="sm" onClick={handlePrint} disabled={badges.length === 0} className="col-span-2 h-11 sm:h-9 gap-1.5 text-[14px] sm:text-[13px]">
+              <Printer className="h-4 w-4 sm:h-3.5 sm:w-3.5" /> Print {total > 1 ? `${total} badges` : "badge"}
             </Button>
           </div>
         </DialogFooter>

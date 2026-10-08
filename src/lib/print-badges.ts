@@ -63,6 +63,8 @@ export type PrintOptions = {
   thermalMode?: boolean;
   /** Add the attendee's check-in QR code under the company name. */
   showQr?: boolean;
+  /** Background colours of the participant band. Defaults to DEFAULT_BAND_COLORS. */
+  bandColors?: BandColors;
   /**
    * Thermal print head resolution in dots-per-inch. Common values are
    * 203 (8 dots/mm — most affordable 4×6 label printers including the
@@ -213,7 +215,7 @@ export async function buildPrintHtml(
     expanded.map(async (b) => {
       if (isDesigned) return await renderDesigned(b, opts.design!, dims, fullBleed, thermalDpi, warnings);
       if (mode === "name") return renderName(b, dims, eventTitle, opts.nameDesign, opts.font, warnings);
-      return await renderDefaultBadge(b, dims, eventTitle, opts.font, thermalDpi, thermalOffset, !!opts.showQr, warnings);
+      return await renderDefaultBadge(b, dims, eventTitle, opts.font, thermalDpi, thermalOffset, !!opts.showQr, opts.bandColors, warnings);
     })
   );
 
@@ -263,9 +265,13 @@ export async function buildPrintHtml(
     ? "@media screen {" +
       "html,body{width:100vw;height:100vh;overflow:hidden}" +
       "body{display:flex;align-items:center;justify-content:center}" +
+      // Grey backdrop + shadow so a white badge's edges are visible.
+      "html,body{background:#eef1f5}" +
+      ".card{box-shadow:0 1px 2px rgba(15,23,42,.08),0 8px 24px rgba(15,23,42,.12)}" +
       ".sheet{" +
       "display:block;grid-template-columns:none;gap:0;padding:0;" +
-      `transform:scale(min(calc(100vw / ${cardPxW}px), calc(100vh / ${cardPxH}px), 1));` +
+      // 0.92 leaves a margin around the badge so its shadow and edges show.
+      `transform:scale(calc(0.92 * min(calc(100vw / ${cardPxW}px), calc(100vh / ${cardPxH}px), 1)));` +
       "transform-origin:center center;" +
       "}" +
       "}"
@@ -894,15 +900,42 @@ function renderName(b: BadgeData, dims: { w: number; h: number }, eventTitle: st
   `;
 }
 
-/** Colour of the participant band per type; anything else uses the attendee teal. */
-const PARTICIPANT_COLORS: Record<string, string> = {
+/** Participant band background per group. Named attendee ticket types
+ *  (e.g. "VIP", "Delegate") use the attendee colour. */
+export type BandColors = { attendee: string; speaker: string; partner: string };
+
+export const DEFAULT_BAND_COLORS: BandColors = {
+  attendee: "#00a5b1",
   speaker: "#6d28d9",
   partner: "#b45309",
-  sponsor: "#b45309",
-  organizer: "#1f2937",
-  staff: "#1f2937",
 };
-const DEFAULT_PARTICIPANT_COLOR = "#00a5b1";
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+/** Accept only `#rrggbb` — the value lands in an inline style, and it can
+ *  come from browser storage. Anything else falls back to the default. */
+export function sanitizeBandColors(c: Partial<BandColors> | null | undefined): BandColors {
+  const pick = (k: keyof BandColors) => (c && HEX_COLOR.test(c[k] ?? "") ? c[k]!.toLowerCase() : DEFAULT_BAND_COLORS[k]);
+  return { attendee: pick("attendee"), speaker: pick("speaker"), partner: pick("partner") };
+}
+
+function bandColorFor(ptype: string, colors: BandColors): string {
+  const k = ptype.toLowerCase();
+  if (k === "speaker") return colors.speaker;
+  if (k === "partner" || k === "sponsor") return colors.partner;
+  if (k === "organizer" || k === "staff") return "#1f2937";
+  return colors.attendee;
+}
+
+/** White text on dark bands, near-black on light ones (WCAG relative luminance). */
+export function bandTextColor(hex: string): string {
+  const ch = (i: number) => {
+    const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = 0.2126 * ch(1) + 0.7152 * ch(3) + 0.0722 * ch(5);
+  return lum > 0.45 ? "#111111" : "#ffffff";
+}
 
 /** Ticket types that just mean "a regular registration" and so print as "Attendee". */
 const GENERIC_TICKET_TYPES = new Set(["", "general", "free", "paid", "standard", "regular", "attendee", "ticket"]);
@@ -930,6 +963,7 @@ async function renderDefaultBadge(
   thermalDpi?: number,
   thermalOffset?: { topMm: number; leftMm: number },
   showQr = false,
+  bandColors?: BandColors,
   warnings?: FitWarning[],
 ): Promise<string> {
   const clamp = (lo: number, v: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -1009,7 +1043,7 @@ async function renderDefaultBadge(
 
   // ── Participant band ───────────────────────────────────────────────────
   const ptype = (b.participant_type || "").trim() || "Attendee";
-  const bandColor = PARTICIPANT_COLORS[ptype.toLowerCase()] ?? DEFAULT_PARTICIPANT_COLOR;
+  const bandColor = bandColorFor(ptype, sanitizeBandColors(bandColors));
   const bandFit = fitTextRole({
     role: "ticket",
     text: ptype.toUpperCase(),
@@ -1040,7 +1074,7 @@ async function renderDefaultBadge(
           ${company ? `<div class="company" style="font-size:${companyFit!.sizePt.toFixed(2)}pt;margin-top:${(gapMm * 0.6).toFixed(2)}mm;${textStyle};${wordSpacing}${scale}">${companyHtml}</div>` : ""}
           ${qrEl}
         </div>
-        <div class="ptype" style="height:${bandMm.toFixed(2)}mm;background:${bandColor};font-size:${bandFit.sizePt.toFixed(2)}pt;padding:0 ${padXmm}mm">${bandFit.lines.map((l) => escapeHtml(l.text)).join(" ")}</div>
+        <div class="ptype" style="height:${bandMm.toFixed(2)}mm;background:${bandColor};color:${bandTextColor(bandColor)};font-size:${bandFit.sizePt.toFixed(2)}pt;padding:0 ${padXmm}mm">${bandFit.lines.map((l) => escapeHtml(l.text)).join(" ")}</div>
       </div>
     </div>
   `;

@@ -23,7 +23,14 @@ vi.mock("qrcode", () => ({
   },
 }));
 
-import { buildPrintHtml, participantLabel, type BadgeData } from "./print-badges";
+import {
+  buildPrintHtml,
+  bandTextColor,
+  DEFAULT_BAND_COLORS,
+  participantLabel,
+  sanitizeBandColors,
+  type BadgeData,
+} from "./print-badges";
 import {
   __resetContextForTesting,
   __setContextForTesting,
@@ -306,5 +313,35 @@ describe("thermal offset — shifts the whole badge", () => {
     });
     expect(html).toContain('<div class="inner">');
     expect(html).not.toContain("<div class=\"inner\" style=");
+  });
+});
+
+describe("participant band colours", () => {
+  it("uses the configured colour per participant group", async () => {
+    const bandColors = { attendee: "#112233", speaker: "#445566", partner: "#778899" };
+    const render = async (participant_type: string) =>
+      (await buildPrintHtml([{ ...LONG_NAME_BADGE, participant_type }], { mode: "badge", size: "thermal-4x5", copies: 1, bandColors })).html;
+    expect(await render("Speaker")).toContain("background:#445566");
+    expect(await render("Partner")).toContain("background:#778899");
+    expect(await render("Attendee")).toContain("background:#112233");
+    // Named ticket types follow the attendee colour.
+    expect(await render("Delegate")).toContain("background:#112233");
+  });
+
+  it("switches the band text to dark on light colours", async () => {
+    const { html } = await buildPrintHtml([LONG_NAME_BADGE], {
+      mode: "badge", size: "thermal-4x5", copies: 1,
+      bandColors: { ...DEFAULT_BAND_COLORS, attendee: "#ffd60a" },
+    });
+    expect(html).toContain("background:#ffd60a;color:#111111");
+    expect(bandTextColor("#00a5b1")).toBe("#ffffff");
+  });
+
+  it("ignores anything that is not a #rrggbb colour", () => {
+    expect(sanitizeBandColors({ attendee: "red;background:url(x)", speaker: "#ABCDEF" })).toEqual({
+      ...DEFAULT_BAND_COLORS,
+      speaker: "#abcdef",
+    });
+    expect(sanitizeBandColors(null)).toEqual(DEFAULT_BAND_COLORS);
   });
 });

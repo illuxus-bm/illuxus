@@ -880,7 +880,7 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
           <div class="company" style="font-size:15.75pt;margin-top:1.78mm;font-family:'Poppins',Poppins,system-ui,sans-serif;font-style:normal;text-align:center;">Acme Inc.</div>
           
         </div>
-        <div class="ptype" style="height:19.30mm;background:#00a5b1;font-size:27.36pt;padding:0 6.3mm">ATTENDEE</div>
+        <div class="ptype" style="height:19.30mm;background:#00a5b1;color:#ffffff;font-size:27.36pt;padding:0 6.3mm">ATTENDEE</div>
       </div>
     </div>
   
@@ -892,7 +892,7 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
           <div class="company" style="font-size:15.75pt;margin-top:1.78mm;font-family:'Poppins',Poppins,system-ui,sans-serif;font-style:normal;text-align:center;">Acme Inc.</div>
           
         </div>
-        <div class="ptype" style="height:19.30mm;background:#00a5b1;font-size:27.36pt;padding:0 6.3mm">ATTENDEE</div>
+        <div class="ptype" style="height:19.30mm;background:#00a5b1;color:#ffffff;font-size:27.36pt;padding:0 6.3mm">ATTENDEE</div>
       </div>
     </div>
   
@@ -904,7 +904,7 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
           <div class="company" style="font-size:15.75pt;margin-top:1.78mm;font-family:'Poppins',Poppins,system-ui,sans-serif;font-style:normal;text-align:center;">Acme Inc.</div>
           
         </div>
-        <div class="ptype" style="height:19.30mm;background:#00a5b1;font-size:27.36pt;padding:0 6.3mm">ATTENDEE</div>
+        <div class="ptype" style="height:19.30mm;background:#00a5b1;color:#ffffff;font-size:27.36pt;padding:0 6.3mm">ATTENDEE</div>
       </div>
     </div>
   </div></body></html>"
@@ -1004,7 +1004,7 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
           <div class="company" style="font-size:15.24pt;margin-top:1.83mm;font-family:'Poppins',Poppins,system-ui,sans-serif;font-style:normal;text-align:center;">Acme Inc.</div>
           
         </div>
-        <div class="ptype" style="height:19.81mm;background:#00a5b1;font-size:28.08pt;padding:0 6.095999999999999mm">ATTENDEE</div>
+        <div class="ptype" style="height:19.81mm;background:#00a5b1;color:#ffffff;font-size:28.08pt;padding:0 6.095999999999999mm">ATTENDEE</div>
       </div>
     </div>
   
@@ -1016,7 +1016,7 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
           <div class="company" style="font-size:15.24pt;margin-top:1.83mm;font-family:'Poppins',Poppins,system-ui,sans-serif;font-style:normal;text-align:center;">Acme Inc.</div>
           
         </div>
-        <div class="ptype" style="height:19.81mm;background:#00a5b1;font-size:28.08pt;padding:0 6.095999999999999mm">ATTENDEE</div>
+        <div class="ptype" style="height:19.81mm;background:#00a5b1;color:#ffffff;font-size:28.08pt;padding:0 6.095999999999999mm">ATTENDEE</div>
       </div>
     </div>
   
@@ -1028,7 +1028,7 @@ exports[`preservation baseline — copies=3 page-break behavior > renders identi
           <div class="company" style="font-size:15.24pt;margin-top:1.83mm;font-family:'Poppins',Poppins,system-ui,sans-serif;font-style:normal;text-align:center;">Acme Inc.</div>
           
         </div>
-        <div class="ptype" style="height:19.81mm;background:#00a5b1;font-size:28.08pt;padding:0 6.095999999999999mm">ATTENDEE</div>
+        <div class="ptype" style="height:19.81mm;background:#00a5b1;color:#ffffff;font-size:28.08pt;padding:0 6.095999999999999mm">ATTENDEE</div>
       </div>
     </div>
   </div></body></html>"
@@ -1293,7 +1293,7 @@ exports[`preservation baseline — font override applied to short name > renders
           <div class="company" style="font-size:17.78pt;margin-top:1.83mm;font-family:'Merriweather',Poppins,system-ui,sans-serif;font-style:italic;text-decoration:underline;text-align:left;word-spacing:2pt;transform:scaleX(0.9);transform-origin:left;">Acme Inc.</div>
           
         </div>
-        <div class="ptype" style="height:19.81mm;background:#00a5b1;font-size:28.08pt;padding:0 6.095999999999999mm">ATTENDEE</div>
+        <div class="ptype" style="height:19.81mm;background:#00a5b1;color:#ffffff;font-size:28.08pt;padding:0 6.095999999999999mm">ATTENDEE</div>
       </div>
     </div>
   </div></body></html>"
@@ -1375,7 +1375,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
           <div class="company" style="font-size:15.75pt;margin-top:1.78mm;font-family:'Poppins',Poppins,system-ui,sans-serif;font-style:normal;text-align:center;">Acme Inc.</div>
           
         </div>
-        <div class="ptype" style="height:19.30mm;background:#00a5b1;font-size:27.36pt;padding:0 6.3mm">ATTENDEE</div>
+        <div class="ptype" style="height:19.30mm;background:#00a5b1;color:#ffffff;font-size:27.36pt;padding:0 6.3mm">ATTENDEE</div>
       </div>
     </div>
   </div></body></html>"
@@ -1552,7 +1552,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
           <div class="company" style="font-size:15.75pt;margin-top:1.78mm;font-family:'Poppins',Poppins,system-ui,sans-serif;font-style:normal;text-align:center;">Acme Inc.</div>
           
         </div>
-        <div class="ptype" style="height:19.24mm;background:#00a5b1;font-size:27.27pt;padding:0 6.3mm">ATTENDEE</div>
+        <div class="ptype" style="height:19.24mm;background:#00a5b1;color:#ffffff;font-size:27.27pt;padding:0 6.3mm">ATTENDEE</div>
       </div>
     </div>
   </div></body></html>"
@@ -1747,7 +1747,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
           <div class="company" style="font-size:15.24pt;margin-top:0.91mm;font-family:'Poppins',Poppins,system-ui,sans-serif;font-style:normal;text-align:center;">Acme Inc.</div>
           
         </div>
-        <div class="ptype" style="height:10.00mm;background:#00a5b1;font-size:14.17pt;padding:0 6.095999999999999mm">ATTENDEE</div>
+        <div class="ptype" style="height:10.00mm;background:#00a5b1;color:#ffffff;font-size:14.17pt;padding:0 6.095999999999999mm">ATTENDEE</div>
       </div>
     </div>
   </div></body></html>"
@@ -1942,7 +1942,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
           <div class="company" style="font-size:15.24pt;margin-top:1.52mm;font-family:'Poppins',Poppins,system-ui,sans-serif;font-style:normal;text-align:center;">Acme Inc.</div>
           
         </div>
-        <div class="ptype" style="height:16.51mm;background:#00a5b1;font-size:23.40pt;padding:0 6.095999999999999mm">ATTENDEE</div>
+        <div class="ptype" style="height:16.51mm;background:#00a5b1;color:#ffffff;font-size:23.40pt;padding:0 6.095999999999999mm">ATTENDEE</div>
       </div>
     </div>
   </div></body></html>"
@@ -2137,7 +2137,7 @@ exports[`preservation baseline — short-fit identity > renders identically for 
           <div class="company" style="font-size:15.24pt;margin-top:1.83mm;font-family:'Poppins',Poppins,system-ui,sans-serif;font-style:normal;text-align:center;">Acme Inc.</div>
           
         </div>
-        <div class="ptype" style="height:19.81mm;background:#00a5b1;font-size:28.08pt;padding:0 6.095999999999999mm">ATTENDEE</div>
+        <div class="ptype" style="height:19.81mm;background:#00a5b1;color:#ffffff;font-size:28.08pt;padding:0 6.095999999999999mm">ATTENDEE</div>
       </div>
     </div>
   </div></body></html>"
