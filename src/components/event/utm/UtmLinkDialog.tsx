@@ -7,6 +7,11 @@
  * of an existing link creates a new link — clicks and registrations already
  * recorded stay attributed to the original combination.
  *
+ * Saving is a convenience, not a requirement: tracking is carried by the URL
+ * itself, so if the link can't be stored (e.g. the database update that
+ * grants access to `utm_links` hasn't been run) it is still copied and still
+ * tracks clicks and registrations — the organiser is told it wasn't saved.
+ *
  * The link can be shared with a partner (agency) in the same step: enter
  * their email and they get a dashboard limited to this link's participants.
  *
@@ -102,13 +107,14 @@ export function UtmLinkDialog({
         label: v.label?.trim() || null,
         url,
       } as never, { onConflict: "event_id,utm_source,utm_medium,utm_campaign" });
-    if (error) {
-      setSaving(false);
-      toast.error("Couldn't save the link", { description: error.message });
-      return;
-    }
+    const saved = !error;
     // Share only once the link exists — the database checks the link belongs to the event.
-    if (sharing) {
+    if (sharing && !saved) {
+      toast.error("Not shared with the partner", {
+        description: "A link has to be saved to your list before it can be shared. Once the database update below is done, save it again with the partner's email.",
+        duration: 12_000,
+      });
+    } else if (sharing) {
       const shared = await shareAndInvite(
         eventId,
         { utm_source: v.utm_source.trim(), utm_medium: v.utm_medium.trim(), utm_campaign: v.utm_campaign.trim() },
@@ -117,14 +123,31 @@ export function UtmLinkDialog({
       if (shared) setPartnerEmail("");
     }
     setSaving(false);
-    onSaved?.();
+    if (saved) onSaved?.();
+
+    let copiedNow = false;
     try {
       await navigator.clipboard.writeText(url);
+      copiedNow = true;
       setCopied(true);
-      toast.success(editing ? "Link updated and copied" : "Link saved and copied");
-    } catch {
-      toast.success(editing ? "Link updated" : "Link saved", { description: "Copy it from the field below." });
+    } catch { /* the link stays selectable in the field below */ }
+
+    if (saved) {
+      if (copiedNow) toast.success(editing ? "Link updated and copied" : "Link saved and copied");
+      else toast.success(editing ? "Link updated" : "Link saved", { description: "Copy it from the field below." });
+      return;
     }
+    // Not stored, but the link itself is complete and tracks as normal.
+    const denied = error?.code === "42501" || /permission denied/i.test(error?.message ?? "");
+    toast.warning(copiedNow ? "Link copied — it works, but wasn't added to your saved list" : "Your link works, but wasn't added to your saved list", {
+      description:
+        (copiedNow ? "" : "Copy it from the field below. ") +
+        "Clicks and registrations from it are tracked as usual and will show in the breakdown. " +
+        (denied
+          ? "To keep links under “Saved UTM links”, run supabase/RUN_ME_pending_updates.sql once in the Supabase SQL Editor."
+          : `Reason: ${error?.message ?? "unknown error"}`),
+      duration: 15_000,
+    });
   };
 
   return (
@@ -185,6 +208,18 @@ export function UtmLinkDialog({
             <div className="flex items-start gap-2 min-w-0">
               {/* Wraps on phones so the whole link is readable; truncates on larger screens. */}
               <code className="flex-1 min-w-0 text-[12px] sm:text-[11px] font-mono bg-muted rounded-md px-3 py-2 border border-border break-all sm:break-normal sm:truncate">{url}</code>
+              <Button
+                size="icon" variant="ghost" className="h-10 w-10 sm:h-9 sm:w-9 shrink-0" title="Copy link" aria-label="Copy link"
+                disabled={!valid}
+                onClick={() => {
+                  navigator.clipboard.writeText(url).then(
+                    () => toast.success("Link copied"),
+                    () => toast.error("Couldn't copy", { description: "Select the link and copy it manually." }),
+                  );
+                }}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
               <Button size="icon" variant="ghost" className="h-10 w-10 sm:h-9 sm:w-9 shrink-0" asChild title="Open link">
                 <a href={url} target="_blank" rel="noopener noreferrer" aria-label="Open link"><ExternalLink className="h-4 w-4" /></a>
               </Button>

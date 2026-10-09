@@ -511,7 +511,7 @@ export default function UtmAnalyticsPage({
     staleTime: 60_000,
   });
 
-  const { data: savedLinks = [], refetch: refetchLinks } = useQuery<UtmLink[]>({
+  const { data: savedLinks = [], refetch: refetchLinks, error: linksError } = useQuery<UtmLink[]>({
     queryKey: ["utm-links", eventId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -523,7 +523,16 @@ export default function UtmAnalyticsPage({
       return (data as UtmLink[]) ?? [];
     },
     staleTime: 30_000,
+    retry: false,
   });
+  // The database refuses direct access to the UTM tables until its pending
+  // update (table grants) is run: links can't be stored and clicks can't be
+  // read per date range. Links themselves keep working.
+  const isDenied = (e: unknown) => {
+    const err = e as { code?: string; message?: string } | null;
+    return !!err && (err.code === "42501" || /permission denied/i.test(err.message ?? ""));
+  };
+  const storageDenied = isDenied(linksError) || isDenied(clicksQuery.error);
 
   const handleLinkSaved = () => {
     void refetchLinks();
@@ -885,6 +894,18 @@ export default function UtmAnalyticsPage({
           </DropdownMenu>
         </div>
       </div>
+
+      {storageDenied && (
+        <div role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[13px] text-amber-800 dark:text-amber-300 space-y-1">
+          <p className="font-medium">Your tracked links work, but this page can't store them yet</p>
+          <p className="text-[12px]">
+            You can still create and copy links, and their clicks and registrations are counted below. Until the
+            database update is run, links won't appear under “Saved UTM links”, can't be shared with partners, and
+            click counts for a date range show as 0. To fix it, run <span className="font-mono">supabase/RUN_ME_pending_updates.sql</span> once
+            in the Supabase SQL Editor.
+          </p>
+        </div>
+      )}
 
       {/* ── Filters bar ── */}
       <div className="border border-border rounded-xl bg-card p-4 space-y-4">
