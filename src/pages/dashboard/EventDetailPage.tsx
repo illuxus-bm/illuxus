@@ -91,7 +91,7 @@ function EventSidebar({ active, onSelect, eventTitle, eventFormat, canAccessCrea
 
   return (
     <Sidebar collapsible="icon" className="border-r border-border bg-card">
-      <SidebarContent className="pt-1" style={{ paddingTop: '78px' }}>
+      <SidebarContent className="pt-3">
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>

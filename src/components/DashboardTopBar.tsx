@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/popover";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSiteContent } from "@/hooks/useSiteContent";
-import { useTheme } from "@/contexts/ThemeContext";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -201,14 +200,7 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
   // other route it stays in the organiser-dashboard mode.
   const isAdminRoute = pathname.startsWith("/dashboard/admin");
   const { content } = useSiteContent();
-  const { brandName, logoUrl, logoUrlDark, logoHeight, logoPaddingTop, logoPaddingBottom } = content.navbar;
-  const { theme: appTheme } = useTheme();
-  const activeLogoUrl = appTheme === "dark" ? (logoUrlDark || logoUrl) : logoUrl;
-  const resolvedLogoHeight = Math.max(16, Math.min(64, logoHeight ?? 28));
-  const dashLogoHeight = Math.min(resolvedLogoHeight, 36);
-  const dashPadTop = Math.max(0, Math.min(16, Math.round((logoPaddingTop ?? 0) / 2)));
-  const dashPadBottom = Math.max(0, Math.min(16, Math.round((logoPaddingBottom ?? 0) / 2)));
-  const headerHeight = Math.max(48, dashLogoHeight + dashPadTop + dashPadBottom + 16);
+  const { brandName } = content.navbar;
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -317,11 +309,11 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
     <>
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
-      <header
-        className="app-chrome flex items-center justify-between border-b border-border bg-card sticky top-0 z-50 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]"
-        style={{ minHeight: `${headerHeight}px` }}
-      >
-        <div className="flex items-center gap-2">
+      {/* Same bar as SiteHeader: 56px + status-bar inset (--app-header-h),
+          px-4 / sm:px-6, 22px wordmark, always pinned to the top. */}
+      <header className="app-chrome sticky top-0 z-50 border-b border-border bg-card pt-[env(safe-area-inset-top)]">
+        <div className="h-14 px-4 sm:px-6 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
           {showSidebarTrigger && (
             <SidebarTrigger className="h-8 w-8" aria-label="Toggle sidebar">
               <Menu className="h-4 w-4" />
@@ -332,7 +324,7 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
             className="flex items-center gap-2 mr-2 shrink-0"
             aria-label={`${brandName} home`}
           >
-            <IlluxusWordmark height={20} ariaLabel="" className="shrink-0" />
+            <IlluxusWordmark height={22} ariaLabel="" className="shrink-0" />
           </a>
           {/* Context badge — only shows on admin routes so the visitor can
               never confuse the Super Admin control tower with the regular
@@ -480,6 +472,7 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+        </div>
         </div>
       </header>
     </>

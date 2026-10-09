@@ -123,10 +123,10 @@ export default function SiteHeader({
     ? "border-b"
     : landingMode
       ? "border-b border-gray-200 dark:border-white/[0.08] bg-white/80 dark:bg-white/[0.06] backdrop-blur-xl supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-white/[0.04]"
-      : "border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60";
+      : "border-b border-border bg-card";
 
   return (
-    <header className={`app-chrome sticky top-0 z-40 ${surfaceClass} ${className}`} style={{ ...styleVars, paddingTop: "env(safe-area-inset-top)" }}>
+    <header className={`app-chrome sticky top-0 z-50 ${surfaceClass} ${className}`} style={{ ...styleVars, paddingTop: "env(safe-area-inset-top)" }}>
       <SiteContainer className="h-14 flex items-center justify-between gap-4">
         {/* Brand area — wordmark only. Always navigates to the canonical
             illuxus deployment, regardless of which segment we're in. */}
