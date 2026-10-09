@@ -1,21 +1,26 @@
 /**
- * Registrations behind one row of the UTM breakdown, with attendance status
- * and a CSV export.
+ * Registrations behind one row of the UTM breakdown: full lead details,
+ * attendance status, search and CSV export.
  *
- * Matching mirrors the `event_utm_summary` RPC exactly so the list always
- * agrees with the number that was clicked: missing values count as
- * "(direct)" / "(none)", and cancelled registrations are excluded.
+ * The page passes in the already-matched leads (it owns the data and the
+ * matching rule), so this list always agrees with the count that was clicked
+ * and with the active date range.
+ *
+ * Phones get a full-screen sheet with one card per lead and a pinned Export
+ * button; larger screens get a table.
  */
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Download, Users } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useMemo, useState } from "react";
+import { Download, Mail, Phone, Search, Users } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { buildCsvDocument } from "@/lib/utm/csv-escape";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import {
+  attendanceOf, formatMobile, hasAttended, leadDisplayName, type AttendanceLabel, type UtmLead,
+} from "@/lib/utm/utm-data";
+import { exportLeadsCsv, leadsFilename } from "@/lib/utm/utm-export";
 
 export interface UtmBreakdownKey {
   utm_source: string;
@@ -23,165 +28,160 @@ export interface UtmBreakdownKey {
   utm_campaign: string;
 }
 
-interface RegistrationRow {
-  id: string;
-  name: string | null;
-  email: string | null;
-  company: string | null;
-  designation: string | null;
-  ticket_type: string | null;
-  status: string | null;
-  approval_status: string | null;
-  checked_in: boolean | null;
-  checked_in_at: string | null;
-  attendance_state: string | null;
-  last_out_at: string | null;
-  utm_source: string | null;
-  utm_medium: string | null;
-  utm_campaign: string | null;
-  utm_content: string | null;
-  utm_term: string | null;
-  created_at: string;
-}
-
-type Attendance = { label: "Checked in" | "Left" | "Not checked in"; tone: string };
-
-function attendanceOf(r: RegistrationRow): Attendance {
-  const state = r.attendance_state ?? (r.checked_in ? "inside" : "never");
-  if (state === "inside") return { label: "Checked in", tone: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20" };
-  if (state === "outside") return { label: "Left", tone: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20" };
-  return { label: "Not checked in", tone: "bg-muted text-muted-foreground border-border" };
-}
-
-/** Spreadsheet apps execute cells starting with = + - @ as formulas; names
- *  and companies are typed by the public, so neutralise them on export. */
-function safeCell(v: unknown): unknown {
-  return typeof v === "string" && /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
-}
+const ATTENDANCE_TONE: Record<AttendanceLabel, string> = {
+  "Checked in": "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20",
+  "Left": "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
+  "Not checked in": "bg-muted text-muted-foreground border-border",
+};
 
 const fmt = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
 
+function AttendanceBadge({ lead }: { lead: UtmLead }) {
+  const label = attendanceOf(lead);
+  return (
+    <span className={cn("inline-flex shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full border whitespace-nowrap", ATTENDANCE_TONE[label])}>
+      {label}
+    </span>
+  );
+}
+
 export function UtmRegistrationsDialog({
-  eventId,
   row,
+  leads,
+  loading = false,
+  error = false,
+  rangeLabel,
   onOpenChange,
 }: {
-  eventId: string;
-  /** The breakdown row whose registrations to show; null closes the dialog. */
+  /** The breakdown row being shown; null closes the dialog. */
   row: UtmBreakdownKey | null;
+  /** Leads attributed to `row` (already filtered by the page). */
+  leads: UtmLead[];
+  loading?: boolean;
+  error?: boolean;
+  /** e.g. "Last 30 days" when a date range is active. */
+  rangeLabel?: string | null;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { data: all = [], isLoading, error } = useQuery<RegistrationRow[]>({
-    queryKey: ["utm-registrations", eventId],
-    enabled: row !== null,
-    staleTime: 30_000,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("registrations")
-        .select("id, name, email, company, designation, ticket_type, status, approval_status, checked_in, checked_in_at, attendance_state, last_out_at, utm_source, utm_medium, utm_campaign, utm_content, utm_term, created_at")
-        .eq("event_id", eventId)
-        .neq("status", "cancelled")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data as unknown as RegistrationRow[]) ?? [];
-    },
-  });
+  const [search, setSearch] = useState("");
+  useEffect(() => { if (row) setSearch(""); }, [row]);
 
-  const regs = useMemo(() => {
-    if (!row) return [];
-    return all.filter((r) =>
-      (r.utm_source ?? "(direct)") === row.utm_source &&
-      (r.utm_medium ?? "(none)") === row.utm_medium &&
-      (r.utm_campaign ?? "(none)") === row.utm_campaign,
+  const shown = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return leads;
+    return leads.filter((l) =>
+      [leadDisplayName(l), l.email, l.company, l.designation, l.mobile_number]
+        .some((v) => (v ?? "").toLowerCase().includes(q)),
     );
-  }, [all, row]);
+  }, [leads, search]);
 
-  const checkedIn = regs.filter((r) => attendanceOf(r).label !== "Not checked in").length;
-
+  const attended = leads.filter(hasAttended).length;
   const exportCsv = () => {
     if (!row) return;
-    const headers = [
-      "Name", "Email", "Company", "Designation", "Ticket type", "Approval", "Attendance",
-      "Checked in at", "Registered at", "UTM source", "UTM medium", "UTM campaign", "UTM content", "UTM term",
-    ];
-    const lines = regs.map((r) => [
-      r.name, r.email, r.company, r.designation, r.ticket_type, r.approval_status ?? "approved",
-      attendanceOf(r).label, fmt(r.checked_in_at), fmt(r.created_at),
-      row.utm_source, row.utm_medium, row.utm_campaign, r.utm_content, r.utm_term,
-    ].map(safeCell));
-    const csv = buildCsvDocument(headers, lines);
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const slug = [row.utm_source, row.utm_medium, row.utm_campaign]
-      .join("-").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase().slice(0, 80);
-    a.href = url;
-    a.download = `registrations-${slug || "utm"}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportLeadsCsv(shown, leadsFilename([row.utm_source, row.utm_medium, row.utm_campaign].join("-")));
   };
+
+  const exportButton = (className?: string) => (
+    <Button variant="outline" className={cn("gap-1.5", className)} onClick={exportCsv} disabled={shown.length === 0}>
+      <Download className="h-4 w-4" /> Export {shown.length > 0 ? `${shown.length} ` : ""}lead{shown.length === 1 ? "" : "s"}
+    </Button>
+  );
 
   return (
     <Dialog open={row !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl w-[96vw] p-0 gap-0 max-h-[88vh] flex flex-col overflow-hidden">
-        <DialogHeader className="px-5 pt-5 pb-4 border-b border-border space-y-1.5 text-left">
+      <DialogContent className="p-0 gap-0 flex flex-col overflow-hidden w-full max-w-none h-[100dvh] max-h-[100dvh] rounded-none border-0 sm:h-auto sm:max-h-[88vh] sm:w-[96vw] sm:max-w-5xl sm:rounded-lg sm:border">
+        <DialogHeader className="px-4 sm:px-5 pt-4 sm:pt-5 pb-3 border-b border-border space-y-2 text-left shrink-0">
           <DialogTitle className="flex items-center gap-2 text-base pr-8">
-            <Users className="h-4 w-4" /> Registrations from this link
+            <Users className="h-4 w-4 shrink-0" /> Registrations from this link
           </DialogTitle>
           <DialogDescription asChild>
-            <div className="flex flex-wrap gap-1.5 pt-0.5">
+            <div className="flex flex-wrap gap-1.5">
               {row && ([["source", row.utm_source], ["medium", row.utm_medium], ["campaign", row.utm_campaign]] as const).map(([k, v]) => (
                 <span key={k} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-muted border border-border font-mono max-w-full">
                   <span className="text-muted-foreground">{k}:</span><span className="truncate">{v}</span>
                 </span>
               ))}
+              {rangeLabel && (
+                <span className="inline-flex items-center text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400">
+                  {rangeLabel}
+                </span>
+              )}
             </div>
           </DialogDescription>
-          <div className="flex items-center justify-between gap-3 pt-2">
-            <p className="text-[12px] text-muted-foreground">
-              <span className="font-semibold text-foreground">{regs.length}</span> registration{regs.length === 1 ? "" : "s"}
-              {" · "}
-              <span className="font-semibold text-foreground">{checkedIn}</span> checked in
-            </p>
-            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-[12px]" onClick={exportCsv} disabled={regs.length === 0}>
-              <Download className="h-3.5 w-3.5" /> Export CSV
-            </Button>
+          <div className="flex items-center gap-2 pt-1">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name, email, company…"
+                className="h-10 sm:h-9 pl-8 text-base sm:text-[13px]"
+                aria-label="Search registrations"
+              />
+            </div>
+            {exportButton("hidden sm:inline-flex h-9 text-[13px] shrink-0")}
           </div>
+          <p className="text-[12px] text-muted-foreground">
+            <span className="font-semibold text-foreground">{leads.length}</span> registration{leads.length === 1 ? "" : "s"}
+            {" · "}
+            <span className="font-semibold text-foreground">{attended}</span> checked in
+            {search.trim() && <> · showing <span className="font-semibold text-foreground">{shown.length}</span></>}
+          </p>
         </DialogHeader>
 
-        <div className="flex-1 min-h-0 overflow-auto">
-          {isLoading ? (
+        <div className="flex-1 min-h-0 overflow-auto overscroll-contain">
+          {loading ? (
             <div className="py-16 text-center text-[13px] text-muted-foreground">Loading registrations…</div>
           ) : error ? (
             <div className="py-16 text-center text-[13px] text-destructive">Couldn't load registrations. Please try again.</div>
-          ) : regs.length === 0 ? (
-            <div className="py-16 text-center text-[13px] text-muted-foreground">No registrations from this link yet.</div>
+          ) : shown.length === 0 ? (
+            <div className="py-16 text-center text-[13px] text-muted-foreground">
+              {leads.length === 0 ? "No registrations from this link yet." : "No registrations match your search."}
+            </div>
           ) : (
             <>
-              {/* Phones: one card per registration */}
+              {/* Phones: one card per lead */}
               <ul className="sm:hidden divide-y divide-border">
-                {regs.map((r) => {
-                  const att = attendanceOf(r);
+                {shown.map((l) => {
+                  const mobile = formatMobile(l);
                   return (
-                    <li key={r.id} className="px-4 py-3 space-y-1">
+                    <li key={l.id} className="px-4 py-3 space-y-1.5">
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-[13px] font-medium truncate">{r.name || "—"}</p>
-                        <span className={cn("shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full border", att.tone)}>{att.label}</span>
+                        <p className="text-[14px] font-semibold leading-tight min-w-0 break-words">{leadDisplayName(l)}</p>
+                        <AttendanceBadge lead={l} />
                       </div>
-                      <p className="text-[12px] text-muted-foreground truncate">{r.email}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {[r.company, `Registered ${fmt(r.created_at)}`].filter(Boolean).join(" · ")}
+                      {(l.designation || l.company) && (
+                        <p className="text-[12.5px] text-muted-foreground break-words">
+                          {[l.designation, l.company].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
+                      <div className="flex flex-col gap-1 pt-0.5">
+                        {l.email && (
+                          <a href={`mailto:${l.email}`} className="inline-flex items-center gap-1.5 text-[13px] text-primary min-w-0">
+                            <Mail className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{l.email}</span>
+                          </a>
+                        )}
+                        {mobile && (
+                          <a href={`tel:${(l.mobile_country_code ?? "") + (l.mobile_number ?? "")}`} className="inline-flex items-center gap-1.5 text-[13px] text-primary">
+                            <Phone className="h-3.5 w-3.5 shrink-0" />{mobile}
+                          </a>
+                        )}
+                      </div>
+                      <p className="text-[11.5px] text-muted-foreground">
+                        {[l.ticket_type && `Ticket: ${l.ticket_type}`, `Registered ${fmt(l.created_at)}`].filter(Boolean).join(" · ")}
                       </p>
                     </li>
                   );
                 })}
               </ul>
+
               {/* Larger screens: table */}
               <table className="hidden sm:table w-full text-[12px]">
-                <thead className="sticky top-0 bg-card">
+                <thead className="sticky top-0 bg-card z-10">
                   <tr className="border-b border-border text-muted-foreground">
                     <th className="text-left font-medium px-5 py-2.5">Name</th>
+                    <th className="text-left font-medium px-3 py-2.5">Mobile</th>
                     <th className="text-left font-medium px-3 py-2.5">Company</th>
                     <th className="text-left font-medium px-3 py-2.5">Ticket</th>
                     <th className="text-left font-medium px-3 py-2.5">Registered</th>
@@ -189,31 +189,34 @@ export function UtmRegistrationsDialog({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {regs.map((r) => {
-                    const att = attendanceOf(r);
-                    return (
-                      <tr key={r.id} className="hover:bg-muted/20">
-                        <td className="px-5 py-2.5 max-w-[240px]">
-                          <p className="font-medium truncate">{r.name || "—"}</p>
-                          <p className="text-[11px] text-muted-foreground truncate">{r.email}</p>
-                        </td>
-                        <td className="px-3 py-2.5 max-w-[180px]">
-                          <p className="truncate">{r.company || "—"}</p>
-                          {r.designation && <p className="text-[11px] text-muted-foreground truncate">{r.designation}</p>}
-                        </td>
-                        <td className="px-3 py-2.5 capitalize">{r.ticket_type || "—"}</td>
-                        <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{fmt(r.created_at)}</td>
-                        <td className="px-5 py-2.5">
-                          <span className={cn("inline-flex text-[11px] font-medium px-2 py-0.5 rounded-full border", att.tone)}>{att.label}</span>
-                          {r.checked_in_at && <p className="text-[10px] text-muted-foreground mt-0.5">{fmt(r.checked_in_at)}</p>}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {shown.map((l) => (
+                    <tr key={l.id} className="hover:bg-muted/20 align-top">
+                      <td className="px-5 py-2.5 max-w-[230px]">
+                        <p className="font-medium truncate">{leadDisplayName(l)}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{l.email}</p>
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">{formatMobile(l) || "—"}</td>
+                      <td className="px-3 py-2.5 max-w-[190px]">
+                        <p className="truncate">{l.company || "—"}</p>
+                        {l.designation && <p className="text-[11px] text-muted-foreground truncate">{l.designation}</p>}
+                      </td>
+                      <td className="px-3 py-2.5 capitalize">{l.ticket_type || "—"}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{fmt(l.created_at)}</td>
+                      <td className="px-5 py-2.5">
+                        <AttendanceBadge lead={l} />
+                        {l.checked_in_at && <p className="text-[10px] text-muted-foreground mt-0.5">{fmt(l.checked_in_at)}</p>}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </>
           )}
+        </div>
+
+        {/* Phones: pinned export button */}
+        <div className="sm:hidden shrink-0 border-t border-border bg-background px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          {exportButton("w-full h-11 text-[14px]")}
         </div>
       </DialogContent>
     </Dialog>

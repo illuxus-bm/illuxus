@@ -6,14 +6,18 @@
  * term, URL) instead of duplicating it. Changing source, medium or campaign
  * of an existing link creates a new link — clicks and registrations already
  * recorded stay attributed to the original combination.
+ *
+ * Phones get a full-screen sheet with the actions pinned at the bottom;
+ * larger screens get a centred dialog.
  */
 import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, ExternalLink, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { utmLinkUrl, type UtmLinkDraft } from "./utm-link-url";
+import { UTM_MEDIUMS, UTM_SOURCES, withExtras } from "./utm-options";
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,8 +26,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 
-const SOURCES = ["email", "whatsapp", "linkedin", "twitter", "instagram", "facebook", "sms", "qr", "manual"];
-const MEDIUMS = ["transactional", "broadcast", "organic", "paid", "referral", "copy"];
+// 16px text on phones stops iOS Safari zooming into a focused field.
+const FIELD = "h-11 sm:h-9 text-base sm:text-[13px]";
+const LABEL = "text-[12px] sm:text-[11px]";
 
 export function UtmLinkDialog({
   open, onOpenChange, eventId, eventSlug, orgSlug, initial, onSaved,
@@ -56,7 +61,7 @@ export function UtmLinkDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initial]);
 
-  const set = (patch: Partial<UtmLinkDraft>) => setV((prev) => ({ ...prev, ...patch }));
+  const set = (patch: Partial<UtmLinkDraft>) => { setV((prev) => ({ ...prev, ...patch })); setCopied(false); };
   const valid = !!(v.utm_source.trim() && v.utm_medium.trim() && v.utm_campaign.trim());
   const url = useMemo(() => utmLinkUrl({ eventId, eventSlug, orgSlug }, v), [eventId, eventSlug, orgSlug, v]);
   const identityChanged = editing && initial && (
@@ -64,8 +69,8 @@ export function UtmLinkDialog({
   );
 
   // Keep any custom value of an edited link selectable.
-  const sources = SOURCES.includes(v.utm_source) ? SOURCES : [v.utm_source, ...SOURCES];
-  const mediums = MEDIUMS.includes(v.utm_medium) ? MEDIUMS : [v.utm_medium, ...MEDIUMS];
+  const sources = withExtras(UTM_SOURCES, [v.utm_source]);
+  const mediums = withExtras(UTM_MEDIUMS, [v.utm_medium]);
 
   const saveAndCopy = async () => {
     if (!valid || saving) return;
@@ -99,75 +104,76 @@ export function UtmLinkDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* [&>*]:min-w-0 — DialogContent is a grid; without it the long URL widens
-          the column and pushes the form and footer past the dialog edge. */}
-      <DialogContent className="sm:max-w-xl w-[96vw] max-h-[92vh] overflow-y-auto overflow-x-hidden [&>*]:min-w-0">
-        <DialogHeader className="text-left">
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <Link2 className="h-4 w-4" /> {editing ? "Edit tracked link" : "Create tracked link"}
+      <DialogContent className="p-0 gap-0 flex flex-col overflow-hidden w-full max-w-none h-[100dvh] max-h-[100dvh] rounded-none border-0 sm:h-auto sm:max-h-[92vh] sm:w-[96vw] sm:max-w-xl sm:rounded-lg sm:border">
+        <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-3 border-b border-border sm:border-0 text-left shrink-0">
+          <DialogTitle className="flex items-center gap-2 text-base pr-8">
+            <Link2 className="h-4 w-4 shrink-0" /> {editing ? "Edit tracked link" : "Create tracked link"}
           </DialogTitle>
           <DialogDescription className="text-[12px]">
             Share this link and every click and registration from it is attributed to these UTM values.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-[11px]">Source</Label>
-            <Select value={v.utm_source} onValueChange={(s) => set({ utm_source: s })}>
-              <SelectTrigger className="h-9 text-[13px]"><SelectValue /></SelectTrigger>
-              <SelectContent>{sources.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-            </Select>
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-6 py-4 sm:py-1 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5 min-w-0">
+              <Label className={LABEL}>Source</Label>
+              <Select value={v.utm_source} onValueChange={(s) => set({ utm_source: s })}>
+                <SelectTrigger className={FIELD}><SelectValue /></SelectTrigger>
+                <SelectContent>{sources.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5 min-w-0">
+              <Label className={LABEL}>Medium</Label>
+              <Select value={v.utm_medium} onValueChange={(m) => set({ utm_medium: m })}>
+                <SelectTrigger className={FIELD}><SelectValue /></SelectTrigger>
+                <SelectContent>{mediums.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5 sm:col-span-2 min-w-0">
+              <Label className={LABEL}>Campaign</Label>
+              <Input value={v.utm_campaign} onChange={(e) => set({ utm_campaign: e.target.value })} className={FIELD} placeholder="e.g. launch-email-1" />
+            </div>
+            <div className="space-y-1.5 min-w-0">
+              <Label className={LABEL}>Content <span className="text-muted-foreground">(optional)</span></Label>
+              <Input value={v.utm_content ?? ""} onChange={(e) => set({ utm_content: e.target.value })} className={FIELD} placeholder="e.g. cta-button" />
+            </div>
+            <div className="space-y-1.5 min-w-0">
+              <Label className={LABEL}>Term <span className="text-muted-foreground">(optional)</span></Label>
+              <Input value={v.utm_term ?? ""} onChange={(e) => set({ utm_term: e.target.value })} className={FIELD} placeholder="e.g. finance-leaders" />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2 min-w-0">
+              <Label className={LABEL}>Label <span className="text-muted-foreground">(optional, only you see this)</span></Label>
+              <Input value={v.label ?? ""} onChange={(e) => set({ label: e.target.value })} className={FIELD} placeholder="e.g. June newsletter CTA" />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-[11px]">Medium</Label>
-            <Select value={v.utm_medium} onValueChange={(m) => set({ utm_medium: m })}>
-              <SelectTrigger className="h-9 text-[13px]"><SelectValue /></SelectTrigger>
-              <SelectContent>{mediums.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label className="text-[11px]">Campaign</Label>
-            <Input value={v.utm_campaign} onChange={(e) => set({ utm_campaign: e.target.value })} className="h-9 text-[13px]" placeholder="e.g. launch-email-1" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-[11px]">Content <span className="text-muted-foreground">(optional)</span></Label>
-            <Input value={v.utm_content ?? ""} onChange={(e) => set({ utm_content: e.target.value })} className="h-9 text-[13px]" placeholder="e.g. cta-button" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-[11px]">Term <span className="text-muted-foreground">(optional)</span></Label>
-            <Input value={v.utm_term ?? ""} onChange={(e) => set({ utm_term: e.target.value })} className="h-9 text-[13px]" placeholder="e.g. finance-leaders" />
-          </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label className="text-[11px]">Label <span className="text-muted-foreground">(optional, only you see this)</span></Label>
-            <Input value={v.label ?? ""} onChange={(e) => set({ label: e.target.value })} className="h-9 text-[13px]" placeholder="e.g. June newsletter CTA" />
+
+          {identityChanged && (
+            <p className="text-[12px] sm:text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2">
+              Changing source, medium or campaign creates a new link. Clicks and registrations already
+              recorded stay with the original link.
+            </p>
+          )}
+
+          <div className="space-y-1.5 min-w-0">
+            <Label className={LABEL}>Tracked link</Label>
+            <div className="flex items-start gap-2 min-w-0">
+              {/* Wraps on phones so the whole link is readable; truncates on larger screens. */}
+              <code className="flex-1 min-w-0 text-[12px] sm:text-[11px] font-mono bg-muted rounded-md px-3 py-2 border border-border break-all sm:break-normal sm:truncate">{url}</code>
+              <Button size="icon" variant="ghost" className="h-10 w-10 sm:h-9 sm:w-9 shrink-0" asChild title="Open link">
+                <a href={url} target="_blank" rel="noopener noreferrer" aria-label="Open link"><ExternalLink className="h-4 w-4" /></a>
+              </Button>
+            </div>
           </div>
         </div>
 
-        {identityChanged && (
-          <p className="text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2">
-            Changing source, medium or campaign creates a new link. Clicks and registrations already
-            recorded stay with the original link.
-          </p>
-        )}
-
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Tracked link</Label>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 min-w-0 text-[11px] font-mono bg-muted rounded-md px-3 py-2 truncate border border-border">{url}</code>
-            <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" asChild title="Open link">
-              <a href={url} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" /></a>
-            </Button>
-          </div>
-        </div>
-
-        <DialogFooter className="gap-2 sm:gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button onClick={saveAndCopy} disabled={!valid || saving} className="gap-1.5">
+        <div className="shrink-0 border-t border-border sm:border-0 bg-background px-4 sm:px-6 py-3 sm:py-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+          <Button variant="outline" className="h-11 sm:h-9 text-[14px] sm:text-[13px]" onClick={() => onOpenChange(false)}>Close</Button>
+          <Button onClick={saveAndCopy} disabled={!valid || saving} className="h-11 sm:h-9 gap-1.5 text-[14px] sm:text-[13px]">
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-            {saving ? "Saving…" : editing ? "Save changes & copy" : "Save & copy link"}
+            {saving ? "Saving…" : copied ? "Copied" : editing ? "Save changes & copy" : "Save & copy link"}
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
