@@ -52,7 +52,6 @@ import {
   Link2,
   Pencil,
   Trash2,
-  Lock,
   RefreshCw,
 } from "lucide-react";
 import { supabaseRpc } from "@/lib/observability";
@@ -73,6 +72,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { UtmLinkDialog } from "@/components/event/utm/UtmLinkDialog";
 import { utmLinkUrl, type UtmLinkDraft } from "@/components/event/utm/utm-link-url";
@@ -296,15 +305,15 @@ function SortableHeader({
 function SavedLinksSection({
   savedRows,
   analyticsRows,
-  onSaved,
   onEdit,
+  onDelete,
 }: {
   savedRows: UtmLink[];
   analyticsRows: UtmRow[];
-  onSaved: () => void;
   onEdit: (link: UtmLink) => void;
+  /** Ask to delete the link (the page shows the confirmation). */
+  onDelete: (link: UtmLink) => void;
 }) {
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Enrich saved links with click+reg data from analytics rows
   const enriched = savedRows.map((link) => {
@@ -322,19 +331,6 @@ function SavedLinksSection({
       registrations: Number(row?.registrations ?? 0),
     };
   });
-
-  const deleteLink = async (link: UtmLink) => {
-    if (link.has_data) { toast.error("Cannot delete — this link has data attached."); return; }
-    setDeletingId(link.id);
-    const { error } = await supabase
-      .from("utm_links" as never)
-      .delete()
-      .eq("id", link.id);
-    setDeletingId(null);
-    if (error) { toast.error("Failed to delete", { description: error.message }); return; }
-    toast.success("Link deleted");
-    onSaved();
-  };
 
   const copyUrl = (url: string) => {
     navigator.clipboard.writeText(url)
@@ -416,22 +412,14 @@ function SavedLinksSection({
               <Button size="sm" variant="outline" className="h-7 px-2.5 text-[11px] gap-1" onClick={() => onEdit(link)}>
                 <Pencil className="h-3 w-3" /> Edit
               </Button>
-              {link.has_data ? (
-                <span className="flex items-center gap-1 text-[10px] text-muted-foreground ml-auto">
-                  <Lock className="h-2.5 w-2.5" /> Delete locked — has data
-                </span>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-2.5 text-[11px] text-destructive hover:bg-destructive/10 gap-1 ml-auto"
-                  onClick={() => deleteLink(link)}
-                  disabled={deletingId === link.id}
-                >
-                  <Trash2 className="h-3 w-3" />
-                  {deletingId === link.id ? "Deleting…" : "Delete"}
-                </Button>
-              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2.5 text-[11px] text-destructive hover:bg-destructive/10 hover:text-destructive gap-1 ml-auto"
+                onClick={() => onDelete(link)}
+              >
+                <Trash2 className="h-3 w-3" /> Delete
+              </Button>
             </div>
           </div>
         ))}
@@ -676,6 +664,30 @@ export default function UtmAnalyticsPage({
     navigator.clipboard.writeText(url)
       .then(() => toast.success("Link copied"))
       .catch(() => toast.error("Could not copy"));
+  };
+
+  /* ── Delete a saved link (after confirmation) ── */
+  const [deleteTarget, setDeleteTarget] = useState<UtmLink | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  // Activity already recorded for the link being deleted (all time).
+  const deleteTargetStats = useMemo(() => {
+    if (!deleteTarget) return { clicks: 0, registrations: 0 };
+    const row = summaryRows.find((r) => r.utm_source === deleteTarget.utm_source && r.utm_medium === deleteTarget.utm_medium && r.utm_campaign === deleteTarget.utm_campaign);
+    return { clicks: row?.clicks ?? 0, registrations: row?.registrations ?? 0 };
+  }, [deleteTarget, summaryRows]);
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    const { error } = await supabase
+      .from("utm_links" as never)
+      .delete()
+      .eq("id", deleteTarget.id);
+    setDeleting(false);
+    if (error) { toast.error("Couldn't delete the link", { description: error.message }); return; }
+    toast.success("Tracked link deleted");
+    setDeleteTarget(null);
+    handleLinkSaved();
   };
 
   const openRegs = (r: BreakdownRow) =>
@@ -1011,6 +1023,11 @@ export default function UtmAnalyticsPage({
                         <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => setLinkDialog({ open: true, initial: draftFor(r) })} aria-label="Edit link">
                           <Pencil className="h-4 w-4" />
                         </Button>
+                        {r.saved && (
+                          <Button size="icon" variant="ghost" className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteTarget(r.saved)} aria-label="Delete link">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1125,6 +1142,12 @@ export default function UtmAnalyticsPage({
                             <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setLinkDialog({ open: true, initial: draftFor(r) })} title="Edit link" aria-label="Edit link">
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
+                            {/* Only links saved here can be deleted; rows that exist purely from recorded activity have nothing to remove. */}
+                            {r.saved && (
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteTarget(r.saved)} title="Delete link" aria-label="Delete link">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                           </div>
                         )}
                       </td>
@@ -1141,7 +1164,7 @@ export default function UtmAnalyticsPage({
       <SavedLinksSection
         savedRows={savedLinks}
         analyticsRows={summaryRows}
-        onSaved={handleLinkSaved}
+        onDelete={setDeleteTarget}
         onEdit={(link) => setLinkDialog({
           open: true,
           initial: { utm_source: link.utm_source, utm_medium: link.utm_medium, utm_campaign: link.utm_campaign, utm_content: link.utm_content, utm_term: link.utm_term, label: link.label },
@@ -1157,6 +1180,52 @@ export default function UtmAnalyticsPage({
         initial={linkDialog.initial}
         onSaved={handleLinkSaved}
       />
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }}>
+        <AlertDialogContent className="w-[calc(100vw-2rem)] max-w-md rounded-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this tracked link?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-left">
+                {deleteTarget && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {deleteTarget.label && <span className="text-[13px] font-medium text-foreground w-full">{deleteTarget.label}</span>}
+                    {([["source", deleteTarget.utm_source], ["medium", deleteTarget.utm_medium], ["campaign", deleteTarget.utm_campaign]] as const).map(([k, v]) => (
+                      <span key={k} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-muted border border-border font-mono max-w-full">
+                        <span className="text-muted-foreground">{k}:</span><span className="truncate">{v}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {deleteTargetStats.clicks > 0 || deleteTargetStats.registrations > 0 ? (
+                  <p className="text-[13px]">
+                    It will be removed from your saved links. Its{" "}
+                    <span className="font-medium text-foreground">
+                      {deleteTargetStats.clicks.toLocaleString()} click{deleteTargetStats.clicks === 1 ? "" : "s"} and{" "}
+                      {deleteTargetStats.registrations.toLocaleString()} registration{deleteTargetStats.registrations === 1 ? "" : "s"}
+                    </span>{" "}
+                    stay in your reports, and the link keeps tracking if someone still uses it.
+                  </p>
+                ) : (
+                  <p className="text-[13px]">
+                    It will be removed from your saved links. It has no clicks or registrations yet.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel disabled={deleting} className="mt-0 h-10 sm:h-9">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); void confirmDelete(); }}
+              disabled={deleting}
+              className="h-10 sm:h-9 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Deleting…" : "Delete link"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <UtmRegistrationsDialog
         row={regsFor}
         leads={regsFor ? leadsByKey.get(rowKey(regsFor)) ?? [] : []}
