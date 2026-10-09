@@ -10,7 +10,7 @@ import { DashboardTopBar } from "@/components/DashboardTopBar";
 import {
   SidebarProvider, Sidebar, SidebarContent, SidebarGroup,
   SidebarGroupContent, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
-  SidebarTrigger, useSidebar,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 
@@ -121,7 +121,6 @@ export function CommunityShell({
             {/* Event-context header: back arrow + event name — mirrors EventDetailPage header */}
             {eventId && (
               <header className="border-b border-border bg-card/80 px-3 sm:px-4 py-2.5 flex items-center gap-2 min-w-0">
-                <SidebarTrigger className="h-7 w-7" aria-label="Toggle event sidebar" />
                 <button
                   onClick={goBack}
                   className="h-7 w-7 shrink-0 flex items-center justify-center rounded-md hover:bg-muted transition-colors"

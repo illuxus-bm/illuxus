@@ -1,11 +1,11 @@
-import { SidebarTrigger } from "@/components/ui/sidebar";
+import { AppHeaderBar } from "@/components/layout/AppHeaderBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
 import { useNavigate, Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  LogOut, Bell, ChevronDown, ClipboardList, Menu, Search, Ticket,
+  LogOut, Bell, ChevronDown, ClipboardList, Search, Ticket,
   CalendarDays, Settings as SettingsIcon, Shield, X, Users2,
 } from "lucide-react";
 import {
@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/popover";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSiteContent } from "@/hooks/useSiteContent";
-import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
@@ -173,11 +172,8 @@ function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => void })
 // ─── Dashboard Top Bar ────────────────────────────────────────────────────────
 
 export interface DashboardTopBarProps {
-  /**
-   * Show the sidebar toggle button on the left of the bar. Default `true`.
-   * Set to `false` when the surrounding page already exposes its own sidebar
-   * trigger (e.g. EventDetailPage's per-event header has one).
-   */
+  /** @deprecated The sidebar button now shows automatically whenever the
+   *  page has a sidebar (see AppHeaderBar); this prop is ignored. */
   showSidebarTrigger?: boolean;
 }
 
@@ -186,10 +182,10 @@ export interface DashboardTopBarProps {
  * routes and per-event pages alike. Renders the brand mark, theme toggle,
  * global search, notifications popover, and the profile dropdown.
  *
- * Must be rendered inside a `SidebarProvider` so the SidebarTrigger has
- * context (when `showSidebarTrigger` is true).
+ * The bar itself (size, logo, sidebar button) is the shared AppHeaderBar;
+ * this component only supplies the dashboard's actions.
  */
-export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarProps) {
+export function DashboardTopBar(_props: DashboardTopBarProps = {}) {
   const { user, isAdmin, accountType, signOut } = useAuth();
   const { org, memberships } = useOrg();
   const navigate = useNavigate();
@@ -309,36 +305,16 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
     <>
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
-      {/* Same bar as SiteHeader: 56px + status-bar inset (--app-header-h),
-          px-4 / sm:px-6, 22px wordmark, always pinned to the top. */}
-      <header className="app-chrome sticky top-0 z-50 border-b border-border bg-card pt-[env(safe-area-inset-top)]">
-        <div className="h-14 px-4 sm:px-6 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          {showSidebarTrigger && (
-            <SidebarTrigger className="h-8 w-8" aria-label="Toggle sidebar">
-              <Menu className="h-4 w-4" />
-            </SidebarTrigger>
-          )}
-          <a
-            href="https://illuxus.com"
-            className="flex items-center gap-2 mr-2 shrink-0"
-            aria-label={`${brandName} home`}
-          >
-            <IlluxusWordmark height={22} ariaLabel="" className="shrink-0" />
-          </a>
-          {/* Context badge — only shows on admin routes so the visitor can
-              never confuse the Super Admin control tower with the regular
-              organiser dashboard. Red destructive tone deliberately
-              chosen to keep the surface visually distinct from the
-              organiser chrome. */}
-          {isAdminRoute && (
-            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-destructive/10 text-destructive border border-destructive/30">
-              <Shield className="h-2.5 w-2.5" /> Super Admin
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1">
+      <AppHeaderBar
+        brandName={brandName}
+        // Context badge — only on admin routes so the Super Admin control
+        // tower is never confused with the organiser dashboard.
+        leading={isAdminRoute ? (
+          <span className="hidden sm:inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-destructive/10 text-destructive border border-destructive/30">
+            <Shield className="h-2.5 w-2.5" /> Super Admin
+          </span>
+        ) : null}
+        actions={<>
           <ThemeToggle size="sm" className="mr-1" />
 
           <Button
@@ -472,9 +448,8 @@ export function DashboardTopBar({ showSidebarTrigger = true }: DashboardTopBarPr
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-        </div>
-      </header>
+        </>}
+      />
     </>
   );
 }

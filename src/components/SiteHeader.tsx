@@ -15,8 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useTheme } from "@/contexts/ThemeContext";
-import { SiteContainer } from "@/components/layout/SiteContainer";
-import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
+import { AppHeaderBar } from "@/components/layout/AppHeaderBar";
 import { ArrowRight, CalendarDays, ChevronDown, ClipboardList, Compass, LogOut, Mic, Building2, Settings as SettingsIcon, Shield, Ticket, Users2 } from "lucide-react";
 
 /**
@@ -123,22 +122,16 @@ export default function SiteHeader({
     ? "border-b"
     : landingMode
       ? "border-b border-gray-200 dark:border-white/[0.08] bg-white/80 dark:bg-white/[0.06] backdrop-blur-xl supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-white/[0.04]"
-      : "border-b border-border bg-card";
+      : "";
 
   return (
-    <header className={`app-chrome sticky top-0 z-50 ${surfaceClass} ${className}`} style={{ ...styleVars, paddingTop: "env(safe-area-inset-top)" }}>
-      <SiteContainer className="h-14 flex items-center justify-between gap-4">
-        {/* Brand area — wordmark only. Always navigates to the canonical
-            illuxus deployment, regardless of which segment we're in. */}
-        <a
-          href="https://illuxus.com"
-          className="flex items-center gap-2 shrink-0"
-          aria-label={`${brandName} home`}
-        >
-          <IlluxusWordmark height={22} ariaLabel="" className="shrink-0" />
-        </a>
-
-        <div className="flex items-center gap-1.5 sm:gap-2">
+    // Same bar as the dashboard (AppHeaderBar): size, padding, logo and
+    // position are shared; only these right-hand actions are public-specific.
+    <AppHeaderBar
+      brandName={brandName}
+      className={`${surfaceClass} ${className}`.trim() || undefined}
+      style={styleVars}
+      actions={<>
           <Link
             to="/discover"
             className={
@@ -297,8 +290,7 @@ export default function SiteHeader({
               Sign in
             </Link>
           )}
-        </div>
-      </SiteContainer>
-    </header>
+      </>}
+    />
   );
 }
