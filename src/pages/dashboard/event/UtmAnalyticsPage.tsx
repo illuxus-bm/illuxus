@@ -8,7 +8,9 @@
  *  4. Funnel       (CSS-only clicks → registrations)
  *  5. Table        (sortable, colour-coded conv%, export CSV)
  *  6. Source leaderboard (text-based with mini progress bars)
- *  7. Share link generator
+ *  7. Saved links (copy / edit / delete)
+ *  Tracked links are created and edited in a dialog (UtmLinkDialog), and each
+ *  breakdown row's registration count opens UtmRegistrationsDialog.
  *
  * Data: event_utm_summary RPC via supabaseRpc.
  */
@@ -31,7 +33,6 @@ import {
   Users,
   Share2,
   Copy,
-  Check,
   ExternalLink,
   Download,
   ChevronUp,
@@ -43,7 +44,6 @@ import {
   Pencil,
   Trash2,
   Lock,
-  Save,
 } from "lucide-react";
 import { supabaseRpc } from "@/lib/observability";
 import { supabase } from "@/integrations/supabase/client";
@@ -67,6 +67,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
+import { UtmLinkDialog } from "@/components/event/utm/UtmLinkDialog";
+import { utmLinkUrl, type UtmLinkDraft } from "@/components/event/utm/utm-link-url";
+import { UtmRegistrationsDialog, type UtmBreakdownKey } from "@/components/event/utm/UtmRegistrationsDialog";
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
 
@@ -642,236 +645,19 @@ function MultiSelect({
   );
 }
 
-/* ─── Participant Attribution Section ────────────────────────────────────── */
-
-function ParticipantAttributionSection({ eventId }: { eventId: string }) {
-  const [expanded, setExpanded] = useState(false);
-  
-  const { data: participants, isLoading } = useQuery({
-    queryKey: ["participant-attribution", eventId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("registrations")
-        .select(`
-          id,
-          name,
-          email,
-          company,
-          ticket_type,
-          status,
-          amount_paid,
-          utm_source,
-          utm_medium,
-          utm_campaign,
-          utm_content,
-          utm_term,
-          created_at
-        `)
-        .eq("event_id", eventId)
-        .order("created_at", { ascending: false });
-      
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: expanded,
-  });
-
-  const utmParticipants = participants?.filter(p => p.utm_source || p.utm_medium || p.utm_campaign) || [];
-  const directParticipants = participants?.filter(p => !p.utm_source && !p.utm_medium && !p.utm_campaign) || [];
-
-  if (isLoading && expanded) {
-    return (
-      <div className="border border-border rounded-xl bg-card p-8">
-        <div className="flex items-center justify-center gap-2 text-[13px] text-muted-foreground">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-          Loading participant attribution data...
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="border border-border rounded-xl bg-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-border bg-muted/30">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold">Individual Participant Attribution</h3>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              See exactly who came from which UTM source and link
-            </p>
-          </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setExpanded(!expanded)}
-            className="h-8 gap-1.5 text-[12px]"
-          >
-            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            {expanded ? "Collapse" : "View Details"}
-          </Button>
-        </div>
-      </div>
-
-      {expanded && participants && (
-        <div className="p-4 space-y-4">
-          {/* UTM-Attributed Participants */}
-          {utmParticipants.length > 0 && (
-            <div>
-              <h4 className="text-[13px] font-semibold mb-2 flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-blue-500" />
-                UTM-Attributed Registrations ({utmParticipants.length})
-              </h4>
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {utmParticipants.map((participant) => (
-                  <div
-                    key={participant.id}
-                    className="border border-border rounded-lg p-3 bg-background/50"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-[13px]">{participant.name}</span>
-                          <span className="text-[11px] text-muted-foreground">
-                            {participant.email}
-                          </span>
-                        </div>
-                        
-                        <div className="flex flex-wrap items-center gap-2 mb-2">
-                          {participant.utm_source && (
-                            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/30 text-[10px] font-medium">
-                              <span
-                                className="h-1.5 w-1.5 rounded-full"
-                                style={{ backgroundColor: sourceColor(participant.utm_source) }}
-                              />
-                              {participant.utm_source}
-                            </div>
-                          )}
-                          {participant.utm_medium && (
-                            <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/30 text-[10px] font-medium">
-                              {participant.utm_medium}
-                            </div>
-                          )}
-                          {participant.utm_campaign && (
-                            <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-green-50 dark:bg-green-950/30 text-[10px] font-medium">
-                              {participant.utm_campaign}
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
-                          {participant.company && (
-                            <span>{participant.company}</span>
-                          )}
-                          <span>{participant.ticket_type}</span>
-                          <span className="font-medium">₹{(participant.amount_paid || 0).toLocaleString()}</span>
-                        </div>
-                      </div>
-                      
-                      <div className="text-right text-[11px] text-muted-foreground shrink-0">
-                        <div>{new Date(participant.created_at).toLocaleDateString()}</div>
-                        <div>{new Date(participant.created_at).toLocaleTimeString()}</div>
-                      </div>
-                    </div>
-                    
-                    {(participant.utm_content || participant.utm_term) && (
-                      <div className="mt-2 pt-2 border-t border-border/50">
-                        <div className="flex gap-3 text-[10px] text-muted-foreground">
-                          {participant.utm_content && (
-                            <span>Content: <span className="text-foreground">{participant.utm_content}</span></span>
-                          )}
-                          {participant.utm_term && (
-                            <span>Term: <span className="text-foreground">{participant.utm_term}</span></span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Direct Participants */}
-          {directParticipants.length > 0 && (
-            <div>
-              <h4 className="text-[13px] font-semibold mb-2 flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-gray-400" />
-                Direct Registrations ({directParticipants.length})
-              </h4>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {directParticipants.slice(0, 10).map((participant) => (
-                  <div
-                    key={participant.id}
-                    className="border border-border rounded-lg p-3 bg-background/50"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-[13px]">{participant.name}</span>
-                          <span className="text-[11px] text-muted-foreground">
-                            {participant.email}
-                          </span>
-                        </div>
-                        
-                        <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-50 dark:bg-gray-950/30 text-[10px] font-medium mb-2">
-                          Direct / Organic
-                        </div>
-                        
-                        <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
-                          {participant.company && (
-                            <span>{participant.company}</span>
-                          )}
-                          <span>{participant.ticket_type}</span>
-                          <span className="font-medium">₹{(participant.amount_paid || 0).toLocaleString()}</span>
-                        </div>
-                      </div>
-                      
-                      <div className="text-right text-[11px] text-muted-foreground shrink-0">
-                        <div>{new Date(participant.created_at).toLocaleDateString()}</div>
-                        <div>{new Date(participant.created_at).toLocaleTimeString()}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                
-                {directParticipants.length > 10 && (
-                  <div className="text-center py-2">
-                    <span className="text-[11px] text-muted-foreground">
-                      and {directParticipants.length - 10} more direct registrations...
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {participants.length === 0 && (
-            <div className="text-center py-8 text-[13px] text-muted-foreground">
-              No registrations yet for this event.
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ─── Saved Links section ────────────────────────────────────────────────── */
 
 function SavedLinksSection({
-  eventId,
   savedRows,
   analyticsRows,
   onSaved,
+  onEdit,
 }: {
-  eventId: string;
   savedRows: UtmLink[];
   analyticsRows: UtmRow[];
   onSaved: () => void;
+  onEdit: (link: UtmLink) => void;
 }) {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editLabel, setEditLabel] = useState("");
-  const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Enrich saved links with click+reg data from analytics rows
@@ -890,24 +676,6 @@ function SavedLinksSection({
       registrations: Number(row?.registrations ?? 0),
     };
   });
-
-  const startEdit = (link: UtmLink) => {
-    setEditingId(link.id);
-    setEditLabel(link.label ?? "");
-  };
-
-  const saveEdit = async (link: UtmLink) => {
-    setSaving(true);
-    const { error } = await supabase
-      .from("utm_links" as never)
-      .update({ label: editLabel || null } as never)
-      .eq("id", link.id);
-    setSaving(false);
-    if (error) { toast.error("Failed to save", { description: error.message }); return; }
-    toast.success("Link label updated");
-    setEditingId(null);
-    onSaved();
-  };
 
   const deleteLink = async (link: UtmLink) => {
     if (link.has_data) { toast.error("Cannot delete — this link has data attached."); return; }
@@ -944,29 +712,11 @@ function SavedLinksSection({
             {/* Label row */}
             <div className="flex items-start gap-2 justify-between">
               <div className="min-w-0 flex-1">
-                {editingId === link.id ? (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={editLabel}
-                      onChange={(e) => setEditLabel(e.target.value)}
-                      className="h-7 text-[12px] flex-1"
-                      placeholder="Link label (optional)"
-                      autoFocus
-                    />
-                    <Button size="sm" className="h-7 px-2.5 text-[11px]" onClick={() => saveEdit(link)} disabled={saving}>
-                      <Save className="h-3 w-3 mr-1" />{saving ? "…" : "Save"}
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEditingId(null)}>
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
-                ) : (
-                  <p className="text-[13px] font-semibold truncate">
-                    {link.label || (
-                      <span className="text-muted-foreground font-normal italic">No label</span>
-                    )}
-                  </p>
-                )}
+                <p className="text-[13px] font-semibold truncate">
+                  {link.label || (
+                    <span className="text-muted-foreground font-normal italic">No label</span>
+                  )}
+                </p>
                 {/* UTM params pill row */}
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {[
@@ -1017,11 +767,9 @@ function SavedLinksSection({
 
             {/* Actions */}
             <div className="flex items-center gap-2 pt-0.5">
-              {editingId !== link.id && (
-                <Button size="sm" variant="outline" className="h-7 px-2.5 text-[11px] gap-1" onClick={() => startEdit(link)}>
-                  <Pencil className="h-3 w-3" /> Edit label
-                </Button>
-              )}
+              <Button size="sm" variant="outline" className="h-7 px-2.5 text-[11px] gap-1" onClick={() => onEdit(link)}>
+                <Pencil className="h-3 w-3" /> Edit
+              </Button>
               {link.has_data ? (
                 <span className="flex items-center gap-1 text-[10px] text-muted-foreground ml-auto">
                   <Lock className="h-2.5 w-2.5" /> Delete locked — has data
@@ -1041,163 +789,6 @@ function SavedLinksSection({
             </div>
           </div>
         ))}
-      </div>
-    </div>
-  );
-}
-
-/* ─── Share-link generator ───────────────────────────────────────────────── */
-
-function ShareLinkGenerator({
-  eventId, eventSlug, orgSlug, onLinkSaved,
-}: {
-  eventId: string;
-  eventSlug?: string | null;
-  orgSlug?: string | null;
-  onLinkSaved?: () => void;
-}) {
-  const [source,   setSource]   = useState("email");
-  const [medium,   setMedium]   = useState("transactional");
-  const [campaign, setCampaign] = useState(eventSlug || eventId.slice(0, 8));
-  const [content,  setContent]  = useState("");
-  const [term,     setTerm]     = useState("");
-  const [label,    setLabel]    = useState("");
-  const [copied,   setCopied]   = useState(false);
-
-  const baseUrl = eventPublicUrl(
-    { id: eventId, slug: eventSlug ?? undefined },
-    orgSlug ?? undefined,
-  );
-
-  const trackedUrl = useMemo(() => {
-    if (!source || !medium || !campaign) return baseUrl;
-    return buildUtmUrl(baseUrl, {
-      utm_source:   source,
-      utm_medium:   medium,
-      utm_campaign: campaign,
-      utm_content:  content || undefined,
-      utm_term:     term || undefined,
-    });
-  }, [baseUrl, source, medium, campaign, content, term]);
-
-  /** Save the link to utm_links then copy to clipboard. */
-  const copy = async () => {
-    // Upsert into utm_links so the link is stored permanently.
-    if (source && medium && campaign) {
-      await supabase
-        .from("utm_links" as never)
-        .upsert({
-          event_id:     eventId,
-          utm_source:   source,
-          utm_medium:   medium,
-          utm_campaign: campaign,
-          utm_content:  content || null,
-          utm_term:     term    || null,
-          label:        label   || null,
-          url:          trackedUrl,
-        } as never, {
-          onConflict: "event_id,utm_source,utm_medium,utm_campaign",
-        });
-      onLinkSaved?.();
-    }
-
-    navigator.clipboard.writeText(trackedUrl)
-      .then(() => {
-        setCopied(true);
-        toast.success("Link copied & saved");
-        setTimeout(() => setCopied(false), 2000);
-      })
-      .catch(() => toast.error("Could not copy"));
-  };
-
-  return (
-    <div className="border border-border rounded-xl bg-card p-5 space-y-4">
-      <div className="flex items-center gap-2">
-        <Share2 className="h-4 w-4 text-accent" />
-        <h3 className="text-sm font-semibold">Generate tracked link</h3>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Source</Label>
-          <Select value={source} onValueChange={setSource}>
-            <SelectTrigger className="h-8 text-[12px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {["email","whatsapp","linkedin","twitter","instagram","facebook","sms","qr","manual"].map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Medium</Label>
-          <Select value={medium} onValueChange={setMedium}>
-            <SelectTrigger className="h-8 text-[12px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {["transactional","broadcast","organic","paid","referral","copy"].map((m) => (
-                <SelectItem key={m} value={m}>{m}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Campaign</Label>
-          <Input
-            value={campaign}
-            onChange={(e) => setCampaign(e.target.value)}
-            className="h-8 text-[12px]"
-            placeholder="e.g. launch-email-1"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Content (optional)</Label>
-          <Input
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            className="h-8 text-[12px]"
-            placeholder="e.g. cta-button"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Term (optional)</Label>
-          <Input
-            value={term}
-            onChange={(e) => setTerm(e.target.value)}
-            className="h-8 text-[12px]"
-            placeholder="e.g. react-conference"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Link label (optional)</Label>
-          <Input
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            className="h-8 text-[12px]"
-            placeholder="e.g. June newsletter CTA"
-          />
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <code className="flex-1 text-[11px] font-mono bg-muted rounded-md px-3 py-2 truncate border border-border">
-          {trackedUrl}
-        </code>
-        <Button size="sm" variant="outline" className="h-8 shrink-0 gap-1.5" onClick={copy}>
-          {copied
-            ? <Check className="h-3.5 w-3.5 text-green-500" />
-            : <Copy className="h-3.5 w-3.5" />}
-          {copied ? "Copied & saved" : "Copy & save"}
-        </Button>
-        <Button size="sm" variant="ghost" className="h-8 shrink-0" asChild>
-          <a href={trackedUrl} target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        </Button>
       </div>
     </div>
   );
@@ -1248,6 +839,30 @@ export default function UtmAnalyticsPage({
   const handleLinkSaved = () => {
     void refetchLinks();
     void qc.invalidateQueries({ queryKey: ["utm-summary", eventId] });
+  };
+
+  /* ── Dialogs ── */
+  const [linkDialog, setLinkDialog] = useState<{ open: boolean; initial: UtmLinkDraft | null }>({ open: false, initial: null });
+  const [regsFor, setRegsFor] = useState<UtmBreakdownKey | null>(null);
+  const eventRef = { eventId, eventSlug, orgSlug };
+
+  /** The saved link behind a breakdown row, if one exists. */
+  const savedLinkFor = (r: UtmRow) =>
+    savedLinks.find((l) => l.utm_source === r.utm_source && l.utm_medium === r.utm_medium && l.utm_campaign === r.utm_campaign);
+
+  /** A breakdown row as link-dialog values (saved link details when available). */
+  const draftFor = (r: UtmRow): UtmLinkDraft => {
+    const saved = savedLinkFor(r);
+    return saved
+      ? { utm_source: saved.utm_source, utm_medium: saved.utm_medium, utm_campaign: saved.utm_campaign, utm_content: saved.utm_content, utm_term: saved.utm_term, label: saved.label }
+      : { utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign };
+  };
+
+  const copyRowLink = (r: UtmRow) => {
+    const url = savedLinkFor(r)?.url ?? utmLinkUrl(eventRef, draftFor(r));
+    navigator.clipboard.writeText(url)
+      .then(() => toast.success("Link copied"))
+      .catch(() => toast.error("Could not copy"));
   };
 
   /* ── Filter state ── */
@@ -1388,6 +1003,11 @@ export default function UtmAnalyticsPage({
             Track which channels and campaigns drive registrations for this event.
           </p>
         </div>
+        <div className="flex items-center gap-2 flex-wrap">
+        <Button size="sm" className="h-8 gap-1.5 text-[12px]" onClick={() => setLinkDialog({ open: true, initial: null })}>
+          <Link2 className="h-3.5 w-3.5" />
+          Create tracked link
+        </Button>
         {rows.length > 0 && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -1415,6 +1035,7 @@ export default function UtmAnalyticsPage({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
+        </div>
       </div>
 
       {/* ── Filters bar ── */}
@@ -1619,7 +1240,7 @@ export default function UtmAnalyticsPage({
         <div className="border border-dashed border-border rounded-xl py-16 text-center text-[13px] text-muted-foreground">
           {rawRows.length > 0
             ? "No rows match the current filters. Try adjusting or clearing them."
-            : "No UTM data yet. Share a tracked link below to start collecting attribution data."}
+            : "No UTM data yet. Create a tracked link above and share it to start collecting attribution data."}
         </div>
       ) : (
         <div className="border border-border rounded-xl bg-card overflow-hidden">
@@ -1639,6 +1260,7 @@ export default function UtmAnalyticsPage({
                   <SortableHeader col="registrations"   label="Registrations" sort={sortKey} dir={sortDir} onSort={handleSort} align="right" />
                   <SortableHeader col="conversion_rate" label="Conv %"        sort={sortKey} dir={sortDir} onSort={handleSort} align="right" />
                   <th className="text-right px-4 py-2.5 font-medium text-muted-foreground">Cost/reg</th>
+                  <th className="text-right px-4 py-2.5 font-medium text-muted-foreground"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -1674,8 +1296,19 @@ export default function UtmAnalyticsPage({
                       <td className="px-4 py-2.5 text-right tabular-nums">
                         {Number(r.clicks).toLocaleString()}
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-emerald-600">
-                        {Number(r.registrations).toLocaleString()}
+                      <td className="px-4 py-2.5 text-right tabular-nums font-semibold">
+                        {Number(r.registrations) > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setRegsFor({ utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign })}
+                            className="text-emerald-600 underline decoration-dotted underline-offset-4 hover:decoration-solid hover:text-emerald-700"
+                            title="View these registrations"
+                          >
+                            {Number(r.registrations).toLocaleString()}
+                          </button>
+                        ) : (
+                          <span className="text-muted-foreground">0</span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums">
                         <span className={`font-medium ${convClass}`}>
@@ -1683,6 +1316,19 @@ export default function UtmAnalyticsPage({
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-right text-muted-foreground tabular-nums">—</td>
+                      <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                        {/* Direct traffic has no tracked link to copy or edit. */}
+                        {r.utm_source !== "(direct)" && (
+                          <div className="inline-flex items-center gap-0.5">
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => copyRowLink(r)} title="Copy link" aria-label="Copy link">
+                              <Copy className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setLinkDialog({ open: true, initial: draftFor(r) })} title="Edit link" aria-label="Edit link">
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -1692,19 +1338,27 @@ export default function UtmAnalyticsPage({
         </div>
       )}
 
-      {/* ── Individual Participant Attribution ── */}
-      <ParticipantAttributionSection eventId={eventId} />
-
       {/* ── Saved links ── */}
       <SavedLinksSection
-        eventId={eventId}
         savedRows={savedLinks}
         analyticsRows={rawRows}
         onSaved={handleLinkSaved}
+        onEdit={(link) => setLinkDialog({
+          open: true,
+          initial: { utm_source: link.utm_source, utm_medium: link.utm_medium, utm_campaign: link.utm_campaign, utm_content: link.utm_content, utm_term: link.utm_term, label: link.label },
+        })}
       />
 
-      {/* ── Share link generator ── */}
-      <ShareLinkGenerator eventId={eventId} eventSlug={eventSlug} orgSlug={orgSlug} onLinkSaved={handleLinkSaved} />
+      <UtmLinkDialog
+        open={linkDialog.open}
+        onOpenChange={(open) => setLinkDialog((d) => ({ ...d, open }))}
+        eventId={eventId}
+        eventSlug={eventSlug}
+        orgSlug={orgSlug}
+        initial={linkDialog.initial}
+        onSaved={handleLinkSaved}
+      />
+      <UtmRegistrationsDialog eventId={eventId} row={regsFor} onOpenChange={(open) => { if (!open) setRegsFor(null); }} />
 
     </div>
   );
