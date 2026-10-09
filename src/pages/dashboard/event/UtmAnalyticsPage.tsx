@@ -124,6 +124,15 @@ interface BreakdownRow extends UtmRow {
   saved: UtmLink | null;
 }
 
+/** The link a delete confirmation is open for — a breakdown row, with its saved link when one exists. */
+interface DeleteTarget {
+  utm_source: string;
+  utm_medium: string;
+  utm_campaign: string;
+  label: string | null;
+  saved: UtmLink | null;
+}
+
 type SortKey = "utm_source" | "utm_medium" | "utm_campaign" | "clicks" | "registrations" | "checked_in" | "conversion_rate";
 type SortDir = "asc" | "desc";
 
@@ -137,6 +146,14 @@ const DATE_OPTIONS: { label: string; value: DateRange; days: number | null }[] =
   { label: "Last 90 days", value: "90d", days: 90 },
   { label: "All time",     value: "all", days: null },
 ];
+
+/** Shown when the database function behind link deletion (migration 039) is not installed. */
+const NEEDS_DB_UPDATE =
+  "Removing a link's click history needs a one-time database update: run supabase/migrations/039_utm_delete_tracking.sql in the Supabase SQL Editor, then delete again.";
+
+/** PostgREST / Postgres "no such function" — the RPC hasn't been deployed. */
+const isMissingFunction = (e: { code?: string; message?: string }) =>
+  e.code === "PGRST202" || e.code === "42883" || /could not find the function|function .* does not exist/i.test(e.message ?? "");
 
 /** Conversion can exceed 100% when clicks were under-recorded; cap what we show. */
 const capPct = (n: number) => Math.min(100, Math.max(0, n));
@@ -666,28 +683,88 @@ export default function UtmAnalyticsPage({
       .catch(() => toast.error("Could not copy"));
   };
 
-  /* ── Delete a saved link (after confirmation) ── */
-  const [deleteTarget, setDeleteTarget] = useState<UtmLink | null>(null);
+  /* ── Delete a tracked link (after confirmation) ── */
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleting, setDeleting] = useState(false);
-  // Activity already recorded for the link being deleted (all time).
+  // Activity recorded for the link being deleted (all time).
   const deleteTargetStats = useMemo(() => {
     if (!deleteTarget) return { clicks: 0, registrations: 0 };
     const row = summaryRows.find((r) => r.utm_source === deleteTarget.utm_source && r.utm_medium === deleteTarget.utm_medium && r.utm_campaign === deleteTarget.utm_campaign);
     return { clicks: row?.clicks ?? 0, registrations: row?.registrations ?? 0 };
   }, [deleteTarget, summaryRows]);
 
-  const confirmDelete = async () => {
-    if (!deleteTarget || deleting) return;
-    setDeleting(true);
-    const { error } = await supabase
-      .from("utm_links" as never)
-      .delete()
-      .eq("id", deleteTarget.id);
-    setDeleting(false);
-    if (error) { toast.error("Couldn't delete the link", { description: error.message }); return; }
-    toast.success("Tracked link deleted");
+  const targetForRow = (r: BreakdownRow): DeleteTarget => ({
+    utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign,
+    label: r.saved?.label ?? null, saved: r.saved,
+  });
+  const targetForLink = (link: UtmLink): DeleteTarget => ({
+    utm_source: link.utm_source, utm_medium: link.utm_medium, utm_campaign: link.utm_campaign,
+    label: link.label, saved: link,
+  });
+
+  const afterDelete = () => {
     setDeleteTarget(null);
     handleLinkSaved();
+    void qc.invalidateQueries({ queryKey: ["utm-clicks-since", eventId] });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleting) return;
+    const target = deleteTarget;
+    const stats = deleteTargetStats;
+    setDeleting(true);
+    try {
+      // Removes the saved link AND its recorded clicks (clients cannot delete
+      // utm_clicks directly). Registrations are never touched.
+      const { data, error } = await supabase.rpc("delete_utm_tracking" as never, {
+        _event_id: eventId,
+        _utm_source: target.utm_source,
+        _utm_medium: target.utm_medium,
+        _utm_campaign: target.utm_campaign,
+      } as never);
+
+      if (!error) {
+        const result = (data ?? {}) as { clicks_deleted?: number; registrations_kept?: number };
+        const kept = Number(result.registrations_kept ?? 0);
+        const clicks = Number(result.clicks_deleted ?? 0);
+        toast.success("Tracked link deleted", {
+          description: kept > 0
+            ? `${kept} registration${kept === 1 ? "" : "s"} from it ${kept === 1 ? "is" : "are"} kept, so it still appears in the breakdown.`
+            : clicks > 0 ? `${clicks} recorded click${clicks === 1 ? "" : "s"} removed.` : undefined,
+        });
+        afterDelete();
+        return;
+      }
+
+      if (!isMissingFunction(error)) {
+        toast.error("Couldn't delete the link", { description: error.message });
+        return;
+      }
+
+      // The database function isn't installed yet. A saved link can still be
+      // removed directly; its click history cannot.
+      if (!target.saved) {
+        toast.error("This link can't be deleted yet", { description: NEEDS_DB_UPDATE, duration: 15_000 });
+        return;
+      }
+      // `.select()` so we see what was actually removed: when RLS refuses a
+      // delete, PostgREST reports success with zero rows.
+      const { data: removed, error: delErr } = await supabase
+        .from("utm_links" as never)
+        .delete()
+        .eq("id", target.saved.id)
+        .select("id");
+      if (delErr) { toast.error("Couldn't delete the link", { description: delErr.message }); return; }
+      if (!(removed as unknown[] | null)?.length) {
+        toast.error("Couldn't delete the link", { description: "You don't have permission to delete this link." });
+        return;
+      }
+      if (stats.clicks > 0) toast.warning("Saved link deleted — its click history is still there", { description: NEEDS_DB_UPDATE, duration: 15_000 });
+      else toast.success("Tracked link deleted");
+      afterDelete();
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const openRegs = (r: BreakdownRow) =>
@@ -1023,11 +1100,9 @@ export default function UtmAnalyticsPage({
                         <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => setLinkDialog({ open: true, initial: draftFor(r) })} aria-label="Edit link">
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        {r.saved && (
-                          <Button size="icon" variant="ghost" className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteTarget(r.saved)} aria-label="Delete link">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
+                        <Button size="icon" variant="ghost" className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteTarget(targetForRow(r))} aria-label="Delete link">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     )}
                   </div>
@@ -1142,12 +1217,9 @@ export default function UtmAnalyticsPage({
                             <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setLinkDialog({ open: true, initial: draftFor(r) })} title="Edit link" aria-label="Edit link">
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
-                            {/* Only links saved here can be deleted; rows that exist purely from recorded activity have nothing to remove. */}
-                            {r.saved && (
-                              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteTarget(r.saved)} title="Delete link" aria-label="Delete link">
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteTarget(targetForRow(r))} title="Delete link" aria-label="Delete link">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
                           </div>
                         )}
                       </td>
@@ -1164,7 +1236,7 @@ export default function UtmAnalyticsPage({
       <SavedLinksSection
         savedRows={savedLinks}
         analyticsRows={summaryRows}
-        onDelete={setDeleteTarget}
+        onDelete={(link) => setDeleteTarget(targetForLink(link))}
         onEdit={(link) => setLinkDialog({
           open: true,
           initial: { utm_source: link.utm_source, utm_medium: link.utm_medium, utm_campaign: link.utm_campaign, utm_content: link.utm_content, utm_term: link.utm_term, label: link.label },
@@ -1196,20 +1268,29 @@ export default function UtmAnalyticsPage({
                     ))}
                   </div>
                 )}
-                {deleteTargetStats.clicks > 0 || deleteTargetStats.registrations > 0 ? (
+                <p className="text-[13px]">
+                  This removes the link{deleteTarget?.saved ? " from your saved links" : ""}
+                  {deleteTargetStats.clicks > 0 && (
+                    <> and permanently deletes its{" "}
+                      <span className="font-medium text-foreground">
+                        {deleteTargetStats.clicks.toLocaleString()} recorded click{deleteTargetStats.clicks === 1 ? "" : "s"}
+                      </span>
+                    </>
+                  )}.
+                </p>
+                {deleteTargetStats.registrations > 0 ? (
                   <p className="text-[13px]">
-                    It will be removed from your saved links. Its{" "}
+                    Its{" "}
                     <span className="font-medium text-foreground">
-                      {deleteTargetStats.clicks.toLocaleString()} click{deleteTargetStats.clicks === 1 ? "" : "s"} and{" "}
                       {deleteTargetStats.registrations.toLocaleString()} registration{deleteTargetStats.registrations === 1 ? "" : "s"}
                     </span>{" "}
-                    stay in your reports, and the link keeps tracking if someone still uses it.
+                    {deleteTargetStats.registrations === 1 ? "is a lead and is" : "are leads and are"} kept, still credited to this
+                    link — so it will keep appearing in the breakdown.
                   </p>
                 ) : (
-                  <p className="text-[13px]">
-                    It will be removed from your saved links. It has no clicks or registrations yet.
-                  </p>
+                  <p className="text-[13px]">It has no registrations, so it will disappear from this page.</p>
                 )}
+                <p className="text-[12px] text-muted-foreground">This can't be undone.</p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
