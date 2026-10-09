@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 
 import {
-  approvalLabel, buildPartnerExport, isPartnerFeatureMissing, linkLabel, partnerErrorMessage,
+  approvalLabel, buildPartnerExport, fillDailySeries, isPartnerFeatureMissing, linkLabel, partnerErrorMessage,
   PARTNER_NEEDS_DB_UPDATE,
 } from "../partner-access";
 
@@ -56,5 +56,35 @@ describe("partner helpers", () => {
     expect(partnerErrorMessage(missing)).toBe(PARTNER_NEEDS_DB_UPDATE);
     expect(isPartnerFeatureMissing({ code: "42501", message: "Not authorised" })).toBe(false);
     expect(partnerErrorMessage({ code: "23505", message: "This email is already registered for the event" })).toBe("This email is already registered for the event");
+  });
+});
+
+describe("daily series", () => {
+  const p = (day: string, registrations: number, check_ins: number | null = 0) => ({ day, clicks: 0, registrations, check_ins });
+
+  it("fills quiet days with zeros so the chart doesn't join distant points", () => {
+    const out = fillDailySeries([p("2026-10-01", 2), p("2026-10-04", 5)]);
+    expect(out.map((d) => d.day)).toEqual(["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]);
+    expect(out.map((d) => d.registrations)).toEqual([2, 0, 0, 5]);
+  });
+
+  it("crosses month ends correctly", () => {
+    expect(fillDailySeries([p("2026-02-27", 1), p("2026-03-02", 1)]).map((d) => d.day))
+      .toEqual(["2026-02-27", "2026-02-28", "2026-03-01", "2026-03-02"]);
+  });
+
+  it("keeps check-ins hidden (null) on filled days when the share can't see them", () => {
+    const out = fillDailySeries([p("2026-10-01", 1, null), p("2026-10-03", 1, null)]);
+    expect(out.every((d) => d.check_ins === null)).toBe(true);
+  });
+
+  it("limits a long history to the most recent days", () => {
+    const out = fillDailySeries([p("2025-01-01", 1), p("2026-10-09", 1)], 30);
+    expect(out).toHaveLength(30);
+    expect(out[out.length - 1].day).toBe("2026-10-09");
+  });
+
+  it("returns nothing for no activity", () => {
+    expect(fillDailySeries([])).toEqual([]);
   });
 });

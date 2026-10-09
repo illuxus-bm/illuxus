@@ -85,8 +85,18 @@ export interface PartnerGrant extends PartnerPermissions {
     status: string;
     requires_approval: boolean;
     organizer_name: string | null;
+    description?: string | null;
+    image_url?: string | null;
   };
   stats: PartnerLinkStats;
+}
+
+/** Day-by-day activity and top companies of one shared link (migration 042). */
+export interface PartnerAnalytics {
+  clicks: number;
+  timezone: string;
+  series: { day: string; clicks: number; registrations: number; check_ins: number | null }[];
+  top_companies: { company: string; registrations: number }[];
 }
 
 export interface PartnerParticipant {
@@ -223,6 +233,38 @@ export async function partnerHasAccess(): Promise<boolean> {
 }
 
 export const fetchPartnerGrants = () => rpc<PartnerGrant[]>("partner_utm_grants").then((d) => d ?? []);
+
+export const fetchPartnerAnalytics = (accessId: string) =>
+  rpc<PartnerAnalytics>("partner_utm_analytics", { _access_id: accessId }).then((d) => ({
+    clicks: Number(d?.clicks ?? 0),
+    timezone: d?.timezone ?? "UTC",
+    series: (d?.series ?? []).map((p) => ({
+      day: p.day,
+      clicks: Number(p.clicks ?? 0),
+      registrations: Number(p.registrations ?? 0),
+      check_ins: p.check_ins === null || p.check_ins === undefined ? null : Number(p.check_ins),
+    })),
+    top_companies: (d?.top_companies ?? []).map((c) => ({ company: c.company, registrations: Number(c.registrations ?? 0) })),
+  }));
+
+/**
+ * Fill the gaps of a daily series so a chart shows quiet days as zero rather
+ * than joining distant points. Returns at most `maxDays` most recent days.
+ */
+export function fillDailySeries(series: PartnerAnalytics["series"], maxDays = 90): PartnerAnalytics["series"] {
+  if (series.length === 0) return [];
+  const byDay = new Map(series.map((p) => [p.day, p]));
+  const hasCheckIns = series.some((p) => p.check_ins !== null);
+  const parse = (d: string) => { const [y, m, day] = d.split("-").map(Number); return Date.UTC(y, m - 1, day); };
+  const end = parse(series[series.length - 1].day);
+  const start = Math.max(parse(series[0].day), end - (maxDays - 1) * 86_400_000);
+  const out: PartnerAnalytics["series"] = [];
+  for (let t = start; t <= end; t += 86_400_000) {
+    const day = new Date(t).toISOString().slice(0, 10);
+    out.push(byDay.get(day) ?? { day, clicks: 0, registrations: 0, check_ins: hasCheckIns ? 0 : null });
+  }
+  return out;
+}
 
 export const fetchPartnerParticipants = (accessId: string, q: ParticipantQuery) =>
   rpc<{ total: number; rows: PartnerParticipant[] }>("partner_utm_participants", {

@@ -1,10 +1,10 @@
 // Tests migration 040 (UTM partner sharing) on an in-memory Postgres.
 // Focus: a partner can only ever see / add to the one link shared with them.
-// Run:  npm i --no-save @electric-sql/pglite  &&  node supabase/tests/040_utm_partner_access.test.mjs supabase/migrations/040_utm_partner_access.sql
+// Run:  npm i --no-save @electric-sql/pglite  &&  node supabase/tests/040_utm_partner_access.test.mjs supabase/migrations/040_utm_partner_access.sql supabase/migrations/042_partner_utm_analytics.sql
 import fs from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 
-const migration = fs.readFileSync(process.argv[2], "utf8");
+const migration = fs.readFileSync(process.argv[2], "utf8") + "\n" + (process.argv[3] ? fs.readFileSync(process.argv[3], "utf8") : "");
 const db = new PGlite();
 
 const OWNER = "11111111-1111-4111-8111-111111111111";
@@ -50,7 +50,8 @@ await db.exec(`
     id uuid PRIMARY KEY, user_id uuid, org_id uuid, title text, date timestamptz NOT NULL, end_date timestamptz,
     timezone text, venue text, location text, capacity int DEFAULT 0, price numeric DEFAULT 0,
     status text NOT NULL DEFAULT 'published', event_format text NOT NULL DEFAULT 'physical',
-    requires_approval boolean NOT NULL DEFAULT false
+    requires_approval boolean NOT NULL DEFAULT false,
+    description text, image_url text, banner_landscape_url text
   );
   GRANT SELECT ON public.events TO anon, authenticated;
   CREATE TABLE public.registrations (
@@ -101,7 +102,7 @@ await db.exec(`
   CREATE POLICY "org read" ON public.utm_links FOR SELECT TO authenticated USING (
     EXISTS (SELECT 1 FROM public.events e WHERE e.id = event_id AND (e.user_id = auth.uid() OR public.is_org_member(auth.uid(), e.org_id))));
   GRANT SELECT ON public.utm_links TO authenticated;
-  CREATE TABLE public.utm_clicks (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), event_id uuid NOT NULL, utm_source text, utm_medium text, utm_campaign text);
+  CREATE TABLE public.utm_clicks (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), event_id uuid NOT NULL, utm_source text, utm_medium text, utm_campaign text, clicked_at timestamptz NOT NULL DEFAULT now());
   ALTER TABLE public.utm_clicks ENABLE ROW LEVEL SECURITY;
 
   CREATE TABLE public.audit_logs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), actor_id uuid, actor_email text, action text NOT NULL,
@@ -136,7 +137,13 @@ await db.exec(`
     ('${OTHER_EVENT}', 'agency-a', 'referral', 'cfo', NULL),
     ('${OPEN_EVENT}', 'agency-a', 'referral', 'open', NULL), ('${PAST_EVENT}', 'agency-a', 'referral', 'past', NULL),
     ('${PAID_EVENT}', 'agency-a', 'referral', 'paid', NULL), ('${DRAFT_EVENT}', 'agency-a', 'referral', 'draft', NULL);
-  INSERT INTO public.utm_clicks (event_id, utm_source, utm_medium, utm_campaign) VALUES ('${EVENT}', 'qr', NULL, NULL);
+  INSERT INTO public.utm_clicks (event_id, utm_source, utm_medium, utm_campaign, clicked_at) VALUES ('${EVENT}', 'qr', NULL, NULL, now()),
+    ('${EVENT}', 'agency-a', 'referral', 'cfo', now() - interval '3 days'), ('${EVENT}', 'agency-a', 'referral', 'cfo', now() - interval '3 days'),
+    ('${EVENT}', 'agency-a', 'referral', 'cfo', now()), ('${EVENT}', 'agency-a', 'paid', 'cfo', now()),
+    ('${EVENT}', 'agency-b', 'referral', 'cfo', now()), ('${EVENT}', 'agency-b', 'referral', 'cfo', now()), ('${EVENT}', 'agency-b', 'referral', 'cfo', now()), ('${EVENT}', 'agency-b', 'referral', 'cfo', now()),
+    ('${OTHER_EVENT}', 'agency-a', 'referral', 'cfo', now());
+  UPDATE public.events SET timezone = 'Asia/Kolkata', description = 'Finance 6.0', banner_landscape_url = 'https://img/banner.png' WHERE id = '${EVENT}';
+  UPDATE public.events SET timezone = 'Not/AZone' WHERE id = '${OPEN_EVENT}';
 `);
 // Seed registrations as the owner (so the approval trigger treats them as organiser-added).
 await db.exec(`SELECT set_config('request.jwt.claim.sub', '${OWNER}', false);
@@ -296,6 +303,26 @@ expect("Agency B can't infer check-ins by filtering — the filter is ignored", 
 r = await people(AGENCY_B, GB, { approval: "declined" });
 expect("…nor approvals", r.v?.total === 2, r);
 
+if (process.argv[3]) {
+  console.log("\nAnalytics (042)");
+  const an = (uid, id) => call(uid, `SELECT public.partner_utm_analytics($1)`, [id]);
+  r = await an(AGENCY_A, GA);
+  const sum = (k) => (r.v?.series ?? []).reduce((n, p) => n + Number(p[k] ?? 0), 0);
+  expect("Agency A: clicks are for its own link only (3 — not the other medium, agency or event)", r.v?.clicks === 3 && sum("clicks") === 3, r);
+  expect("the daily series adds up to its 3 registrations and 1 check-in, on 2 separate days", sum("registrations") === 3 && sum("check_ins") === 1 && r.v.series.length === 2, r.v?.series);
+  expect("days use the event's timezone", r.v?.timezone === "Asia/Kolkata" && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(r.v.series[0].day), r.v);
+  expect("top companies list only its own participants' companies", r.v?.top_companies.length === 3 && !JSON.stringify(r.v).match(/Umbrella|Wayne|Stark|Hooli|Paidco/), r.v?.top_companies);
+  const gl = (await grants(AGENCY_A)).v?.[0]?.event;
+  expect("the event banner + description reach the partner's event list", gl?.image_url === "https://img/banner.png" && gl.description === "Finance 6.0", gl);
+  r = await an(AGENCY_B, GB);
+  expect("Agency B (no check-in permission): its 4 clicks, check-in series is NULL", r.v?.clicks === 4 && r.v.series.every((p) => p.check_ins === null) && r.v.top_companies.length === 2, r);
+  r = await an(AGENCY_B, GA);
+  expect("Agency B cannot read Agency A's analytics", denied(r), r);
+  r = await an(OUTSIDER, GA);
+  expect("an unrelated user cannot read analytics", denied(r), r);
+  r = await as("anon", null, `SELECT public.partner_utm_analytics('${GA}')`);
+  expect("anonymous cannot read analytics", /permission denied/i.test(r.error ?? ""), r);
+}
 console.log("\nDirect table access stays closed to partners");
 r = await as("authenticated", AGENCY_A, `SELECT count(*)::int AS n FROM public.registrations`);
 expect("a partner reading the registrations table directly gets nothing", r.rows?.[0]?.n === 0, r);
@@ -362,6 +389,10 @@ r = await register(AGENCY_A, G_PAID, person("paid1@x.com"));
 expect("paid events can't be registered for free by a partner", /paid event/.test(r.error ?? ""), r);
 r = await register(AGENCY_A, G_DRAFT, person("draft1@x.com"));
 expect("unpublished events can't be registered for", /isn't open/.test(r.error ?? ""), r);
+if (process.argv[3]) {
+  r = await call(AGENCY_A, `SELECT public.partner_utm_analytics($1)`, [G_OPEN]);
+  expect("an invalid event timezone falls back to UTC instead of failing", r.v?.timezone === "UTC" && r.v.series.length === 1, r);
+}
 r = await grants(AGENCY_A);
 expect("a partner with several links sees only the ones shared (5), each with its own count", r.v?.length === 5 && r.v.find((g) => g.id === G_OPEN).stats.total === 1, r.v?.map((g) => [g.utm_campaign, g.stats.total]));
 

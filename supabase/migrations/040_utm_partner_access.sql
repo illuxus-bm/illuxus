@@ -426,6 +426,8 @@ BEGIN
         'title', e.title, 'date', e.date, 'end_date', e.end_date, 'timezone', e.timezone,
         'venue', e.venue, 'location', e.location, 'event_format', e.event_format,
         'status', e.status, 'requires_approval', e.requires_approval,
+        'description', left(coalesce(e.description, ''), 600),
+        'image_url', coalesce(e.banner_landscape_url, e.image_url),
         'organizer_name', (SELECT o.name FROM public.organizations o WHERE o.id = e.org_id)
       ),
       -- Counts cover this link only; parts the grant doesn't include are NULL.

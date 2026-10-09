@@ -1,29 +1,28 @@
 /**
- * Partner dashboard — /partner
+ * Partner dashboard, event view — /partner/:accessId
  *
- * For a partner (agency) an organiser has shared a tracked link with. Opened
- * from the profile menu with a normal account; there is no separate login.
+ * What a partner (agency) sees after opening one of their shared events from
+ * the list at /partner: the event, their link, its analytics (funnel,
+ * activity over time, approvals, top companies) and its participants with
+ * approval and check-in status. Refreshes automatically so event-day
+ * check-ins appear without reloading. When the organiser allowed it there is
+ * also a form to register participants and a CSV export.
  *
- * Shows ONE shared link at a time: its event, its registrations, their
- * approval and check-in status (refreshed automatically so event-day
- * check-ins appear without reloading), and — when the organiser allowed it —
- * a form to register participants and a CSV export.
- *
- * Everything on screen comes from database functions that are scoped to the
- * selected share; this page never receives data about other links.
+ * Everything on screen comes from database functions scoped to this one
+ * share; the page never receives data about other links. The id in the URL
+ * is only honoured if it is one of the signed-in user's own active shares.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft, Calendar, CheckCircle2, ChevronLeft, ChevronRight, Clock, Copy, Download, Handshake,
-  MapPin, RefreshCw, Search, UserPlus, Users, XCircle,
+  Calendar, CheckCircle2, ChevronLeft, ChevronRight, Clock, Copy, Download,
+  MapPin, MousePointerClick, RefreshCw, Search, UserPlus, Users, XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { FullPageLoader } from "@/components/FullPageLoader";
-import SiteHeader from "@/components/SiteHeader";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, type PersonFields } from "@/components/people/PersonFieldsForm";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,10 +33,12 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  approvalLabel, exportPartnerParticipants, fetchPartnerGrants, fetchPartnerParticipants, isPartnerFeatureMissing,
-  linkLabel, partnerErrorMessage, registerPartnerParticipant,
-  type PartnerGrant, type PartnerParticipant,
+  approvalLabel, exportPartnerParticipants, fetchPartnerAnalytics, fetchPartnerGrants, fetchPartnerParticipants,
+  isPartnerFeatureMissing, linkLabel, partnerErrorMessage, registerPartnerParticipant,
+  type PartnerAnalytics as Analytics, type PartnerGrant, type PartnerParticipant,
 } from "@/lib/utm/partner-access";
+import { PartnerAnalytics } from "./PartnerAnalytics";
+import { PartnerNotice as Notice, PartnerShell } from "./PartnerShell";
 
 const PAGE_SIZE = 25;
 const LIVE_REFRESH_MS = 15_000;
@@ -79,38 +80,13 @@ function CheckInCell({ p }: { p: PartnerParticipant }) {
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen bg-background">
-      <SiteHeader />
-      <header className="border-b border-border">
-        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-3">
-          <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors" aria-label="Back to home">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-          <Handshake className="h-5 w-5 text-primary" />
-          <h1 className="text-base font-semibold">Partner dashboard</h1>
-        </div>
-      </header>
-      <main className="max-w-screen-xl mx-auto px-4 sm:px-6 py-6 space-y-5">{children}</main>
-    </div>
-  );
-}
-
-function Notice({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="border border-border rounded-xl p-8 text-center max-w-lg mx-auto space-y-2">
-      <Handshake className="h-8 w-8 text-muted-foreground mx-auto" />
-      <h2 className="text-[15px] font-semibold">{title}</h2>
-      <div className="text-[13px] text-muted-foreground space-y-2">{children}</div>
-    </div>
-  );
-}
+const BACK = { to: "/partner", label: "All shared events" };
+const Shell = ({ children }: { children: React.ReactNode }) => <PartnerShell back={BACK}>{children}</PartnerShell>;
 
 export default function PartnerDashboardPage() {
   const { user, loading: authLoading } = useAuth();
   const qc = useQueryClient();
-  const [params, setParams] = useSearchParams();
+  const { accessId } = useParams<{ accessId: string }>();
 
   const grantsQuery = useQuery<PartnerGrant[]>({
     queryKey: ["partner-grants", user?.id],
@@ -121,10 +97,16 @@ export default function PartnerDashboardPage() {
   });
   const grants = grantsQuery.data ?? [];
 
-  // The selected share. Only ids of the caller's own shares are ever valid;
-  // anything else in the URL falls back to the first one.
-  const requested = params.get("link");
-  const grant = grants.find((g) => g.id === requested) ?? grants[0] ?? null;
+  // Only an id of the caller's own active shares is ever honoured.
+  const grant = grants.find((g) => g.id === accessId) ?? null;
+
+  const analyticsQuery = useQuery<Analytics>({
+    queryKey: ["partner-analytics", grant?.id],
+    queryFn: () => fetchPartnerAnalytics(grant!.id),
+    enabled: !!grant,
+    refetchInterval: 60_000,
+    retry: false,
+  });
 
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -184,6 +166,7 @@ export default function PartnerDashboardPage() {
   const refreshAll = () => {
     void qc.invalidateQueries({ queryKey: ["partner-grants"] });
     void qc.invalidateQueries({ queryKey: ["partner-participants"] });
+    void qc.invalidateQueries({ queryKey: ["partner-analytics"] });
   };
 
   const submitRegistration = async () => {
@@ -239,7 +222,7 @@ export default function PartnerDashboardPage() {
 
   /* ── Page-level states ── */
   if (grantsQuery.isLoading) {
-    return <Shell><p className="text-sm text-muted-foreground">Loading your shared links…</p></Shell>;
+    return <Shell><p className="text-center py-12 text-muted-foreground">Loading event…</p></Shell>;
   }
   if (grantsQuery.error) {
     const e = grantsQuery.error as { code?: string; message?: string };
@@ -255,12 +238,9 @@ export default function PartnerDashboardPage() {
   if (!grant) {
     return (
       <Shell>
-        <Notice title="Nothing has been shared with you yet">
-          <p>
-            When an event organiser shares a registration link with <span className="text-foreground font-medium break-all">{user.email}</span>,
-            it appears here with its participants, approvals and check-ins.
-          </p>
-          <p>If you were invited at a different email address, sign in with that address instead.</p>
+        <Notice title="This shared event isn't available">
+          <p>The link may have been removed by the organiser, or it was shared with a different account.</p>
+          <Button size="sm" variant="outline" asChild><Link to="/partner">Back to shared events</Link></Button>
         </Notice>
       </Shell>
     );
@@ -274,7 +254,8 @@ export default function PartnerDashboardPage() {
   const where = [grant.event.venue, grant.event.location].filter(Boolean).join(", ");
 
   const kpis: { label: string; value: number | null; icon: typeof Users; hint?: string }[] = [
-    { label: "Registered", value: s.total, icon: Users },
+    ...(analyticsQuery.data ? [{ label: "Link clicks", value: analyticsQuery.data.clicks, icon: MousePointerClick }] : []),
+    { label: "Registered", value: s.total, icon: Users, hint: analyticsQuery.data && pct(s.total, analyticsQuery.data.clicks) !== null ? `${pct(s.total, analyticsQuery.data.clicks)}% of clicks` : undefined },
     ...(grant.can_view_approval ? [
       { label: "Approved", value: s.approved, icon: CheckCircle2, hint: pct(s.approved, s.total) === null ? undefined : `${pct(s.approved, s.total)}% of registered` },
       { label: "Pending approval", value: s.pending, icon: Clock },
@@ -290,31 +271,21 @@ export default function PartnerDashboardPage() {
     <Shell>
       {/* ── Which link am I looking at ── */}
       <section className="border border-border rounded-xl p-4 sm:p-5 space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+        <div className="flex flex-col sm:flex-row gap-4">
+          {grant.event.image_url && (
+            <img src={grant.event.image_url} alt="" className="w-full sm:w-56 aspect-video object-cover rounded-lg border border-border shrink-0" />
+          )}
           <div className="min-w-0 space-y-1.5">
             <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
               {grant.event.organizer_name ? `${grant.event.organizer_name} · ` : ""}Event
             </p>
-            <h2 className="text-lg font-semibold leading-tight break-words">{grant.event.title}</h2>
+            <h1 className="text-2xl font-bold leading-tight break-words">{grant.event.title}</h1>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-muted-foreground">
               <span className="inline-flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" /> {formatWhen(grant.event.date, grant.event.timezone)}</span>
               {where && <span className="inline-flex items-center gap-1.5 min-w-0"><MapPin className="h-3.5 w-3.5 shrink-0" /> <span className="break-words">{where}</span></span>}
               {grant.event.requires_approval && <span className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" /> Registrations need organiser approval</span>}
             </div>
           </div>
-          {grants.length > 1 && (
-            <div className="space-y-1.5 lg:w-80 shrink-0 min-w-0">
-              <label htmlFor="partner-link" className="text-[12px] sm:text-[11px] text-muted-foreground">Shared link</label>
-              <Select value={grant.id} onValueChange={(id) => setParams({ link: id }, { replace: true })}>
-                <SelectTrigger id="partner-link" className="h-11 sm:h-9 text-base sm:text-[13px]"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {grants.map((g) => (
-                    <SelectItem key={g.id} value={g.id}>{g.event.title} — {g.label || linkLabel(g)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
         </div>
 
         <div className="rounded-lg bg-muted/40 border border-border px-3 py-2.5 space-y-2">
@@ -343,7 +314,7 @@ export default function PartnerDashboardPage() {
       </section>
 
       {/* ── Numbers ── */}
-      <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2" aria-label="Summary">
+      <section className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2" aria-label="Summary">
         {kpis.map((k) => (
           <div key={k.label} className="border border-border rounded-lg p-3 min-w-0">
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><k.icon className="h-3 w-3 shrink-0" /><span className="truncate">{k.label}</span></div>
@@ -352,6 +323,9 @@ export default function PartnerDashboardPage() {
           </div>
         ))}
       </section>
+
+      {/* ── Analytics ── */}
+      <PartnerAnalytics grant={grant} analytics={analyticsQuery.data} unavailable={analyticsQuery.isError} />
 
       {/* ── Participants ── */}
       <section className="space-y-3" aria-label="Participants">
