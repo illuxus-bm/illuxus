@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { useAppBack } from "@/lib/app-back";
 import {
   LayoutDashboard, Settings, Radio, ClipboardList, Users, Award,
   CalendarCheck, Palette, Mail, Users2, BarChart3, FileText, ImagePlus,
@@ -102,6 +103,7 @@ export function CommunityShell({
   eventTitle?: string | null;
 }) {
   const navigate = useNavigate();
+  const goBack = useAppBack(eventId ? `/dashboard/events/${eventId}` : "/community");
 
   return (
     <SidebarProvider>
@@ -121,13 +123,7 @@ export function CommunityShell({
               <header className="border-b border-border bg-card/80 px-3 sm:px-4 py-2.5 flex items-center gap-2 min-w-0">
                 <SidebarTrigger className="h-7 w-7" aria-label="Toggle event sidebar" />
                 <button
-                  onClick={() => {
-                    if (window.history.length > 1) {
-                      navigate(-1);
-                    } else {
-                      navigate(`/dashboard/events/${eventId}`, { replace: true });
-                    }
-                  }}
+                  onClick={goBack}
                   className="h-7 w-7 shrink-0 flex items-center justify-center rounded-md hover:bg-muted transition-colors"
                   aria-label="Back to event"
                 >

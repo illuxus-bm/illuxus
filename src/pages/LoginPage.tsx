@@ -149,7 +149,7 @@ const LoginPage = () => {
       if (cancelled || !data.session) return;
       const inviteNext = await consumeInviteIfAny();
       // Full reload so OrgContext picks up the new org_members row.
-      if (!cancelled && inviteNext) window.location.assign(inviteNext);
+      if (!cancelled && inviteNext) window.location.replace(inviteNext);
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -181,11 +181,11 @@ const LoginPage = () => {
     const inviteNext = await consumeInviteIfAny();
     if (inviteNext) {
       // Full reload so OrgContext sees the new org_members row.
-      window.location.assign(inviteNext);
+      window.location.replace(inviteNext);
       return;
     }
     toast({ title: "Account created", description: "Welcome to Illuxus." });
-    navigate(safeNext ?? (signedUpAs === "organizer" ? "/onboarding" : "/discover"));
+    navigate(safeNext ?? (signedUpAs === "organizer" ? "/onboarding" : "/discover"), { replace: true });
   };
 
   const verifyCode = async (code: string) => {
@@ -416,12 +416,12 @@ const LoginPage = () => {
             // OrgContext before the OnboardingGuard runs. SPA navigation
             // would otherwise hit the guard with the stale empty
             // memberships array and bounce the new member to /onboarding.
-            window.location.assign(next);
+            window.location.replace(next);
           } else {
-            navigate(next);
+            navigate(next, { replace: true });
           }
         } else {
-          navigate("/dashboard");
+          navigate("/dashboard", { replace: true });
         }
       }
     }
@@ -463,7 +463,7 @@ const LoginPage = () => {
           }}
           onVerified={() => {
             setTwoFactor((s) => ({ ...s, open: false }));
-            navigate(twoFactor.nextRoute);
+            navigate(twoFactor.nextRoute, { replace: true });
           }}
           title="Verify it's you"
           description={`Enter the 6-digit code we sent to ${twoFactor.email} to finish signing in.`}
@@ -602,9 +602,9 @@ const LoginPage = () => {
                   // Hard reload so OrgContext picks up the just-inserted
                   // org_members row. SPA navigation would race with the
                   // existing context snapshot and bounce them to onboarding.
-                  window.location.assign(inviteNext);
+                  window.location.replace(inviteNext);
                 } else {
-                  navigate(safeNext ?? "/discover");
+                  navigate(safeNext ?? "/discover", { replace: true });
                 }
                 setLoading(false);
               }}

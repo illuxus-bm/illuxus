@@ -1,5 +1,6 @@
 import { useEffect, useState, Suspense, lazy } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useAppBack } from "@/lib/app-back";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import type { Tables } from "@/integrations/supabase/types";
@@ -120,6 +121,7 @@ type Registration = Tables<"registrations">;
 const EventDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const goBack = useAppBack("/dashboard/events");
   const [searchParams, setSearchParams] = useSearchParams();
   const { org } = useOrg();
   const { user: authUser, isAdmin } = useAuth();
@@ -457,24 +459,11 @@ const EventDetailPage = () => {
             <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
               <SidebarTrigger className="h-7 w-7" aria-label="Toggle event sidebar" />
               <button
-                onClick={() => {
-                  // Return to whichever page navigated us here (Events list,
-                  // Admin → Events Moderation, Reports, etc.). Only fall back
-                  // to the events list when there is genuinely no history —
-                  // e.g. this tab was opened directly via a shared link.
-                  //
-                  // Detection: window.history.length is 1 on a fresh tab. Any
-                  // in-app navigation bumps it above 1. Using `navigate(-1)`
-                  // when we have history preserves the exact origin route
-                  // (including admin sub-routes) instead of hardcoding
-                  // `/dashboard`, which for super admins gets rewritten to
-                  // `/dashboard/admin` by DashboardLanding.
-                  if (window.history.length > 1) {
-                    navigate(-1);
-                  } else {
-                    navigate("/dashboard/events", { replace: true });
-                  }
-                }}
+                // Return to whichever in-app page navigated us here (Events
+                // list, Admin → Events Moderation, Reports, …). Falls back to
+                // the events list when the previous entry is the login page,
+                // another site, or missing (a link opened in a new tab).
+                onClick={goBack}
                 className="h-7 w-7 shrink-0 flex items-center justify-center rounded-md hover:bg-muted transition-colors"
                 aria-label="Back"
               >

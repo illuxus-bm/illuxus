@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Suspense, lazy } from "react";
 import { BrowserRouter, Route, Routes, Navigate, useParams, useLocation } from "react-router-dom";
+import { HistoryTracker } from "@/lib/app-back";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -289,6 +290,7 @@ const App = () => (
         <PWAUpdatePrompt />
         <PWAInstallPrompt />
         <BrowserRouter>
+          <HistoryTracker />
           <RootErrorBoundary>
             <AuthProvider>
               <OrgProvider>
