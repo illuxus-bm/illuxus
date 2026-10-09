@@ -34,6 +34,7 @@ import {
   sendWhatsApp,
 } from "@/hooks/useCommunications";
 import { applyVariables, invalidTokensForScope, type SubstitutionContext } from "@/lib/communications/substitute";
+import { fetchPublicProfiles } from "@/lib/public-profiles";
 
 interface AttendeeOption {
   user_id: string | null;
@@ -190,25 +191,29 @@ export function ComposeMessageDialog({
     let cancelled = false;
     (async () => {
       if (scope === "community" && communityId) {
-        // Pull active community members joined to profiles for display name.
+        // Active community members, with display names from the public
+        // profile view (other users' `profiles` rows are not readable).
         const { data } = await supabase
           .from("community_members")
-          .select("user_id, role, profiles:profiles!inner(first_name, last_name, display_name)")
+          .select("user_id, role")
           .eq("community_id", communityId)
           .eq("status", "active")
           .limit(500);
         if (cancelled || !data) return;
-        const opts: AttendeeOption[] = (data as Array<{
-          user_id: string;
-          profiles: { first_name: string | null; last_name: string | null; display_name: string | null } | null;
-        }>).map((r) => ({
-          user_id: r.user_id,
-          name:
-            [r.profiles?.first_name, r.profiles?.last_name].filter(Boolean).join(" ") ||
-            r.profiles?.display_name ||
-            r.user_id.slice(0, 8),
-          email: "—",
-        }));
+        const rows = data as Array<{ user_id: string }>;
+        const profiles = new Map((await fetchPublicProfiles(rows.map((r) => r.user_id))).map((p) => [p.user_id, p]));
+        if (cancelled) return;
+        const opts: AttendeeOption[] = rows.map((r) => {
+          const p = profiles.get(r.user_id);
+          return {
+            user_id: r.user_id,
+            name:
+              [p?.first_name, p?.last_name].filter(Boolean).join(" ") ||
+              p?.display_name ||
+              r.user_id.slice(0, 8),
+            email: "—",
+          };
+        });
         setAttendeeOptions(opts);
         return;
       }

@@ -63,6 +63,18 @@ export function readAgoraAppId(): string {
   return (import.meta.env.VITE_AGORA_APP_ID as string | undefined) ?? "";
 }
 
+/** Speaker-invite / attendee-join tokens carried in the live page URL. */
+function guestTokensFromUrl(): { speaker_token?: string; join_token?: string } {
+  if (typeof window === "undefined") return {};
+  const q = new URLSearchParams(window.location.search);
+  const speaker = q.get("speaker");
+  const join = q.get("join");
+  return {
+    ...(speaker ? { speaker_token: speaker } : {}),
+    ...(join ? { join_token: join } : {}),
+  };
+}
+
 export function useAgoraSessionToken({
   sessionId,
   channelOverride,
@@ -113,6 +125,10 @@ export function useAgoraSessionToken({
             uid,
             role,
             expireSeconds,
+            // Guests have no account: the server authorises them by the
+            // invite/join token in the live page URL (?speaker= / ?join=),
+            // exactly like the LiveKit token function.
+            ...guestTokensFromUrl(),
           },
         },
       );

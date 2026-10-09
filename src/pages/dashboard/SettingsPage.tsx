@@ -24,6 +24,7 @@ import PersonFieldsForm, { type PersonFields, emptyPersonFields, displayName as 
 import { uuid } from "@/lib/uuid";
 import { publicOrigin } from "@/lib/publicUrl";
 import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
+import { fetchPublicProfile, fetchPublicProfiles } from "@/lib/public-profiles";
 
 type Profile = Tables<"profiles">;
 
@@ -138,12 +139,9 @@ const SettingsPage = () => {
     if (membersRes.data) {
       // Fetch profiles for members
       const userIds = membersRes.data.map((m) => m.user_id);
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("user_id, display_name, avatar_url")
-        .in("user_id", userIds);
-      
-      const profileMap = new Map(profiles?.map((p) => [p.user_id, p]) || []);
+      const profiles = await fetchPublicProfiles(userIds);
+
+      const profileMap = new Map(profiles.map((p) => [p.user_id, p]));
       setMembers(
         membersRes.data.map((m) => ({
           ...m,
@@ -465,12 +463,8 @@ const SettingsPage = () => {
     // Email lives on auth.users, read via the `org_member_emails` RPC
     // (migration 037); if it can't be resolved we still proceed with the
     // removal — the removal email is best-effort.
-    const [{ data: profileRow }, memberEmailRows] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("display_name, first_name, last_name")
-        .eq("user_id", memberUserId)
-        .maybeSingle(),
+    const [profileRow, memberEmailRows] = await Promise.all([
+      fetchPublicProfile(memberUserId),
       fetchMemberEmails(org.id),
     ]);
     const removedEmail = memberEmailRows.find((m) => m.user_id === memberUserId)?.email ?? null;
