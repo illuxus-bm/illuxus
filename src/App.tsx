@@ -99,6 +99,7 @@ const CompleteProfilePage = lazyWithLog("CompleteProfilePage", () => import("./p
 const SelfCheckInPage = lazyWithLog("SelfCheckInPage", () => import("./pages/SelfCheckInPage.tsx"));
 const SelfCheckOutPage = lazyWithLog("SelfCheckOutPage", () => import("./pages/SelfCheckOutPage.tsx"));
 const SponsorEventsPage = lazyWithLog("SponsorEventsPage", () => import("./pages/sponsor/SponsorEventsPage.tsx"));
+const PartnerDashboardPage = lazyWithLog("PartnerDashboardPage", () => import("./pages/partner/PartnerDashboardPage.tsx"));
 const SponsorEventDetailPage = lazyWithLog("SponsorEventDetailPage", () => import("./pages/sponsor/SponsorEventDetailPage.tsx"));
 const SponsorAcceptInvitePage = lazyWithLog("SponsorAcceptInvitePage", () => import("./pages/sponsor/AcceptInvitePage.tsx"));
 const SpeakerEventsPage = lazyWithLog("SpeakerEventsPage", () => import("./pages/speaker/SpeakerEventsPage.tsx"));
@@ -360,6 +361,7 @@ const App = () => (
                 <Route path="/checkin/:eventId" element={<RouteErrorBoundary><SelfCheckInPage /></RouteErrorBoundary>} />
                 <Route path="/checkout/:eventId" element={<RouteErrorBoundary><SelfCheckOutPage /></RouteErrorBoundary>} />
                 <Route path="/sponsor" element={<RouteErrorBoundary><SponsorEventsPage /></RouteErrorBoundary>} />
+                <Route path="/partner" element={<RouteErrorBoundary><PartnerDashboardPage /></RouteErrorBoundary>} />
                 <Route path="/sponsor/events/:eventId" element={<RouteErrorBoundary><SponsorEventDetailPage /></RouteErrorBoundary>} />
                 <Route path="/sponsor/accept" element={<RouteErrorBoundary><SponsorAcceptInvitePage /></RouteErrorBoundary>} />
                 <Route path="/speaker" element={<RouteErrorBoundary><SpeakerEventsPage /></RouteErrorBoundary>} />

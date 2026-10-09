@@ -16,7 +16,7 @@ import {
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useTheme } from "@/contexts/ThemeContext";
 import { AppHeaderBar } from "@/components/layout/AppHeaderBar";
-import { ArrowRight, CalendarDays, ChevronDown, ClipboardList, Compass, LogOut, Mic, Building2, Settings as SettingsIcon, Shield, Ticket, Users2 } from "lucide-react";
+import { ArrowRight, CalendarDays, ChevronDown, ClipboardList, Compass, Handshake, LogOut, Mic, Building2, Settings as SettingsIcon, Shield, Ticket, Users2 } from "lucide-react";
 
 /**
  * Centralized site header used across every public segment
@@ -251,6 +251,10 @@ export default function SiteHeader({
                     <Link to="/sponsor"><Building2 className="h-3.5 w-3.5 mr-2" /> Sponsor dashboard</Link>
                   </DropdownMenuItem>
                 )}
+                {/* Tracked links an organiser has shared with this account. */}
+                <DropdownMenuItem asChild>
+                  <Link to="/partner"><Handshake className="h-3.5 w-3.5 mr-2" /> Partner dashboard</Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link to={accountType === "attendee" ? "/u/me/settings" : "/dashboard/settings"}><SettingsIcon className="h-3.5 w-3.5 mr-2" /> Settings</Link>
                 </DropdownMenuItem>

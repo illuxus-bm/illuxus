@@ -84,6 +84,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { UtmLinkDialog } from "@/components/event/utm/UtmLinkDialog";
+import { UtmPartnersSection, partnerSharesKey, type ShareableLink } from "@/components/event/utm/UtmPartnersSection";
 import { utmLinkUrl, type UtmLinkDraft } from "@/components/event/utm/utm-link-url";
 import { UtmRegistrationsDialog, type UtmBreakdownKey } from "@/components/event/utm/UtmRegistrationsDialog";
 import {
@@ -527,7 +528,23 @@ export default function UtmAnalyticsPage({
   const handleLinkSaved = () => {
     void refetchLinks();
     void qc.invalidateQueries({ queryKey: ["utm-summary", eventId] });
+    void qc.invalidateQueries({ queryKey: partnerSharesKey(eventId) });
   };
+
+  // Every tracked link of the event — saved, clicked or registered through —
+  // that can be shared with a partner. "(direct)" is not a link.
+  const shareableLinks = useMemo<ShareableLink[]>(() => {
+    const map = new Map<string, ShareableLink>();
+    for (const l of savedLinks) {
+      map.set([l.utm_source, l.utm_medium, l.utm_campaign].join("\u0001"), { utm_source: l.utm_source, utm_medium: l.utm_medium, utm_campaign: l.utm_campaign, label: l.label });
+    }
+    for (const r of summaryRows) {
+      if (!r.utm_source || r.utm_source === DIRECT_SOURCE) continue;
+      const key = [r.utm_source, r.utm_medium, r.utm_campaign].join("\u0001");
+      if (!map.has(key)) map.set(key, { utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign });
+    }
+    return [...map.values()];
+  }, [savedLinks, summaryRows]);
 
   /* ── Leads in the selected period, grouped by link ── */
   const leads = useMemo<UtmLead[]>(() => {
@@ -1242,6 +1259,9 @@ export default function UtmAnalyticsPage({
           initial: { utm_source: link.utm_source, utm_medium: link.utm_medium, utm_campaign: link.utm_campaign, utm_content: link.utm_content, utm_term: link.utm_term, label: link.label },
         })}
       />
+
+      {/* ── Partners ── */}
+      <UtmPartnersSection eventId={eventId} links={shareableLinks} />
 
       <UtmLinkDialog
         open={linkDialog.open}

@@ -8,7 +8,7 @@
  * Request body (JSON):
  * {
  *   event_id:         string   — an event UUID, or one of the system kinds
- *                                "invite" | "support" | "application"
+ *                                "invite" | "support" | "application" | "partner-invite"
  *   email_id:         string   — event_emails row id (event mode), else any id
  *   subject:          string
  *   body:             string   — plain text
@@ -26,6 +26,8 @@
  *                     removal notices).
  *   • "support"     — any signed-in user; always delivered to the support
  *                     inbox, whatever recipients were supplied.
+ *   • "partner-invite" — an organiser of `target_event_id`, only to
+ *                     addresses that event's tracked links are shared with.
  *   • "application" — a user who has a speaker/sponsor application for
  *                     `target_event_id`; delivered to that event's organisers,
  *                     resolved here.
@@ -114,6 +116,28 @@ async function resolveInvite(admin: SupabaseClient, userId: string, requested: s
   return { ok: true, recipients, skipped: requested.length - recipients.length, fromName: "Illuxus" };
 }
 
+/** Partner-invite mode: only to partners one of the caller's event links is shared with. */
+async function resolvePartnerInvite(
+  admin: SupabaseClient, userId: string, targetEventId: unknown, requested: string[],
+): Promise<Resolution> {
+  if (!isUuid(targetEventId)) return { ok: false, status: 400, error: "target_event_id is required" };
+  if (requested.length > MAX_INVITE_RECIPIENTS) {
+    return { ok: false, status: 400, error: `At most ${MAX_INVITE_RECIPIENTS} recipients per invitation email` };
+  }
+  const event = await getManagedEvent(admin, userId, targetEventId);
+  if (!event) return { ok: false, status: 403, error: "You don't have access to this event" };
+
+  const { data: shares } = await admin
+    .from("utm_partner_access").select("invited_email")
+    .eq("event_id", targetEventId).neq("status", "revoked").in("invited_email", requested);
+  const invited = new Set((shares ?? []).map((s) => (s as { invited_email: string }).invited_email.trim().toLowerCase()));
+  const recipients = requested.filter((e) => invited.has(e));
+  if (recipients.length === 0) {
+    return { ok: false, status: 403, error: "Recipient has no shared link for this event" };
+  }
+  return { ok: true, recipients, skipped: requested.length - recipients.length, fromName: "Illuxus" };
+}
+
 /** Application mode: to the organisers of an event the caller has applied to. */
 async function resolveApplication(admin: SupabaseClient, userId: string, targetEventId: unknown): Promise<Resolution> {
   if (!isUuid(targetEventId)) return { ok: false, status: 400, error: "target_event_id is required" };
@@ -194,6 +218,9 @@ Deno.serve(async (req) => {
     } else if (eventId === "invite") {
       if (requested.length === 0) return json({ error: "recipient_emails must be a non-empty array" }, 400);
       resolved = await resolveInvite(admin, caller.id, requested);
+    } else if (eventId === "partner-invite") {
+      if (requested.length === 0) return json({ error: "recipient_emails must be a non-empty array" }, 400);
+      resolved = await resolvePartnerInvite(admin, caller.id, payload?.target_event_id, requested);
     } else if (eventId === "application") {
       resolved = await resolveApplication(admin, caller.id, payload?.target_event_id);
     } else if (isUuid(eventId)) {

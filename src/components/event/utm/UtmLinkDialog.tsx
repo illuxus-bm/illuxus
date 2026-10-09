@@ -7,15 +7,22 @@
  * of an existing link creates a new link — clicks and registrations already
  * recorded stay attributed to the original combination.
  *
+ * The link can be shared with a partner (agency) in the same step: enter
+ * their email and they get a dashboard limited to this link's participants.
+ *
  * Phones get a full-screen sheet with the actions pinned at the bottom;
  * larger screens get a centred dialog.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, ExternalLink, Link2 } from "lucide-react";
+import { Check, Copy, ExternalLink, Handshake, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { utmLinkUrl, type UtmLinkDraft } from "./utm-link-url";
 import { UTM_MEDIUMS, UTM_SOURCES, withExtras } from "./utm-options";
+import { useAuth } from "@/contexts/AuthContext";
+import { DEFAULT_PARTNER_PERMISSIONS, type PartnerPermissions } from "@/lib/utm/partner-access";
+import { PartnerEmailField, PartnerPermissionFields, isEmail } from "./UtmPartnerFields";
+import { shareAndInvite } from "./UtmPartnersSection";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -54,10 +61,13 @@ export function UtmLinkDialog({
   const [v, setV] = useState<UtmLinkDraft>(initial ?? defaults);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const { user } = useAuth();
+  const [partnerEmail, setPartnerEmail] = useState("");
+  const [partnerPerms, setPartnerPerms] = useState<PartnerPermissions>(DEFAULT_PARTNER_PERMISSIONS);
 
   // Reset the form each time the dialog opens (new link or a different edit).
   useEffect(() => {
-    if (open) { setV(initial ?? defaults); setCopied(false); }
+    if (open) { setV(initial ?? defaults); setCopied(false); setPartnerEmail(""); setPartnerPerms(DEFAULT_PARTNER_PERMISSIONS); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initial]);
 
@@ -72,8 +82,13 @@ export function UtmLinkDialog({
   const sources = withExtras(UTM_SOURCES, [v.utm_source]);
   const mediums = withExtras(UTM_MEDIUMS, [v.utm_medium]);
 
+  const sharing = partnerEmail.trim() !== "";
   const saveAndCopy = async () => {
     if (!valid || saving) return;
+    if (sharing && !isEmail(partnerEmail)) {
+      toast.error("Check the partner's email", { description: "Enter a valid email address, or clear the field to save without sharing." });
+      return;
+    }
     setSaving(true);
     const { error } = await supabase
       .from("utm_links" as never)
@@ -87,11 +102,21 @@ export function UtmLinkDialog({
         label: v.label?.trim() || null,
         url,
       } as never, { onConflict: "event_id,utm_source,utm_medium,utm_campaign" });
-    setSaving(false);
     if (error) {
+      setSaving(false);
       toast.error("Couldn't save the link", { description: error.message });
       return;
     }
+    // Share only once the link exists — the database checks the link belongs to the event.
+    if (sharing) {
+      const shared = await shareAndInvite(
+        eventId,
+        { utm_source: v.utm_source.trim(), utm_medium: v.utm_medium.trim(), utm_campaign: v.utm_campaign.trim() },
+        partnerEmail, partnerPerms, user?.email,
+      );
+      if (shared) setPartnerEmail("");
+    }
+    setSaving(false);
     onSaved?.();
     try {
       await navigator.clipboard.writeText(url);
@@ -165,13 +190,26 @@ export function UtmLinkDialog({
               </Button>
             </div>
           </div>
+
+          <div className="rounded-lg border border-border p-3 space-y-3 mb-1">
+            <div className="flex items-center gap-2">
+              <Handshake className="h-4 w-4 text-primary shrink-0" />
+              <p className="text-[13px] font-medium leading-tight">Share with a partner</p>
+            </div>
+            <p className="text-[12px] sm:text-[11px] text-muted-foreground -mt-1">
+              Working with an agency? Add their email and they get a Partner dashboard for this link only —
+              they never see other links or the rest of your event.
+            </p>
+            <PartnerEmailField value={partnerEmail} onChange={setPartnerEmail} id="link-partner-email" optional />
+            {sharing && <PartnerPermissionFields value={partnerPerms} onChange={setPartnerPerms} idPrefix="link" />}
+          </div>
         </div>
 
         <div className="shrink-0 border-t border-border sm:border-0 bg-background px-4 sm:px-6 py-3 sm:py-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
           <Button variant="outline" className="h-11 sm:h-9 text-[14px] sm:text-[13px]" onClick={() => onOpenChange(false)}>Close</Button>
           <Button onClick={saveAndCopy} disabled={!valid || saving} className="h-11 sm:h-9 gap-1.5 text-[14px] sm:text-[13px]">
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-            {saving ? "Saving…" : copied ? "Copied" : editing ? "Save changes & copy" : "Save & copy link"}
+            {saving ? "Saving…" : sharing ? "Save, copy & share" : copied ? "Copied" : editing ? "Save changes & copy" : "Save & copy link"}
           </Button>
         </div>
       </DialogContent>

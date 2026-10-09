@@ -5,7 +5,7 @@ import { useNavigate, Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  LogOut, Bell, ChevronDown, ClipboardList, Search, Ticket,
+  LogOut, Bell, ChevronDown, ClipboardList, Handshake, Search, Ticket,
   CalendarDays, Settings as SettingsIcon, Shield, X, Users2,
 } from "lucide-react";
 import {
@@ -417,6 +417,10 @@ export function DashboardTopBar(_props: DashboardTopBarProps = {}) {
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link to="/u/me/communities"><Users2 className="h-3.5 w-3.5 mr-2" /> My communities</Link>
+              </DropdownMenuItem>
+              {/* Tracked links an organiser has shared with this account. */}
+              <DropdownMenuItem asChild>
+                <Link to="/partner"><Handshake className="h-3.5 w-3.5 mr-2" /> Partner dashboard</Link>
               </DropdownMenuItem>
               {/* Super admin entry — dedicated, distinct from the organiser
                   dashboard so admins who also run events can switch panels
