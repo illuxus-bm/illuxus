@@ -51,6 +51,7 @@ import {
   type SpeakerInput,
   type SponsorInput,
   type SponsorshipCell,
+  type SponsorshipPackagesContent,
   type SponsorshipPackagesInput,
   type VenueLogisticsInput,
 } from "../brochure-sections";
@@ -2119,13 +2120,73 @@ const PACKAGES_MAX_TIERS = 4;
  */
 function buildSponsorshipPackagesPages(ctx: SeedContext): BrochurePage[] {
   const { input, accent, fontFamily } = ctx;
-  if (!input.sponsorshipPackages) return [];
-  const content = buildSponsorshipPackagesContent(input.sponsorshipPackages);
-  if (!content) return [];
+  const packages = input.sponsorshipPackages;
+  if (!packages) return [];
+  const sets = [packages, ...(packages.more ?? [])]
+    .map((set) => buildSponsorshipPackagesContent(set))
+    .filter((content): content is SponsorshipPackagesContent => content !== null);
+  const extras = (packages.additional ?? []).filter((row) => row.label.trim() || row.price.trim());
+  const footnote = packages.footnote?.trim() ?? "";
+  const pages: BrochurePage[] = [];
 
+  /** Small print centred at `y`; returns the y below it. */
+  const pushFootnote = (push: Push, y: number): number => {
+    if (!footnote) return y;
+    const height = estimateTextHeightMm(footnote, PACKAGES_W * WRAP_FIT, PACKAGES_PT, 1.3, true);
+    push(
+      newTextElement({
+        x: PACKAGES_X, y, width: PACKAGES_W, height, content: footnote, fontFamily, fontSize: PACKAGES_PT,
+        fontWeight: "bold", color: INK, align: "center", lineHeight: 1.3,
+      })
+    );
+    return y + height;
+  };
+
+  const EXTRA_ROW_H = 9.6;
+  const EXTRA_TITLE_H = 12;
+  const extrasHeight = extras.length > 0 ? EXTRA_TITLE_H + extras.length * EXTRA_ROW_H : 0;
+  /** The "Additional Partnerships" price list, starting at `y`; returns the y below it. */
+  const pushExtras = (push: Push, y: number): number => {
+    if (extras.length === 0) return y;
+    push(
+      newTextElement({
+        x: PACKAGES_X + 1.5, y, width: PACKAGES_W, height: EXTRA_TITLE_H - 3,
+        content: packages.additionalTitle?.trim() || "Additional Partnerships",
+        fontFamily, fontSize: 15, fontWeight: "bold", color: INK, align: "left", lineHeight: 1.1, verticalAlign: "middle",
+      })
+    );
+    let rowY = y + EXTRA_TITLE_H;
+    const priceW = 52;
+    for (const row of extras) {
+      const pushRow = cardPusher(push);
+      pushRow(rect(PACKAGES_X, rowY, PACKAGES_W, EXTRA_ROW_H, "#ffffff", 0, PACKAGES_GRID, 0.2));
+      pushRow(rect(PACKAGES_X + PACKAGES_W - priceW - 0.1, rowY, 0.2, EXTRA_ROW_H, PACKAGES_GRID));
+      pushRow(
+        newTextElement({
+          x: PACKAGES_X + PACKAGES_PAD, y: rowY, width: PACKAGES_W - priceW - PACKAGES_PAD * 2, height: EXTRA_ROW_H,
+          content: row.label, fontFamily, fontSize: PACKAGES_PT, fontWeight: "normal", color: INK, align: "left",
+          lineHeight: PACKAGES_LH, verticalAlign: "middle",
+        })
+      );
+      pushRow(
+        newTextElement({
+          x: PACKAGES_X + PACKAGES_W - priceW + PACKAGES_PAD, y: rowY, width: priceW - PACKAGES_PAD * 2, height: EXTRA_ROW_H,
+          content: row.price, fontFamily, fontSize: PACKAGES_PT, fontWeight: "bold", color: INK, align: "left",
+          lineHeight: PACKAGES_LH, verticalAlign: "middle",
+        })
+      );
+      rowY += EXTRA_ROW_H;
+    }
+    return rowY;
+  };
+
+  let extrasPlaced = false;
+  const footnoteHeight = footnote ? estimateTextHeightMm(footnote, PACKAGES_W * WRAP_FIT, PACKAGES_PT, 1.3, true) + 6 : 0;
+
+  sets.forEach((content, setIndex) => {
+  const lastSet = setIndex === sets.length - 1;
   const tablesNeeded = Math.ceil(content.tiers.length / PACKAGES_MAX_TIERS);
   const tiersPerTable = Math.ceil(content.tiers.length / tablesNeeded);
-  const pages: BrochurePage[] = [];
   const lineH = ptToMm(PACKAGES_PT) * PACKAGES_LH;
   const hasCost = content.tiers.some((t) => t.price);
 
@@ -2274,8 +2335,30 @@ function buildSponsorshipPackagesPages(ctx: SeedContext): BrochurePage[] {
         });
       }
 
+      // Under the finished table: the extras (after the very last table
+      // only) and the small print, when there is room for them.
+      const tableDone = rowIndex >= content.benefits.length;
+      const lastTable = tierStart + tiersPerTable >= content.tiers.length;
+      let tailY = y + (hasCost && tableDone ? costH : 0);
+      const wantsExtras = tableDone && lastTable && lastSet && extras.length > 0;
+      if (wantsExtras && tailY + 7 + extrasHeight + footnoteHeight <= PAGE_H - 8) {
+        tailY = pushExtras(push, tailY + 7);
+        extrasPlaced = true;
+      }
+      if (tableDone && tailY + footnoteHeight <= PAGE_H - 6) pushFootnote(push, tailY + 5);
+
       pages.push(makePage("sponsorship", "#ffffff", elements));
     }
+  }
+  });
+
+  // No room under the last table (or no table at all): the extras get a page
+  // of their own under the same header.
+  if (extras.length > 0 && !extrasPlaced) {
+    const { elements, push } = createPusher();
+    const top = pushPackagesHeader(push, ctx, packages.additionalTitle?.trim() || "Additional Partnerships");
+    pushFootnote(push, pushExtras(push, top) + 5);
+    pages.push(makePage("sponsorship", "#ffffff", elements));
   }
   return pages;
 }

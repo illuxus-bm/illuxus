@@ -421,6 +421,20 @@ export interface EventPageConfig {
          *  renders as an em-dash. */
         cells?: Array<string | boolean | null>;
       }>;
+      /** Further comparison tables, each on its own page with its own
+       *  title — e.g. "Standard Partnership Packages" after the premium
+       *  one. Same shape as the three fields above. */
+      sponsorshipPackagesMore?: Array<{
+        title?: string;
+        benefits?: string[];
+        tiers?: Array<{ name: string; price?: string; cells?: Array<string | boolean | null> }>;
+      }>;
+      /** Heading of the short price list under the last table. */
+      additionalPartnershipsTitle?: string;
+      /** One-line extras with a price, e.g. "Associate Partner — INR 80,000/-". */
+      additionalPartnerships?: Array<{ label: string; price: string }>;
+      /** Small print under each table. */
+      sponsorshipFootnote?: string;
     };
     /**
      * Serialized WYSIWYG editor document. When present, the editor

@@ -1,26 +1,18 @@
 /**
- * BrochureSectionPage — dashboard entry point for the Brochure_Generator.
+ * BrochureSectionPage — dashboard entry point for the event brochure.
  *
- * Mirrors `CreativesSection.tsx`'s role (fetch this event's `page_config` so
- * the configurator dialog can read/write `brochurePrefs` + theme colors,
- * then mount the dialog), simplified since this spec introduces no
- * persisted Brochure_Library (Requirements decision #6 in requirements.md —
- * generation is an on-demand configure → preview → download flow, nothing
- * is saved to Storage or a new table). The page itself is just a launcher
- * card; all the actual configuration UI lives in
- * `BrochureConfiguratorDialog`.
+ * Fetches the event's `page_config` (where the brochure's settings and any
+ * customised layout are kept) and shows the brochure studio in the page:
+ * settings, live preview, and the button into the full editor.
  */
 import { useEffect, useState } from "react";
-import { FileText } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
-import { Button } from "@/components/ui/button";
 import { normalizeConfig, type EventPageConfig } from "@/components/event/page-form/types";
 import BrochureConfiguratorDialog from "@/components/event/brochure/BrochureConfiguratorDialog";
 
 export default function BrochureSectionPage({ eventId }: { eventId: string }) {
   const [config, setConfig] = useState<EventPageConfig | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -67,28 +59,13 @@ export default function BrochureSectionPage({ eventId }: { eventId: string }) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col items-center justify-center gap-3 py-16 border border-dashed border-border rounded-lg text-center">
-        <FileText className="h-8 w-8 text-muted-foreground" />
-        <div>
-          <p className="text-[13px] font-medium">Generate an event brochure</p>
-          <p className="text-[12px] text-muted-foreground max-w-md">
-            Auto-populate a branded, multi-page PDF from this event's agenda, speakers, sponsors, and
-            venue details — pick a theme, reorder sections, and download.
-          </p>
-        </div>
-        <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1.5">
-          <FileText className="h-3.5 w-3.5" />
-          Generate brochure
-        </Button>
-      </div>
-      <BrochureConfiguratorDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        eventId={eventId}
-        eventPageConfig={config}
-        onConfigChange={handleConfigChange}
-      />
-    </div>
+    <BrochureConfiguratorDialog
+      inline
+      open
+      onOpenChange={() => undefined}
+      eventId={eventId}
+      eventPageConfig={config}
+      onConfigChange={handleConfigChange}
+    />
   );
 }

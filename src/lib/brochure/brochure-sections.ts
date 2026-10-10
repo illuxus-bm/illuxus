@@ -666,6 +666,14 @@ export interface SponsorshipPackagesInput {
    *  Space", ...] — the left-most column of the table. */
   benefits?: string[] | null;
   tiers?: SponsorshipTierInput[] | null;
+  /** Further tables, each starting a page of its own under its own title. */
+  more?: Array<Pick<SponsorshipPackagesInput, "title" | "benefits" | "tiers">> | null;
+  /** Heading of the price list under the last table. */
+  additionalTitle?: string | null;
+  /** One-line extras with a price, listed under the last table. */
+  additional?: Array<{ label: string; price: string }> | null;
+  /** Small print centred under each table. */
+  footnote?: string | null;
 }
 
 /** One resolved comparison-table cell. `"check"`/`"cross"` render as
