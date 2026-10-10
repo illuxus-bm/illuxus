@@ -135,6 +135,8 @@ export function deriveContent(event: StudioEventSource, config: EventPageConfig)
     speakersLabel: "Guest speakers",
     sponsorLabel: "Sponsor",
     linkLabel: "Register online",
+    sideLabel: "Speaker",
+    scriptLine: isVirtual ? "Join online" : "A Session",
   };
 }
 
@@ -165,7 +167,7 @@ export async function loadStudioData(eventId: string): Promise<StudioData> {
 
   const [speakersRes, sponsorsRes, orgRes] = await Promise.all([
     speakerIds.length > 0
-      ? supabase.from("speakers").select("id, name, title, designation, company, photo_url").in("id", speakerIds)
+      ? supabase.from("speakers").select("id, name, title, designation, company, photo_url, bio").in("id", speakerIds)
       : Promise.resolve({ data: [] }),
     sponsorIds.length > 0
       ? supabase.from("sponsors").select("id, name, logo_url").in("id", sponsorIds)
@@ -181,6 +183,7 @@ export async function loadStudioData(eventId: string): Promise<StudioData> {
     name: row.name,
     role: [row.designation || row.title, row.company].filter(Boolean).join(", "),
     photoUrl: row.photo_url || null,
+    bio: row.bio || "",
   }));
   const sponsors: StudioSponsor[] = inOrder(sponsorIds, sponsorsRes.data).map((row) => ({
     id: row.id,

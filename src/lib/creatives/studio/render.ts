@@ -7,7 +7,7 @@
  */
 import { ensureWebFont } from "@/lib/webfonts";
 
-import type { Fill, IconNode, ImageNode, Radius, Scene, SceneNode, TextNode } from "./scene";
+import { nodeBounds, type Fill, type IconNode, type ImageNode, type Radius, type Scene, type SceneNode, type TextNode } from "./scene";
 
 // ─── Text layout ─────────────────────────────────────────────────────────────
 
@@ -203,6 +203,9 @@ function drawImage(ctx: Ctx, node: ImageNode, image: HTMLImageElement | null): v
   }
 
   clip();
+  // Not every browser implements canvas filters; where it is missing the
+  // photo simply stays in colour.
+  if (node.grayscale && "filter" in ctx) ctx.filter = "grayscale(1)";
   const scale = Math.max(node.w / iw, node.h / ih);
   const w = iw * scale;
   const h = ih * scale;
@@ -245,6 +248,18 @@ function drawIcon(ctx: Ctx, node: IconNode): void {
       ctx.lineWidth = 2.6;
       ctx.stroke(new Path2D("M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"));
       ctx.stroke(new Path2D("M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"));
+      break;
+    case "calendar":
+      ctx.lineWidth = 2;
+      ctx.stroke(new Path2D("M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM3 10h18M8 3v4M16 3v4"));
+      ctx.fill(new Path2D("M7 13h2.4v2.4H7zM10.8 13h2.4v2.4h-2.4zM14.6 13H17v2.4h-2.4zM7 16.6h2.4V19H7zM10.8 16.6h2.4V19h-2.4z"));
+      break;
+    case "clock":
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(12, 12, 9, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.stroke(new Path2D("M12 7v5l3.2 2"));
       break;
     case "chevron-up":
       ctx.lineWidth = 1.1;
@@ -330,6 +345,13 @@ export function drawScene(ctx: Ctx, scene: Scene, images: Map<string, HTMLImageE
   ctx.restore();
   for (const node of scene.nodes) {
     ctx.save();
+    if (node.opacity !== undefined) ctx.globalAlpha = Math.max(0, Math.min(1, node.opacity));
+    if (node.rotation) {
+      const b = nodeBounds(node);
+      ctx.translate(b.x + b.w / 2, b.y + b.h / 2);
+      ctx.rotate((node.rotation * Math.PI) / 180);
+      ctx.translate(-(b.x + b.w / 2), -(b.y + b.h / 2));
+    }
     drawNode(ctx, node, images);
     ctx.restore();
   }
@@ -387,13 +409,25 @@ export function sceneImageUrls(scene: Scene): string[] {
  * so each family is always requested with every weight any template uses —
  * otherwise whichever scene rendered first would decide which weights exist.
  */
-const FAMILY_WEIGHTS: Record<string, number[]> = {
-  Barlow: [400, 500, 600, 700, 800],
-  Merriweather: [400, 700, 900],
+export const FAMILY_WEIGHTS: Record<string, number[]> = {
   Poppins: [300, 400, 500, 600, 700, 800],
-  "Great Vibes": [400],
+  Barlow: [400, 500, 600, 700, 800],
+  Inter: [400, 500, 600, 700, 800],
+  Montserrat: [400, 500, 600, 700, 800],
+  "Archivo": [400, 500, 600, 700, 800],
+  Oswald: [400, 500, 600, 700],
   Anton: [400],
+  "Bebas Neue": [400],
+  Merriweather: [400, 700, 900],
+  "Playfair Display": [400, 500, 600, 700, 800, 900],
+  "Great Vibes": [400],
+  "Dancing Script": [400, 500, 600, 700],
 };
+
+/** Loads `family` so the editor can measure and draw with it. */
+export function ensureStudioFont(family: string): Promise<void> {
+  return ensureWebFont(family, FAMILY_WEIGHTS[family] ?? [400, 700]);
+}
 
 async function loadSceneAssets(scene: Scene): Promise<Map<string, HTMLImageElement | null>> {
   const urls = sceneImageUrls(scene);
@@ -429,4 +463,24 @@ export async function renderSceneToBlob(scene: Scene): Promise<Blob> {
       else reject(new Error("PNG export failed"));
     }, "image/png");
   });
+}
+
+let measureContext: CanvasRenderingContext2D | null = null;
+
+/**
+ * Height `node`'s text needs at its preferred size, wrapped to its width.
+ * Used by the editor to grow a text box when the organiser types more or
+ * picks a larger size — the box otherwise shrinks the type to fit. Falls back
+ * to the node's current height when there is no canvas to measure with.
+ */
+export function measureTextHeight(node: TextNode): number {
+  if (typeof document === "undefined") return node.h;
+  measureContext ??= document.createElement("canvas").getContext("2d");
+  const ctx = measureContext;
+  if (!ctx) return node.h;
+  const spaced = ctx as Ctx & { letterSpacing?: string };
+  if ("letterSpacing" in spaced) spaced.letterSpacing = `${node.letterSpacing ?? 0}px`;
+  ctx.font = fontString(node, node.size);
+  const { lines } = wrapLines(node.text, node.w, (text) => ctx.measureText(text).width);
+  return Math.ceil(lines.length * node.size * (node.lineHeight ?? 1.2));
 }

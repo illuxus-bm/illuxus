@@ -43,6 +43,8 @@ const CONTENT: StudioContent = {
   speakersLabel: "Guest speakers",
   sponsorLabel: "Sponsor",
   linkLabel: "Register online",
+  sideLabel: "Speaker",
+  scriptLine: "A Session",
 };
 
 const SPEAKERS: StudioSpeaker[] = ["Maela Agatha", "John Levis", "Dave Light", "Mary Ann", "Heart Joy", "Sixth Person"].map(
@@ -69,7 +71,11 @@ function build(templateId: string, formatIndex: number, overrides: Partial<Build
 const texts = (scene: Scene): string[] => scene.nodes.flatMap((n) => (n.kind === "text" ? [n.text] : []));
 
 describe("every template in every format", () => {
-  const cases = STUDIO_TEMPLATES.flatMap((template) => STUDIO_FORMATS.map((format, index) => ({ template, format, index })));
+  const cases = STUDIO_TEMPLATES.flatMap((template) =>
+    STUDIO_FORMATS.map((format, index) => ({ template, format, index })).filter(
+      ({ format }) => !template.formats || template.formats.includes(format.id),
+    ),
+  );
 
   it.each(cases)("$template.name / $format.label keeps text and images on the canvas", ({ template, format, index }) => {
     for (const overrides of [{}, { speakers: [], sponsors: [] }, { content: EMPTY_CONTENT, speakers: [], sponsors: [], coverImageUrl: null }]) {
@@ -80,10 +86,18 @@ describe("every template in every format", () => {
         if (node.kind !== "text" && node.kind !== "image") continue;
         expect(node.w).toBeGreaterThan(0);
         expect(node.h).toBeGreaterThan(0);
-        expect(node.x).toBeGreaterThanOrEqual(-0.5);
-        expect(node.y).toBeGreaterThanOrEqual(-0.5);
-        expect(node.x + node.w).toBeLessThanOrEqual(format.width + 0.5);
-        expect(node.y + node.h).toBeLessThanOrEqual(format.height + 0.5);
+        // A quarter turn swaps the box's sides about its centre; the slight
+        // tilts some designs use are allowed their overhang.
+        const turned = Math.abs(node.rotation ?? 0) === 90;
+        if (node.rotation && !turned) continue;
+        const w = turned ? node.h : node.w;
+        const h = turned ? node.w : node.h;
+        const x = node.x + (node.w - w) / 2;
+        const y = node.y + (node.h - h) / 2;
+        expect(x).toBeGreaterThanOrEqual(-0.5);
+        expect(y).toBeGreaterThanOrEqual(-0.5);
+        expect(x + w).toBeLessThanOrEqual(format.width + 0.5);
+        expect(y + h).toBeLessThanOrEqual(format.height + 0.5);
       }
     }
   });
@@ -124,6 +138,32 @@ describe("event data on the creative", () => {
     expect(sceneImageUrls(scene)).toHaveLength(5);
     const names = scene.nodes.filter((n) => n.kind === "text" && n.role === "speaker-name");
     expect(names.map((n) => (n as TextNode).text)).toEqual(["MAELA AGATHA", "JOHN LEVIS", "DAVE LIGHT", "MARY ANN", "HEART JOY"]);
+  });
+
+  it("gives every node a unique id that survives a field being cleared", () => {
+    for (const template of STUDIO_TEMPLATES) {
+      const full = build(template.id, 0);
+      const ids = full.nodes.map((n) => n.id);
+      expect(ids.every(Boolean)).toBe(true);
+      expect(new Set(ids).size).toBe(ids.length);
+      // Clearing one line must not renumber the nodes after it, or the
+      // organiser's edits would land on the wrong elements.
+      const cleared = build(template.id, 0, { content: { ...CONTENT, subtitle: "", phone: "" } });
+      const byId = new Map(full.nodes.map((n) => [n.id, n.kind]));
+      for (const node of cleared.nodes) expect(byId.get(node.id)).toBe(node.kind);
+    }
+  });
+
+  it("the grid designs feature up to six speakers", () => {
+    for (const id of ["studio-training", "studio-workshop"]) {
+      expect(sceneImageUrls(build(id, 0, { speakers: SPEAKERS }))).toHaveLength(6);
+    }
+  });
+
+  it("Speaker Card uses the speaker's own bio when there is one", () => {
+    const withBio = build("studio-speaker-card", 0, { speakers: [{ ...SPEAKERS[0], bio: "Fifteen years in product." }] });
+    expect(texts(withBio)).toContain("Fifteen years in product.");
+    expect(texts(build("studio-speaker-card", 0))).toContain(CONTENT.description);
   });
 
   it("Webinar lists at most four talking points", () => {

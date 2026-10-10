@@ -40,6 +40,8 @@ const CONTENT: StudioContent = {
   speakersLabel: "Guest speakers",
   sponsorLabel: "Sponsor",
   linkLabel: "Register online",
+  sideLabel: "Speaker #1",
+  scriptLine: "A Session",
 };
 
 const NAMES: Array<[string, string]> = [
@@ -56,6 +58,7 @@ export default function CreativesPreviewPage() {
     id: `speaker-${i}`,
     name,
     role,
+    bio: "Maela has spent fifteen years building and leading product teams, and now advises founders on turning early traction into durable businesses.",
     photoUrl: withPhotos ? `https://picsum.photos/id/${[1027, 1005, 177, 64, 823][i]}/800/1000` : null,
   }));
 
@@ -65,7 +68,7 @@ export default function CreativesPreviewPage() {
         <section key={template.id} className="mb-12" data-template={template.id}>
           <h2 className="mb-4 text-lg font-semibold text-neutral-800">{template.name}</h2>
           <div className="flex flex-wrap items-start gap-6">
-            {STUDIO_FORMATS.map((format) => {
+            {STUDIO_FORMATS.filter((f) => !template.formats || template.formats.includes(f.id)).map((format) => {
               const input: BuildInput = {
                 format,
                 content: CONTENT,

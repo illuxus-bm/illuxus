@@ -25,7 +25,18 @@ export interface Shadow {
   offsetY: number;
 }
 
-interface Box {
+/** Fields every node carries. */
+interface NodeBase {
+  /** Stable within a template + format, so the organiser's edits can be
+   *  stored as patches against it (see `edits.ts`). */
+  id?: string;
+  /** 0–1; omitted means fully opaque. */
+  opacity?: number;
+  /** Degrees clockwise about the node's centre. */
+  rotation?: number;
+}
+
+interface Box extends NodeBase {
   x: number;
   y: number;
   w: number;
@@ -41,7 +52,7 @@ export interface RectNode extends Box {
   shadow?: Shadow;
 }
 
-export interface EllipseNode {
+export interface EllipseNode extends NodeBase {
   kind: "ellipse";
   cx: number;
   cy: number;
@@ -62,6 +73,8 @@ export interface ImageNode extends Box {
   /** Vertical anchor for `cover` crops, 0 (top) – 1 (bottom). Portraits keep
    *  the face in frame with a value near the top. */
   focalY?: number;
+  /** Draw the photo in black and white. */
+  grayscale?: boolean;
   /** What a missing photo is replaced with. Omit to draw nothing. */
   fallback?: { initials: string; background: Fill; color: string; family: string };
   /** What the node shows, for tests and the editor ("speaker-photo", "logo"…). */
@@ -88,7 +101,7 @@ export interface TextNode extends Box {
   role?: string;
 }
 
-export interface LineNode {
+export interface LineNode extends NodeBase {
   kind: "line";
   x1: number;
   y1: number;
@@ -102,7 +115,7 @@ export interface LineNode {
   round?: boolean;
 }
 
-export interface DotsNode {
+export interface DotsNode extends NodeBase {
   kind: "dots";
   x: number;
   y: number;
@@ -113,9 +126,9 @@ export interface DotsNode {
   color: string;
 }
 
-export type IconName = "pin" | "check-circle" | "play-circle" | "link" | "chevron-up";
+export type IconName = "pin" | "check-circle" | "play-circle" | "link" | "chevron-up" | "calendar" | "clock";
 
-export interface IconNode {
+export interface IconNode extends NodeBase {
   kind: "icon";
   name: IconName;
   x: number;
@@ -133,6 +146,40 @@ export interface Scene {
   height: number;
   background: string;
   nodes: SceneNode[];
+}
+
+// ─── Geometry ────────────────────────────────────────────────────────────────
+
+export interface Bounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** The axis-aligned box a node occupies before rotation. Pure. */
+export function nodeBounds(node: SceneNode): Bounds {
+  switch (node.kind) {
+    case "ellipse":
+      return { x: node.cx - node.rx, y: node.cy - node.ry, w: node.rx * 2, h: node.ry * 2 };
+    case "line": {
+      const pad = node.width / 2;
+      const x = Math.min(node.x1, node.x2) - pad;
+      const y = Math.min(node.y1, node.y2) - pad;
+      return { x, y, w: Math.abs(node.x2 - node.x1) + pad * 2, h: Math.abs(node.y2 - node.y1) + pad * 2 };
+    }
+    case "dots":
+      return {
+        x: node.x - node.r,
+        y: node.y - node.r,
+        w: (node.cols - 1) * node.gap + node.r * 2,
+        h: (node.rows - 1) * node.gap + node.r * 2,
+      };
+    case "icon":
+      return { x: node.x, y: node.y, w: node.size, h: node.size };
+    default:
+      return { x: node.x, y: node.y, w: node.w, h: node.h };
+  }
 }
 
 // ─── Colour helpers ──────────────────────────────────────────────────────────
