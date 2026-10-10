@@ -14,6 +14,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { BROCHURE_THEMES, DEFAULT_SECTION_LAYOUT } from "../brochure-templates";
 import { generateBrochurePdf, type BrochureGenerationInput } from "../brochure-pdf";
 
+// Looked up by id, not position: Poster Bold is now first in the registry
+// (it is the default theme), and these cases cover the Classic layout.
+const classicTheme = BROCHURE_THEMES.find((t) => t.id === "classic-editorial")!;
+
 describe("generateBrochurePdf (smoke)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -74,7 +78,7 @@ describe("generateBrochurePdf (smoke)", () => {
         parkingNotes: "Parking available on-site.",
         transitNotes: "Nearest station: Central.",
       },
-      theme: BROCHURE_THEMES[0],
+      theme: classicTheme,
       eventTheme: {},
       sectionLayout: DEFAULT_SECTION_LAYOUT,
     };
@@ -103,10 +107,7 @@ describe("generateBrochurePdf (smoke)", () => {
       speakers: [],
       sponsors: [],
       venueLogistics: {},
-      // Only one theme ships now (Classic). Was `BROCHURE_THEMES[1]`
-      // when the registry had five themes; kept using index 0 after
-      // the trim.
-      theme: BROCHURE_THEMES[0],
+      theme: classicTheme,
       eventTheme: {},
       sectionLayout: DEFAULT_SECTION_LAYOUT,
       onProgress,
@@ -138,7 +139,7 @@ describe("generateBrochurePdf (smoke)", () => {
       speakers: [],
       sponsors: [],
       venueLogistics: {},
-      theme: BROCHURE_THEMES[0],
+      theme: classicTheme,
       eventTheme: {},
       sectionLayout: [
         { id: "cover", included: true },

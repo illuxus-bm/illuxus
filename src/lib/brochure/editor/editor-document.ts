@@ -334,6 +334,11 @@ export function newTextElement(seed: GeometrySeed & Partial<Omit<TextElement, ke
     color: seed.color ?? "#000000",
     align: seed.align ?? "left",
     lineHeight: seed.lineHeight ?? 1.2,
+    // Optional styling is copied only when given, so an element built without
+    // it stays byte-identical to what this constructor always produced.
+    ...(seed.letterSpacing !== undefined ? { letterSpacing: seed.letterSpacing } : {}),
+    ...(seed.textTransform !== undefined ? { textTransform: seed.textTransform } : {}),
+    ...(seed.verticalAlign !== undefined ? { verticalAlign: seed.verticalAlign } : {}),
   };
 }
 
@@ -345,6 +350,8 @@ export function newImageElement(seed: GeometrySeed & Partial<Omit<ImageElement, 
     src: seed.src ?? "",
     fit: seed.fit ?? "cover",
     cornerRadius: seed.cornerRadius ?? 0,
+    ...(seed.focalX !== undefined ? { focalX: seed.focalX } : {}),
+    ...(seed.focalY !== undefined ? { focalY: seed.focalY } : {}),
   };
 }
 
@@ -373,6 +380,8 @@ export function newPillElement(seed: GeometrySeed & Partial<Omit<PillElement, ke
     fillColor: seed.fillColor ?? "#ffffff",
     strokeColor: seed.strokeColor ?? "transparent",
     strokeWidth: seed.strokeWidth ?? 0,
+    ...(seed.fontWeight !== undefined ? { fontWeight: seed.fontWeight } : {}),
+    ...(seed.letterSpacing !== undefined ? { letterSpacing: seed.letterSpacing } : {}),
   };
 }
 
