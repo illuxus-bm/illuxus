@@ -3,20 +3,19 @@
  * provided values (title, date, venue, cover image URL, organizer
  * branding, abstract text, learning outcomes, etc.) and returns a
  * fully-populated `Brochure_Document` — every text block, image, and
- * shape from the corresponding jsPDF theme is expressed as a separate
- * editable element the organizer can select and modify.
+ * shape is a separate editable element the organizer can select and
+ * modify.
  *
- * Two themes ship today:
- *  - Poster_Bold (DevOps Connect look): white cover + orange accents +
- *    editorial content pages.
- *  - Corporate_Bold (Finance 6.0 look): deep-purple gradient cover +
- *    black content pages with purple accents.
+ * The Poster_Bold pages (cover, abstract, why-sponsor, agenda, pricing,
+ * partnership packages) follow the DevOps Connect reference brochure:
+ * an off-white cover with a huge stacked title, full-bleed accent and
+ * black content pages, and the event lockup (logo + stacked title) at
+ * the top of every inner page. Card heights, wraps and headline sizes
+ * come from `editor-text-metrics.ts` rather than fixed guesses, so the
+ * layout holds for copy of any length.
  *
- * Both seeds emit the full multi-page brochure: cover, abstract (with
- * learning outcomes grid), why-sponsor / focus-of-summit numbered
- * list, and a pricing / speakers-summary closing page. Adding /
- * removing pages once loaded is a no-op on this file — the editor
- * mutates its own document tree.
+ * The Classic pages (table agenda, speakers, sponsors, venue) keep
+ * their plain heading-and-underline look.
  */
 import {
   A4_HEIGHT_MM,
@@ -32,6 +31,14 @@ import {
   type BrochureElement,
   type BrochurePage,
 } from "./editor-document";
+import {
+  balanceLines,
+  estimateTextHeightMm,
+  estimateTextWidthMm,
+  fitFontSizePt,
+  wrapTextLines,
+} from "./editor-text-metrics";
+import { ptToMm } from "./editor-units";
 import type { BrochureSectionId, BrochureTheme } from "../brochure-templates";
 import {
   buildAgendaSectionContent,
@@ -43,6 +50,7 @@ import {
   type AgendaSessionInput,
   type SpeakerInput,
   type SponsorInput,
+  type SponsorshipCell,
   type SponsorshipPackagesInput,
   type VenueLogisticsInput,
 } from "../brochure-sections";
@@ -101,13 +109,19 @@ import {
  *       "Reset to template" for organizers who want the grouped layout; the
  *       alternative is to marquee-select a card and press Ctrl+G, which
  *       produces the same result without discarding their edits.
+ *   4 — Poster_Bold rebuilt against the reference PDFs. Text is measured
+ *       instead of guessed, so cards fit their copy and nothing is clipped
+ *       or runs off the page; the cover title is sized to its space; every
+ *       inner page carries the event lockup; the agenda shows start times,
+ *       three bar styles and bulleted descriptions, balances its two columns
+ *       and continues onto further pages; pricing cards, the registration
+ *       form, the why-sponsor table and the partnership packages table all
+ *       follow the reference. Speakers and partnership packages paginate.
  */
-export const EDITOR_SEED_VERSION = 3;
+export const EDITOR_SEED_VERSION = 4;
 
-/** Input for template pre-loading. Mirrors the essential fields the
- *  jsPDF renderer already receives via `BrochureGenerationInput`, so a
- *  seed built from the SAME source data produces a document matching
- *  the live preview page-for-page (Requirement: editor/preview parity).
+/** Input for template pre-loading. Everything the seed needs to lay out a
+ *  brochure, already resolved by the caller (colors, font, date text).
  */
 export interface TemplateSeedInput {
   eventTitle: string;
@@ -115,20 +129,25 @@ export interface TemplateSeedInput {
   dateText: string;
   /** Human-readable venue name / city. */
   venueText: string;
-  /** Cover hero image URL. Empty string is allowed; the canvas shows a
-   *  placeholder gray box until the organizer picks one. */
+  /** Cover hero image URL. Empty string is allowed; the cover then shows
+   *  only the accent band where the image would sit. */
   coverImageUrl: string;
-  /** Small logo shown near the top of the cover. */
+  /** Event logo / icon. Sits above the title on the cover and beside the
+   *  event name at the top of every inner page. */
   logoUrl?: string;
+  /** Variant of the logo for the accent-colored and black pages, where a
+   *  logo in the accent color would disappear. Falls back to `logoUrl`. */
+  logoOnDarkUrl?: string;
   /** Producer/organizer logo shown at the cover bottom-left. */
   organizerLogoUrl?: string;
-  /** Optional tagline pill (e.g. "The Next Big Shift"). */
+  /** Subtitle under the cover title (e.g. "Redefining DevOps in the Era
+   *  of Intelligent Automation"). */
   coverTagline?: string;
   /** Optional short chip labels (e.g. ["Autonomy", "Governance", "Capital"]). */
   coverPills?: string[];
   /** Optional cover-footer social icons — same shape as
-   *  `posterContent.socialLinks` on the jsPDF pipeline. Rendered as a
-   *  right-aligned row of colored circles on the cover's footer band. */
+   *  `posterContent.socialLinks`. Rendered as a right-aligned row of brand
+   *  icons on the cover's footer band. */
   socialLinks?: Array<{
     platform: "linkedin" | "instagram" | "facebook" | "twitter";
     url?: string;
@@ -142,11 +161,10 @@ export interface TemplateSeedInput {
   /** Optional numbered value-prop items for the "Why Sponsor?" or
    *  "Focus of the Summit" page. */
   numberedItems?: string[];
-  /** Pricing cards for the Poster_Bold Pricing page — same source as
-   *  `brochure-pdf.ts`'s `posterContent.pricing.cards`. */
+  /** Pricing cards for the Poster_Bold Pricing page. */
   pricingCards?: Array<{ title: string; subtitle?: string | null; price: string; discounts?: string[] | null }>;
   /** Whether to render the blank registration-form grid below the
-   *  pricing cards — same source as `posterContent.pricing.showRegistrationForm`. */
+   *  pricing cards. */
   showRegistrationForm?: boolean;
   /** Resolved accent color (theme default with any organizer override
    *  already applied) — callers MUST pass `resolveBrochureTheme(...)`'s
@@ -159,35 +177,27 @@ export interface TemplateSeedInput {
    *  already applied) — same precedence note as `accentColor`. */
   fontFamily?: string;
 
-  // ── Content pages (Classic seed) ────────────────────────────────
+  // ── Event data pages ────────────────────────────────────────────
   //
-  // The Classic seed matches the jsPDF preview's section layout
-  // (Cover + Agenda + Speakers + Sponsors + Venue) rather than the
-  // legacy Poster_Bold seed's abstract/why-sponsor pages, so the
-  // editor and the preview show the SAME set of pages. When any of
-  // these arrays is absent or empty, the corresponding page is
-  // skipped entirely (the organizer can still add it manually via
-  // the "add page" control in the pages bar).
+  // When any of these is absent or empty, the corresponding page is
+  // skipped entirely (the organizer can still add it manually via the
+  // "add page" control in the pages bar).
   sessions?: AgendaSessionInput[];
   speakers?: SpeakerInput[];
   sponsors?: SponsorInput[];
   venueLogistics?: VenueLogisticsInput;
-  /** Benefits × tiers sponsorship comparison table — same source as the
-   *  jsPDF preview's `sponsorshipPackages` section content. Omitted
+  /** Benefits × tiers sponsorship comparison table. Omitted
    *  (undefined/null benefits or tiers) means the page is skipped. */
   sponsorshipPackages?: SponsorshipPackagesInput;
 }
 
-// ─── Unified section-driven seed (editor/preview parity) ────────────────────
+// ─── Unified section-driven seed ────────────────────────────────────────────
 //
-// `seedBrochureDocument` is the ONE seed entry point used by
-// `BrochureEditorDialog`. It walks the SAME resolved section id list the
-// jsPDF preview walks (`resolveSectionLayout(sectionLayout)` in the
-// caller), building one editable page per section — so the editor can
-// never show a different set of pages than the preview/export, and a
-// section that yields no content is skipped exactly like
-// `buildBrochureDocument` skips it. Unsupported section ids
-// (`whoShouldAttend`, `solutionProviders`, `highlights` — Corporate_Bold-
+// `seedBrochureDocument` is the ONE seed entry point. It walks the resolved
+// section id list (`resolveSectionLayout(sectionLayout)` in the caller),
+// building the editable page — or pages, for sections that paginate — for
+// each one. A section that yields no content is skipped. Unsupported section
+// ids (`whoShouldAttend`, `solutionProviders`, `highlights` — Corporate_Bold-
 // only pages with no editor page builder yet) are skipped rather than
 // throwing, so a legacy Corporate_Bold config still opens with whatever
 // subset of its pages the editor can represent.
@@ -198,19 +208,15 @@ export function seedBrochureDocument(
 ): BrochureDocument {
   const accent = input.accentColor ?? theme.defaultColors.accentColor;
   const fontFamily = input.fontFamily ?? theme.defaultColors.fontFamily ?? "Poppins";
-  // Cover title color is genuinely theme-dependent (poster-bold's cover
-  // page is always white-bg/black-text; corporate-bold's is always a
-  // dark gradient/white-text) — mirrors `drawPosterBoldCover` /
-  // `drawCorporateBoldCover`'s hardcoded choices exactly.
   const isCorporateBold = theme.id === "corporate-bold";
-  const coverTitleColor = input.titleColor ?? (isCorporateBold ? "#ffffff" : "#0a1429");
+  const coverTitleColor = input.titleColor ?? (isCorporateBold ? "#ffffff" : INK);
+  const ctx: SeedContext = { input, theme, accent, fontFamily };
 
   const doc = newDocument(input.eventTitle || "Untitled Brochure");
   const pages: BrochurePage[] = [];
 
   for (const id of resolvedSectionIds) {
-    const page = buildEditorPageForSection(id, input, theme, accent, fontFamily, coverTitleColor, isCorporateBold);
-    if (page) pages.push(page);
+    pages.push(...buildEditorPagesForSection(id, ctx, coverTitleColor, isCorporateBold));
   }
 
   return {
@@ -220,50 +226,105 @@ export function seedBrochureDocument(
   };
 }
 
-function buildEditorPageForSection(
+/** Everything a page builder needs, resolved once per seed. */
+interface SeedContext {
+  input: TemplateSeedInput;
+  theme: BrochureTheme;
+  accent: string;
+  fontFamily: string;
+}
+
+function buildEditorPagesForSection(
   id: BrochureSectionId,
-  input: TemplateSeedInput,
-  theme: BrochureTheme,
-  accent: string,
-  fontFamily: string,
+  ctx: SeedContext,
   coverTitleColor: string,
   isCorporateBold: boolean
-): BrochurePage | null {
+): BrochurePage[] {
+  const { input, theme } = ctx;
+  const one = (page: BrochurePage | null): BrochurePage[] => (page ? [page] : []);
   switch (id) {
     case "cover":
-      return isCorporateBold
-        ? buildCorporateBoldCoverPage(input, accent, coverTitleColor, fontFamily)
-        : buildPosterBoldCoverPage(input, accent, coverTitleColor, fontFamily);
+      return one(
+        isCorporateBold ? buildCorporateBoldCoverPage(ctx, coverTitleColor) : buildPosterBoldCoverPage(ctx, coverTitleColor)
+      );
     case "agenda":
       return theme.agenda.layout === "timetable-cards"
-        ? buildAgendaTimetableCardsPage(input, theme, accent, fontFamily)
-        : buildAgendaPage(input, theme, accent, fontFamily);
+        ? buildAgendaTimetablePages(ctx)
+        : buildAgendaTablePages(ctx);
     case "speakers":
-      return buildSpeakersPage(input.speakers ?? [], theme, accent, fontFamily);
+      return buildSpeakersPages(ctx);
     case "sponsors":
-      return buildSponsorsPage(input.sponsors ?? [], theme, accent, fontFamily);
+      return one(buildSponsorsPage(ctx));
     case "venueLogistics":
-      return buildVenuePage(input.venueLogistics, theme, accent, fontFamily);
+      return one(buildVenuePage(ctx));
     case "abstract":
-      return buildAbstractPage(input, accent, fontFamily);
+      return buildAbstractPages(ctx);
     case "whySponsor":
-      return buildNumberedListPage(input.numberedItems ?? [], "Why Sponsor?", accent, fontFamily, input.logoUrl);
+      return one(buildNumberedListPage(ctx, input.numberedItems ?? [], "Why Sponsor?"));
     case "pricing":
-      return buildPricingPage(input, accent, fontFamily);
+      return one(buildPricingPage(ctx));
     case "focusOfSummit":
-      return buildNumberedListPage(input.numberedItems ?? [], "Focus of the Summit", accent, fontFamily, input.logoUrl);
+      return one(buildNumberedListPage(ctx, input.numberedItems ?? [], "Focus of the Summit"));
     case "sponsorshipPackages":
-      return buildSponsorshipPackagesPage(input.sponsorshipPackages, theme, accent, fontFamily);
-    // Corporate_Bold-only sections with no editor page builder yet —
-    // skip rather than throw, matching the jsPDF renderer's own
-    // null-content skip contract.
+      return buildSponsorshipPackagesPages(ctx);
+    // Corporate_Bold-only sections with no editor page builder yet.
     case "whoShouldAttend":
     case "solutionProviders":
     case "highlights":
-      return null;
+      return [];
     default:
-      return null;
+      return [];
   }
+}
+
+// ─── Shared page plumbing ──────────────────────────────────────────────────
+
+const PAGE_W = A4_WIDTH_MM;
+const PAGE_H = A4_HEIGHT_MM;
+/** Off-white page stock used by the Poster_Bold light pages and cards. */
+const PAPER = "#f6f6f6";
+const INK = "#000000";
+/** Thin accent strip along the bottom edge of the non-accent poster pages. */
+const BOTTOM_BAR_H = 2;
+/** Lowest y content may reach on a page that carries the bottom bar. */
+const CONTENT_BOTTOM = PAGE_H - BOTTOM_BAR_H - 6;
+/**
+ * Share of a text box's width the seed plans to fill. The estimate uses
+ * exact Poppins metrics, so this only has to absorb rounding — but it must
+ * stay below 1: planning one line too few makes the next block overlap,
+ * while one too many only leaves a small gap.
+ */
+const WRAP_FIT = 0.99;
+/** Height of the lockup block at the top of an inner page. */
+const LOCKUP_H = 18;
+const LOCKUP_TOP = 24;
+
+type Push = (el: BrochureElement) => void;
+
+/** A page's element list plus the `push` that keeps z-order = paint order. */
+function createPusher(): { elements: BrochureElement[]; push: Push } {
+  const elements: BrochureElement[] = [];
+  return {
+    elements,
+    push: (el) => {
+      el.zIndex = elements.length;
+      elements.push(el);
+    },
+  };
+}
+
+function makePage(kind: string, background: string, elements: BrochureElement[]): BrochurePage {
+  return {
+    id: `page-${kind}-${Math.random().toString(36).slice(2, 8)}`,
+    width: PAGE_W,
+    height: PAGE_H,
+    background: { type: "solid", color: background },
+    elements,
+  };
+}
+
+function isPosterTheme(theme: BrochureTheme): boolean {
+  return theme.id === "poster-bold";
 }
 
 /**
@@ -288,9 +349,7 @@ function buildEditorPageForSection(
  *
  * Neither renderer reads `groupId`; both keep drawing a flat element list.
  */
-function cardPusher(
-  push: (el: BrochureElement) => void,
-): (el: BrochureElement) => void {
+function cardPusher(push: Push): Push {
   const groupId = generateId("group");
   return (el: BrochureElement) => {
     el.groupId = groupId;
@@ -298,562 +357,609 @@ function cardPusher(
   };
 }
 
-// ─── Cover page builders ───────────────────────────────────────────────────
+function rect(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  fill: string,
+  cornerRadius = 0,
+  stroke = "transparent",
+  strokeWidth = 0
+): BrochureElement {
+  return newShapeElement({ x, y, width, height, shape: "rect", fill, stroke, strokeWidth, cornerRadius });
+}
 
-function buildPosterBoldCoverPage(
-  input: TemplateSeedInput,
-  accent: string,
-  titleColor: string,
-  fontFamily: string
-): BrochurePage {
-  // Mirrors `drawPosterBoldCover` in `brochure-pdf.ts` structurally so
-  // the editor and the live preview render the same cover layout for
-  // every event, then lets the organizer pick / move / recolor any
-  // single element like Canva. Every text, chip, image, and shape is
-  // an independent editable element — no "locked" background image
-  // that hides the composition.
-  const pageW = A4_WIDTH_MM;
-  const pageH = A4_HEIGHT_MM;
-  const marginX = 20;
-  const elements: BrochureElement[] = [];
-  const push = (el: BrochureElement) => {
-    el.zIndex = elements.length;
-    elements.push(el);
-  };
+function bottomBar(accent: string): BrochureElement {
+  return rect(0, PAGE_H - BOTTOM_BAR_H, PAGE_W, BOTTOM_BAR_H, accent);
+}
 
-  // ── 1. Top wordmark (centered) ────────────────────────────────────
-  let cursorY = 18;
-  if (input.logoUrl) {
-    const logoW = 60;
-    const logoH = 18;
-    push(
+// ─── Inline icons ──────────────────────────────────────────────────────────
+//
+// The document model has no icon element, and the canvas has no icon font.
+// Small SVGs carried as `data:` URLs in ordinary image elements give real
+// glyphs (brand marks, the pricing arrow, check / cross marks) that render
+// identically on the canvas and in the export, stay crisp at 300 DPI, and
+// can still be swapped or deleted like any other image.
+
+function svgIcon(body: string): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 48 48">${body}</svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+const STROKE = `fill="none" stroke-linecap="round" stroke-linejoin="round"`;
+
+function arrowIcon(accent: string): string {
+  return svgIcon(
+    `<circle cx="24" cy="24" r="24" fill="${accent}"/><path d="M13 24h21M26 15l9 9-9 9" ${STROKE} stroke="#fff" stroke-width="3.2"/>`
+  );
+}
+
+const CHECK_BULLET_ICON = svgIcon(
+  `<circle cx="24" cy="24" r="24" fill="#000"/><path d="M13.5 24.5l7.2 7.2L34.5 17" ${STROKE} stroke="#fff" stroke-width="4.6"/>`
+);
+const CROSS_ICON = svgIcon(`<path d="M9 9l30 30M39 9L9 39" ${STROKE} stroke="#e5202e" stroke-width="5.5"/>`);
+const TICK_ICON = svgIcon(`<path d="M7 26l11 11L41 12" ${STROKE} stroke="#16a34a" stroke-width="5.5"/>`);
+
+const SOCIAL_ICONS: Record<string, string> = {
+  linkedin: svgIcon(
+    `<circle cx="24" cy="24" r="24" fill="#0a66c2"/><g fill="#fff"><circle cx="16.4" cy="15.6" r="2.7"/><rect x="14.1" y="20.6" width="4.6" height="13.4"/><path d="M22 20.6h4.4v1.9c.8-1.4 2.5-2.3 4.5-2.3 3.9 0 5.1 2.4 5.1 6.1V34h-4.6v-6.8c0-1.7-.5-2.8-2.1-2.8-1.7 0-2.7 1.2-2.7 3V34H22z"/></g>`
+  ),
+  instagram: svgIcon(
+    `<defs><linearGradient id="ig" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#feda75"/><stop offset=".3" stop-color="#fa7e1e"/><stop offset=".55" stop-color="#d62976"/><stop offset=".8" stop-color="#962fbf"/><stop offset="1" stop-color="#4f5bd5"/></linearGradient></defs><circle cx="24" cy="24" r="24" fill="url(#ig)"/><g fill="none" stroke="#fff" stroke-width="2.6"><rect x="13.3" y="13.3" width="21.4" height="21.4" rx="6.2"/><circle cx="24" cy="24" r="5.1"/></g><circle cx="30.3" cy="17.7" r="1.5" fill="#fff"/>`
+  ),
+  facebook: svgIcon(
+    `<circle cx="24" cy="24" r="24" fill="#1877f2"/><path fill="#fff" d="M26.4 39V26h4.3l.7-5.1h-5v-3.2c0-1.5.4-2.5 2.5-2.5h2.7v-4.5c-.5-.1-2-.2-3.9-.2-3.8 0-6.4 2.3-6.4 6.6v3.8H17V26h4.3v13z"/>`
+  ),
+  twitter: svgIcon(
+    `<circle cx="24" cy="24" r="24" fill="#1da1f2"/><path fill="#fff" transform="translate(11 11.6) scale(1.08)" d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/>`
+  ),
+};
+
+// ─── Event lockup (top of every inner Poster_Bold page) ────────────────────
+
+/**
+ * Pushes the event lockup — the logo with the event name stacked beside it —
+ * centered at the top of an inner page, as on every page of the reference
+ * brochure. The name's first line is set larger than its second
+ * ("DevOps" over "Connect"); with no logo configured the name stands alone,
+ * so a page is never left without its masthead. Returns the lockup's
+ * bottom edge.
+ *
+ * `surface` picks the logo variant: accent-colored and black pages use
+ * `logoOnDarkUrl` when one is set.
+ */
+function pushLockup(push: Push, ctx: SeedContext, textColor: string, surface: "paper" | "color"): number {
+  const { input, fontFamily } = ctx;
+  const logoSrc = (surface === "color" ? input.logoOnDarkUrl : undefined) || input.logoUrl || "";
+  const lines = balanceLines(input.eventTitle.trim(), 2);
+  if (!logoSrc && lines.length === 0) return LOCKUP_TOP;
+
+  let primaryPt = lines.length > 1 ? 30 : 26;
+  let secondaryPt = 19;
+  const widthAt = (p: number, s: number): number =>
+    Math.max(
+      lines[0] ? estimateTextWidthMm(lines[0], p, true) : 0,
+      lines[1] ? estimateTextWidthMm(lines[1], s, true) : 0
+    );
+  const maxTextW = 118;
+  const shrink = Math.min(1, maxTextW / Math.max(1, widthAt(primaryPt, secondaryPt)));
+  primaryPt *= shrink;
+  secondaryPt *= shrink;
+  const textW = lines.length > 0 ? widthAt(primaryPt, secondaryPt) + 2 : 0;
+
+  const logoW = logoSrc ? 30 : 0;
+  const gap = logoSrc && lines.length > 0 ? 4 : 0;
+  let x = (PAGE_W - (logoW + gap + textW)) / 2;
+  const pushPart = cardPusher(push);
+
+  if (logoSrc) {
+    pushPart(
       newImageElement({
-        x: pageW / 2 - logoW / 2,
-        y: cursorY,
+        x,
+        y: LOCKUP_TOP,
         width: logoW,
-        height: logoH,
-        src: input.logoUrl,
+        height: LOCKUP_H,
+        src: logoSrc,
         fit: "contain",
+        // Flush against the name rather than floating in the middle of its box.
+        focalX: lines.length > 0 ? 1 : 0.5,
       })
     );
-    cursorY += logoH + 4;
-  } else {
-    cursorY += 4;
+    x += logoW + gap;
   }
 
-  // ── 2. Huge two-line title ───────────────────────────────────────
-  const titleH = 40;
+  const primaryH = ptToMm(primaryPt);
+  const secondaryH = lines[1] ? ptToMm(secondaryPt) : 0;
+  let textY = LOCKUP_TOP + (LOCKUP_H - primaryH - secondaryH) / 2;
+  if (lines[0]) {
+    pushPart(
+      newTextElement({
+        x,
+        y: textY,
+        width: textW,
+        height: primaryH + 1,
+        content: lines[0],
+        fontFamily,
+        fontSize: primaryPt,
+        fontWeight: "bold",
+        color: textColor,
+        align: "left",
+        lineHeight: 1,
+      })
+    );
+    textY += primaryH;
+  }
+  if (lines[1]) {
+    pushPart(
+      newTextElement({
+        x,
+        y: textY,
+        width: textW,
+        height: secondaryH + 1,
+        content: lines[1],
+        fontFamily,
+        fontSize: secondaryPt,
+        fontWeight: "bold",
+        color: textColor,
+        align: "left",
+        lineHeight: 1,
+      })
+    );
+  }
+  return LOCKUP_TOP + LOCKUP_H;
+}
+
+/**
+ * Largest headline that fits `maxWidthMm` × `maxHeightMm`, trying one to
+ * three balanced lines and keeping whichever allows the biggest type (fewer
+ * lines win a tie). This is what lets a two-word title fill the cover the way
+ * the reference does while a six-word one still fits.
+ */
+function fitHeadline(
+  title: string,
+  maxWidthMm: number,
+  maxHeightMm: number,
+  maxPt: number,
+  minPt: number,
+  lineHeight: number
+): { lines: string[]; fontSize: number } {
+  let best: { lines: string[]; fontSize: number } | null = null;
+  for (let n = 1; n <= 3; n += 1) {
+    const lines = balanceLines(title, n);
+    if (lines.length < n) break;
+    const byWidth = fitFontSizePt(lines, maxWidthMm, maxPt, minPt, true);
+    const byHeight = maxHeightMm / (n * ptToMm(1) * lineHeight);
+    const fontSize = Math.max(minPt, Math.min(byWidth, byHeight));
+    if (!best || fontSize > best.fontSize + 0.5) best = { lines, fontSize };
+  }
+  return best ?? { lines: [title], fontSize: minPt };
+}
+
+// ─── Cover page builders ───────────────────────────────────────────────────
+
+/**
+ * The cover, after the reference brochure: logo, a huge stacked title, the
+ * subtitle, outlined date and venue pills, then the hero image standing on
+ * an accent block, with a white rounded footer card carrying the organizer
+ * credit and social icons, and a thin accent strip along the bottom edge.
+ *
+ * Every piece is its own editable element. Nothing below the title has a
+ * fixed position — each block is placed under the one before it, so a long
+ * title or a missing subtitle just moves the rest.
+ */
+function buildPosterBoldCoverPage(ctx: SeedContext, titleColor: string): BrochurePage {
+  const { input, accent, fontFamily, theme } = ctx;
+  const { elements, push } = createPusher();
+  const paper = isPosterTheme(theme) ? PAPER : "#ffffff";
+  const centerX = PAGE_W / 2;
+
+  // ── 1. Logo ───────────────────────────────────────────────────────
+  let cursorY = 18;
+  if (input.logoUrl) {
+    const logoW = 44;
+    const logoH = 19;
+    push(newImageElement({ x: centerX - logoW / 2, y: cursorY, width: logoW, height: logoH, src: input.logoUrl, fit: "contain" }));
+    cursorY += logoH + 5;
+  } else {
+    cursorY += 12;
+  }
+
+  // ── 2. Title ──────────────────────────────────────────────────────
+  const titleLineHeight = 1;
+  const { lines: titleLines, fontSize: titleSize } = fitHeadline(
+    input.eventTitle.trim() || "Untitled Event",
+    172,
+    54,
+    74,
+    20,
+    titleLineHeight
+  );
+  const titleH = titleLines.length * ptToMm(titleSize) * titleLineHeight;
   push(
     newTextElement({
-      x: marginX,
+      // Wider than the fit width: the line breaks are explicit, and the slack
+      // keeps a font that runs wider than the estimate from re-wrapping.
+      x: 5,
       y: cursorY,
-      width: pageW - marginX * 2,
-      height: titleH,
-      content: input.eventTitle,
+      width: PAGE_W - 10,
+      height: titleH + 4,
+      content: titleLines.join("\n"),
       fontFamily,
-      fontSize: 40,
+      fontSize: titleSize,
       fontWeight: "bold",
       color: titleColor,
       align: "center",
-      lineHeight: 1.05,
+      lineHeight: titleLineHeight,
     })
   );
-  cursorY += titleH + 2;
+  cursorY += titleH + 5;
 
-  // ── 3. Subtitle (from coverTagline) ─────────────────────────────
+  // ── 3. Subtitle ───────────────────────────────────────────────────
   const subtitle = input.coverTagline?.trim();
   if (subtitle) {
+    const subW = 128;
+    const subPt = 18;
+    const subLH = 1.25;
+    const subH = estimateTextHeightMm(subtitle, subW * WRAP_FIT, subPt, subLH);
     push(
       newTextElement({
-        x: marginX,
+        x: centerX - subW / 2,
         y: cursorY,
-        width: pageW - marginX * 2,
-        height: 14,
+        width: subW,
+        height: subH + 3,
         content: subtitle,
         fontFamily,
-        fontSize: 14,
+        fontSize: subPt,
         fontWeight: "normal",
-        color: "#1e1e1e",
+        color: titleColor,
         align: "center",
-        lineHeight: 1.2,
+        lineHeight: subLH,
       })
     );
-    cursorY += 16;
+    cursorY += subH + 5;
   }
 
-  // ── 4. Two outlined pill-chips side by side (date | venue) ──────
-  //
-  // Both chips are centered as a horizontal row; venue chip is omitted
-  // when the event has no venue set. Chip widths are estimated from
-  // character count (~1.9mm per char at 10pt in a sans-serif with
-  // 6mm side-padding), close enough to visually match the jsPDF
-  // `doc.getTextWidth`-driven sizes without pulling a Canva-scale text
-  // measurement dependency into the editor seed.
-  const chipH = 10;
-  const chipPadX = 6;
-  const chipGap = 6;
-  const estimateChipWidth = (text: string): number =>
-    Math.max(28, text.length * 1.9 + chipPadX * 2);
-  const chips: string[] = [input.dateText];
-  if (input.venueText) chips.push(input.venueText);
-  const chipWidths = chips.map(estimateChipWidth);
-  const totalChipsW =
-    chipWidths.reduce((a, b) => a + b, 0) + chipGap * (chips.length - 1);
-  let chipX = pageW / 2 - totalChipsW / 2;
-  const chipY = cursorY + 2;
-  for (let i = 0; i < chips.length; i += 1) {
-    push(
-      newPillElement({
-        x: chipX,
-        y: chipY,
-        width: chipWidths[i],
-        height: chipH,
-        text: chips[i],
-        fontFamily,
-        fontSize: 10,
-        textColor: "#000000",
-        fillColor: "#ffffff",
-        strokeColor: "#000000",
-        strokeWidth: 0.4,
-      })
-    );
-    chipX += chipWidths[i] + chipGap;
+  // ── 4. Date + venue pills ─────────────────────────────────────────
+  const chips = [input.dateText, input.venueText].map((c) => c?.trim()).filter((c): c is string => !!c);
+  if (chips.length > 0) {
+    const chipH = 13.5;
+    const chipGap = 3;
+    const chipPadX = 7;
+    const maxRowW = PAGE_W - 24;
+    let chipPt = 15;
+    const rowWidth = (pt: number): number =>
+      chips.reduce((sum, c) => sum + estimateTextWidthMm(c, pt) + chipPadX * 2, 0) + chipGap * (chips.length - 1);
+    while (chipPt > 8 && rowWidth(chipPt) > maxRowW) chipPt -= 0.5;
+    let chipX = centerX - rowWidth(chipPt) / 2;
+    for (const chip of chips) {
+      const chipW = estimateTextWidthMm(chip, chipPt) + chipPadX * 2;
+      push(
+        newPillElement({
+          x: chipX,
+          y: cursorY,
+          width: chipW,
+          height: chipH,
+          text: chip,
+          fontFamily,
+          fontSize: chipPt,
+          textColor: titleColor,
+          fillColor: paper,
+          strokeColor: titleColor,
+          strokeWidth: 0.55,
+        })
+      );
+      chipX += chipW + chipGap;
+    }
+    cursorY += chipH + 4;
   }
-  cursorY = chipY + chipH + 6;
 
-  // ── 5. Hero image (fills middle of page) ────────────────────────
+  // ── 5. Accent block + hero image ──────────────────────────────────
   //
-  // Reserves the footer-band + shoulder height so the image doesn't
-  // spill into the "M" silhouette below.
-  const footerBandH = 30;
-  const shoulderH = 12;
-  const heroTop = cursorY;
-  const heroBottom = pageH - footerBandH - shoulderH * 0.4;
-  const heroH = Math.max(20, heroBottom - heroTop);
-  const hasCover =
-    typeof input.coverImageUrl === "string" && input.coverImageUrl.trim().length > 0;
-  if (hasCover) {
+  // One rounded accent block sits behind the image's lower edge. A cut-out
+  // hero (the reference's skyline) lets it show either side as two orange
+  // shoulders; a full-width photo simply covers it. Both the block and the
+  // image run on underneath the footer card, which hides their lower edges.
+  const footerTop = 236;
+  const blockTop = footerTop - 19;
+  const hasHero = !!input.coverImageUrl?.trim();
+  if (!hasHero) {
+    // Nothing to stand on the block: sit the title group in the middle of
+    // the open space rather than leaving it stranded at the top of the page.
+    const shift = Math.max(0, (blockTop - 16 - cursorY) / 2);
+    for (const el of elements) el.y += shift;
+  }
+  push(rect(5, blockTop, PAGE_W - 10, 40, accent, 10));
+  if (hasHero) {
+    const heroTop = Math.min(cursorY, footerTop - 40);
     push(
       newImageElement({
         x: 0,
         y: heroTop,
-        width: pageW,
-        height: heroH,
+        width: PAGE_W,
+        height: footerTop + 6 - heroTop,
         src: input.coverImageUrl,
         fit: "cover",
-        cornerRadius: 0,
-      })
-    );
-  } else {
-    // No banner uploaded — draw a placeholder image element so the
-    // organizer sees "click to add source" affordance right where the
-    // cover image will eventually live (same placeholder ImageBody
-    // renders on the Konva canvas for an empty `src`).
-    push(
-      newImageElement({
-        x: 0,
-        y: heroTop,
-        width: pageW,
-        height: heroH,
-        src: "",
-        fit: "cover",
-        cornerRadius: 0,
+        focalY: 0.35,
       })
     );
   }
 
-  // ── 6. Orange "shoulder" bleeds + white rounded footer ─────────
-  //
-  // Draws a full-width accent-colored strip beneath the hero, then a
-  // white rounded rectangle on top of it with a large corner radius
-  // so the accent color forms two visible "shoulders" flanking the
-  // rounded white notch — matching the reference brochure's cover
-  // silhouette. Kept as separate editable shape elements (not a single
-  // baked path) so the organizer can restyle the accent color, tune
-  // the radius, or delete the effect entirely.
-  const shoulderTop = pageH - footerBandH - shoulderH;
-  push(
-    newShapeElement({
-      x: 0,
-      y: shoulderTop,
-      width: pageW,
-      height: shoulderH + footerBandH,
-      shape: "rect",
-      fill: accent,
-      stroke: "transparent",
-      strokeWidth: 0,
-      cornerRadius: 0,
-    })
-  );
-  // White rounded overlay — corners curve UP into the accent band.
-  push(
-    newShapeElement({
-      x: 0,
-      y: pageH - footerBandH,
-      width: pageW,
-      height: footerBandH,
-      shape: "rect",
-      fill: "#ffffff",
-      stroke: "transparent",
-      strokeWidth: 0,
-      cornerRadius: shoulderH,
-    })
-  );
+  // ── 6. Footer card + bottom strip ─────────────────────────────────
+  push(rect(-0.4, footerTop, PAGE_W + 0.8, PAGE_H - footerTop + 20, "#ffffff", 12, accent, 0.4));
+  push(bottomBar(accent));
 
-  // ── 7. Footer content (left: producer credit + logo; right: social) ──
-  const footerTop = pageH - footerBandH;
-  push(
-    newTextElement({
-      x: marginX,
-      y: footerTop + 6,
-      width: 100,
-      height: 5,
-      content: "Conceptualized & Organized by",
-      fontFamily,
-      fontSize: 9,
-      fontWeight: "bold",
-      color: "#000000",
-      align: "left",
-      lineHeight: 1,
-    })
-  );
+  // ── 7. Footer content ─────────────────────────────────────────────
+  const marginX = 21;
   if (input.organizerLogoUrl) {
+    push(
+      newTextElement({
+        x: marginX,
+        y: footerTop + 19,
+        width: 90,
+        height: 5,
+        content: "Conceptualized & Organized by",
+        fontFamily,
+        fontSize: 9,
+        fontWeight: "bold",
+        color: INK,
+        align: "left",
+        lineHeight: 1,
+      })
+    );
     push(
       newImageElement({
         x: marginX,
-        y: footerTop + 12,
-        width: 44,
-        height: 16,
+        y: footerTop + 26,
+        width: 58,
+        height: 18,
         src: input.organizerLogoUrl,
         fit: "contain",
+        focalX: 0,
       })
     );
   }
-  push(
-    newTextElement({
-      x: pageW - marginX - 70,
-      y: footerTop + 6,
-      width: 70,
-      height: 5,
-      content: "Follow us on social media",
-      fontFamily,
-      fontSize: 9,
-      fontWeight: "bold",
-      color: "#000000",
-      align: "right",
-      lineHeight: 1,
-    })
-  );
 
-  // Social icons — one small colored circle per configured platform,
-  // matching `drawPosterBoldCover`'s icon-strip layout. Uses tinted
-  // circles as a stand-in for real platform glyphs since the editor's
-  // canvas has no icon-font pipeline; the organizer can replace any
-  // circle with a real logo image element via the palette.
-  const socials = input.socialLinks ?? [];
+  const socials = (input.socialLinks ?? []).filter((s) => SOCIAL_ICONS[s.platform]);
   if (socials.length > 0) {
-    const iconSize = 7;
-    const iconGap = 4;
-    const totalRowW = socials.length * iconSize + (socials.length - 1) * iconGap;
-    let iconX = pageW - marginX - totalRowW;
-    const iconY = footerTop + 14;
-    const brandColors: Record<string, string> = {
-      linkedin: "#0a66c2",
-      instagram: "#e1306c",
-      facebook: "#1877f2",
-      twitter: "#1da1f2",
-    };
-    const brandInitials: Record<string, string> = {
-      linkedin: "in",
-      instagram: "ig",
-      facebook: "f",
-      twitter: "x",
-    };
-    for (const s of socials) {
-      const bg = brandColors[s.platform] ?? "#000000";
-      push(
-        newShapeElement({
-          x: iconX,
-          y: iconY,
-          width: iconSize,
-          height: iconSize,
-          shape: "ellipse",
-          fill: bg,
-          stroke: "transparent",
-          strokeWidth: 0,
-          cornerRadius: 0,
-        })
-      );
-      push(
-        newTextElement({
-          x: iconX,
-          y: iconY + 1.5,
-          width: iconSize,
-          height: iconSize,
-          content: brandInitials[s.platform] ?? "•",
-          fontFamily,
-          fontSize: 5,
-          fontWeight: "bold",
-          color: "#ffffff",
-          align: "center",
-          lineHeight: 1,
-        })
-      );
-      iconX += iconSize + iconGap;
-    }
-  }
-
-  return {
-    id: `page-cover-${Math.random().toString(36).slice(2, 8)}`,
-    width: A4_WIDTH_MM,
-    height: A4_HEIGHT_MM,
-    background: { type: "solid", color: "#ffffff" },
-    elements,
-  };
-}
-
-function buildCorporateBoldCoverPage(
-  input: TemplateSeedInput,
-  accent: string,
-  titleColor: string,
-  fontFamily: string
-): BrochurePage {
-  // Reuse the Poster Bold cover geometry but with a gradient bg + white text.
-  const page = buildPosterBoldCoverPage(input, accent, titleColor, fontFamily);
-  page.background = { type: "gradient", top: "#1a0730", bottom: "#3a1152" };
-  return page;
-}
-
-// ─── Abstract page (used by both themes) ───────────────────────────────────
-
-function buildAbstractPage(input: TemplateSeedInput, accent: string, fontFamily: string): BrochurePage | null {
-  const abstractText = input.abstract?.trim();
-  const featuredText = input.featured?.trim();
-  const outcomes = (input.learningOutcomes ?? []).filter((s) => s && s.trim());
-  if (!abstractText && !featuredText && outcomes.length === 0) return null;
-
-  const pageW = A4_WIDTH_MM;
-  const elements: BrochureElement[] = [];
-  const push = (el: BrochureElement) => {
-    el.zIndex = elements.length;
-    elements.push(el);
-  };
-  const textColor = "#ffffff";
-
-  // Full-bleed accent-colored background, matching `drawAbstractSection`'s
-  // orange (or theme-accent) full-page fill.
-  const bgColor = accent;
-  void textColor;
-
-  // Centered wordmark logo at the top (matches `drawPosterHeaderLogo`
-  // called from `drawAbstractSection` in `brochure-pdf.ts`). When no
-  // logo is configured, the header area collapses so the ABSTRACT pill
-  // still starts near the top of the page.
-  let cursorY = 20;
-  if (input.logoUrl) {
-    const logoW = 50;
-    const logoH = 16;
-    push(
-      newImageElement({
-        x: pageW / 2 - logoW / 2,
-        y: cursorY,
-        width: logoW,
-        height: logoH,
-        src: input.logoUrl,
-        fit: "contain",
-      })
-    );
-    cursorY += logoH + 8;
-  } else {
-    cursorY += 4;
-  }
-
-  // Card renderer shared by the Abstract/Featured blocks — matches
-  // `drawAbstractSection`'s `drawCardBlock`: a black heading pill
-  // floating above a white body card.
-  const pushCardBlock = (heading: string, body: string) => {
-    const cardX = 20;
-    const cardW = pageW - 40;
-    const headingPillW = 42;
-    const headingPillH = 10;
-    // Heading pill + white card + body copy move and resize as one block.
-    const pushCard = cardPusher(push);
-    pushCard(
-      newPillElement({
-        x: pageW / 2 - headingPillW / 2,
-        y: cursorY,
-        width: headingPillW,
-        height: headingPillH,
-        text: heading,
-        fontFamily,
-        fontSize: 9,
-        textColor: "#ffffff",
-        fillColor: "#000000",
-        strokeColor: "transparent",
-        strokeWidth: 0,
-      })
-    );
-    const cardY = cursorY + headingPillH / 2;
-    const cardH = 46;
-    pushCard(
-      newShapeElement({
-        x: cardX,
-        y: cardY,
-        width: cardW,
-        height: cardH,
-        shape: "rect",
-        fill: "#ffffff",
-        stroke: "transparent",
-        strokeWidth: 0,
-        cornerRadius: 6,
-      })
-    );
-    pushCard(
-      newTextElement({
-        x: cardX + 8,
-        y: cardY + headingPillH / 2 + 6,
-        width: cardW - 16,
-        height: cardH - headingPillH / 2 - 10,
-        content: body,
-        fontFamily,
-        fontSize: 10.5,
-        fontWeight: "normal",
-        color: "#000000",
-        align: "center",
-        lineHeight: 1.35,
-      })
-    );
-    cursorY = cardY + cardH + 8;
-  };
-
-  if (abstractText) pushCardBlock("ABSTRACT", abstractText);
-  if (featuredText) pushCardBlock("Featured", featuredText);
-
-  // Learning outcomes grid — two-column dark rounded chips.
-  if (outcomes.length > 0) {
+    const iconSize = 8;
+    const iconGap = 2;
+    const rowW = socials.length * iconSize + (socials.length - 1) * iconGap;
+    const rowRight = PAGE_W - marginX;
+    const captionW = 50;
+    const rowCenter = rowRight - Math.max(rowW, 36) / 2;
     push(
       newTextElement({
-        x: 20,
-        y: cursorY,
-        width: pageW - 40,
-        height: 10,
-        content: "LEARNING OUTCOMES",
+        x: rowCenter - captionW / 2,
+        y: footerTop + 29,
+        width: captionW,
+        height: 4,
+        content: "Follow us on social media",
         fontFamily,
-        fontSize: 16,
+        fontSize: 7.5,
         fontWeight: "bold",
-        color: "#000000",
+        color: INK,
         align: "center",
         lineHeight: 1,
       })
     );
-    const gridTop = cursorY + 12;
-    const cols = 2;
-    const gap = 4;
-    const chipW = (pageW - 40 - gap * (cols - 1)) / cols;
-    const chipH = 18;
-    for (let i = 0; i < Math.min(outcomes.length, 6); i += 1) {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const x = 20 + col * (chipW + gap);
-      const y = gridTop + row * (chipH + gap);
-      // Chip = black panel + its label, grouped so dragging one moves both.
+    let iconX = rowCenter - rowW / 2;
+    for (const s of socials) {
+      push(newImageElement({ x: iconX, y: footerTop + 35, width: iconSize, height: iconSize, src: SOCIAL_ICONS[s.platform], fit: "contain" }));
+      iconX += iconSize + iconGap;
+    }
+  }
+
+  return makePage("cover", paper, elements);
+}
+
+function buildCorporateBoldCoverPage(ctx: SeedContext, titleColor: string): BrochurePage {
+  // Reuse the Poster Bold cover geometry but with a gradient bg + white text.
+  const page = buildPosterBoldCoverPage(ctx, titleColor);
+  page.background = { type: "gradient", top: "#1a0730", bottom: "#3a1152" };
+  return page;
+}
+
+// ─── Abstract page ─────────────────────────────────────────────────────────
+
+/**
+ * Abstract page: accent background, lockup, then the "ABSTRACT" and
+ * "Featured" cards (a black label tab overlapping the top edge of an
+ * off-white card) and the two-column grid of black learning-outcome tiles.
+ *
+ * Each card is as tall as its copy. If the whole page would run past the
+ * bottom edge the body size steps down until it fits; copy too long even at
+ * the smallest readable size carries the remaining blocks onto another page
+ * rather than spilling off this one. Returns no pages when all three are
+ * empty.
+ */
+function buildAbstractPages(ctx: SeedContext): BrochurePage[] {
+  const { input, accent, fontFamily } = ctx;
+  const abstractText = input.abstract?.trim();
+  const featuredText = input.featured?.trim();
+  const outcomes = (input.learningOutcomes ?? []).map((s) => s?.trim()).filter((s): s is string => !!s).slice(0, 6);
+  if (!abstractText && !featuredText && outcomes.length === 0) return [];
+
+  const pages: BrochurePage[] = [];
+  let { elements, push } = createPusher();
+  const lockupBottom = pushLockup(push, ctx, INK, "color");
+  const nextPage = (): void => {
+    pages.push(makePage("abstract", accent, elements));
+    ({ elements, push } = createPusher());
+    pushLockup(push, ctx, INK, "color");
+  };
+
+  const cardX = 12;
+  const cardW = PAGE_W - cardX * 2;
+  const cardPadX = 8.5;
+  const bodyW = cardW - cardPadX * 2;
+  const bodyLH = 1.2;
+  const labelW = 56;
+  const labelH = 13;
+  const cardPadTop = labelH / 2 + 6.5;
+  const cardPadBottom = 8;
+  const cardGap = 4.5;
+  const headingGap = 7;
+  const blocks = [
+    { label: "ABSTRACT", body: abstractText },
+    { label: "Featured", body: featuredText },
+  ].filter((b): b is { label: string; body: string } => !!b.body);
+
+  const chipCols = 2;
+  const chipX = 21;
+  const chipGap = 3.5;
+  const chipW = (PAGE_W - chipX * 2 - chipGap) / chipCols;
+  const chipH = 20.5;
+  const chipRows = Math.ceil(outcomes.length / chipCols);
+  // Heading (10) + gap (5) + the tile grid.
+  const outcomesH = outcomes.length > 0 ? 15 + chipRows * chipH + (chipRows - 1) * chipGap : 0;
+
+  const firstLabelTop = lockupBottom + 13;
+  const bodyHeight = (body: string, pt: number): number => estimateTextHeightMm(body, bodyW * WRAP_FIT, pt, bodyLH);
+  const pageBottom = PAGE_H - 9;
+  let bodyPt = 18;
+  const neededAt = (pt: number): number =>
+    blocks.reduce((sum, b) => sum + labelH / 2 + cardPadTop + bodyHeight(b.body, pt) + cardPadBottom + cardGap, 0) +
+    (outcomes.length > 0 ? headingGap - cardGap + outcomesH : 0);
+  while (bodyPt > 11 && firstLabelTop + neededAt(bodyPt) > pageBottom) bodyPt -= 0.5;
+
+  let cursorY = firstLabelTop;
+  for (const block of blocks) {
+    const bodyH = bodyHeight(block.body, bodyPt);
+    const cardH = cardPadTop + bodyH + cardPadBottom;
+    if (cursorY > firstLabelTop && cursorY + labelH / 2 + cardH > pageBottom) {
+      nextPage();
+      cursorY = firstLabelTop;
+    }
+    const cardY = cursorY + labelH / 2;
+    // Card, label tab and copy move and resize as one block. The card goes
+    // down first so the label tab paints over its top edge.
+    const pushCard = cardPusher(push);
+    pushCard(rect(cardX, cardY, cardW, cardH, PAPER, 3));
+    pushCard(rect(PAGE_W / 2 - labelW / 2, cursorY, labelW, labelH, INK, 3));
+    pushCard(
+      newTextElement({
+        x: PAGE_W / 2 - labelW / 2,
+        y: cursorY,
+        width: labelW,
+        height: labelH,
+        content: block.label,
+        fontFamily,
+        fontSize: 14,
+        fontWeight: "bold",
+        color: "#ffffff",
+        align: "center",
+        lineHeight: 1,
+        verticalAlign: "middle",
+      })
+    );
+    pushCard(
+      newTextElement({
+        x: cardX + cardPadX,
+        y: cardY + cardPadTop,
+        width: bodyW,
+        height: bodyH + cardPadBottom - 1,
+        content: block.body,
+        fontFamily,
+        fontSize: bodyPt,
+        fontWeight: "normal",
+        color: INK,
+        align: "center",
+        lineHeight: bodyLH,
+      })
+    );
+    cursorY = cardY + cardH + cardGap;
+  }
+
+  if (outcomes.length > 0) {
+    if (cursorY > firstLabelTop) {
+      cursorY += headingGap - cardGap;
+      if (cursorY + outcomesH > pageBottom) {
+        nextPage();
+        cursorY = firstLabelTop;
+      }
+    }
+    push(
+      newTextElement({
+        x: 12,
+        y: cursorY,
+        width: PAGE_W - 24,
+        height: 10,
+        content: "LEARNING OUTCOMES",
+        fontFamily,
+        fontSize: 22,
+        fontWeight: "bold",
+        color: INK,
+        align: "center",
+        lineHeight: 1,
+      })
+    );
+    const gridTop = cursorY + 15;
+    // Two lines is all a tile holds; a longer outcome steps its type down.
+    const chipPt = (label: string): number => {
+      let pt = 15.5;
+      while (pt > 10 && wrapTextLines(label, (chipW - 14) * WRAP_FIT, pt, true).length > 2) pt -= 0.5;
+      return pt;
+    };
+    for (let i = 0; i < outcomes.length; i += 1) {
+      const x = chipX + (i % chipCols) * (chipW + chipGap);
+      const y = gridTop + Math.floor(i / chipCols) * (chipH + chipGap);
+      // Tile = black panel + its label, grouped so dragging one moves both.
       const pushChip = cardPusher(push);
-      pushChip(
-        newShapeElement({
-          x,
-          y,
-          width: chipW,
-          height: chipH,
-          shape: "rect",
-          fill: "#000000",
-          stroke: "transparent",
-          strokeWidth: 0,
-          cornerRadius: 4,
-        })
-      );
+      pushChip(rect(x, y, chipW, chipH, INK, 3));
       pushChip(
         newTextElement({
-          x: x,
-          y: y + chipH / 2 - 3,
-          width: chipW,
+          x: x + 7,
+          y,
+          width: chipW - 14,
           height: chipH,
           content: outcomes[i],
           fontFamily,
-          fontSize: 10,
+          fontSize: chipPt(outcomes[i]),
           fontWeight: "bold",
           color: "#ffffff",
           align: "center",
           lineHeight: 1.2,
+          verticalAlign: "middle",
         })
       );
     }
   }
 
-  return {
-    id: `page-abstract-${Math.random().toString(36).slice(2, 8)}`,
-    width: A4_WIDTH_MM,
-    height: A4_HEIGHT_MM,
-    background: { type: "solid", color: bgColor },
-    elements,
-  };
+  pages.push(makePage("abstract", accent, elements));
+  return pages;
 }
 
 // ─── Numbered list page (Why Sponsor / Focus of Summit) ────────────────────
-//
-// Matches `drawWhySponsorSection`: full-bleed black background, huge
-// white title, numbered rows = full-height accent-colored number badge
-// + an outlined (accent stroke, no fill) body row with white text.
-// Returns `null` when there are zero non-empty items, mirroring
-// `buildWhySponsorSectionContent`'s null-return contract.
 
-function buildNumberedListPage(
-  items: string[],
-  title: string,
-  accent: string,
-  fontFamily: string,
-  logoUrl?: string,
-): BrochurePage | null {
-  const clean = items.filter((s) => s && s.trim().length > 0);
+/**
+ * "WHY SPONSOR?" page: black background, white lockup, a huge white title,
+ * then a bordered table — an accent number column and a white cell of black
+ * copy per row, hairline accent rules between rows. Each row is as tall as
+ * its copy; if the table would pass the bottom edge the copy size steps
+ * down until it fits. Returns `null` when there are no non-empty items.
+ */
+function buildNumberedListPage(ctx: SeedContext, items: string[], title: string): BrochurePage | null {
+  const { accent, fontFamily } = ctx;
+  const clean = items.map((s) => s?.trim()).filter((s): s is string => !!s);
   if (clean.length === 0) return null;
 
-  const pageW = A4_WIDTH_MM;
-  const elements: BrochureElement[] = [];
-  const push = (el: BrochureElement) => {
-    el.zIndex = elements.length;
-    elements.push(el);
-  };
+  const { elements, push } = createPusher();
+  const lockupBottom = pushLockup(push, ctx, "#ffffff", "color");
 
-  // Top centered logo (white on the black background), matches
-  // `drawPosterHeaderLogo` called from `drawWhySponsorSection`. When
-  // no logo is configured, the title just starts a bit higher.
-  let headerBottom = 20;
-  if (logoUrl) {
-    const logoW = 50;
-    const logoH = 16;
-    push(
-      newImageElement({
-        x: pageW / 2 - logoW / 2,
-        y: headerBottom,
-        width: logoW,
-        height: logoH,
-        src: logoUrl,
-        fit: "contain",
-      })
-    );
-    headerBottom += logoH + 6;
-  } else {
-    headerBottom += 6;
-  }
-
+  const heading = title.toUpperCase();
+  const headingPt = fitFontSizePt([heading], 178, 58, 24, true);
+  const headingH = ptToMm(headingPt);
+  const headingY = lockupBottom + 10;
   push(
     newTextElement({
-      x: 20,
-      y: headerBottom,
-      width: pageW - 40,
-      height: 20,
-      content: title.toUpperCase(),
+      x: 5,
+      y: headingY,
+      width: PAGE_W - 10,
+      height: headingH + 2,
+      content: heading,
       fontFamily,
-      fontSize: 32,
+      fontSize: headingPt,
       fontWeight: "bold",
       color: "#ffffff",
       align: "center",
@@ -861,342 +967,286 @@ function buildNumberedListPage(
     })
   );
 
-  const rowH = 24;
-  const rowGap = 4;
-  const badgeW = 18;
-  // Push the numbered rows below the header (logo + title) — using the
-  // dynamic `headerBottom` computed above keeps spacing tight whether
-  // a logo is present or not.
-  const startY = headerBottom + 26;
+  const tableX = 15.7;
+  const tableW = PAGE_W - tableX * 2;
+  const numberW = 33;
+  const rule = 0.35;
+  const cellX = tableX + numberW;
+  const cellW = tableW - numberW - rule;
+  const cellPadX = 2.4;
+  const copyW = cellW - cellPadX * 2;
+  const copyLH = 1.4;
+  const tableTop = headingY + headingH + 10;
+  const tableBottomLimit = CONTENT_BOTTOM;
 
-  for (let i = 0; i < Math.min(clean.length, 8); i += 1) {
-    const y = startY + i * (rowH + rowGap);
-    // Row = number badge + badge label + outline row + item text, grouped so
-    // the whole numbered row drags as one.
+  const rowHeights = (pt: number): number[] =>
+    clean.map((item) => Math.max(pt * 1.45, estimateTextHeightMm(item, copyW * WRAP_FIT, pt, copyLH) + pt * 0.7));
+  let copyPt = 12.5;
+  while (copyPt > 8 && tableTop + rowHeights(copyPt).reduce((a, b) => a + b, 0) + rule > tableBottomLimit) copyPt -= 0.5;
+  const heights = rowHeights(copyPt);
+  const tableH = heights.reduce((a, b) => a + b, 0) + rule;
+
+  // One accent slab is the number column AND the rules: the white cells are
+  // inset on top of it, so what shows between them is the hairline grid.
+  push(rect(tableX, tableTop, tableW, tableH, accent));
+
+  let y = tableTop;
+  for (let i = 0; i < clean.length; i += 1) {
+    const rowH = heights[i];
+    // Row = white cell + number + copy, grouped so it drags as one.
     const pushRow = cardPusher(push);
-    // Number badge.
-    pushRow(
-      newShapeElement({
-        x: 20,
-        y,
-        width: badgeW,
-        height: rowH,
-        shape: "rect",
-        fill: accent,
-        stroke: "transparent",
-        strokeWidth: 0,
-        cornerRadius: 0,
-      })
-    );
+    pushRow(rect(cellX, y + rule, cellW, rowH - rule, "#ffffff"));
     pushRow(
       newTextElement({
-        x: 20,
-        y: y + rowH / 2 - 4,
-        width: badgeW,
-        height: rowH,
+        x: tableX,
+        y: y + rule,
+        width: numberW,
+        height: rowH - rule,
         content: String(i + 1),
         fontFamily,
-        fontSize: 16,
+        fontSize: Math.min(18, copyPt * 1.45),
         fontWeight: "bold",
         color: "#ffffff",
         align: "center",
         lineHeight: 1,
-      })
-    );
-    // Item body — outline row.
-    pushRow(
-      newShapeElement({
-        x: 20,
-        y,
-        width: pageW - 40,
-        height: rowH,
-        shape: "rect",
-        fill: "transparent",
-        stroke: accent,
-        strokeWidth: 0.4,
-        cornerRadius: 0,
+        verticalAlign: "middle",
       })
     );
     pushRow(
       newTextElement({
-        x: 20 + badgeW + 6,
-        y: y + 3,
-        width: pageW - 40 - badgeW - 8,
-        height: rowH - 6,
+        x: cellX + cellPadX,
+        y: y + rule,
+        width: copyW,
+        height: rowH - rule,
         content: clean[i],
         fontFamily,
-        fontSize: 10,
+        fontSize: copyPt,
         fontWeight: "normal",
-        color: "#ffffff",
+        color: INK,
         align: "left",
-        lineHeight: 1.35,
+        lineHeight: copyLH,
+        verticalAlign: "middle",
       })
     );
+    y += rowH;
   }
 
-  return {
-    id: `page-list-${Math.random().toString(36).slice(2, 8)}`,
-    width: A4_WIDTH_MM,
-    height: A4_HEIGHT_MM,
-    background: { type: "solid", color: "#000000" },
-    elements,
-  };
+  push(bottomBar(accent));
+  return makePage("list", INK, elements);
 }
 
-// ─── Pricing page (Poster_Bold, page 5) ─────────────────────────────────────
-//
-// Matches `drawPricingSection`: full-bleed accent-colored background,
-// one or two columns of white pricing cards (title, subtitle, huge
-// price, discount bullets), plus an optional blank registration-form
-// grid. Returns `null` when there are zero cards AND the registration
-// form is off, mirroring `buildPricingSectionContent`'s null-return
-// contract.
+// ─── Pricing page ──────────────────────────────────────────────────────────
 
-function buildPricingPage(input: TemplateSeedInput, accent: string, fontFamily: string): BrochurePage | null {
-  const cards = (input.pricingCards ?? []).filter(
-    (c) => c && c.title?.trim() && c.price?.trim()
-  ) as Array<{ title: string; subtitle?: string | null; price: string; discounts?: string[] | null }>;
+/**
+ * Pricing page: accent background, white lockup, off-white pricing cards
+ * (arrow badge + title, subtitle, a large price, a rule, then check-marked
+ * group discounts) and, optionally, the blank registration form — three
+ * attendee blocks of Name / Designation / Mobile / Email pills separated by
+ * rules. Returns `null` when there are no cards and the form is off.
+ */
+function buildPricingPage(ctx: SeedContext): BrochurePage | null {
+  const { input, accent, fontFamily } = ctx;
+  const cards = (input.pricingCards ?? []).filter((c) => c && c.title?.trim() && c.price?.trim());
   const showForm = input.showRegistrationForm === true;
   if (cards.length === 0 && !showForm) return null;
 
-  const pageW = A4_WIDTH_MM;
-  const pageH = A4_HEIGHT_MM;
-  const elements: BrochureElement[] = [];
-  const push = (el: BrochureElement) => {
-    el.zIndex = elements.length;
-    elements.push(el);
-  };
-
-  const bodyLeft = 20;
-  const bodyW = pageW - 40;
-  let cursorY = 20;
-
-  // Top centered logo (white on the accent background) — matches
-  // `drawPosterHeaderLogo` called from `drawPricingSection`.
-  if (input.logoUrl) {
-    const logoW = 50;
-    const logoH = 16;
-    push(
-      newImageElement({
-        x: pageW / 2 - logoW / 2,
-        y: cursorY,
-        width: logoW,
-        height: logoH,
-        src: input.logoUrl,
-        fit: "contain",
-      })
-    );
-    cursorY += logoH + 8;
-  } else {
-    cursorY += 4;
-  }
+  const { elements, push } = createPusher();
+  const lockupBottom = pushLockup(push, ctx, "#ffffff", "color");
+  let cursorY = lockupBottom + 10;
 
   if (cards.length > 0) {
-    const cardH = 66;
-    const gap = 6;
+    const gridX = 16.6;
+    const gap = 3.8;
+    const cardW = (PAGE_W - gridX * 2 - gap) / 2;
     const cols = Math.min(cards.length, 2);
-    const cardW = (bodyW - gap * (cols - 1)) / cols;
-    for (let i = 0; i < cards.length; i += 1) {
-      const card = cards[i];
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const cx = bodyLeft + col * (cardW + gap);
-      const cy = cursorY + row * (cardH + gap);
-      // Whole pricing card (panel + title + subtitle + price + discounts).
-      const pushCard = cardPusher(push);
+    const padX = 7;
+    const discountPitch = 6.6;
+    const discountCounts = cards.map((c) => (c.discounts ?? []).filter((d) => d && d.trim()).length);
+    const cardHeightFor = (count: number): number => (count > 0 ? 58 + count * discountPitch : 46);
 
-      pushCard(
-        newShapeElement({
-          x: cx,
-          y: cy,
-          width: cardW,
-          height: cardH,
-          shape: "rect",
-          fill: "#ffffff",
-          stroke: "transparent",
-          strokeWidth: 0,
-          cornerRadius: 8,
-        })
-      );
-      pushCard(
-        newTextElement({
-          x: cx + 8,
-          y: cy + 6,
-          width: cardW - 16,
-          height: 10,
-          content: card.title.toUpperCase(),
-          fontFamily,
-          fontSize: 13,
-          fontWeight: "bold",
-          color: "#000000",
-          align: "left",
-          lineHeight: 1,
-        })
-      );
-      if (card.subtitle) {
+    for (let rowStart = 0; rowStart < cards.length; rowStart += cols) {
+      const rowCards = cards.slice(rowStart, rowStart + cols);
+      // Cards in a row share the tallest card's height; a lone card is centered.
+      const cardH = Math.max(...rowCards.map((_, i) => cardHeightFor(discountCounts[rowStart + i])));
+      const rowW = rowCards.length * cardW + (rowCards.length - 1) * gap;
+      const rowX = (PAGE_W - rowW) / 2;
+
+      rowCards.forEach((card, i) => {
+        const cx = rowX + i * (cardW + gap);
+        const cy = cursorY;
+        // Whole pricing card (panel + badge + title + price + discounts).
+        const pushCard = cardPusher(push);
+        pushCard(rect(cx, cy, cardW, cardH, PAPER, 3));
+
+        const badge = 10;
+        pushCard(newImageElement({ x: cx + padX, y: cy + 6.5, width: badge, height: badge, src: arrowIcon(accent), fit: "contain" }));
+
+        const headX = cx + padX + badge + 3;
+        const headW = cardW - padX - badge - 3 - 4;
+        const cardTitle = card.title.trim().toUpperCase();
+        const titlePt = fitFontSizePt([cardTitle], headW * WRAP_FIT, 16, 9, true);
+        const subtitle = card.subtitle?.trim();
         pushCard(
           newTextElement({
-            x: cx + 8,
-            y: cy + 15,
-            width: cardW - 16,
-            height: 6,
-            content: card.subtitle,
+            x: headX,
+            y: cy + (subtitle ? 6.2 : 8.6),
+            width: headW,
+            height: ptToMm(titlePt) + 1,
+            content: cardTitle,
             fontFamily,
-            fontSize: 9,
-            fontWeight: "normal",
-            color: "#505050",
-            align: "left",
-            lineHeight: 1,
-          })
-        );
-      }
-      pushCard(
-        newTextElement({
-          x: cx,
-          y: cy + 24,
-          width: cardW,
-          height: 14,
-          content: card.price,
-          fontFamily,
-          fontSize: 22,
-          fontWeight: "bold",
-          color: "#000000",
-          align: "center",
-          lineHeight: 1,
-        })
-      );
-      const discounts = (card.discounts ?? []).filter((d) => d && d.trim());
-      if (discounts.length > 0) {
-        pushCard(
-          newTextElement({
-            x: cx + 8,
-            y: cy + 42,
-            width: cardW - 16,
-            height: 5,
-            content: "Group Discounts",
-            fontFamily,
-            fontSize: 8.5,
+            fontSize: titlePt,
             fontWeight: "bold",
-            color: "#3c3c3c",
+            color: INK,
             align: "left",
             lineHeight: 1,
           })
         );
+        if (subtitle) {
+          pushCard(
+            newTextElement({
+              x: headX,
+              y: cy + 12.6,
+              width: headW,
+              height: 5,
+              content: subtitle,
+              fontFamily,
+              fontSize: 9.5,
+              fontWeight: "normal",
+              color: INK,
+              align: "left",
+              lineHeight: 1,
+            })
+          );
+        }
+
+        const price = card.price.trim();
+        const pricePt = fitFontSizePt([price], (cardW - padX * 2) * WRAP_FIT, 36, 14, true);
         pushCard(
           newTextElement({
-            x: cx + 8,
-            y: cy + 48,
-            width: cardW - 16,
-            height: 16,
-            content: discounts.join("\n"),
+            x: cx + padX,
+            y: cy + 24,
+            width: cardW - padX * 2,
+            height: 15,
+            content: price,
             fontFamily,
-            fontSize: 8,
-            fontWeight: "normal",
-            color: "#3c3c3c",
+            fontSize: pricePt,
+            fontWeight: "bold",
+            color: INK,
             align: "left",
-            lineHeight: 1.4,
+            lineHeight: 1,
+            verticalAlign: "middle",
           })
         );
-      }
+
+        const discounts = (card.discounts ?? []).map((d) => d?.trim()).filter((d): d is string => !!d);
+        if (discounts.length > 0) {
+          pushCard(rect(cx + padX, cy + 42.6, cardW - padX * 2, 0.3, INK));
+          const listX = cx + padX + 6.5;
+          pushCard(
+            newTextElement({
+              x: listX,
+              y: cy + 46.6,
+              width: cardW - padX * 2 - 6.5,
+              height: 5,
+              content: "Group Discounts",
+              fontFamily,
+              fontSize: 10,
+              fontWeight: "bold",
+              color: INK,
+              align: "left",
+              lineHeight: 1,
+            })
+          );
+          discounts.forEach((line, d) => {
+            const lineY = cy + 53.4 + d * discountPitch;
+            pushCard(newImageElement({ x: cx + padX, y: lineY + 0.3, width: 4, height: 4, src: CHECK_BULLET_ICON, fit: "contain" }));
+            pushCard(
+              newTextElement({
+                x: listX,
+                y: lineY,
+                width: cardW - padX * 2 - 6.5,
+                height: 4.6,
+                content: line,
+                fontFamily,
+                fontSize: fitFontSizePt([line], (cardW - padX * 2 - 6.5) * WRAP_FIT, 10, 7),
+                fontWeight: "normal",
+                color: INK,
+                align: "left",
+                lineHeight: 1,
+                verticalAlign: "middle",
+              })
+            );
+          });
+        }
+      });
+      cursorY += cardH + gap;
     }
-    const rowCount = Math.ceil(cards.length / cols);
-    cursorY += rowCount * (cardH + gap);
+    cursorY += 13 - gap;
   }
 
   if (showForm) {
-    const labels: Array<[string, string]> = [
+    const formX = 14.8;
+    const cellGap = 1;
+    const cellW = (PAGE_W - formX * 2 - cellGap) / 2;
+    const pillH = 9;
+    const blockH = 32;
+    const blockPitch = 42;
+    const fields: Array<[string, string]> = [
       ["Name", "Designation"],
       ["Mobile", "Email"],
     ];
-    const cellGap = 6;
-    const cellW = (bodyW - cellGap) / 2;
-    const inputH = 8;
-    const rowCount = 3;
-    cursorY += 6;
-    for (let r = 0; r < rowCount; r += 1) {
-      if (cursorY + 26 > pageH - 20) break;
-      for (const [left, right] of labels) {
-        push(
-          newTextElement({
-            x: bodyLeft,
-            y: cursorY,
-            width: cellW,
-            height: 4,
-            content: left,
-            fontFamily,
-            fontSize: 7.5,
-            fontWeight: "normal",
-            color: "#ffffff",
-            align: "center",
-            lineHeight: 1,
-          })
-        );
-        push(
-          newPillElement({
-            x: bodyLeft,
-            y: cursorY + 4,
-            width: cellW,
-            height: inputH,
-            text: "",
-            fontFamily,
-            fontSize: 8,
-            textColor: "#000000",
-            fillColor: "#ffffff",
-            strokeColor: "transparent",
-            strokeWidth: 0,
-          })
-        );
-        push(
-          newTextElement({
-            x: bodyLeft + cellW + cellGap,
-            y: cursorY,
-            width: cellW,
-            height: 4,
-            content: right,
-            fontFamily,
-            fontSize: 7.5,
-            fontWeight: "normal",
-            color: "#ffffff",
-            align: "center",
-            lineHeight: 1,
-          })
-        );
-        push(
-          newPillElement({
-            x: bodyLeft + cellW + cellGap,
-            y: cursorY + 4,
-            width: cellW,
-            height: inputH,
-            text: "",
-            fontFamily,
-            fontSize: 8,
-            textColor: "#000000",
-            fillColor: "#ffffff",
-            strokeColor: "transparent",
-            strokeWidth: 0,
-          })
-        );
-        cursorY += inputH + 6;
-      }
-      cursorY += 2;
+    for (let block = 0; block < 3; block += 1) {
+      if (cursorY + blockH > PAGE_H - 8) break;
+      if (block > 0) push(rect(formX, cursorY - 4.6, PAGE_W - formX * 2, 0.25, INK));
+      // One attendee = its four labelled fields, grouped.
+      const pushBlock = cardPusher(push);
+      fields.forEach((pair, r) => {
+        pair.forEach((label, c) => {
+          const x = formX + c * (cellW + cellGap);
+          const y = cursorY + r * 18;
+          pushBlock(
+            newTextElement({
+              x,
+              y,
+              width: cellW,
+              height: 4.4,
+              content: label,
+              fontFamily,
+              fontSize: 9,
+              fontWeight: "normal",
+              color: "#ffffff",
+              align: "center",
+              lineHeight: 1,
+            })
+          );
+          pushBlock(
+            newPillElement({
+              x,
+              y: y + 5,
+              width: cellW,
+              height: pillH,
+              text: "",
+              fontFamily,
+              fontSize: 9,
+              textColor: INK,
+              fillColor: "#ffffff",
+              strokeColor: "transparent",
+              strokeWidth: 0,
+            })
+          );
+        });
+      });
+      cursorY += blockPitch;
     }
   }
 
-  return {
-    id: `page-pricing-${Math.random().toString(36).slice(2, 8)}`,
-    width: A4_WIDTH_MM,
-    height: A4_HEIGHT_MM,
-    background: { type: "solid", color: accent },
-    elements,
-  };
+  return makePage("pricing", accent, elements);
 }
 
-// ─── Classic seed content pages ────────────────────────────────────────────
+// ─── Event data pages ──────────────────────────────────────────────────────
 //
-// The four page builders below turn the same event data the jsPDF
-// preview uses (sessions, speakers, sponsors, venue) into ordinary
-// editable elements so the editor and the preview render matching
-// content by construction. Layout numbers are in mm.
+// The page builders below turn the event's own data (sessions, speakers,
+// sponsors, venue) into ordinary editable elements. Layout numbers are in mm.
 
 /**
  * Shared section-heading (bold black title + short accent underline
@@ -1274,624 +1324,641 @@ function pushClassicSectionHeading(
   return headingY + contentOffsetMm;
 }
 
-/** Builds the Agenda page's `"table"` layout — one row per session
- *  (time • title • speakers) as separate editable text elements inside
- *  a bordered row container. Returns `null` when there are no sessions
- *  so the page isn't seeded with an empty heading. */
-function buildAgendaPage(input: TemplateSeedInput, theme: BrochureTheme, accent: string, fontFamily: string): BrochurePage | null {
-  const content = buildAgendaSectionContent(input.sessions ?? []);
-  if (content.rows.length === 0) return null;
+/**
+ * Builds the Agenda pages' `"table"` layout (Classic) — a header row and one
+ * ruled row per session (time • title • speakers), every cell its own
+ * editable text element.
+ *
+ * Each row is as tall as its tallest cell, and the table continues onto
+ * further pages; it used to size rows from the title alone (clipping a
+ * wrapped time range) and stop after twelve sessions. Returns no pages when
+ * there are no sessions.
+ */
+function buildAgendaTablePages(ctx: SeedContext): BrochurePage[] {
+  const { theme, accent, fontFamily } = ctx;
+  const content = buildAgendaSectionContent(ctx.input.sessions ?? []);
+  if (content.rows.length === 0) return [];
 
-  const pageW = A4_WIDTH_MM;
-  const elements: BrochureElement[] = [];
-  const push = (el: BrochureElement) => {
-    el.zIndex = elements.length;
-    elements.push(el);
-  };
-
-  // Heading with accent underline (width=24mm, contentOffset=10mm) —
-  // matches `drawAgendaSection`'s `drawHeadingUnderline(..., 24)` and
-  // `y = startY + 10` in `brochure-pdf.ts`.
-  const contentStartY = pushClassicSectionHeading(push, theme, "Agenda", accent, fontFamily, 24, 10);
-
-  // Column widths mirror `drawAgendaTableLayout` exactly:
-  //   time = 28mm (fixed)
-  //   speakers = max(38, contentWidth * 0.28)
-  //   session = whatever's left
+  const frame = dataPageFrame(ctx);
   const bodyLeft = theme.margins.left;
-  const bodyRight = pageW - theme.margins.right;
+  const bodyRight = PAGE_W - theme.margins.right;
   const contentWidth = bodyRight - bodyLeft;
-  const timeColW = 28;
-  const speakersColW = Math.max(38, contentWidth * 0.28);
+  // Wide enough for "10:20 AM - 10:40 AM" on one line.
+  const timeColW = 40;
+  const speakersColW = Math.max(38, contentWidth * 0.26);
   const sessionColW = contentWidth - timeColW - speakersColW;
   const titleColX = bodyLeft + timeColW;
   const speakersColX = titleColX + sessionColW;
 
-  const cellPad = 2; // matches `theme.table.cellPaddingMm`
+  const cellPad = 2;
   const headerRowH = 8;
   const bodyFontSize = 10;
   const bodyLineHeight = 1.3;
-  const rowLineHeightMm = (bodyFontSize / 72) * 25.4 * bodyLineHeight; // pt -> mm
+  const lineH = ptToMm(bodyFontSize) * bodyLineHeight;
   const gridLineW = 0.15;
-  const gridColor = "#d4d4d4"; // mirrors autoTable's default grid stroke
+  const gridColor = "#d4d4d4";
 
-  const maxRows = 12;
-  const rows = content.rows.slice(0, maxRows);
-
-  // Rough row-height estimate: session titles are the most likely to
-  // wrap, so we size each row to hold the wrapped title. Estimate ~30
-  // chars per line at this column width for a rough guess (matches the
-  // guess used elsewhere in the seed).
-  const rowHeights = rows.map((row) => {
-    const titleLines = Math.max(1, Math.ceil(row.title.length / 30));
-    return Math.max(headerRowH, cellPad * 2 + titleLines * rowLineHeightMm);
+  const linesIn = (text: string, colW: number, bold = false): number =>
+    wrapTextLines(text, (colW - cellPad * 2) * WRAP_FIT, bodyFontSize, bold).length;
+  const rowHeights = content.rows.map((row) => {
+    const lines = Math.max(
+      linesIn(row.timeRangeText, timeColW, true),
+      linesIn(row.title, sessionColW),
+      row.speakerLine ? linesIn(row.speakerLine, speakersColW) : 1
+    );
+    return Math.max(headerRowH, cellPad * 2 + lines * lineH);
   });
-  const tableH = headerRowH + rowHeights.reduce((sum, h) => sum + h, 0);
 
-  // ── Header row ─────────────────────────────────────────────────────
-  push(
-    newShapeElement({
-      x: bodyLeft,
-      y: contentStartY,
-      width: contentWidth,
-      height: headerRowH,
-      shape: "rect",
-      fill: accent,
-      stroke: "transparent",
-      strokeWidth: 0,
-      cornerRadius: 0,
-    })
-  );
-  const headerCells: Array<{ x: number; w: number; text: string }> = [
-    { x: bodyLeft, w: timeColW, text: "Time" },
-    { x: titleColX, w: sessionColW, text: "Session" },
-    { x: speakersColX, w: speakersColW, text: "Speaker(s)" },
-  ];
-  for (const cell of headerCells) {
-    push(
-      newTextElement({
-        x: cell.x + cellPad,
-        y: contentStartY + (headerRowH - bodyFontSize * 0.35) / 2,
-        width: cell.w - cellPad * 2,
-        height: headerRowH - cellPad,
-        content: cell.text,
-        fontFamily,
-        fontSize: bodyFontSize,
-        fontWeight: "bold",
-        color: "#ffffff",
-        align: "left",
-        lineHeight: 1,
-      })
-    );
-  }
+  const pages: BrochurePage[] = [];
+  let index = 0;
+  while (index < content.rows.length) {
+    const { elements, push } = createPusher();
+    const tableTop = pushSectionHeader(push, ctx, "Agenda", 24, 10);
 
-  // ── Body rows ──────────────────────────────────────────────────────
-  let cursorY = contentStartY + headerRowH;
-  for (let i = 0; i < rows.length; i += 1) {
-    const row = rows[i];
-    const rowH = rowHeights[i];
-    // One agenda row = time cell + title + speaker, grouped so a whole row
-    // drags together instead of leaving its time chip behind.
-    const pushRow = cardPusher(push);
-    // Time cell (bold black)
-    pushRow(
-      newTextElement({
-        x: bodyLeft + cellPad,
-        y: cursorY + cellPad,
-        width: timeColW - cellPad * 2,
-        height: rowH - cellPad * 2,
-        content: row.timeRangeText,
-        fontFamily,
-        fontSize: bodyFontSize,
-        fontWeight: "bold",
-        color: "#000000",
-        align: "left",
-        lineHeight: bodyLineHeight,
-      })
-    );
-    // Session cell (normal black)
-    pushRow(
-      newTextElement({
-        x: titleColX + cellPad,
-        y: cursorY + cellPad,
-        width: sessionColW - cellPad * 2,
-        height: rowH - cellPad * 2,
-        content: row.title,
-        fontFamily,
-        fontSize: bodyFontSize,
-        fontWeight: "normal",
-        color: "#000000",
-        align: "left",
-        lineHeight: bodyLineHeight,
-      })
-    );
-    // Speakers cell (normal gray — matches autoTable's `textColor:
-    // [90, 90, 90]` for the speakers column)
-    if (row.speakerLine) {
-      pushRow(
+    // ── Header row ───────────────────────────────────────────────────
+    push(rect(bodyLeft, tableTop, contentWidth, headerRowH, accent));
+    const headerCells: Array<{ x: number; w: number; text: string }> = [
+      { x: bodyLeft, w: timeColW, text: "Time" },
+      { x: titleColX, w: sessionColW, text: "Session" },
+      { x: speakersColX, w: speakersColW, text: "Speaker(s)" },
+    ];
+    for (const cell of headerCells) {
+      push(
         newTextElement({
-          x: speakersColX + cellPad,
-          y: cursorY + cellPad,
-          width: speakersColW - cellPad * 2,
-          height: rowH - cellPad * 2,
-          content: row.speakerLine,
+          x: cell.x + cellPad,
+          y: tableTop,
+          width: cell.w - cellPad * 2,
+          height: headerRowH,
+          content: cell.text,
           fontFamily,
           fontSize: bodyFontSize,
-          fontWeight: "normal",
-          color: "#5a5a5a",
+          fontWeight: "bold",
+          color: "#ffffff",
           align: "left",
-          lineHeight: bodyLineHeight,
+          lineHeight: 1,
+          verticalAlign: "middle",
         })
       );
     }
-    cursorY += rowH;
-  }
 
-  // ── Grid lines (autoTable's `grid` theme) ─────────────────────────
-  // Bottom of every row (horizontal lines) — includes the top of the
-  // header + bottom of every row + top of body.
-  const tableBottom = contentStartY + tableH;
-  // Horizontal lines: top of header, bottom of header/each row.
-  let hy = contentStartY;
-  push(
-    newShapeElement({
-      x: bodyLeft, y: hy, width: contentWidth, height: gridLineW,
-      shape: "rect", fill: gridColor, stroke: "transparent", strokeWidth: 0, cornerRadius: 0,
-    })
-  );
-  hy += headerRowH;
-  push(
-    newShapeElement({
-      x: bodyLeft, y: hy, width: contentWidth, height: gridLineW,
-      shape: "rect", fill: gridColor, stroke: "transparent", strokeWidth: 0, cornerRadius: 0,
-    })
-  );
-  for (const h of rowHeights) {
-    hy += h;
-    push(
-      newShapeElement({
-        x: bodyLeft, y: hy, width: contentWidth, height: gridLineW,
-        shape: "rect", fill: gridColor, stroke: "transparent", strokeWidth: 0, cornerRadius: 0,
-      })
-    );
-  }
-  // Vertical lines: left of table, between each column, right of table.
-  const vxes = [bodyLeft, titleColX, speakersColX, bodyRight];
-  for (const vx of vxes) {
-    push(
-      newShapeElement({
-        x: vx, y: contentStartY, width: gridLineW, height: tableBottom - contentStartY,
-        shape: "rect", fill: gridColor, stroke: "transparent", strokeWidth: 0, cornerRadius: 0,
-      })
-    );
-  }
+    // ── Body rows — as many as fit this page (always at least one) ───
+    const rowTops: number[] = [];
+    let cursorY = tableTop + headerRowH;
+    const firstRow = index;
+    while (index < content.rows.length && (index === firstRow || cursorY + rowHeights[index] <= frame.bottom)) {
+      const row = content.rows[index];
+      const rowH = rowHeights[index];
+      // One agenda row = time cell + title + speaker, grouped so a whole row
+      // drags together instead of leaving its time behind.
+      const pushRow = cardPusher(push);
+      const cells: Array<{ x: number; w: number; text: string | undefined; bold: boolean; color: string }> = [
+        { x: bodyLeft, w: timeColW, text: row.timeRangeText, bold: true, color: INK },
+        { x: titleColX, w: sessionColW, text: row.title, bold: false, color: INK },
+        { x: speakersColX, w: speakersColW, text: row.speakerLine, bold: false, color: "#5a5a5a" },
+      ];
+      for (const cell of cells) {
+        if (!cell.text) continue;
+        pushRow(
+          newTextElement({
+            x: cell.x + cellPad,
+            y: cursorY + cellPad,
+            width: cell.w - cellPad * 2,
+            height: rowH - cellPad,
+            content: cell.text,
+            fontFamily,
+            fontSize: bodyFontSize,
+            fontWeight: cell.bold ? "bold" : "normal",
+            color: cell.color,
+            align: "left",
+            lineHeight: bodyLineHeight,
+          })
+        );
+      }
+      rowTops.push(cursorY);
+      cursorY += rowH;
+      index += 1;
+    }
 
-  return {
-    id: `page-agenda-${Math.random().toString(36).slice(2, 8)}`,
-    width: A4_WIDTH_MM,
-    height: A4_HEIGHT_MM,
-    background: { type: "solid", color: "#ffffff" },
-    elements,
-  };
+    // ── Grid lines ───────────────────────────────────────────────────
+    for (const y of [tableTop, ...rowTops, cursorY]) {
+      push(rect(bodyLeft, y, contentWidth, gridLineW, gridColor));
+    }
+    for (const x of [bodyLeft, titleColX, speakersColX, bodyRight]) {
+      push(rect(x, tableTop, gridLineW, cursorY - tableTop, gridColor));
+    }
+
+    frame.finish(push);
+    pages.push(makePage("agenda", frame.background, elements));
+  }
+  return pages;
 }
 
 /**
- * Session categories that get the "emphasis" black title chip on the
- * Poster_Bold agenda page — mirrors `AGENDA_EMPHASIS_SESSION_TYPES` in
- * `brochure-pdf.ts` exactly so the editor and the live preview color-
- * code sessions identically. Kept as a Set locally rather than
- * exported/imported to avoid a runtime dependency from the editor into
- * the jsPDF module.
+ * Section header shared by every data page. Poster_Bold pages get the event
+ * lockup and a large centered title on the off-white stock, so Speakers,
+ * Sponsors and Venue read as part of the same brochure as the agenda;
+ * every other theme keeps the Classic heading-and-underline. Returns the y
+ * where the page's content starts.
  */
-const EDITOR_AGENDA_EMPHASIS_SESSION_TYPES = new Set([
-  "keynote",
-  "panel",
-  "fireside",
-  "workshop",
-]);
-
-function editorAgendaRowBackground(sessionType: string | undefined, accent: string): string {
-  if (sessionType && EDITOR_AGENDA_EMPHASIS_SESSION_TYPES.has(sessionType)) {
-    return "#000000";
+function pushSectionHeader(
+  push: Push,
+  ctx: SeedContext,
+  text: string,
+  underlineWidthMm: number,
+  contentOffsetMm: number,
+  posterMaxPt = 40
+): number {
+  if (!isPosterTheme(ctx.theme)) {
+    return pushClassicSectionHeading(push, ctx.theme, text, ctx.accent, ctx.fontFamily, underlineWidthMm, contentOffsetMm);
   }
-  return accent;
-}
-
-/**
- * Builds the Agenda page's `"timetable-cards"` layout — matches
- * `drawAgendaTimetableCardsLayout` in `brochure-pdf.ts` exactly:
- *
- *   - Centered logo + huge "Event Agenda" title at the top.
- *   - Two chronologically-split columns (first half of sessions on the
- *     left, second half on the right).
- *   - Each row = colored time chip + colored title bar spanning the
- *     column width. Row background is BLACK for emphasized session
- *     types (keynote / panel / fireside / workshop) and the theme
- *     accent for everything else.
- *   - When a session has a description, it renders as a paragraph
- *     directly below the row on a white background with dark text.
- *   - Speaker line (when present) renders in small italic gray under
- *     the description (or under the title bar when there's no
- *     description).
- *
- * Every element is independently editable (Canva-style) — nothing is a
- * baked group. Returns `null` when there are no sessions.
- */
-function buildAgendaTimetableCardsPage(input: TemplateSeedInput, theme: BrochureTheme, accent: string, fontFamily: string): BrochurePage | null {
-  const content = buildAgendaSectionContent(input.sessions ?? []);
-  if (content.rows.length === 0) return null;
-
-  const pageW = A4_WIDTH_MM;
-  const marginX = 20;
-  const elements: BrochureElement[] = [];
-  const push = (el: BrochureElement) => {
-    el.zIndex = elements.length;
-    elements.push(el);
-  };
-
-  // ── Top logo (centered) ──────────────────────────────────────────
-  let cursorY = 18;
-  if (input.logoUrl) {
-    const logoW = 50;
-    const logoH = 16;
-    push(
-      newImageElement({
-        x: pageW / 2 - logoW / 2,
-        y: cursorY,
-        width: logoW,
-        height: logoH,
-        src: input.logoUrl,
-        fit: "contain",
-      })
-    );
-    cursorY += logoH + 6;
-  } else {
-    cursorY += 4;
-  }
-
-  // ── Huge "Event Agenda" title (centered) ─────────────────────────
+  const lockupBottom = pushLockup(push, ctx, INK, "paper");
+  const titlePt = fitFontSizePt([text], 176, posterMaxPt, 18, true);
+  const titleH = ptToMm(titlePt);
+  const titleY = lockupBottom + 6;
   push(
     newTextElement({
-      x: marginX,
-      y: cursorY,
-      width: pageW - marginX * 2,
-      height: 16,
-      content: "Event Agenda",
-      fontFamily,
-      fontSize: 30,
+      x: 5,
+      y: titleY,
+      width: PAGE_W - 10,
+      height: titleH + 2,
+      content: text,
+      fontFamily: ctx.fontFamily,
+      fontSize: titlePt,
       fontWeight: "bold",
-      color: "#000000",
+      color: INK,
       align: "center",
       lineHeight: 1,
     })
   );
-  cursorY += 20;
-
-  // ── Two-column chronological split ───────────────────────────────
-  const bodyRight = pageW - marginX;
-  const colGap = 6;
-  const colWidth = (bodyRight - marginX - colGap) / 2;
-  const timeChipW = 22;
-  const titleBarW = colWidth - timeChipW;
-  const rowMinH = 10;
-  const rowGap = 2;
-
-  // Split sessions into two roughly-equal chronological halves.
-  const midpoint = Math.ceil(content.rows.length / 2);
-  const columns: AgendaRow[][] = [
-    content.rows.slice(0, midpoint) as AgendaRow[],
-    content.rows.slice(midpoint) as AgendaRow[],
-  ];
-  const colTopY: [number, number] = [cursorY, cursorY];
-
-  for (let colIdx = 0; colIdx < columns.length; colIdx += 1) {
-    for (const row of columns[colIdx]) {
-      const colX = marginX + colIdx * (colWidth + colGap);
-      const cardY = colTopY[colIdx];
-
-      const bg = editorAgendaRowBackground(row.sessionType, accent);
-
-      // Row height grows with title length (long titles wrap to 2 lines
-      // at this column width — ~28 chars/line is a decent estimate).
-      const titleLineEstimate = Math.max(1, Math.ceil(row.title.length / 30));
-      const rowH = Math.max(rowMinH, titleLineEstimate * 5 + 4);
-
-      // Time chip (left, small).
-      push(
-        newShapeElement({
-          x: colX,
-          y: cardY,
-          width: timeChipW,
-          height: rowH,
-          shape: "rect",
-          fill: bg,
-          stroke: "transparent",
-          strokeWidth: 0,
-          cornerRadius: 0,
-        })
-      );
-      push(
-        newTextElement({
-          x: colX,
-          y: cardY + rowH / 2 - 2,
-          width: timeChipW,
-          height: rowH,
-          content: row.timeRangeText,
-          fontFamily,
-          fontSize: 8,
-          fontWeight: "bold",
-          color: "#ffffff",
-          align: "center",
-          lineHeight: 1,
-        })
-      );
-
-      // Title bar (right, same fill).
-      push(
-        newShapeElement({
-          x: colX + timeChipW,
-          y: cardY,
-          width: titleBarW,
-          height: rowH,
-          shape: "rect",
-          fill: bg,
-          stroke: "transparent",
-          strokeWidth: 0,
-          cornerRadius: 0,
-        })
-      );
-      push(
-        newTextElement({
-          x: colX + timeChipW + 3,
-          y: cardY + rowH / 2 - (titleLineEstimate * 2.5) + 0.5,
-          width: titleBarW - 6,
-          height: rowH,
-          content: row.title,
-          fontFamily,
-          fontSize: 9.5,
-          fontWeight: "bold",
-          color: "#ffffff",
-          align: "left",
-          lineHeight: 1.2,
-        })
-      );
-
-      let afterRowY = cardY + rowH;
-
-      // Description body (below the row, dark text on white).
-      if (row.description) {
-        const descLineEstimate = Math.max(1, Math.ceil(row.description.length / 45));
-        const descBlockH = descLineEstimate * 4 + 4;
-        push(
-          newTextElement({
-            x: colX + 2,
-            y: afterRowY + 2,
-            width: colWidth - 4,
-            height: descBlockH,
-            content: row.description,
-            fontFamily,
-            fontSize: 9,
-            fontWeight: "normal",
-            color: "#000000",
-            align: "left",
-            lineHeight: 1.3,
-          })
-        );
-        afterRowY += descBlockH + 2;
-      }
-
-      // Speaker line (italic gray, subtle).
-      if (row.speakerLine) {
-        push(
-          newTextElement({
-            x: colX + 2,
-            y: afterRowY,
-            width: colWidth - 4,
-            height: 5,
-            content: row.speakerLine,
-            fontFamily,
-            fontSize: 8.5,
-            fontWeight: "normal",
-            fontStyle: "italic",
-            color: "#5a5a5a",
-            align: "left",
-            lineHeight: 1.2,
-          } as Parameters<typeof newTextElement>[0])
-        );
-        afterRowY += 6;
-      }
-
-      colTopY[colIdx] = afterRowY + rowGap;
-    }
-  }
-
-  return {
-    id: `page-agenda-${Math.random().toString(36).slice(2, 8)}`,
-    width: A4_WIDTH_MM,
-    height: A4_HEIGHT_MM,
-    background: { type: "solid", color: "#ffffff" },
-    elements,
-  };
+  return titleY + titleH + 9;
 }
 
-/** Builds the Speakers page — 2-column grid of speaker cards
- *  (photo + name + subtitle + company). Each field is a separate
- *  element so the organizer can retitle or remove any of them.
- *  Returns `null` when there are no speakers. */
-function buildSpeakersPage(speakers: SpeakerInput[], theme: BrochureTheme, accent: string, fontFamily: string): BrochurePage | null {
-  const rows = buildSpeakerRows(speakers);
-  if (rows.length === 0) return null;
+/** Background, bottom limit and closing strip for a data page, per theme. */
+function dataPageFrame(ctx: SeedContext): { background: string; bottom: number; finish: (push: Push) => void } {
+  if (isPosterTheme(ctx.theme)) {
+    return { background: PAPER, bottom: CONTENT_BOTTOM, finish: (push) => push(bottomBar(ctx.accent)) };
+  }
+  return { background: "#ffffff", bottom: PAGE_H - ctx.theme.margins.bottom, finish: () => undefined };
+}
 
-  const pageW = A4_WIDTH_MM;
-  const elements: BrochureElement[] = [];
-  const push = (el: BrochureElement) => {
-    el.zIndex = elements.length;
-    elements.push(el);
+// ─── Agenda — Poster_Bold timetable ────────────────────────────────────────
+
+/** How a session's title bar is drawn on the timetable. */
+type AgendaBarStyle = "accent" | "emphasis" | "outline";
+
+/** Session types that are the programme itself rather than the gaps in it. */
+const AGENDA_CONTENT_SESSION_TYPES = new Set(["talk", "keynote", "speaker", "panel", "workshop", "fireside", "qa"]);
+
+/**
+ * The reference agenda uses three bar styles, and they carry meaning:
+ *
+ *   - accent  — the frame of the day: registration, welcome, breaks, lunch,
+ *               networking, awards. Also the fallback for a custom type.
+ *   - emphasis (dark grey) — the content: panels, keynotes, roundtables.
+ *   - outline (white bar, accent text) — partner / sponsor slots.
+ *
+ * `sessionType` arrives lowercased and trimmed. Custom organizer-typed
+ * labels are matched by keyword so "Panel Discussion" or "Partner
+ * Spotlight" land in the right style without being a preset.
+ */
+function agendaBarStyle(sessionType: string | undefined): AgendaBarStyle {
+  if (!sessionType) return "accent";
+  if (/sponsor|partner|spotlight|showcase/.test(sessionType)) return "outline";
+  if (AGENDA_CONTENT_SESSION_TYPES.has(sessionType)) return "emphasis";
+  if (/panel|keynote|roundtable|round table|workshop|fireside|discussion|masterclass/.test(sessionType)) return "emphasis";
+  return "accent";
+}
+
+const AGENDA_COL_X = 11.4;
+const AGENDA_COL_GAP = 2;
+const AGENDA_COL_W = (PAGE_W - AGENDA_COL_X * 2 - AGENDA_COL_GAP) / 2;
+const AGENDA_TIME_W = 21.6;
+const AGENDA_CHIP_GAP = 0.5;
+const AGENDA_BAR_W = AGENDA_COL_W - AGENDA_TIME_W - AGENDA_CHIP_GAP;
+const AGENDA_BAR_PAD_X = 2.5;
+const AGENDA_TITLE_PT = 8;
+const AGENDA_TITLE_LH = 1.25;
+const AGENDA_DESC_PT = 8;
+const AGENDA_DESC_LH = 1.3;
+const AGENDA_DESC_INSET = 2.3;
+const AGENDA_DESC_W = AGENDA_COL_W - AGENDA_DESC_INSET * 2;
+const AGENDA_BULLET_INDENT = 6;
+const AGENDA_ROW_GAP = 1.4;
+
+/** One measured piece of a session description. */
+interface AgendaBlock {
+  kind: "text" | "bullet" | "gap";
+  text: string;
+  height: number;
+}
+
+interface AgendaItem {
+  row: AgendaRow;
+  barH: number;
+  blocks: AgendaBlock[];
+  speakerH: number;
+  /** Full height including the gap to the next item. */
+  height: number;
+}
+
+/**
+ * Splits a session description into paragraphs, bullets and paragraph gaps.
+ * A line starting with `-`, `•`, `*` or `–` becomes a bullet with a hanging
+ * indent — the reference lists each panel's talking points that way, and a
+ * single text box can't indent wrapped lines. A blank line is a small gap.
+ */
+function agendaDescriptionBlocks(description: string): AgendaBlock[] {
+  const blocks: AgendaBlock[] = [];
+  let paragraph: string[] = [];
+  const flush = (): void => {
+    if (paragraph.length === 0) return;
+    const text = paragraph.join("\n");
+    blocks.push({
+      kind: "text",
+      text,
+      height: estimateTextHeightMm(text, AGENDA_DESC_W * WRAP_FIT, AGENDA_DESC_PT, AGENDA_DESC_LH),
+    });
+    paragraph = [];
   };
+  for (const raw of description.split("\n")) {
+    const line = raw.trim();
+    if (!line) {
+      flush();
+      if (blocks.length > 0 && blocks[blocks.length - 1].kind !== "gap") blocks.push({ kind: "gap", text: "", height: 1.7 });
+      continue;
+    }
+    const bullet = /^[-•*–·]\s+(.+)$/.exec(line);
+    if (bullet) {
+      flush();
+      blocks.push({
+        kind: "bullet",
+        text: bullet[1],
+        height: estimateTextHeightMm(bullet[1], (AGENDA_DESC_W - AGENDA_BULLET_INDENT) * WRAP_FIT, AGENDA_DESC_PT, AGENDA_DESC_LH),
+      });
+    } else {
+      paragraph.push(line);
+    }
+  }
+  flush();
+  while (blocks.length > 0 && blocks[blocks.length - 1].kind === "gap") blocks.pop();
+  return blocks;
+}
 
-  const startY = pushClassicSectionHeading(push, theme, "Speakers", accent, fontFamily, 24, 12) + 2;
+function measureAgendaItem(row: AgendaRow): AgendaItem {
+  const titleLines = wrapTextLines(row.title, (AGENDA_BAR_W - AGENDA_BAR_PAD_X * 2) * WRAP_FIT, AGENDA_TITLE_PT, true).length;
+  const barH = titleLines <= 1 ? 6.2 : titleLines * ptToMm(AGENDA_TITLE_PT) * AGENDA_TITLE_LH + 3.4;
+  const blocks = row.description ? agendaDescriptionBlocks(row.description) : [];
+  const blocksH = blocks.reduce((sum, b) => sum + b.height, 0);
+  const speakerH = row.speakerLine
+    ? estimateTextHeightMm(row.speakerLine, AGENDA_DESC_W * WRAP_FIT, 7.5, 1.25) + 1.2
+    : 0;
+  const bodyH = blocks.length > 0 || speakerH > 0 ? 1.8 + blocksH + speakerH + 2 : 0;
+  return { row, barH, blocks, speakerH, height: barH + bodyH + AGENDA_ROW_GAP };
+}
 
-  const cols = 2;
-  const gap = 8;
-  const bodyLeft = 20;
-  const cardW = (pageW - 40 - gap * (cols - 1)) / cols;
-  const photoH = 44;
+function pushAgendaItem(push: Push, ctx: SeedContext, item: AgendaItem, x: number, y: number): void {
+  const { accent, fontFamily } = ctx;
+  const { row, barH } = item;
+  const style = agendaBarStyle(row.sessionType);
+  // One session = time chip + title bar + description, grouped so the whole
+  // entry drags together.
+  const pushRow = cardPusher(push);
+
+  pushRow(rect(x, y, AGENDA_TIME_W, barH, INK));
+  pushRow(
+    newTextElement({
+      x,
+      y,
+      width: AGENDA_TIME_W,
+      height: barH,
+      content: row.startTimeText,
+      fontFamily,
+      fontSize: AGENDA_TITLE_PT,
+      fontWeight: "bold",
+      color: "#ffffff",
+      align: "center",
+      lineHeight: 1,
+      verticalAlign: "middle",
+    })
+  );
+
+  const barX = x + AGENDA_TIME_W + AGENDA_CHIP_GAP;
+  if (style === "outline") {
+    pushRow(rect(barX + 0.12, y + 0.12, AGENDA_BAR_W - 0.24, barH - 0.24, "#ffffff", 0, INK, 0.24));
+  } else {
+    pushRow(rect(barX, y, AGENDA_BAR_W, barH, style === "emphasis" ? "#555555" : accent));
+  }
+  pushRow(
+    newTextElement({
+      x: barX + AGENDA_BAR_PAD_X,
+      y,
+      width: AGENDA_BAR_W - AGENDA_BAR_PAD_X * 2,
+      height: barH,
+      content: row.title,
+      fontFamily,
+      fontSize: AGENDA_TITLE_PT,
+      fontWeight: "bold",
+      color: style === "outline" ? accent : "#ffffff",
+      align: "left",
+      lineHeight: AGENDA_TITLE_LH,
+      verticalAlign: "middle",
+    })
+  );
+
+  let cursorY = y + barH + 1.8;
+  const textX = x + AGENDA_DESC_INSET;
+  for (const block of item.blocks) {
+    if (block.kind === "gap") {
+      cursorY += block.height;
+      continue;
+    }
+    const isBullet = block.kind === "bullet";
+    if (isBullet) {
+      pushRow(
+        newTextElement({
+          x: textX + 2.2,
+          y: cursorY,
+          width: 3,
+          height: block.height,
+          content: "•",
+          fontFamily,
+          fontSize: AGENDA_DESC_PT,
+          fontWeight: "normal",
+          color: INK,
+          align: "left",
+          lineHeight: AGENDA_DESC_LH,
+        })
+      );
+    }
+    pushRow(
+      newTextElement({
+        x: textX + (isBullet ? AGENDA_BULLET_INDENT : 0),
+        y: cursorY,
+        width: AGENDA_DESC_W - (isBullet ? AGENDA_BULLET_INDENT : 0),
+        // A line of slack: a font wider than the estimate may wrap once more,
+        // and Konva drops any line that doesn't fit the box.
+        height: block.height + ptToMm(AGENDA_DESC_PT) * AGENDA_DESC_LH,
+        content: block.text,
+        fontFamily,
+        fontSize: AGENDA_DESC_PT,
+        fontWeight: "normal",
+        color: INK,
+        align: "left",
+        lineHeight: AGENDA_DESC_LH,
+      })
+    );
+    cursorY += block.height;
+  }
+
+  if (row.speakerLine) {
+    pushRow(
+      newTextElement({
+        x: textX,
+        y: cursorY + (item.blocks.length > 0 ? 1.2 : 0),
+        width: AGENDA_DESC_W,
+        height: item.speakerH + 2,
+        content: row.speakerLine,
+        fontFamily,
+        fontSize: 7.5,
+        fontWeight: "normal",
+        fontStyle: "italic",
+        color: "#5a5a5a",
+        align: "left",
+        lineHeight: 1.25,
+      })
+    );
+  }
+}
+
+/**
+ * Builds the Poster_Bold agenda — lockup, a huge "Event Agenda" title, and
+ * two columns of sessions: a black start-time chip, a title bar styled by
+ * session type (see `agendaBarStyle`), and the description beneath.
+ *
+ * Every session is measured first, so:
+ *   - a day that fits one page is split where the two columns come out
+ *     closest in height, instead of at the halfway session count (which
+ *     put all the long panel descriptions in one column and ran it off the
+ *     page);
+ *   - a day that doesn't fit continues onto as many further pages as it
+ *     needs, each column filled top to bottom.
+ *
+ * Returns no pages when there are no sessions.
+ */
+function buildAgendaTimetablePages(ctx: SeedContext): BrochurePage[] {
+  const content = buildAgendaSectionContent(ctx.input.sessions ?? []);
+  if (content.rows.length === 0) return [];
+  const items = content.rows.map(measureAgendaItem);
+  const columnX = [AGENDA_COL_X, AGENDA_COL_X + AGENDA_COL_W + AGENDA_COL_GAP];
+  const pages: BrochurePage[] = [];
+
+  const startPage = (first: boolean): { elements: BrochureElement[]; push: Push; top: number } => {
+    const { elements, push } = createPusher();
+    const top = pushSectionHeader(push, ctx, "Event Agenda", 0, 0, first ? 52 : 30);
+    return { elements, push, top };
+  };
+  const finishPage = (elements: BrochureElement[], push: Push): void => {
+    push(bottomBar(ctx.accent));
+    pages.push(makePage("agenda", PAPER, elements));
+  };
+  const columnHeight = (from: number, to: number): number =>
+    items.slice(from, to).reduce((sum, item) => sum + item.height, 0) - (to > from ? AGENDA_ROW_GAP : 0);
+
+  // ── Fits on one page: balance the two columns ────────────────────
+  const first = startPage(true);
+  const available = CONTENT_BOTTOM - first.top;
+  let split = items.length;
+  let tallest = columnHeight(0, items.length);
+  for (let k = 1; k < items.length; k += 1) {
+    const height = Math.max(columnHeight(0, k), columnHeight(k, items.length));
+    if (height < tallest) {
+      tallest = height;
+      split = k;
+    }
+  }
+  if (tallest <= available) {
+    const ranges: Array<[number, number]> = [
+      [0, split],
+      [split, items.length],
+    ];
+    ranges.forEach(([from, to], col) => {
+      let y = first.top;
+      for (let i = from; i < to; i += 1) {
+        pushAgendaItem(first.push, ctx, items[i], columnX[col], y);
+        y += items[i].height;
+      }
+    });
+    finishPage(first.elements, first.push);
+    return pages;
+  }
+
+  // ── Doesn't fit: fill column by column, page by page ─────────────
+  let index = 0;
+  let page = first;
+  while (index < items.length) {
+    for (let col = 0; col < 2 && index < items.length; col += 1) {
+      let y = page.top;
+      // An item taller than a whole column is still placed (at the top of
+      // one) rather than looping forever looking for room.
+      while (
+        index < items.length &&
+        (y === page.top || y + items[index].height - AGENDA_ROW_GAP <= CONTENT_BOTTOM)
+      ) {
+        pushAgendaItem(page.push, ctx, items[index], columnX[col], y);
+        y += items[index].height;
+        index += 1;
+      }
+    }
+    finishPage(page.elements, page.push);
+    if (index < items.length) page = startPage(false);
+  }
+  return pages;
+}
+
+// ─── Speakers ──────────────────────────────────────────────────────────────
+
+/**
+ * Builds the Speakers pages — a grid of speaker cards (photo + name +
+ * subtitle + company), four across on Poster_Bold and two across on Classic.
+ * Each field is a separate element so the organizer can retitle or remove
+ * any of them. Continues onto further pages rather than dropping speakers
+ * past the first eight. Returns no pages when there are no speakers.
+ */
+function buildSpeakersPages(ctx: SeedContext): BrochurePage[] {
+  const { accent, fontFamily, theme } = ctx;
+  const rows = buildSpeakerRows(ctx.input.speakers ?? []);
+  if (rows.length === 0) return [];
+
+  const poster = isPosterTheme(theme);
+  const frame = dataPageFrame(ctx);
+  const cols = poster ? 4 : 2;
+  const gap = poster ? 4 : 8;
+  const bodyLeft = poster ? 12 : 20;
+  const cardW = (PAGE_W - bodyLeft * 2 - gap * (cols - 1)) / cols;
+  const photoH = poster ? cardW : 44;
   const textH = 22;
   const cardH = photoH + textH + 2;
-  const maxCards = 8; // 4 rows × 2 cols
-  const shown = rows.slice(0, maxCards);
+  const rowGap = poster ? 5 : 6;
+  const textW = cardW - 4;
+  const pages: BrochurePage[] = [];
 
-  for (let i = 0; i < shown.length; i += 1) {
-    const row = shown[i];
-    const col = i % cols;
-    const rowIdx = Math.floor(i / cols);
-    const x = bodyLeft + col * (cardW + gap);
-    const y = startY + rowIdx * (cardH + 6);
+  let index = 0;
+  while (index < rows.length) {
+    const { elements, push } = createPusher();
+    const startY = pushSectionHeader(push, ctx, "Speakers", 24, 12) + (poster ? 0 : 2);
+    const rowsPerPage = Math.max(1, Math.floor((frame.bottom - startY + rowGap) / (cardH + rowGap)));
+    const shown = rows.slice(index, index + rowsPerPage * cols);
+    index += shown.length;
 
-    // One card = background + photo + name + subtitle + company, all sharing a
-    // groupId so the tile selects, moves and resizes as a single object.
-    const pushCard = cardPusher(push);
+    shown.forEach((row, i) => {
+      const x = bodyLeft + (i % cols) * (cardW + gap);
+      const y = startY + Math.floor(i / cols) * (cardH + rowGap);
+      // One card = background + photo + name + subtitle + company, all sharing a
+      // groupId so the tile selects, moves and resizes as a single object.
+      const pushCard = cardPusher(push);
 
-    // Card background.
-    pushCard(
-      newShapeElement({
-        x,
-        y,
-        width: cardW,
-        height: cardH,
-        shape: "rect",
-        fill: "#f9fafb",
-        stroke: "#e5e7eb",
-        strokeWidth: 0.3,
-        cornerRadius: 2,
-      })
-    );
+      pushCard(rect(x, y, cardW, cardH, poster ? "#ffffff" : "#f9fafb", 2, "#e5e7eb", 0.3));
 
-    // Photo (URL image) or initial placeholder shape.
-    if (row.photo.type === "url") {
-      pushCard(
-        newImageElement({
-          x,
-          y,
-          width: cardW,
-          height: photoH,
-          src: row.photo.url,
-          fit: "cover",
-          cornerRadius: 2,
-        })
-      );
-    } else {
-      pushCard(
-        newShapeElement({
-          x,
-          y,
-          width: cardW,
-          height: photoH,
-          shape: "rect",
-          fill: accent,
-          stroke: "transparent",
-          strokeWidth: 0,
-          cornerRadius: 2,
-        })
-      );
+      // Photo (URL image) or initial placeholder shape.
+      if (row.photo.type === "url") {
+        pushCard(newImageElement({ x, y, width: cardW, height: photoH, src: row.photo.url, fit: "cover", cornerRadius: 2 }));
+      } else {
+        pushCard(rect(x, y, cardW, photoH, accent, 2));
+        pushCard(
+          newTextElement({
+            x,
+            y,
+            width: cardW,
+            height: photoH,
+            content: row.photo.initial,
+            fontFamily,
+            fontSize: 32,
+            fontWeight: "bold",
+            color: "#ffffff",
+            align: "center",
+            lineHeight: 1,
+            verticalAlign: "middle",
+          })
+        );
+      }
+
+      const namePt = fitFontSizePt([row.name], textW * WRAP_FIT, poster ? 9.5 : 11, 6.5, true);
       pushCard(
         newTextElement({
-          x,
-          y: y + photoH / 2 - 8,
-          width: cardW,
-          height: 16,
-          content: row.photo.initial,
+          x: x + 2,
+          y: y + photoH + 2.5,
+          width: textW,
+          height: 5.5,
+          content: row.name,
           fontFamily,
-          fontSize: 32,
+          fontSize: namePt,
           fontWeight: "bold",
-          color: "#ffffff",
+          color: poster ? INK : "#0a1429",
           align: "center",
-          lineHeight: 1,
+          lineHeight: 1.1,
         })
       );
-    }
+      const detailPt = poster ? 7.5 : 8.5;
+      if (row.subtitleLine) {
+        pushCard(
+          newTextElement({
+            x: x + 2,
+            y: y + photoH + 8.5,
+            width: textW,
+            height: 7,
+            content: row.subtitleLine,
+            fontFamily,
+            fontSize: detailPt,
+            fontWeight: "normal",
+            color: "#4b5563",
+            align: "center",
+            lineHeight: 1.1,
+          })
+        );
+      }
+      if (row.companyLine) {
+        pushCard(
+          newTextElement({
+            x: x + 2,
+            y: y + photoH + 16,
+            width: textW,
+            height: 5,
+            content: row.companyLine,
+            fontFamily,
+            fontSize: fitFontSizePt([row.companyLine], textW * WRAP_FIT, detailPt, 6, false),
+            fontWeight: "normal",
+            color: accent,
+            align: "center",
+            lineHeight: 1.1,
+          })
+        );
+      }
+    });
 
-    // Name.
-    pushCard(
-      newTextElement({
-        x: x + 2,
-        y: y + photoH + 2,
-        width: cardW - 4,
-        height: 6,
-        content: row.name,
-        fontFamily,
-        fontSize: 11,
-        fontWeight: "bold",
-        color: "#0a1429",
-        align: "center",
-        lineHeight: 1.1,
-      })
-    );
-    // Subtitle.
-    if (row.subtitleLine) {
-      pushCard(
-        newTextElement({
-          x: x + 2,
-          y: y + photoH + 8,
-          width: cardW - 4,
-          height: 5,
-          content: row.subtitleLine,
-          fontFamily,
-          fontSize: 8.5,
-          fontWeight: "normal",
-          color: "#4b5563",
-          align: "center",
-          lineHeight: 1.1,
-        })
-      );
-    }
-    // Company.
-    if (row.companyLine) {
-      pushCard(
-        newTextElement({
-          x: x + 2,
-          y: y + photoH + 14,
-          width: cardW - 4,
-          height: 5,
-          content: row.companyLine,
-          fontFamily,
-          fontSize: 8.5,
-          fontWeight: "normal",
-          color: accent,
-          align: "center",
-          lineHeight: 1.1,
-        })
-      );
-    }
+    frame.finish(push);
+    pages.push(makePage("speakers", frame.background, elements));
   }
-
-  return {
-    id: `page-speakers-${Math.random().toString(36).slice(2, 8)}`,
-    width: A4_WIDTH_MM,
-    height: A4_HEIGHT_MM,
-    background: { type: "solid", color: "#ffffff" },
-    elements,
-  };
+  return pages;
 }
+
+// ─── Sponsors ──────────────────────────────────────────────────────────────
 
 /** Builds the Sponsors page — tier headings followed by sponsor
  *  logos (or name text when no logo URL). Returns `null` when there
  *  are no sponsors. */
-function buildSponsorsPage(sponsors: SponsorInput[], theme: BrochureTheme, accent: string, fontFamily: string): BrochurePage | null {
+function buildSponsorsPage(ctx: SeedContext): BrochurePage | null {
+  const { fontFamily, theme } = ctx;
+  const sponsors = ctx.input.sponsors ?? [];
   if (sponsors.length === 0) return null;
   const groups = groupSponsorsByTierOrdered(sponsors);
 
-  const pageW = A4_WIDTH_MM;
-  const elements: BrochureElement[] = [];
-  const push = (el: BrochureElement) => {
-    el.zIndex = elements.length;
-    elements.push(el);
-  };
-
-  let cursorY = pushClassicSectionHeading(push, theme, "Sponsors", accent, fontFamily, 24, 12);
+  const poster = isPosterTheme(theme);
+  const frame = dataPageFrame(ctx);
+  const { elements, push } = createPusher();
+  let cursorY = pushSectionHeader(push, ctx, "Sponsors", 24, 12);
 
   const bodyLeft = theme.margins.left;
-  const bodyW = pageW - theme.margins.left - theme.margins.right;
+  const bodyW = PAGE_W - theme.margins.left - theme.margins.right;
   const perRow = 3;
   const logoGap = 4;
   const logoW = (bodyW - logoGap * (perRow - 1)) / perRow;
@@ -1914,123 +1981,73 @@ function buildSponsorsPage(sponsors: SponsorInput[], theme: BrochureTheme, accen
         lineHeight: 1,
       })
     );
-    push(
-      newShapeElement({
-        x: bodyLeft,
-        y: cursorY + 8,
-        width: 16,
-        height: 0.8,
-        shape: "rect",
-        fill: group.accentColor,
-        stroke: "transparent",
-        strokeWidth: 0,
-        cornerRadius: 0,
-      })
-    );
+    push(rect(bodyLeft, cursorY + 8, 16, 0.8, group.accentColor));
     cursorY += 12;
 
     // Sponsor cards for this tier.
     const items = group.sponsors.slice(0, 12);
     for (let i = 0; i < items.length; i += 1) {
       const sponsor = items[i];
-      const col = i % perRow;
-      const rowIdx = Math.floor(i / perRow);
-      const x = bodyLeft + col * (logoW + logoGap);
-      const y = cursorY + rowIdx * (logoH + 4);
+      const x = bodyLeft + (i % perRow) * (logoW + logoGap);
+      const y = cursorY + Math.floor(i / perRow) * (logoH + 4);
       // Sponsor card = background surface + logo/text.
       const pushCard = cardPusher(push);
 
       // Card background so text logos have a distinct surface.
-      pushCard(
-        newShapeElement({
-          x,
-          y,
-          width: logoW,
-          height: logoH,
-          shape: "rect",
-          fill: "#f9fafb",
-          stroke: "#e5e7eb",
-          strokeWidth: 0.3,
-          cornerRadius: 2,
-        })
-      );
+      pushCard(rect(x, y, logoW, logoH, poster ? "#ffffff" : "#f9fafb", 2, "#e5e7eb", 0.3));
       if (sponsor.logo.type === "url") {
         pushCard(
-          newImageElement({
-            x: x + 2,
-            y: y + 2,
-            width: logoW - 4,
-            height: logoH - 4,
-            src: sponsor.logo.url,
-            fit: "contain",
-            cornerRadius: 0,
-          })
+          newImageElement({ x: x + 2, y: y + 2, width: logoW - 4, height: logoH - 4, src: sponsor.logo.url, fit: "contain", cornerRadius: 0 })
         );
       } else {
         pushCard(
           newTextElement({
             x: x + 2,
-            y: y + logoH / 2 - 3,
+            y,
             width: logoW - 4,
-            height: 6,
+            height: logoH,
             content: sponsor.logo.text,
             fontFamily,
             fontSize: 10,
             fontWeight: "bold",
-            color: "#0a1429",
+            color: poster ? INK : "#0a1429",
             align: "center",
             lineHeight: 1.1,
+            verticalAlign: "middle",
           })
         );
       }
     }
     const rowsForGroup = Math.ceil(items.length / perRow);
     cursorY += rowsForGroup * (logoH + 4) + 4;
-    if (cursorY > A4_HEIGHT_MM - 30) break; // stop before overflowing the page
+    if (cursorY > frame.bottom - 30) break; // stop before overflowing the page
   }
 
-  return {
-    id: `page-sponsors-${Math.random().toString(36).slice(2, 8)}`,
-    width: A4_WIDTH_MM,
-    height: A4_HEIGHT_MM,
-    background: { type: "solid", color: "#ffffff" },
-    elements,
-  };
+  frame.finish(push);
+  return makePage("sponsors", frame.background, elements);
 }
 
-/** Builds the Venue & Logistics page — venue name, address, transit
- *  notes, parking notes. Returns `null` when there's no meaningful
- *  content to show. */
-function buildVenuePage(input: VenueLogisticsInput | undefined, theme: BrochureTheme, accent: string, fontFamily: string): BrochurePage | null {
-  if (!input) return null;
-  const content = buildVenueLogisticsContent(input);
+// ─── Venue & Logistics ─────────────────────────────────────────────────────
+
+/** Builds the Venue & Logistics page — venue name, address, parking and
+ *  transit notes, each a bold label over its value. Returns `null` when
+ *  there's no meaningful content to show. */
+function buildVenuePage(ctx: SeedContext): BrochurePage | null {
+  const { fontFamily, theme } = ctx;
+  if (!ctx.input.venueLogistics) return null;
+  const content = buildVenueLogisticsContent(ctx.input.venueLogistics);
   if (!content) return null;
 
-  const pageW = A4_WIDTH_MM;
-  const elements: BrochureElement[] = [];
-  const push = (el: BrochureElement) => {
-    el.zIndex = elements.length;
-    elements.push(el);
-  };
-
-  // Heading with wider (40mm) accent underline and 12mm content offset —
-  // matches `drawVenueLogisticsSection`'s
-  // `drawHeadingUnderline(..., 40)` and `y = startY + 12` exactly.
-  let cursorY = pushClassicSectionHeading(push, theme, "Venue & Logistics", accent, fontFamily, 40, 12);
+  const frame = dataPageFrame(ctx);
+  const { elements, push } = createPusher();
+  let cursorY = pushSectionHeader(push, ctx, "Venue & Logistics", 40, 12);
 
   const bodyLeft = theme.margins.left;
-  const bodyW = pageW - theme.margins.left - theme.margins.right;
+  const bodyW = PAGE_W - theme.margins.left - theme.margins.right;
 
-  // ── Field rows ─────────────────────────────────────────────────────
-  //
-  // Mirrors `drawVenueLogisticsSection`'s loop exactly:
-  //   - Label rendered as "Label:" (Title case + colon), bold black, 11pt
-  //   - Value rendered normal, gray (rgb 60,60,60), 10pt
-  //   - Field order: Venue → Address → Parking → Transit
-  //
-  // Previous editor implementation used UPPERCASE labels in accent
-  // color (10pt) with normal-black value (11pt) — visually diverged
-  // from the preview by both size, casing, and color.
+  // Field order: Venue → Address → Parking → Transit. Each value is as tall
+  // as its wrapped text, so a long address pushes the next label down
+  // instead of printing over it.
   const addField = (label: string, body: string): void => {
     push(
       newTextElement({
@@ -2042,253 +2059,267 @@ function buildVenuePage(input: VenueLogisticsInput | undefined, theme: BrochureT
         fontFamily,
         fontSize: 11,
         fontWeight: "bold",
-        color: "#000000",
+        color: INK,
         align: "left",
         lineHeight: 1,
       })
     );
-    cursorY += 5;
-    // Rough estimate: ~90 chars per line at this width and font size.
-    // Multi-line text auto-wraps inside its box in Konva, so the height
-    // is just a container hint — a generous 24mm accommodates ~4 wrapped
-    // lines without truncation for typical venue text.
+    cursorY += 5.5;
+    const bodyH = estimateTextHeightMm(body, bodyW * WRAP_FIT, 10, 1.4);
     push(
       newTextElement({
         x: bodyLeft,
         y: cursorY,
         width: bodyW,
-        height: 24,
+        height: bodyH + 5,
         content: body,
         fontFamily,
         fontSize: 10,
         fontWeight: "normal",
-        color: "#3c3c3c", // rgb(60, 60, 60), same as preview's `setTextColor(60, 60, 60)`
+        color: "#3c3c3c",
         align: "left",
         lineHeight: 1.4,
       })
     );
-    // Match preview's `y += lines.length * 5 + 3` — assume ~2 lines of
-    // wrapping for a typical field, plus the 3mm gap before the next
-    // label. Keeps the editor's vertical spacing close to the PDF's.
-    cursorY += 13;
+    cursorY += bodyH + 5;
   };
 
-  // Field order matches `drawVenueLogisticsSection`'s textFields array:
-  // Venue → Address → Parking → Transit.
   if (content.venueName) addField("Venue", content.venueName);
   if (content.address) addField("Address", content.address);
   if (content.parkingNotes) addField("Parking", content.parkingNotes);
   if (content.transitNotes) addField("Transit", content.transitNotes);
 
-  return {
-    id: `page-venue-${Math.random().toString(36).slice(2, 8)}`,
-    width: A4_WIDTH_MM,
-    height: A4_HEIGHT_MM,
-    background: { type: "solid", color: "#ffffff" },
-    elements,
-  };
+  frame.finish(push);
+  return makePage("venue", frame.background, elements);
 }
 
-/** Builds the Sponsorship Packages page — a benefits × tiers comparison
- *  grid matching the reference "Premium Partnership Packages" deck
- *  brochures. Every header cell, benefit label, and value cell is an
- *  independent editable text/shape element (not a locked table widget),
- *  so the organizer can restyle, move, or delete any single cell exactly
- *  like every other element on the canvas. Returns `null` when there's
- *  no content to show (mirrors the jsPDF renderer's `buildSponsorship
- *  PackagesContent` null-return contract). */
-function buildSponsorshipPackagesPage(
-  input: SponsorshipPackagesInput | undefined,
-  theme: BrochureTheme,
-  accent: string,
-  fontFamily: string
-): BrochurePage | null {
-  if (!input) return null;
-  const content = buildSponsorshipPackagesContent(input);
-  if (!content) return null;
+// ─── Partnership / sponsorship packages ────────────────────────────────────
 
-  const pageW = A4_WIDTH_MM;
-  const elements: BrochureElement[] = [];
-  const push = (el: BrochureElement) => {
-    el.zIndex = elements.length;
-    elements.push(el);
-  };
+const PACKAGES_X = 17.5;
+const PACKAGES_W = PAGE_W - PACKAGES_X - 11;
+const PACKAGES_PT = 7.5;
+const PACKAGES_LH = 1.25;
+const PACKAGES_PAD = 1.5;
+const PACKAGES_GRID = "#c9c9c9";
+/** Most tiers a single table shows before the rest move to another page. */
+const PACKAGES_MAX_TIERS = 4;
 
-  const startY = pushClassicSectionHeading(push, theme, content.title, accent, fontFamily, 24, 12);
+/**
+ * Builds the partnership packages pages — a benefits × tiers comparison
+ * table after the reference "Premium Partnership Packages" deck: an accent
+ * two-line title with a rule running out to the organizer's logo, an accent
+ * header row, hairline-ruled white rows with left-aligned cells, a red cross
+ * for "not included", and a black "Cost" row.
+ *
+ * Rows are as tall as their tallest cell. A table with more rows than fit
+ * continues on another page, and more than four tiers are split into
+ * equal-sized tables — a column needs ~35mm to hold a phrase like
+ * "Premium Branding Across Venue". Every cell is its own element. Returns
+ * no pages when there's nothing to show.
+ */
+function buildSponsorshipPackagesPages(ctx: SeedContext): BrochurePage[] {
+  const { input, accent, fontFamily } = ctx;
+  if (!input.sponsorshipPackages) return [];
+  const content = buildSponsorshipPackagesContent(input.sponsorshipPackages);
+  if (!content) return [];
 
-  const bodyLeft = theme.margins.left;
-  const bodyRight = pageW - theme.margins.right;
-  const bodyW = bodyRight - bodyLeft;
-  const benefitColW = 46;
-  const tierCount = Math.max(1, content.tiers.length);
-  const tierColW = (bodyW - benefitColW) / tierCount;
-  const headerRowH = 10;
-  const rowH = 8;
+  const tablesNeeded = Math.ceil(content.tiers.length / PACKAGES_MAX_TIERS);
+  const tiersPerTable = Math.ceil(content.tiers.length / tablesNeeded);
+  const pages: BrochurePage[] = [];
+  const lineH = ptToMm(PACKAGES_PT) * PACKAGES_LH;
+  const hasCost = content.tiers.some((t) => t.price);
 
-  // Header row — benefit column left blank, one cell per tier name.
+  for (let tierStart = 0; tierStart < content.tiers.length; tierStart += tiersPerTable) {
+    const tiers = content.tiers.slice(tierStart, tierStart + tiersPerTable);
+    const labelW = tiers.length <= 3 ? 45.5 : 38;
+    const tierW = (PACKAGES_W - labelW) / tiers.length;
+    const labelTextW = labelW - PACKAGES_PAD * 2;
+    const cellTextW = tierW - PACKAGES_PAD * 2;
+    const cellLines = (cell: SponsorshipCell | undefined): number =>
+      cell?.kind === "text" ? wrapTextLines(cell.value, cellTextW * WRAP_FIT, PACKAGES_PT).length : 1;
+    const rowHeights = content.benefits.map((benefit, r) => {
+      const lines = Math.max(
+        wrapTextLines(benefit, labelTextW * WRAP_FIT, PACKAGES_PT).length,
+        ...tiers.map((t) => cellLines(t.cells[r]))
+      );
+      return Math.max(9.6, lines * lineH + 3.6);
+    });
+    const headerH = Math.max(
+      9.5,
+      Math.max(...tiers.map((t) => wrapTextLines(t.name, cellTextW * WRAP_FIT, PACKAGES_PT, true).length)) * lineH + 3.6
+    );
+    const costH = hasCost ? 9.5 : 0;
+
+    let rowIndex = 0;
+    while (rowIndex < content.benefits.length) {
+      const { elements, push } = createPusher();
+      const tableTop = pushPackagesHeader(push, ctx, content.title);
+      const bodyLimit = PAGE_H - 12 - costH;
+
+      // Header row.
+      const pushHead = cardPusher(push);
+      pushHead(rect(PACKAGES_X, tableTop, PACKAGES_W, headerH, accent));
+      const headCells = ["Partner Categories", ...tiers.map((t) => t.name)];
+      headCells.forEach((label, c) => {
+        const x = c === 0 ? PACKAGES_X : PACKAGES_X + labelW + (c - 1) * tierW;
+        if (c > 0) pushHead(rect(x - 0.1, tableTop, 0.2, headerH, "#ffffff"));
+        pushHead(
+          newTextElement({
+            x: x + PACKAGES_PAD,
+            y: tableTop,
+            width: (c === 0 ? labelW : tierW) - PACKAGES_PAD * 2,
+            height: headerH,
+            content: label,
+            fontFamily,
+            fontSize: PACKAGES_PT,
+            fontWeight: "bold",
+            color: "#ffffff",
+            align: "left",
+            lineHeight: PACKAGES_LH,
+            verticalAlign: "middle",
+          })
+        );
+      });
+
+      // Benefit rows — as many as fit this page (always at least one).
+      const bodyTop = tableTop + headerH;
+      let y = bodyTop;
+      const firstRow = rowIndex;
+      while (rowIndex < content.benefits.length && (rowIndex === firstRow || y + rowHeights[rowIndex] <= bodyLimit)) {
+        const rowH = rowHeights[rowIndex];
+        const pushRow = cardPusher(push);
+        pushRow(rect(PACKAGES_X, y, PACKAGES_W, rowH, "#ffffff", 0, PACKAGES_GRID, 0.2));
+        pushRow(
+          newTextElement({
+            x: PACKAGES_X + PACKAGES_PAD,
+            y,
+            width: labelTextW,
+            height: rowH,
+            content: content.benefits[rowIndex],
+            fontFamily,
+            fontSize: PACKAGES_PT,
+            fontWeight: "normal",
+            color: INK,
+            align: "left",
+            lineHeight: PACKAGES_LH,
+            verticalAlign: "middle",
+          })
+        );
+        tiers.forEach((tier, c) => {
+          const cell = tier.cells[rowIndex];
+          const x = PACKAGES_X + labelW + c * tierW + PACKAGES_PAD;
+          if (cell?.kind === "text") {
+            pushRow(
+              newTextElement({
+                x,
+                y,
+                width: cellTextW,
+                height: rowH,
+                content: cell.value,
+                fontFamily,
+                fontSize: PACKAGES_PT,
+                fontWeight: "normal",
+                color: INK,
+                align: "left",
+                lineHeight: PACKAGES_LH,
+                verticalAlign: "middle",
+              })
+            );
+          } else if (cell?.kind === "check" || cell?.kind === "cross") {
+            const size = cell.kind === "check" ? 3.2 : 2.7;
+            pushRow(
+              newImageElement({
+                x: x + 0.2,
+                y: y + (rowH - size) / 2,
+                width: size,
+                height: size,
+                src: cell.kind === "check" ? TICK_ICON : CROSS_ICON,
+                fit: "contain",
+              })
+            );
+          }
+          // An empty cell stays blank, as in the reference.
+        });
+        y += rowH;
+        rowIndex += 1;
+      }
+
+      // Column rules through the body rows.
+      for (let c = 0; c < tiers.length; c += 1) {
+        push(rect(PACKAGES_X + labelW + c * tierW - 0.1, bodyTop, 0.2, y - bodyTop, PACKAGES_GRID));
+      }
+
+      // Cost row closes the table, on its last page.
+      if (hasCost && rowIndex >= content.benefits.length) {
+        const pushCost = cardPusher(push);
+        pushCost(rect(PACKAGES_X, y, PACKAGES_W, costH, INK));
+        ["Cost", ...tiers.map((t) => t.price ?? "")].forEach((label, c) => {
+          if (!label) return;
+          pushCost(
+            newTextElement({
+              x: (c === 0 ? PACKAGES_X : PACKAGES_X + labelW + (c - 1) * tierW) + PACKAGES_PAD,
+              y,
+              width: (c === 0 ? labelW : tierW) - PACKAGES_PAD * 2,
+              height: costH,
+              content: label,
+              fontFamily,
+              fontSize: fitFontSizePt([label], ((c === 0 ? labelW : tierW) - PACKAGES_PAD * 2) * WRAP_FIT, PACKAGES_PT, 5.5, true),
+              fontWeight: "bold",
+              color: "#ffffff",
+              align: "left",
+              lineHeight: 1,
+              verticalAlign: "middle",
+            })
+          );
+        });
+      }
+
+      pages.push(makePage("sponsorship", "#ffffff", elements));
+    }
+  }
+  return pages;
+}
+
+/** Title block of a packages page: the accent two-line title, the rule that
+ *  runs from it to the organizer logo, and the logo itself. Returns the y
+ *  where the table starts. */
+function pushPackagesHeader(push: Push, ctx: SeedContext, title: string): number {
+  const { input, accent, fontFamily } = ctx;
+  const titlePt = 25;
+  const titleLH = 0.98;
+  const titleW = 112;
+  const titleTop = 21;
+  const lines = wrapTextLines(title, titleW * WRAP_FIT, titlePt, true);
+  const titleH = lines.length * ptToMm(titlePt) * titleLH;
   push(
-    newShapeElement({
-      x: bodyLeft,
-      y: startY,
-      width: benefitColW,
-      height: headerRowH,
-      shape: "rect",
-      fill: accent,
-      stroke: "transparent",
-      strokeWidth: 0,
-      cornerRadius: 0,
+    newTextElement({
+      x: PACKAGES_X,
+      y: titleTop,
+      width: titleW,
+      height: titleH + 3,
+      content: lines.join("\n"),
+      fontFamily,
+      fontSize: titlePt,
+      fontWeight: "bold",
+      color: accent,
+      align: "left",
+      lineHeight: titleLH,
     })
   );
-  for (let c = 0; c < content.tiers.length; c += 1) {
-    const x = bodyLeft + benefitColW + c * tierColW;
+
+  const right = PACKAGES_X + PACKAGES_W;
+  const ruleY = titleTop + ptToMm(titlePt) * 0.5;
+  let ruleEnd = right;
+  if (input.organizerLogoUrl) {
+    const logoW = 36;
+    const logoH = 9;
     push(
-      newShapeElement({
-        x,
-        y: startY,
-        width: tierColW,
-        height: headerRowH,
-        shape: "rect",
-        fill: accent,
-        stroke: "#ffffff",
-        strokeWidth: 0.2,
-        cornerRadius: 0,
-      })
+      newImageElement({ x: right - logoW, y: ruleY - logoH / 2, width: logoW, height: logoH, src: input.organizerLogoUrl, fit: "contain", focalX: 1 })
     );
-    push(
-      newTextElement({
-        x: x + 1,
-        y: startY + headerRowH / 2 - 4,
-        width: tierColW - 2,
-        height: 8,
-        content: content.tiers[c].name,
-        fontFamily,
-        fontSize: 9,
-        fontWeight: "bold",
-        color: "#ffffff",
-        align: "center",
-        lineHeight: 1.05,
-      })
-    );
+    ruleEnd = right - logoW - 4;
   }
+  const ruleStart = PACKAGES_X + estimateTextWidthMm(lines[0] ?? "", titlePt, true) + 6;
+  if (ruleEnd - ruleStart > 8) push(rect(ruleStart, ruleY, ruleEnd - ruleStart, 0.35, accent));
 
-  // Benefit rows — alternating row background for readability, one
-  // label cell + one value cell per tier.
-  const maxRows = 14; // keep the page from overflowing on very long lists
-  const benefitRows = content.benefits.slice(0, maxRows);
-  for (let r = 0; r < benefitRows.length; r += 1) {
-    const y = startY + headerRowH + r * rowH;
-    const rowBg = r % 2 === 0 ? "#f9fafb" : "#ffffff";
-
-    push(
-      newShapeElement({
-        x: bodyLeft,
-        y,
-        width: bodyW,
-        height: rowH,
-        shape: "rect",
-        fill: rowBg,
-        stroke: "#e5e7eb",
-        strokeWidth: 0.15,
-        cornerRadius: 0,
-      })
-    );
-    push(
-      newTextElement({
-        x: bodyLeft + 1.5,
-        y: y + rowH / 2 - 3,
-        width: benefitColW - 3,
-        height: rowH - 1,
-        content: benefitRows[r],
-        fontFamily,
-        fontSize: 7,
-        fontWeight: "bold",
-        color: "#0a1429",
-        align: "left",
-        lineHeight: 1.05,
-      })
-    );
-
-    for (let c = 0; c < content.tiers.length; c += 1) {
-      const x = bodyLeft + benefitColW + c * tierColW;
-      const cell = content.tiers[c].cells[r];
-      const label =
-        cell?.kind === "check" ? "✓" : cell?.kind === "cross" ? "✗" : cell?.kind === "text" ? cell.value : "—";
-      const cellColor = cell?.kind === "check" ? "#16a34a" : cell?.kind === "cross" ? "#dc2626" : "#0a1429";
-      push(
-        newTextElement({
-          x: x + 1,
-          y: y + rowH / 2 - 3,
-          width: tierColW - 2,
-          height: rowH - 1,
-          content: label,
-          fontFamily,
-          fontSize: 7,
-          fontWeight: cell?.kind === "check" || cell?.kind === "cross" ? "bold" : "normal",
-          color: cellColor,
-          align: "center",
-          lineHeight: 1.05,
-        })
-      );
-    }
-  }
-
-  // Cost row — bold, accent-colored, at the bottom of the table.
-  const hasCost = content.tiers.some((t) => t.price);
-  if (hasCost) {
-    const y = startY + headerRowH + benefitRows.length * rowH;
-    push(
-      newShapeElement({
-        x: bodyLeft,
-        y,
-        width: bodyW,
-        height: rowH + 2,
-        shape: "rect",
-        fill: "#111111",
-        stroke: "transparent",
-        strokeWidth: 0,
-        cornerRadius: 0,
-      })
-    );
-    push(
-      newTextElement({
-        x: bodyLeft + 1.5,
-        y: y + (rowH + 2) / 2 - 3,
-        width: benefitColW - 3,
-        height: rowH,
-        content: "Cost",
-        fontFamily,
-        fontSize: 8,
-        fontWeight: "bold",
-        color: "#ffffff",
-        align: "left",
-        lineHeight: 1.05,
-      })
-    );
-    for (let c = 0; c < content.tiers.length; c += 1) {
-      const x = bodyLeft + benefitColW + c * tierColW;
-      push(
-        newTextElement({
-          x: x + 1,
-          y: y + (rowH + 2) / 2 - 3,
-          width: tierColW - 2,
-          height: rowH,
-          content: content.tiers[c].price ?? "—",
-          fontFamily,
-          fontSize: 7.5,
-          fontWeight: "bold",
-          color: "#ffffff",
-          align: "center",
-          lineHeight: 1.05,
-        })
-      );
-    }
-  }
-
-  return {
-    id: `page-sponsorship-${Math.random().toString(36).slice(2, 8)}`,
-    width: A4_WIDTH_MM,
-    height: A4_HEIGHT_MM,
-    background: { type: "solid", color: "#ffffff" },
-    elements,
-  };
+  return titleTop + titleH + 7;
 }

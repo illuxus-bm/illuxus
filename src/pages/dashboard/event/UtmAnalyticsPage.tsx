@@ -1,18 +1,29 @@
 /**
- * UtmAnalyticsPage — comprehensive per-event UTM attribution dashboard.
+ * UtmAnalyticsPage — per-event UTM attribution dashboard.
  *
  * Sections:
- *  1. Filters bar  (date range, source, medium, campaign, clear)
- *  2. KPI strip    (total clicks, registrations, conv%, top source)
- *  3. Charts       (bar: regs by source; horizontal bar: top campaigns)
- *  4. Funnel       (CSS-only clicks → registrations)
- *  5. Table        (sortable, colour-coded conv%, export CSV)
- *  6. Source leaderboard (text-based with mini progress bars)
- *  7. Share link generator
+ *  1. Header       (create tracked link, exports)
+ *  2. Filters      (date range, source, medium, campaign)
+ *  3. KPI strip    (clicks, registrations, conversion, checked in)
+ *  4. Charts       (registrations by source; top campaigns)
+ *  5. Funnel + source breakdown
+ *  6. Table        (sortable; registration counts open the leads pop-up;
+ *                   copy / edit per link)
+ *  7. Saved links  (copy / edit / delete)
  *
- * Data: event_utm_summary RPC via supabaseRpc.
+ * Data:
+ *  • All time  — the `event_utm_summary` RPC.
+ *  • Date range — the same grouping computed here from raw clicks and
+ *    registrations in the range (`aggregateRows`), since the RPC has no date
+ *    parameter.
+ *  • Registrations are loaded once (`fetchEventLeads`) and drive the
+ *    checked-in counts, the leads pop-up and the lead export, so those always
+ *    agree with each other and with the active filters.
+ *
+ * Source / medium options come from `utm-options` — the same lists the link
+ * dialog offers — plus any other value present in the data.
  */
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   BarChart,
@@ -29,9 +40,8 @@ import {
   TrendingUp,
   MousePointerClick,
   Users,
-  Share2,
+  UserCheck,
   Copy,
-  Check,
   ExternalLink,
   Download,
   ChevronUp,
@@ -42,17 +52,12 @@ import {
   Link2,
   Pencil,
   Trash2,
-  Lock,
-  Save,
+  RefreshCw,
 } from "lucide-react";
 import { supabaseRpc } from "@/lib/observability";
 import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
-import { eventPublicUrl } from "@/lib/event-routes";
-import { buildUtmUrl } from "@/lib/utm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -66,18 +71,33 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { UtmLinkDialog } from "@/components/event/utm/UtmLinkDialog";
+import { UtmPartnersSection, partnerSharesKey, type ShareableLink } from "@/components/event/utm/UtmPartnersSection";
+import { utmLinkUrl, type UtmLinkDraft } from "@/components/event/utm/utm-link-url";
+import { UtmRegistrationsDialog, type UtmBreakdownKey } from "@/components/event/utm/UtmRegistrationsDialog";
+import {
+  DIRECT_SOURCE, UTM_MEDIUMS, UTM_SOURCES, sourceColor, withExtras,
+} from "@/components/event/utm/utm-options";
+import {
+  aggregateRows, attributionKey, fetchEventClicksSince, fetchEventLeads, hasAttended, rowKey,
+  type UtmLead, type UtmRow,
+} from "@/lib/utm/utm-data";
+import {
+  exportLeadsCsv, exportSummaryCsv, leadsFilename, summaryFilename,
+} from "@/lib/utm/utm-export";
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
-
-interface UtmRow {
-  utm_source:      string;
-  utm_medium:      string;
-  utm_campaign:    string;
-  clicks:          number;
-  registrations:   number;
-  conversion_rate: number;
-}
 
 interface UtmLink {
   id:           string;
@@ -97,342 +117,46 @@ interface UtmLink {
   registrations?: number;
 }
 
-type SortKey = "utm_source" | "utm_medium" | "utm_campaign" | "clicks" | "registrations" | "conversion_rate";
+/** A summary row plus what the leads and saved links add to it. */
+interface BreakdownRow extends UtmRow {
+  checked_in: number;
+  revenue: number;
+  saved: UtmLink | null;
+}
+
+/** The link a delete confirmation is open for — a breakdown row, with its saved link when one exists. */
+interface DeleteTarget {
+  utm_source: string;
+  utm_medium: string;
+  utm_campaign: string;
+  label: string | null;
+  saved: UtmLink | null;
+}
+
+type SortKey = "utm_source" | "utm_medium" | "utm_campaign" | "clicks" | "registrations" | "checked_in" | "conversion_rate";
 type SortDir = "asc" | "desc";
 
 type DateRange = "7d" | "30d" | "90d" | "all";
 
 /* ─── Constants ──────────────────────────────────────────────────────────── */
 
-const SOURCE_COLORS: Record<string, string> = {
-  email:     "#6366f1",
-  whatsapp:  "#22c55e",
-  linkedin:  "#0ea5e9",
-  twitter:   "#1d9bf0",
-  facebook:  "#3b82f6",
-  instagram: "#ec4899",
-  sms:       "#f59e0b",
-  qr:        "#8b5cf6",
-  "(direct)":"#94a3b8",
-  "(none)":  "#cbd5e1",
-};
-
-const ALL_SOURCES  = ["email","whatsapp","linkedin","twitter","facebook","instagram","sms","qr","(direct)"];
-const ALL_MEDIUMS  = ["transactional","broadcast","organic","paid","referral"];
-const DATE_OPTIONS: { label: string; value: DateRange }[] = [
-  { label: "Last 7d",  value: "7d"  },
-  { label: "Last 30d", value: "30d" },
-  { label: "Last 90d", value: "90d" },
-  { label: "All time", value: "all" },
+const DATE_OPTIONS: { label: string; value: DateRange; days: number | null }[] = [
+  { label: "Last 7 days",  value: "7d",  days: 7 },
+  { label: "Last 30 days", value: "30d", days: 30 },
+  { label: "Last 90 days", value: "90d", days: 90 },
+  { label: "All time",     value: "all", days: null },
 ];
 
-function sourceColor(src: string): string {
-  return SOURCE_COLORS[(src || "").toLowerCase()] ?? "#6366f1";
-}
+/** Shown when the database function behind link deletion (migration 039) is not installed. */
+const NEEDS_DB_UPDATE =
+  "Removing a link's click history needs a one-time database update: run supabase/migrations/039_utm_delete_tracking.sql in the Supabase SQL Editor, then delete again.";
 
-function daysSince(days: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d;
-}
+/** PostgREST / Postgres "no such function" — the RPC hasn't been deployed. */
+const isMissingFunction = (e: { code?: string; message?: string }) =>
+  e.code === "PGRST202" || e.code === "42883" || /could not find the function|function .* does not exist/i.test(e.message ?? "");
 
-/* ─── CSV Export ─────────────────────────────────────────────────────────── */
-
-function exportCsv(rows: UtmRow[]): void {
-  const header = "Source,Medium,Campaign,Content,Clicks,Registrations,Conversion%";
-  const body = rows.map((r) =>
-    [
-      r.utm_source,
-      r.utm_medium,
-      r.utm_campaign,
-      "—",
-      r.clicks,
-      r.registrations,
-      Number(r.conversion_rate).toFixed(1),
-    ]
-      .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-      .join(",")
-  );
-  const csv = [header, ...body].join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = "utm-analytics.csv";
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-/* ─── Enhanced CSV Export with Participants ──────────────────────────────── */
-
-async function exportDetailedCsv(eventId: string, rows: UtmRow[]): Promise<void> {
-  try {
-    // Fetch all registrations with UTM data for this event
-    const { data: registrations, error } = await supabase
-      .from("registrations")
-      .select(`
-        id,
-        name,
-        email,
-        ticket_type,
-        status,
-        amount_paid,
-        utm_source,
-        utm_medium,
-        utm_campaign,
-        utm_content,
-        utm_term,
-        created_at,
-        user_id,
-        company,
-        mobile_number,
-        designation,
-        linkedin_url
-      `)
-      .eq("event_id", eventId)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("Error fetching registrations:", error);
-      toast.error("Failed to fetch participant data for detailed export");
-      return;
-    }
-
-    // Fetch click tracking data to correlate with registrations
-    const { data: clickData, error: clickError } = await supabase
-      .from("utm_clicks")
-      .select(`
-        utm_source,
-        utm_medium,
-        utm_campaign,
-        utm_content,
-        utm_term,
-        created_at,
-        ip_address,
-        user_agent,
-        referrer
-      `)
-      .eq("event_id", eventId)
-      .order("created_at", { ascending: false });
-
-    if (clickError) {
-      console.warn("Could not fetch click data:", clickError);
-    }
-
-    // Group registrations by UTM source, medium, and campaign
-    const utmGroups = new Map<string, typeof registrations>();
-    const utmRegistrations: typeof registrations = [];
-    const directRegistrations: typeof registrations = [];
-    
-    (registrations || []).forEach((reg) => {
-      if (reg.utm_source || reg.utm_medium || reg.utm_campaign) {
-        const key = `${reg.utm_source || ""}|${reg.utm_medium || ""}|${reg.utm_campaign || ""}`;
-        if (!utmGroups.has(key)) {
-          utmGroups.set(key, []);
-        }
-        utmGroups.get(key)!.push(reg);
-        utmRegistrations.push(reg);
-      } else {
-        directRegistrations.push(reg);
-      }
-    });
-
-    // Create enhanced CSV with multiple detailed sections
-    const csvLines: string[] = [];
-    
-    // Section 1: Executive Summary
-    csvLines.push("=== EXECUTIVE SUMMARY ===");
-    csvLines.push(`Event ID: ${eventId}`);
-    csvLines.push(`Generated: ${new Date().toLocaleString()}`);
-    csvLines.push(`Total Registrations: ${(registrations || []).length}`);
-    csvLines.push(`UTM-Attributed Registrations: ${utmRegistrations.length}`);
-    csvLines.push(`Direct Registrations: ${directRegistrations.length}`);
-    csvLines.push(`Attribution Rate: ${registrations?.length ? ((utmRegistrations.length / registrations.length) * 100).toFixed(1) : 0}%`);
-    csvLines.push("");
-
-    // Section 2: UTM Performance Summary
-    csvLines.push("=== UTM PERFORMANCE SUMMARY ===");
-    csvLines.push("Source,Medium,Campaign,Content,Term,Clicks,Registrations,Conversion%,Revenue");
-    
-    rows.forEach((r) => {
-      const revenue = utmGroups.get(`${r.utm_source}|${r.utm_medium}|${r.utm_campaign}`)
-        ?.reduce((sum, reg) => sum + (reg.amount_paid || 0), 0) || 0;
-      
-      csvLines.push([
-        r.utm_source,
-        r.utm_medium,
-        r.utm_campaign,
-        "—",
-        "—",
-        r.clicks,
-        r.registrations,
-        Number(r.conversion_rate).toFixed(1),
-        revenue.toFixed(2),
-      ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
-    });
-
-    csvLines.push(""); // Empty line separator
-
-    // Section 3: Source Performance Analysis
-    csvLines.push("=== SOURCE PERFORMANCE ANALYSIS ===");
-    const sourceAnalysis = new Map<string, { clicks: number; registrations: number; revenue: number; participants: string[] }>();
-    
-    rows.forEach((r) => {
-      const source = r.utm_source || "(unknown)";
-      if (!sourceAnalysis.has(source)) {
-        sourceAnalysis.set(source, { clicks: 0, registrations: 0, revenue: 0, participants: [] });
-      }
-      const analysis = sourceAnalysis.get(source)!;
-      analysis.clicks += r.clicks;
-      analysis.registrations += r.registrations;
-      
-      const sourceParticipants = utmGroups.get(`${r.utm_source}|${r.utm_medium}|${r.utm_campaign}`) || [];
-      sourceParticipants.forEach(p => {
-        analysis.revenue += p.amount_paid || 0;
-        analysis.participants.push(p.name || p.email || "Unknown");
-      });
-    });
-
-    csvLines.push("UTM Source,Total Clicks,Total Registrations,Conversion Rate %,Total Revenue,Revenue per Registration,Participant Count");
-    Array.from(sourceAnalysis.entries())
-      .sort(([, a], [, b]) => b.registrations - a.registrations)
-      .forEach(([source, data]) => {
-        const convRate = data.clicks > 0 ? ((data.registrations / data.clicks) * 100).toFixed(1) : "0.0";
-        const revenuePerReg = data.registrations > 0 ? (data.revenue / data.registrations).toFixed(2) : "0.00";
-        csvLines.push([
-          source,
-          data.clicks,
-          data.registrations,
-          convRate,
-          data.revenue.toFixed(2),
-          revenuePerReg,
-          data.participants.length,
-        ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
-      });
-
-    csvLines.push(""); // Empty line separator
-
-    // Section 4: Individual Participants by UTM Attribution
-    csvLines.push("=== DETAILED PARTICIPANT ATTRIBUTION ===");
-    csvLines.push("Registration Date,UTM Source,UTM Medium,UTM Campaign,UTM Content,UTM Term,Participant Name,Email,Company,Designation,Ticket Type,Status,Amount Paid,Mobile,LinkedIn");
-
-    // Sort UTM groups by source name for better organization
-    const sortedGroups = Array.from(utmGroups.entries()).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
-    
-    sortedGroups.forEach(([key, participants]) => {
-      // Sort participants within each group by registration date (newest first)
-      participants.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      
-      participants.forEach((participant) => {
-        csvLines.push([
-          participant.created_at ? new Date(participant.created_at).toLocaleString() : "",
-          participant.utm_source || "",
-          participant.utm_medium || "",
-          participant.utm_campaign || "",
-          participant.utm_content || "",
-          participant.utm_term || "",
-          participant.name || "",
-          participant.email || "",
-          participant.company || "",
-          participant.designation || "",
-          participant.ticket_type || "",
-          participant.status || "",
-          (participant.amount_paid || 0).toFixed(2),
-          participant.mobile_number || "",
-          participant.linkedin_url || "",
-        ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
-      });
-    });
-
-    csvLines.push(""); // Empty line separator
-
-    // Section 5: Direct Registrations (No UTM Data)
-    if (directRegistrations.length > 0) {
-      csvLines.push("=== DIRECT REGISTRATIONS (NO UTM DATA) ===");
-      csvLines.push("Registration Date,Attribution,Participant Name,Email,Company,Designation,Ticket Type,Status,Amount Paid,Mobile,LinkedIn");
-      
-      // Sort by registration date (newest first)
-      directRegistrations.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      
-      directRegistrations.forEach((participant) => {
-        csvLines.push([
-          participant.created_at ? new Date(participant.created_at).toLocaleString() : "",
-          "Direct / Organic",
-          participant.name || "",
-          participant.email || "",
-          participant.company || "",
-          participant.designation || "",
-          participant.ticket_type || "",
-          participant.status || "",
-          (participant.amount_paid || 0).toFixed(2),
-          participant.mobile_number || "",
-          participant.linkedin_url || "",
-        ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
-      });
-    }
-
-    // Section 6: Click Tracking Data (if available)
-    if (clickData && clickData.length > 0) {
-      csvLines.push(""); // Empty line separator
-      csvLines.push("=== CLICK TRACKING DATA ===");
-      csvLines.push("Click Date,UTM Source,UTM Medium,UTM Campaign,UTM Content,UTM Term,IP Address,User Agent,Referrer");
-      
-      // Sort by click date (newest first)
-      clickData.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      
-      clickData.forEach((click) => {
-        csvLines.push([
-          click.created_at ? new Date(click.created_at).toLocaleString() : "",
-          click.utm_source || "",
-          click.utm_medium || "",
-          click.utm_campaign || "",
-          click.utm_content || "",
-          click.utm_term || "",
-          click.ip_address || "",
-          click.user_agent || "",
-          click.referrer || "",
-        ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
-      });
-    }
-
-    // Section 7: UTM Link Performance Map
-    csvLines.push(""); // Empty line separator
-    csvLines.push("=== UTM LINK PERFORMANCE MAP ===");
-    csvLines.push("Link Combination,Participants,Revenue,Average Ticket Value");
-    
-    Array.from(utmGroups.entries())
-      .sort(([, a], [, b]) => b.length - a.length)
-      .forEach(([key, participants]) => {
-        const [source, medium, campaign] = key.split("|");
-        const totalRevenue = participants.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-        const avgTicketValue = participants.length > 0 ? (totalRevenue / participants.length).toFixed(2) : "0.00";
-        const linkDesc = `${source || 'Unknown'} > ${medium || 'Unknown'} > ${campaign || 'Unknown'}`;
-        
-        csvLines.push([
-          linkDesc,
-          participants.length,
-          totalRevenue.toFixed(2),
-          avgTicketValue,
-        ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
-      });
-
-    // Download the comprehensive CSV
-    const csv = csvLines.join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `utm-detailed-attribution-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    toast.success(`Exported detailed UTM attribution for ${(registrations?.length || 0)} total participants (${utmRegistrations.length} with UTM data, ${directRegistrations.length} direct)`);
-    
-  } catch (error) {
-    console.error("Error exporting detailed UTM data:", error);
-    toast.error("Failed to export detailed UTM analytics");
-  }
-}
+/** Conversion can exceed 100% when clicks were under-recorded; cap what we show. */
+const capPct = (n: number) => Math.min(100, Math.max(0, n));
 
 /* ─── KPI Card ───────────────────────────────────────────────────────────── */
 
@@ -446,65 +170,67 @@ function KpiCard({
   color?: string;
 }) {
   return (
-    <div className="border border-border rounded-xl p-4 bg-card">
-      <div className="flex items-center gap-2 mb-2">
+    <div className="border border-border rounded-xl px-3.5 py-3 bg-card min-w-0">
+      <div className="flex items-center gap-2 mb-1">
         <Icon className={`h-3.5 w-3.5 ${color}`} />
         <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">
           {label}
         </span>
       </div>
-      <p className={`text-2xl font-bold tracking-tight ${color}`}>{value}</p>
+      <p className={`text-xl font-bold tracking-tight leading-tight ${color}`}>{value}</p>
       {sub && <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>}
     </div>
   );
 }
 
-/* ─── Funnel ──────────────────────────────────────────────────────────────── */
+/* ─── Funnel ─────────────────────────────────────────────────────────────── */
 
-function FunnelViz({ clicks, registrations }: { clicks: number; registrations: number }) {
-  const convPct = clicks > 0 ? ((registrations / clicks) * 100).toFixed(1) : "0";
-  const dropPct = clicks > 0 ? (((clicks - registrations) / clicks) * 100).toFixed(1) : "0";
-  const regWidth = clicks > 0 ? Math.max(10, Math.round((registrations / clicks) * 100)) : 0;
+/**
+ * Link clicks → registrations that came from a tracked link → of those, who
+ * checked in. Direct registrations have no click, so they are left out —
+ * counting them against clicks produced rates like "700%" and a negative
+ * drop-off.
+ */
+function FunnelViz({ clicks, registrations, checkedIn }: { clicks: number; registrations: number; checkedIn: number }) {
+  const pct = (part: number, whole: number) => (whole > 0 ? capPct((part / whole) * 100) : 0);
+  const regPct = pct(registrations, clicks);
+  const inPct = pct(checkedIn, registrations);
+  const steps: { label: string; value: number; share: number; note: string | null; bar: string; text: string }[] = [
+    { label: "Link clicks", value: clicks, share: clicks > 0 ? 100 : 0, note: null, bar: "bg-indigo-500/25", text: "text-indigo-700 dark:text-indigo-300" },
+    {
+      label: "Registrations from links", value: registrations, share: regPct,
+      note: clicks > 0 ? `${regPct.toFixed(1)}% of clicks` : null,
+      bar: "bg-emerald-500/30", text: "text-emerald-700 dark:text-emerald-300",
+    },
+    {
+      label: "Checked in", value: checkedIn, share: pct(checkedIn, clicks > 0 ? clicks : registrations),
+      note: registrations > 0 ? `${inPct.toFixed(1)}% of registrations` : null,
+      bar: "bg-amber-500/30", text: "text-amber-700 dark:text-amber-300",
+    },
+  ];
 
   return (
-    <div className="border border-border rounded-xl bg-card p-5">
-      <h3 className="text-sm font-semibold mb-4">Conversion funnel</h3>
+    <div className="border border-border rounded-xl bg-card p-4">
+      <h3 className="text-sm font-semibold mb-1">Conversion funnel</h3>
+      <p className="text-[11px] text-muted-foreground mb-3">Tracked links only — direct registrations aren't counted against clicks.</p>
       <div className="space-y-3">
-        {/* Clicks bar */}
-        <div>
-          <div className="flex justify-between text-[11px] text-muted-foreground mb-1">
-            <span className="font-medium text-foreground">Clicks</span>
-            <span>{clicks.toLocaleString()}</span>
+        {steps.map((s) => (
+          <div key={s.label}>
+            <div className="flex justify-between gap-2 text-[11px] text-muted-foreground mb-1">
+              <span className="font-medium text-foreground">{s.label}</span>
+              <span>{s.note}</span>
+            </div>
+            <div className="h-8 rounded-md bg-muted w-full relative overflow-hidden">
+              <div
+                className={`absolute inset-y-0 left-0 rounded-md transition-all ${s.bar}`}
+                style={{ width: `${s.value > 0 ? Math.max(6, Math.round(s.share)) : 0}%` }}
+              />
+              <span className={`absolute inset-0 flex items-center px-3 text-[11px] font-semibold ${s.text}`}>
+                {s.value.toLocaleString()}
+              </span>
+            </div>
           </div>
-          <div className="h-8 rounded-md bg-indigo-500/20 w-full flex items-center px-3">
-            <span className="text-[11px] text-indigo-600 font-semibold">{clicks.toLocaleString()}</span>
-          </div>
-        </div>
-
-        {/* Arrow + drop rate */}
-        <div className="flex items-center gap-2 pl-2">
-          <div className="h-6 w-px bg-border" />
-          <span className="text-[11px] text-muted-foreground">
-            ↓ {dropPct}% drop-off
-          </span>
-        </div>
-
-        {/* Registrations bar */}
-        <div>
-          <div className="flex justify-between text-[11px] text-muted-foreground mb-1">
-            <span className="font-medium text-foreground">Registrations</span>
-            <span>{registrations.toLocaleString()}</span>
-          </div>
-          <div className="h-8 rounded-md bg-muted w-full relative overflow-hidden">
-            <div
-              className="absolute inset-y-0 left-0 bg-emerald-500/30 rounded-md transition-all"
-              style={{ width: `${regWidth}%` }}
-            />
-            <span className="absolute inset-0 flex items-center px-3 text-[11px] text-emerald-700 font-semibold">
-              {registrations.toLocaleString()} ({convPct}%)
-            </span>
-          </div>
-        </div>
+        ))}
       </div>
     </div>
   );
@@ -530,8 +256,8 @@ function SourceLeaderboard({ rows }: { rows: UtmRow[] }) {
   if (bySource.length === 0) return null;
 
   return (
-    <div className="border border-border rounded-xl bg-card p-5">
-      <h3 className="text-sm font-semibold mb-4">Source breakdown</h3>
+    <div className="border border-border rounded-xl bg-card p-4">
+      <h3 className="text-sm font-semibold mb-2">Source breakdown</h3>
       <div className="space-y-3">
         {bySource.map(({ source, registrations }) => {
           const pct = totalRegs > 0 ? Math.round((registrations / totalRegs) * 100) : 0;
@@ -591,288 +317,20 @@ function SortableHeader({
   );
 }
 
-/* ─── Multi-select pill input ────────────────────────────────────────────── */
-
-function MultiSelect({
-  label, options, selected, onChange,
-}: {
-  label: string;
-  options: string[];
-  selected: string[];
-  onChange: (v: string[]) => void;
-}) {
-  const allSelected = selected.length === 0;
-
-  function toggle(opt: string) {
-    if (selected.includes(opt)) {
-      const next = selected.filter((s) => s !== opt);
-      onChange(next);
-    } else {
-      onChange([...selected, opt]);
-    }
-  }
-
-  return (
-    <div className="space-y-1.5 min-w-[140px]">
-      <Label className="text-[11px]">{label}</Label>
-      <div className="flex flex-wrap gap-1">
-        <button
-          type="button"
-          onClick={() => onChange([])}
-          className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${allSelected ? "bg-foreground text-background border-foreground" : "border-border text-muted-foreground hover:border-foreground"}`}
-        >
-          All
-        </button>
-        {options.map((opt) => {
-          const active = selected.includes(opt);
-          return (
-            <button
-              key={opt}
-              type="button"
-              onClick={() => toggle(opt)}
-              className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${active ? "border-transparent text-white" : "border-border text-muted-foreground hover:border-foreground"}`}
-              style={active ? { backgroundColor: sourceColor(opt), borderColor: sourceColor(opt) } : {}}
-            >
-              {opt}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* ─── Participant Attribution Section ────────────────────────────────────── */
-
-function ParticipantAttributionSection({ eventId }: { eventId: string }) {
-  const [expanded, setExpanded] = useState(false);
-  
-  const { data: participants, isLoading } = useQuery({
-    queryKey: ["participant-attribution", eventId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("registrations")
-        .select(`
-          id,
-          name,
-          email,
-          company,
-          ticket_type,
-          status,
-          amount_paid,
-          utm_source,
-          utm_medium,
-          utm_campaign,
-          utm_content,
-          utm_term,
-          created_at
-        `)
-        .eq("event_id", eventId)
-        .order("created_at", { ascending: false });
-      
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: expanded,
-  });
-
-  const utmParticipants = participants?.filter(p => p.utm_source || p.utm_medium || p.utm_campaign) || [];
-  const directParticipants = participants?.filter(p => !p.utm_source && !p.utm_medium && !p.utm_campaign) || [];
-
-  if (isLoading && expanded) {
-    return (
-      <div className="border border-border rounded-xl bg-card p-8">
-        <div className="flex items-center justify-center gap-2 text-[13px] text-muted-foreground">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-          Loading participant attribution data...
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="border border-border rounded-xl bg-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-border bg-muted/30">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold">Individual Participant Attribution</h3>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              See exactly who came from which UTM source and link
-            </p>
-          </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setExpanded(!expanded)}
-            className="h-8 gap-1.5 text-[12px]"
-          >
-            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            {expanded ? "Collapse" : "View Details"}
-          </Button>
-        </div>
-      </div>
-
-      {expanded && participants && (
-        <div className="p-4 space-y-4">
-          {/* UTM-Attributed Participants */}
-          {utmParticipants.length > 0 && (
-            <div>
-              <h4 className="text-[13px] font-semibold mb-2 flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-blue-500" />
-                UTM-Attributed Registrations ({utmParticipants.length})
-              </h4>
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {utmParticipants.map((participant) => (
-                  <div
-                    key={participant.id}
-                    className="border border-border rounded-lg p-3 bg-background/50"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-[13px]">{participant.name}</span>
-                          <span className="text-[11px] text-muted-foreground">
-                            {participant.email}
-                          </span>
-                        </div>
-                        
-                        <div className="flex flex-wrap items-center gap-2 mb-2">
-                          {participant.utm_source && (
-                            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/30 text-[10px] font-medium">
-                              <span
-                                className="h-1.5 w-1.5 rounded-full"
-                                style={{ backgroundColor: sourceColor(participant.utm_source) }}
-                              />
-                              {participant.utm_source}
-                            </div>
-                          )}
-                          {participant.utm_medium && (
-                            <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/30 text-[10px] font-medium">
-                              {participant.utm_medium}
-                            </div>
-                          )}
-                          {participant.utm_campaign && (
-                            <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-green-50 dark:bg-green-950/30 text-[10px] font-medium">
-                              {participant.utm_campaign}
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
-                          {participant.company && (
-                            <span>{participant.company}</span>
-                          )}
-                          <span>{participant.ticket_type}</span>
-                          <span className="font-medium">₹{(participant.amount_paid || 0).toLocaleString()}</span>
-                        </div>
-                      </div>
-                      
-                      <div className="text-right text-[11px] text-muted-foreground shrink-0">
-                        <div>{new Date(participant.created_at).toLocaleDateString()}</div>
-                        <div>{new Date(participant.created_at).toLocaleTimeString()}</div>
-                      </div>
-                    </div>
-                    
-                    {(participant.utm_content || participant.utm_term) && (
-                      <div className="mt-2 pt-2 border-t border-border/50">
-                        <div className="flex gap-3 text-[10px] text-muted-foreground">
-                          {participant.utm_content && (
-                            <span>Content: <span className="text-foreground">{participant.utm_content}</span></span>
-                          )}
-                          {participant.utm_term && (
-                            <span>Term: <span className="text-foreground">{participant.utm_term}</span></span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Direct Participants */}
-          {directParticipants.length > 0 && (
-            <div>
-              <h4 className="text-[13px] font-semibold mb-2 flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-gray-400" />
-                Direct Registrations ({directParticipants.length})
-              </h4>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {directParticipants.slice(0, 10).map((participant) => (
-                  <div
-                    key={participant.id}
-                    className="border border-border rounded-lg p-3 bg-background/50"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-[13px]">{participant.name}</span>
-                          <span className="text-[11px] text-muted-foreground">
-                            {participant.email}
-                          </span>
-                        </div>
-                        
-                        <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-50 dark:bg-gray-950/30 text-[10px] font-medium mb-2">
-                          Direct / Organic
-                        </div>
-                        
-                        <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
-                          {participant.company && (
-                            <span>{participant.company}</span>
-                          )}
-                          <span>{participant.ticket_type}</span>
-                          <span className="font-medium">₹{(participant.amount_paid || 0).toLocaleString()}</span>
-                        </div>
-                      </div>
-                      
-                      <div className="text-right text-[11px] text-muted-foreground shrink-0">
-                        <div>{new Date(participant.created_at).toLocaleDateString()}</div>
-                        <div>{new Date(participant.created_at).toLocaleTimeString()}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                
-                {directParticipants.length > 10 && (
-                  <div className="text-center py-2">
-                    <span className="text-[11px] text-muted-foreground">
-                      and {directParticipants.length - 10} more direct registrations...
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {participants.length === 0 && (
-            <div className="text-center py-8 text-[13px] text-muted-foreground">
-              No registrations yet for this event.
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ─── Saved Links section ────────────────────────────────────────────────── */
 
 function SavedLinksSection({
-  eventId,
   savedRows,
   analyticsRows,
-  onSaved,
+  onEdit,
+  onDelete,
 }: {
-  eventId: string;
   savedRows: UtmLink[];
   analyticsRows: UtmRow[];
-  onSaved: () => void;
+  onEdit: (link: UtmLink) => void;
+  /** Ask to delete the link (the page shows the confirmation). */
+  onDelete: (link: UtmLink) => void;
 }) {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editLabel, setEditLabel] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Enrich saved links with click+reg data from analytics rows
   const enriched = savedRows.map((link) => {
@@ -890,37 +348,6 @@ function SavedLinksSection({
       registrations: Number(row?.registrations ?? 0),
     };
   });
-
-  const startEdit = (link: UtmLink) => {
-    setEditingId(link.id);
-    setEditLabel(link.label ?? "");
-  };
-
-  const saveEdit = async (link: UtmLink) => {
-    setSaving(true);
-    const { error } = await supabase
-      .from("utm_links" as never)
-      .update({ label: editLabel || null } as never)
-      .eq("id", link.id);
-    setSaving(false);
-    if (error) { toast.error("Failed to save", { description: error.message }); return; }
-    toast.success("Link label updated");
-    setEditingId(null);
-    onSaved();
-  };
-
-  const deleteLink = async (link: UtmLink) => {
-    if (link.has_data) { toast.error("Cannot delete — this link has data attached."); return; }
-    setDeletingId(link.id);
-    const { error } = await supabase
-      .from("utm_links" as never)
-      .delete()
-      .eq("id", link.id);
-    setDeletingId(null);
-    if (error) { toast.error("Failed to delete", { description: error.message }); return; }
-    toast.success("Link deleted");
-    onSaved();
-  };
 
   const copyUrl = (url: string) => {
     navigator.clipboard.writeText(url)
@@ -944,29 +371,11 @@ function SavedLinksSection({
             {/* Label row */}
             <div className="flex items-start gap-2 justify-between">
               <div className="min-w-0 flex-1">
-                {editingId === link.id ? (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={editLabel}
-                      onChange={(e) => setEditLabel(e.target.value)}
-                      className="h-7 text-[12px] flex-1"
-                      placeholder="Link label (optional)"
-                      autoFocus
-                    />
-                    <Button size="sm" className="h-7 px-2.5 text-[11px]" onClick={() => saveEdit(link)} disabled={saving}>
-                      <Save className="h-3 w-3 mr-1" />{saving ? "…" : "Save"}
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEditingId(null)}>
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
-                ) : (
-                  <p className="text-[13px] font-semibold truncate">
-                    {link.label || (
-                      <span className="text-muted-foreground font-normal italic">No label</span>
-                    )}
-                  </p>
-                )}
+                <p className="text-[13px] font-semibold truncate">
+                  {link.label || (
+                    <span className="text-muted-foreground font-normal italic">No label</span>
+                  )}
+                </p>
                 {/* UTM params pill row */}
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {[
@@ -1017,187 +426,20 @@ function SavedLinksSection({
 
             {/* Actions */}
             <div className="flex items-center gap-2 pt-0.5">
-              {editingId !== link.id && (
-                <Button size="sm" variant="outline" className="h-7 px-2.5 text-[11px] gap-1" onClick={() => startEdit(link)}>
-                  <Pencil className="h-3 w-3" /> Edit label
-                </Button>
-              )}
-              {link.has_data ? (
-                <span className="flex items-center gap-1 text-[10px] text-muted-foreground ml-auto">
-                  <Lock className="h-2.5 w-2.5" /> Delete locked — has data
-                </span>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-2.5 text-[11px] text-destructive hover:bg-destructive/10 gap-1 ml-auto"
-                  onClick={() => deleteLink(link)}
-                  disabled={deletingId === link.id}
-                >
-                  <Trash2 className="h-3 w-3" />
-                  {deletingId === link.id ? "Deleting…" : "Delete"}
-                </Button>
-              )}
+              <Button size="sm" variant="outline" className="h-7 px-2.5 text-[11px] gap-1" onClick={() => onEdit(link)}>
+                <Pencil className="h-3 w-3" /> Edit
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2.5 text-[11px] text-destructive hover:bg-destructive/10 hover:text-destructive gap-1 ml-auto"
+                onClick={() => onDelete(link)}
+              >
+                <Trash2 className="h-3 w-3" /> Delete
+              </Button>
             </div>
           </div>
         ))}
-      </div>
-    </div>
-  );
-}
-
-/* ─── Share-link generator ───────────────────────────────────────────────── */
-
-function ShareLinkGenerator({
-  eventId, eventSlug, orgSlug, onLinkSaved,
-}: {
-  eventId: string;
-  eventSlug?: string | null;
-  orgSlug?: string | null;
-  onLinkSaved?: () => void;
-}) {
-  const [source,   setSource]   = useState("email");
-  const [medium,   setMedium]   = useState("transactional");
-  const [campaign, setCampaign] = useState(eventSlug || eventId.slice(0, 8));
-  const [content,  setContent]  = useState("");
-  const [term,     setTerm]     = useState("");
-  const [label,    setLabel]    = useState("");
-  const [copied,   setCopied]   = useState(false);
-
-  const baseUrl = eventPublicUrl(
-    { id: eventId, slug: eventSlug ?? undefined },
-    orgSlug ?? undefined,
-  );
-
-  const trackedUrl = useMemo(() => {
-    if (!source || !medium || !campaign) return baseUrl;
-    return buildUtmUrl(baseUrl, {
-      utm_source:   source,
-      utm_medium:   medium,
-      utm_campaign: campaign,
-      utm_content:  content || undefined,
-      utm_term:     term || undefined,
-    });
-  }, [baseUrl, source, medium, campaign, content, term]);
-
-  /** Save the link to utm_links then copy to clipboard. */
-  const copy = async () => {
-    // Upsert into utm_links so the link is stored permanently.
-    if (source && medium && campaign) {
-      await supabase
-        .from("utm_links" as never)
-        .upsert({
-          event_id:     eventId,
-          utm_source:   source,
-          utm_medium:   medium,
-          utm_campaign: campaign,
-          utm_content:  content || null,
-          utm_term:     term    || null,
-          label:        label   || null,
-          url:          trackedUrl,
-        } as never, {
-          onConflict: "event_id,utm_source,utm_medium,utm_campaign",
-        });
-      onLinkSaved?.();
-    }
-
-    navigator.clipboard.writeText(trackedUrl)
-      .then(() => {
-        setCopied(true);
-        toast.success("Link copied & saved");
-        setTimeout(() => setCopied(false), 2000);
-      })
-      .catch(() => toast.error("Could not copy"));
-  };
-
-  return (
-    <div className="border border-border rounded-xl bg-card p-5 space-y-4">
-      <div className="flex items-center gap-2">
-        <Share2 className="h-4 w-4 text-accent" />
-        <h3 className="text-sm font-semibold">Generate tracked link</h3>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Source</Label>
-          <Select value={source} onValueChange={setSource}>
-            <SelectTrigger className="h-8 text-[12px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {["email","whatsapp","linkedin","twitter","instagram","facebook","sms","qr","manual"].map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Medium</Label>
-          <Select value={medium} onValueChange={setMedium}>
-            <SelectTrigger className="h-8 text-[12px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {["transactional","broadcast","organic","paid","referral","copy"].map((m) => (
-                <SelectItem key={m} value={m}>{m}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Campaign</Label>
-          <Input
-            value={campaign}
-            onChange={(e) => setCampaign(e.target.value)}
-            className="h-8 text-[12px]"
-            placeholder="e.g. launch-email-1"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Content (optional)</Label>
-          <Input
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            className="h-8 text-[12px]"
-            placeholder="e.g. cta-button"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Term (optional)</Label>
-          <Input
-            value={term}
-            onChange={(e) => setTerm(e.target.value)}
-            className="h-8 text-[12px]"
-            placeholder="e.g. react-conference"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Link label (optional)</Label>
-          <Input
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            className="h-8 text-[12px]"
-            placeholder="e.g. June newsletter CTA"
-          />
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <code className="flex-1 text-[11px] font-mono bg-muted rounded-md px-3 py-2 truncate border border-border">
-          {trackedUrl}
-        </code>
-        <Button size="sm" variant="outline" className="h-8 shrink-0 gap-1.5" onClick={copy}>
-          {copied
-            ? <Check className="h-3.5 w-3.5 text-green-500" />
-            : <Copy className="h-3.5 w-3.5" />}
-          {copied ? "Copied & saved" : "Copy & save"}
-        </Button>
-        <Button size="sm" variant="ghost" className="h-8 shrink-0" asChild>
-          <a href={trackedUrl} target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        </Button>
       </div>
     </div>
   );
@@ -1216,22 +458,59 @@ export default function UtmAnalyticsPage({
 }) {
   const qc = useQueryClient();
 
-  /* ── Analytics data ── */
-  const { data: rawRows = [], isLoading } = useQuery<UtmRow[]>({
+  /* ── Filter state ── */
+  const [dateRange,      setDateRange]      = useState<DateRange>("all");
+  const [filterSource,   setFilterSource]   = useState("all");
+  const [filterMedium,   setFilterMedium]   = useState("all");
+  const [filterCampaign, setFilterCampaign] = useState("");
+
+  // Start of the day N days ago — stable for the whole day so the query key
+  // doesn't change on every render.
+  const cutoffIso = useMemo<string | null>(() => {
+    const days = DATE_OPTIONS.find((o) => o.value === dateRange)?.days ?? null;
+    if (days === null) return null;
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - days);
+    return d.toISOString();
+  }, [dateRange]);
+  const rangeLabel = cutoffIso ? DATE_OPTIONS.find((o) => o.value === dateRange)!.label : null;
+
+  /* ── Data ── */
+  const { data: summaryRows = [], isLoading } = useQuery<UtmRow[]>({
     queryKey: ["utm-summary", eventId],
     queryFn: async () => {
       const { data, error } = await supabaseRpc("event_utm_summary" as never, {
         _event_id: eventId,
       } as never);
       if (error) throw error;
-      return (data as UtmRow[]) ?? [];
+      return ((data as UtmRow[]) ?? []).map((r) => ({
+        ...r,
+        clicks: Number(r.clicks),
+        registrations: Number(r.registrations),
+        conversion_rate: Number(r.conversion_rate),
+      }));
     },
     staleTime: 60_000,
     refetchInterval: 120_000,
   });
 
-  /* ── Saved links ── */
-  const { data: savedLinks = [], refetch: refetchLinks } = useQuery<UtmLink[]>({
+  const leadsQuery = useQuery<UtmLead[]>({
+    queryKey: ["utm-leads", eventId],
+    queryFn: () => fetchEventLeads(eventId),
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+  const allLeads = leadsQuery.data;
+
+  const clicksQuery = useQuery({
+    queryKey: ["utm-clicks-since", eventId, cutoffIso],
+    queryFn: () => fetchEventClicksSince(eventId, cutoffIso!),
+    enabled: cutoffIso !== null,
+    staleTime: 60_000,
+  });
+
+  const { data: savedLinks = [], refetch: refetchLinks, error: linksError } = useQuery<UtmLink[]>({
     queryKey: ["utm-links", eventId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -1243,18 +522,79 @@ export default function UtmAnalyticsPage({
       return (data as UtmLink[]) ?? [];
     },
     staleTime: 30_000,
+    retry: false,
   });
+  // The database refuses direct access to the UTM tables until its pending
+  // update (table grants) is run: links can't be stored and clicks can't be
+  // read per date range. Links themselves keep working.
+  const isDenied = (e: unknown) => {
+    const err = e as { code?: string; message?: string } | null;
+    return !!err && (err.code === "42501" || /permission denied/i.test(err.message ?? ""));
+  };
+  const storageDenied = isDenied(linksError) || isDenied(clicksQuery.error);
 
   const handleLinkSaved = () => {
     void refetchLinks();
     void qc.invalidateQueries({ queryKey: ["utm-summary", eventId] });
+    void qc.invalidateQueries({ queryKey: partnerSharesKey(eventId) });
   };
 
-  /* ── Filter state ── */
-  const [dateRange,      setDateRange]      = useState<DateRange>("all");
-  const [filterSources,  setFilterSources]  = useState<string[]>([]);
-  const [filterMediums,  setFilterMediums]  = useState<string[]>([]);
-  const [filterCampaign, setFilterCampaign] = useState("");
+  // Every tracked link of the event — saved, clicked or registered through —
+  // that can be shared with a partner. "(direct)" is not a link.
+  const shareableLinks = useMemo<ShareableLink[]>(() => {
+    const map = new Map<string, ShareableLink>();
+    for (const l of savedLinks) {
+      map.set([l.utm_source, l.utm_medium, l.utm_campaign].join("\u0001"), { utm_source: l.utm_source, utm_medium: l.utm_medium, utm_campaign: l.utm_campaign, label: l.label });
+    }
+    for (const r of summaryRows) {
+      if (!r.utm_source || r.utm_source === DIRECT_SOURCE) continue;
+      const key = [r.utm_source, r.utm_medium, r.utm_campaign].join("\u0001");
+      if (!map.has(key)) map.set(key, { utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign });
+    }
+    return [...map.values()];
+  }, [savedLinks, summaryRows]);
+
+  /* ── Leads in the selected period, grouped by link ── */
+  const leads = useMemo<UtmLead[]>(() => {
+    const list = allLeads ?? [];
+    return cutoffIso ? list.filter((l) => l.created_at >= cutoffIso) : list;
+  }, [allLeads, cutoffIso]);
+
+  const leadsByKey = useMemo(() => {
+    const map = new Map<string, UtmLead[]>();
+    for (const l of leads) {
+      const key = attributionKey(l);
+      const bucket = map.get(key);
+      if (bucket) bucket.push(l);
+      else map.set(key, [l]);
+    }
+    return map;
+  }, [leads]);
+
+  /* ── Rows for the selected period (before source/medium/campaign filters) ── */
+  const periodRows = useMemo<BreakdownRow[]>(() => {
+    const base = cutoffIso ? aggregateRows(clicksQuery.data ?? [], leads) : summaryRows;
+    return base.map((r) => {
+      const rowLeads = leadsByKey.get(rowKey(r)) ?? [];
+      return {
+        ...r,
+        checked_in: rowLeads.filter(hasAttended).length,
+        revenue: rowLeads.reduce((sum, l) => sum + Number(l.amount_paid ?? 0), 0),
+        saved: savedLinks.find((l) => l.utm_source === r.utm_source && l.utm_medium === r.utm_medium && l.utm_campaign === r.utm_campaign) ?? null,
+      };
+    });
+  }, [cutoffIso, clicksQuery.data, leads, summaryRows, leadsByKey, savedLinks]);
+
+  // Filter options: everything the link dialog can generate, plus whatever
+  // else actually appears in this event's data (custom values, "(direct)").
+  const sourceOptions = useMemo(
+    () => withExtras(UTM_SOURCES, [...summaryRows.map((r) => r.utm_source), ...savedLinks.map((l) => l.utm_source)]),
+    [summaryRows, savedLinks],
+  );
+  const mediumOptions = useMemo(
+    () => withExtras(UTM_MEDIUMS, [...summaryRows.map((r) => r.utm_medium), ...savedLinks.map((l) => l.utm_medium)]),
+    [summaryRows, savedLinks],
+  );
 
   /* ── Sort state ── */
   const [sortKey, setSortKey] = useState<SortKey>("registrations");
@@ -1269,30 +609,14 @@ export default function UtmAnalyticsPage({
     }
   };
 
-  /* ── Date cutoff ── */
-  const dateCutoff = useMemo<Date | null>(() => {
-    if (dateRange === "all") return null;
-    return daysSince(dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : 90);
-  }, [dateRange]);
-
-  /* ── Client-side filtering ── */
-  const rows = useMemo<UtmRow[]>(() => {
-    let r = rawRows;
-    // Date filter — the RPC doesn't expose a created_at column, so we can only
-    // note that "All time" is the only fully reliable option. When a date filter
-    // is active we keep it in state but can't filter without a timestamp.
-    // We leave dateCutoff in state for future RPC improvements.
-    void dateCutoff; // intentionally unused until RPC exposes created_at
-    if (filterSources.length > 0) {
-      r = r.filter((row) => filterSources.includes(row.utm_source?.toLowerCase() ?? ""));
-    }
-    if (filterMediums.length > 0) {
-      r = r.filter((row) => filterMediums.includes(row.utm_medium?.toLowerCase() ?? ""));
-    }
-    if (filterCampaign.trim()) {
-      const q = filterCampaign.trim().toLowerCase();
-      r = r.filter((row) => row.utm_campaign?.toLowerCase().includes(q));
-    }
+  /* ── Filtered + sorted rows ── */
+  const rows = useMemo<BreakdownRow[]>(() => {
+    const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+    let r = periodRows;
+    if (filterSource !== "all") r = r.filter((row) => same(row.utm_source ?? "", filterSource));
+    if (filterMedium !== "all") r = r.filter((row) => same(row.utm_medium ?? "", filterMedium));
+    const q = filterCampaign.trim().toLowerCase();
+    if (q) r = r.filter((row) => (row.utm_campaign ?? "").toLowerCase().includes(q));
     return [...r].sort((a, b) => {
       const av = a[sortKey] ?? "";
       const bv = b[sortKey] ?? "";
@@ -1301,30 +625,29 @@ export default function UtmAnalyticsPage({
         : String(av).localeCompare(String(bv));
       return sortDir === "asc" ? cmp : -cmp;
     });
-  }, [rawRows, dateCutoff, filterSources, filterMediums, filterCampaign, sortKey, sortDir]);
+  }, [periodRows, filterSource, filterMedium, filterCampaign, sortKey, sortDir]);
 
-  const hasFilters = filterSources.length > 0 || filterMediums.length > 0 || filterCampaign.trim().length > 0 || dateRange !== "all";
+  const hasFilters = filterSource !== "all" || filterMedium !== "all" || filterCampaign.trim().length > 0 || dateRange !== "all";
+  const periodLoading = cutoffIso !== null && (clicksQuery.isLoading || leadsQuery.isLoading);
 
   function clearFilters() {
     setDateRange("all");
-    setFilterSources([]);
-    setFilterMediums([]);
+    setFilterSource("all");
+    setFilterMedium("all");
     setFilterCampaign("");
   }
 
   /* ── KPI aggregates ── */
-  const totalClicks = rows.reduce((s, r) => s + Number(r.clicks), 0);
-  const totalRegs   = rows.reduce((s, r) => s + Number(r.registrations), 0);
-  const overallConv = totalClicks > 0 ? ((totalRegs / totalClicks) * 100).toFixed(1) : "0";
-
-  const topSourceRow = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const r of rows) {
-      map[r.utm_source] = (map[r.utm_source] ?? 0) + Number(r.registrations);
-    }
-    const best = Object.entries(map).sort((a, b) => b[1] - a[1])[0];
-    return best ? best[0] : "—";
-  }, [rows]);
+  const totalClicks   = rows.reduce((s, r) => s + r.clicks, 0);
+  const totalRegs     = rows.reduce((s, r) => s + r.registrations, 0);
+  const totalCheckedIn = rows.reduce((s, r) => s + r.checked_in, 0);
+  // Conversion only makes sense for registrations that came through a link.
+  const tracked       = rows.filter((r) => r.utm_source !== DIRECT_SOURCE);
+  const trackedRegs   = tracked.reduce((s, r) => s + r.registrations, 0);
+  const trackedCheckedIn = tracked.reduce((s, r) => s + r.checked_in, 0);
+  const directRegs    = totalRegs - trackedRegs;
+  const overallConv   = totalClicks > 0 ? capPct((trackedRegs / totalClicks) * 100).toFixed(1) : "0.0";
+  const checkInRate   = totalRegs > 0 ? capPct((totalCheckedIn / totalRegs) * 100).toFixed(0) : "0";
 
   /* ── Chart data ── */
 
@@ -1334,14 +657,14 @@ export default function UtmAnalyticsPage({
     for (const r of rows) {
       const s = r.utm_source || "(none)";
       if (!map[s]) map[s] = { clicks: 0, registrations: 0 };
-      map[s].clicks        += Number(r.clicks);
-      map[s].registrations += Number(r.registrations);
+      map[s].clicks        += r.clicks;
+      map[s].registrations += r.registrations;
     }
     return Object.entries(map)
       .map(([source, v]) => ({
         source,
         ...v,
-        conv: v.clicks > 0 ? ((v.registrations / v.clicks) * 100).toFixed(1) : "0",
+        conv: v.clicks > 0 ? capPct((v.registrations / v.clicks) * 100).toFixed(1) : "0",
       }))
       .sort((a, b) => b.registrations - a.registrations);
   }, [rows]);
@@ -1354,13 +677,158 @@ export default function UtmAnalyticsPage({
       if (!map[key]) {
         map[key] = { source: r.utm_source, medium: r.utm_medium, registrations: 0 };
       }
-      map[key].registrations += Number(r.registrations);
+      map[key].registrations += r.registrations;
     }
     return Object.entries(map)
       .map(([campaign, v]) => ({ campaign, ...v }))
       .sort((a, b) => b.registrations - a.registrations)
       .slice(0, 10);
   }, [rows]);
+
+  /* ── Dialogs ── */
+  const [linkDialog, setLinkDialog] = useState<{ open: boolean; initial: UtmLinkDraft | null }>({ open: false, initial: null });
+  const [regsFor, setRegsFor] = useState<UtmBreakdownKey | null>(null);
+  const eventRef = { eventId, eventSlug, orgSlug };
+
+  /** A breakdown row as link-dialog values (saved link details when available). */
+  const draftFor = (r: BreakdownRow): UtmLinkDraft =>
+    r.saved
+      ? { utm_source: r.saved.utm_source, utm_medium: r.saved.utm_medium, utm_campaign: r.saved.utm_campaign, utm_content: r.saved.utm_content, utm_term: r.saved.utm_term, label: r.saved.label }
+      : { utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign };
+
+  /** The tracked URL behind a row; direct traffic has none. */
+  const linkFor = (r: BreakdownRow): string | null =>
+    r.utm_source === DIRECT_SOURCE ? null : r.saved?.url ?? utmLinkUrl(eventRef, draftFor(r));
+
+  const copyRowLink = (r: BreakdownRow) => {
+    const url = linkFor(r);
+    if (!url) return;
+    navigator.clipboard.writeText(url)
+      .then(() => toast.success("Link copied"))
+      .catch(() => toast.error("Could not copy"));
+  };
+
+  /* ── Delete a tracked link (after confirmation) ── */
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  // Activity recorded for the link being deleted (all time).
+  const deleteTargetStats = useMemo(() => {
+    if (!deleteTarget) return { clicks: 0, registrations: 0 };
+    const row = summaryRows.find((r) => r.utm_source === deleteTarget.utm_source && r.utm_medium === deleteTarget.utm_medium && r.utm_campaign === deleteTarget.utm_campaign);
+    return { clicks: row?.clicks ?? 0, registrations: row?.registrations ?? 0 };
+  }, [deleteTarget, summaryRows]);
+
+  const targetForRow = (r: BreakdownRow): DeleteTarget => ({
+    utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign,
+    label: r.saved?.label ?? null, saved: r.saved,
+  });
+  const targetForLink = (link: UtmLink): DeleteTarget => ({
+    utm_source: link.utm_source, utm_medium: link.utm_medium, utm_campaign: link.utm_campaign,
+    label: link.label, saved: link,
+  });
+
+  const afterDelete = () => {
+    setDeleteTarget(null);
+    handleLinkSaved();
+    void qc.invalidateQueries({ queryKey: ["utm-clicks-since", eventId] });
+    void qc.invalidateQueries({ queryKey: partnerSharesKey(eventId) });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleting) return;
+    const target = deleteTarget;
+    const stats = deleteTargetStats;
+    setDeleting(true);
+    try {
+      // Removes the saved link AND its recorded clicks (clients cannot delete
+      // utm_clicks directly). Registrations are never touched.
+      const { data, error } = await supabase.rpc("delete_utm_tracking" as never, {
+        _event_id: eventId,
+        _utm_source: target.utm_source,
+        _utm_medium: target.utm_medium,
+        _utm_campaign: target.utm_campaign,
+      } as never);
+
+      if (!error) {
+        const result = (data ?? {}) as { clicks_deleted?: number; registrations_kept?: number; partners_removed?: number };
+        const partners = Number(result.partners_removed ?? 0);
+        const partnerNote = partners > 0 ? ` ${partners} partner${partners === 1 ? "" : "s"} no longer ${partners === 1 ? "has" : "have"} access.` : "";
+        const kept = Number(result.registrations_kept ?? 0);
+        const clicks = Number(result.clicks_deleted ?? 0);
+        toast.success("Tracked link deleted", {
+          description: kept > 0
+            ? `${kept} registration${kept === 1 ? "" : "s"} from it ${kept === 1 ? "is" : "are"} kept, so it still appears in the breakdown.${partnerNote}`
+            : ((clicks > 0 ? `${clicks} recorded click${clicks === 1 ? "" : "s"} removed.` : "") + partnerNote).trim() || undefined,
+        });
+        afterDelete();
+        return;
+      }
+
+      if (!isMissingFunction(error)) {
+        toast.error("Couldn't delete the link", { description: error.message });
+        return;
+      }
+
+      // The database function isn't installed yet. A saved link can still be
+      // removed directly; its click history cannot.
+      if (!target.saved) {
+        toast.error("This link can't be deleted yet", { description: NEEDS_DB_UPDATE, duration: 15_000 });
+        return;
+      }
+      // `.select()` so we see what was actually removed: when RLS refuses a
+      // delete, PostgREST reports success with zero rows.
+      const { data: removed, error: delErr } = await supabase
+        .from("utm_links" as never)
+        .delete()
+        .eq("id", target.saved.id)
+        .select("id");
+      if (delErr) { toast.error("Couldn't delete the link", { description: delErr.message }); return; }
+      if (!(removed as unknown[] | null)?.length) {
+        toast.error("Couldn't delete the link", { description: "You don't have permission to delete this link." });
+        return;
+      }
+      if (stats.clicks > 0) toast.warning("Saved link deleted — its click history is still there", { description: NEEDS_DB_UPDATE, duration: 15_000 });
+      else toast.success("Tracked link deleted");
+      afterDelete();
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const openRegs = (r: BreakdownRow) =>
+    setRegsFor({ utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign });
+
+  /* ── Exports (what's on screen: current period + filters) ── */
+  const exportScope = eventSlug || "event";
+
+  const exportSummary = () => {
+    exportSummaryCsv(
+      rows.map((r) => ({
+        utm_source: r.utm_source,
+        utm_medium: r.utm_medium,
+        utm_campaign: r.utm_campaign,
+        label: r.saved?.label ?? null,
+        utm_content: r.saved?.utm_content ?? null,
+        utm_term: r.saved?.utm_term ?? null,
+        clicks: r.clicks,
+        registrations: r.registrations,
+        checked_in: r.checked_in,
+        conversion_rate: capPct(r.conversion_rate),
+        revenue: r.revenue,
+        url: linkFor(r),
+      })),
+      summaryFilename(exportScope),
+    );
+    toast.success(`Exported ${rows.length} link${rows.length === 1 ? "" : "s"}`);
+  };
+
+  const exportLeads = () => {
+    const keys = new Set(rows.map(rowKey));
+    const selected = leads.filter((l) => keys.has(attributionKey(l)));
+    if (selected.length === 0) { toast.info("No registrations match the current filters"); return; }
+    exportLeadsCsv(selected, leadsFilename(exportScope));
+    toast.success(`Exported ${selected.length} lead${selected.length === 1 ? "" : "s"} with full details`);
+  };
 
   /* ── Loading skeleton ── */
   if (isLoading) {
@@ -1377,134 +845,134 @@ export default function UtmAnalyticsPage({
     );
   }
 
+  const convClassOf = (conv: number) =>
+    conv >= 10 ? "text-emerald-500" : conv >= 5 ? "text-amber-500" : "text-muted-foreground";
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
 
       {/* ── Header ── */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
           <h2 className="text-base font-semibold">UTM Attribution</h2>
-          <p className="text-[12px] text-muted-foreground mt-0.5">
+          <p className="hidden sm:block text-[12px] text-muted-foreground mt-0.5">
             Track which channels and campaigns drive registrations for this event.
           </p>
         </div>
-        {rows.length > 0 && (
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
+          <Button size="sm" className="h-9 sm:h-8 gap-1.5 text-[12px]" onClick={() => setLinkDialog({ open: true, initial: null })}>
+            <Link2 className="h-3.5 w-3.5" />
+            Create tracked link
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-[12px]">
+              <Button size="sm" variant="outline" className="h-9 sm:h-8 gap-1.5 text-[12px]" disabled={periodRows.length === 0}>
                 <Download className="h-3.5 w-3.5" />
-                Export Attribution Data
+                Export
                 <ChevronDown className="h-3 w-3 ml-0.5" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
-              <DropdownMenuItem onClick={() => exportCsv(rows)}>
-                <Download className="h-3.5 w-3.5 mr-2" />
+            <DropdownMenuContent align="end" className="w-72">
+              <DropdownMenuItem onClick={exportLeads} disabled={leadsQuery.isLoading}>
+                <Users className="h-3.5 w-3.5 mr-2 shrink-0" />
                 <div className="flex flex-col">
-                  <span>Quick Summary Export</span>
-                  <span className="text-xs text-muted-foreground">UTM performance overview</span>
+                  <span>Leads — full details</span>
+                  <span className="text-xs text-muted-foreground">One row per registration: contact, company, ticket, attendance, UTM</span>
                 </div>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => exportDetailedCsv(eventId, rows)}>
-                <Users className="h-3.5 w-3.5 mr-2" />
+              <DropdownMenuItem onClick={exportSummary}>
+                <Download className="h-3.5 w-3.5 mr-2 shrink-0" />
                 <div className="flex flex-col">
-                  <span>Detailed Attribution Export</span>
-                  <span className="text-xs text-muted-foreground">Individual participant tracking by UTM source</span>
+                  <span>Link performance</span>
+                  <span className="text-xs text-muted-foreground">One row per link: clicks, registrations, checked in, conversion</span>
                 </div>
               </DropdownMenuItem>
+              {hasFilters && (
+                <p className="px-2 py-1.5 text-[11px] text-muted-foreground border-t border-border mt-1">
+                  Exports include only what matches the current filters.
+                </p>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
-        )}
+        </div>
       </div>
 
-      {/* ── Filters bar ── */}
-      <div className="border border-border rounded-xl bg-card p-4 space-y-4">
-        <div className="flex items-center gap-2">
-          <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Filters</span>
-          {hasFilters && (
+      {storageDenied && (
+        <div role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[13px] text-amber-800 dark:text-amber-300 space-y-1">
+          <p className="font-medium">Your tracked links work, but this page can't store them yet</p>
+          <p className="text-[12px]">
+            You can still create and copy links, and their clicks and registrations are counted below. Until the
+            database update is run, links won't appear under “Saved UTM links”, can't be shared with partners, and
+            click counts for a date range show as 0. To fix it, run <span className="font-mono">supabase/RUN_ME_pending_updates.sql</span> once
+            in the Supabase SQL Editor.
+          </p>
+        </div>
+      )}
+
+      {/* ── Filters: one compact row (2 × 2 on phones) ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-[repeat(3,minmax(0,11rem))_minmax(0,1fr)_auto] gap-2 items-center" role="group" aria-label="Filters">
+        <Select value={dateRange} onValueChange={(v) => setDateRange(v as DateRange)}>
+          <SelectTrigger className="h-9 text-[12px]" aria-label="Date range"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {DATE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filterSource} onValueChange={setFilterSource}>
+          <SelectTrigger className="h-9 text-[12px]" aria-label="Source"><SelectValue placeholder="All sources" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All sources</SelectItem>
+            {sourceOptions.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filterMedium} onValueChange={setFilterMedium}>
+          <SelectTrigger className="h-9 text-[12px]" aria-label="Medium"><SelectValue placeholder="All mediums" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All mediums</SelectItem>
+            {mediumOptions.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <div className="relative min-w-0">
+          <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <Input
+            value={filterCampaign}
+            onChange={(e) => setFilterCampaign(e.target.value)}
+            className="h-9 text-[12px] max-sm:text-base pl-8 pr-8"
+            placeholder="Campaign…"
+            aria-label="Campaign"
+          />
+          {filterCampaign && (
             <button
               type="button"
-              onClick={clearFilters}
-              className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setFilterCampaign("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear campaign search"
             >
-              <X className="h-3 w-3" />
-              Clear filters
+              <X className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
-
-        {/* Date range */}
-        <div className="space-y-1.5">
-          <Label className="text-[11px]">Date range</Label>
-          <div className="flex gap-1.5 flex-wrap">
-            {DATE_OPTIONS.map(({ label, value }) => (
+        {(hasFilters || periodLoading) && (
+          <div className="col-span-2 lg:col-span-1 flex items-center justify-end gap-2 min-h-[1.25rem]">
+            {periodLoading && <RefreshCw className="h-3 w-3 text-muted-foreground animate-spin" aria-label="Updating" />}
+            {hasFilters && (
               <button
-                key={value}
                 type="button"
-                onClick={() => setDateRange(value)}
-                className={`text-[11px] px-2.5 py-1 rounded-md border transition-colors ${dateRange === value ? "bg-foreground text-background border-foreground" : "border-border text-muted-foreground hover:border-foreground"}`}
+                onClick={clearFilters}
+                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
               >
-                {label}
+                <X className="h-3 w-3" />
+                Clear filters
               </button>
-            ))}
+            )}
           </div>
-          {dateRange !== "all" && (
-            <p className="text-[10px] text-amber-600">
-              Date filtering requires timestamp data — showing all rows. Select "All time" to dismiss.
-            </p>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="space-y-1.5">
-            <Label className="text-[11px]">Source</Label>
-            <Select value={filterSources[0] || "all"} onValueChange={(v) => setFilterSources(v === "all" ? [] : [v])}>
-              <SelectTrigger className="h-8 text-[12px]"><SelectValue placeholder="All sources" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All sources</SelectItem>
-                {ALL_SOURCES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-[11px]">Medium</Label>
-            <Select value={filterMediums[0] || "all"} onValueChange={(v) => setFilterMediums(v === "all" ? [] : [v])}>
-              <SelectTrigger className="h-8 text-[12px]"><SelectValue placeholder="All mediums" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All mediums</SelectItem>
-                {ALL_MEDIUMS.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-[11px]">Campaign search</Label>
-            <div className="relative">
-              <Input
-                value={filterCampaign}
-                onChange={(e) => setFilterCampaign(e.target.value)}
-                className="h-7 text-[11px] pr-7"
-                placeholder="Filter campaigns…"
-              />
-              {filterCampaign && (
-                <button
-                  type="button"
-                  onClick={() => setFilterCampaign("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* ── KPI Strip ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         <KpiCard
           icon={MousePointerClick}
-          label="Total clicks"
+          label="Link clicks"
           value={totalClicks.toLocaleString()}
           color="text-indigo-500"
         />
@@ -1512,19 +980,21 @@ export default function UtmAnalyticsPage({
           icon={Users}
           label="Registrations"
           value={totalRegs.toLocaleString()}
+          sub={`${trackedRegs.toLocaleString()} from links · ${directRegs.toLocaleString()} direct`}
           color="text-emerald-500"
         />
         <KpiCard
           icon={TrendingUp}
-          label="Conversion rate"
+          label="Link conversion"
           value={`${overallConv}%`}
-          sub={`${totalRegs} of ${totalClicks} clicks`}
+          sub={`${trackedRegs.toLocaleString()} registrations from ${totalClicks.toLocaleString()} clicks`}
           color="text-amber-500"
         />
         <KpiCard
-          icon={Share2}
-          label="Top source"
-          value={topSourceRow}
+          icon={UserCheck}
+          label="Checked in"
+          value={totalCheckedIn.toLocaleString()}
+          sub={`${checkInRate}% of registrations`}
           color="text-cyan-500"
         />
       </div>
@@ -1534,17 +1004,17 @@ export default function UtmAnalyticsPage({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
           {/* Chart A: Registrations by source (grouped bar) */}
-          <div className="border border-border rounded-xl bg-card p-5">
-            <h3 className="text-sm font-semibold mb-4">Registrations by source</h3>
-            <ResponsiveContainer width="100%" height={220}>
+          <div className="border border-border rounded-xl bg-card p-4 min-w-0">
+            <h3 className="text-sm font-semibold mb-2">Registrations by source</h3>
+            <ResponsiveContainer width="100%" height={180}>
               <BarChart data={bySource} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="source" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
                 <Tooltip
                   contentStyle={{ fontSize: 12, borderRadius: 8 }}
                   formatter={(val: number, name: string, props) => {
-                    if (name === "Registrations") {
+                    if (name === "Registrations" && props.payload?.source !== DIRECT_SOURCE) {
                       const conv = props.payload?.conv ?? "0";
                       return [`${val} (${conv}% conv)`, name];
                     }
@@ -1570,16 +1040,16 @@ export default function UtmAnalyticsPage({
 
           {/* Chart B: Top campaigns (horizontal bar) */}
           {topCampaigns.length > 0 && (
-            <div className="border border-border rounded-xl bg-card p-5">
-              <h3 className="text-sm font-semibold mb-4">Top campaigns</h3>
-              <ResponsiveContainer width="100%" height={220}>
+            <div className="border border-border rounded-xl bg-card p-4 min-w-0">
+              <h3 className="text-sm font-semibold mb-2">Top campaigns</h3>
+              <ResponsiveContainer width="100%" height={180}>
                 <BarChart
                   layout="vertical"
                   data={topCampaigns}
                   margin={{ top: 0, right: 16, left: 0, bottom: 0 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 10 }} />
+                  <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
                   <YAxis
                     type="category"
                     dataKey="campaign"
@@ -1609,25 +1079,95 @@ export default function UtmAnalyticsPage({
       {/* ── Funnel + Source leaderboard ── */}
       {rows.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <FunnelViz clicks={totalClicks} registrations={totalRegs} />
+          <FunnelViz clicks={totalClicks} registrations={trackedRegs} checkedIn={trackedCheckedIn} />
           <SourceLeaderboard rows={rows} />
         </div>
       )}
 
-      {/* ── Full breakdown table ── */}
+      {/* ── Full breakdown ── */}
       {rows.length === 0 ? (
-        <div className="border border-dashed border-border rounded-xl py-16 text-center text-[13px] text-muted-foreground">
-          {rawRows.length > 0
-            ? "No rows match the current filters. Try adjusting or clearing them."
-            : "No UTM data yet. Share a tracked link below to start collecting attribution data."}
+        <div className="border border-dashed border-border rounded-xl py-10 px-4 text-center text-[13px] text-muted-foreground">
+          {periodLoading
+            ? "Loading this period…"
+            : periodRows.length > 0 || summaryRows.length > 0
+              ? "Nothing matches the current filters. Try adjusting or clearing them."
+              : "No UTM data yet. Create a tracked link above and share it to start collecting attribution data."}
         </div>
       ) : (
         <div className="border border-border rounded-xl bg-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center justify-between">
+          <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">Full attribution breakdown</h3>
-            <span className="text-[11px] text-muted-foreground">{rows.length} row{rows.length !== 1 ? "s" : ""}</span>
+            <span className="text-[11px] text-muted-foreground">
+              {rows.length} link{rows.length !== 1 ? "s" : ""}{rangeLabel ? ` · ${rangeLabel}` : ""}
+            </span>
           </div>
-          <div className="overflow-x-auto">
+
+          {/* Phones: one card per link */}
+          <ul className="sm:hidden divide-y divide-border">
+            {rows.map((r) => {
+              const conv = capPct(r.conversion_rate);
+              const isDirect = r.utm_source === DIRECT_SOURCE;
+              return (
+                <li key={rowKey(r)} className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: sourceColor(r.utm_source) }} />
+                        <span className="text-[14px] font-semibold truncate">{r.utm_source}</span>
+                        <span className="text-[12px] text-muted-foreground truncate">/ {r.utm_medium}</span>
+                      </div>
+                      <p className="mt-1 font-mono text-[11.5px] text-muted-foreground break-all">{r.utm_campaign}</p>
+                      {r.saved?.label && <p className="mt-0.5 text-[12px] text-foreground/80 truncate">{r.saved.label}</p>}
+                    </div>
+                    {!isDirect && (
+                      <div className="flex items-center shrink-0 -mr-1.5">
+                        <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => copyRowLink(r)} aria-label="Copy link">
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => setLinkDialog({ open: true, initial: draftFor(r) })} aria-label="Edit link">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteTarget(targetForRow(r))} aria-label="Delete link">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    <div className="rounded-lg bg-muted/50 py-2">
+                      <p className="text-[15px] font-semibold tabular-nums">{r.clicks.toLocaleString()}</p>
+                      <p className="text-[10px] text-muted-foreground">Clicks</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={r.registrations === 0}
+                      onClick={() => openRegs(r)}
+                      className="rounded-lg bg-emerald-500/10 py-2 disabled:bg-muted/50 enabled:active:bg-emerald-500/20"
+                      aria-label={`View ${r.registrations} registrations`}
+                    >
+                      <p className={`text-[15px] font-semibold tabular-nums ${r.registrations > 0 ? "text-emerald-700 dark:text-emerald-400 underline decoration-dotted underline-offset-4" : ""}`}>
+                        {r.registrations.toLocaleString()}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">Registered</p>
+                    </button>
+                    <div className="rounded-lg bg-muted/50 py-2">
+                      <p className="text-[15px] font-semibold tabular-nums">{r.checked_in.toLocaleString()}</p>
+                      <p className="text-[10px] text-muted-foreground">Checked in</p>
+                    </div>
+                    <div className="rounded-lg bg-muted/50 py-2">
+                      <p className={`text-[15px] font-semibold tabular-nums ${isDirect ? "text-muted-foreground" : convClassOf(conv)}`}>
+                        {isDirect ? "—" : `${conv.toFixed(1)}%`}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">Conv.</p>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          {/* Larger screens: sortable table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-[12px]">
               <thead>
                 <tr className="border-b border-border text-muted-foreground">
@@ -1637,52 +1177,79 @@ export default function UtmAnalyticsPage({
                   <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Content</th>
                   <SortableHeader col="clicks"          label="Clicks"        sort={sortKey} dir={sortDir} onSort={handleSort} align="right" />
                   <SortableHeader col="registrations"   label="Registrations" sort={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+                  <SortableHeader col="checked_in"      label="Checked in"    sort={sortKey} dir={sortDir} onSort={handleSort} align="right" />
                   <SortableHeader col="conversion_rate" label="Conv %"        sort={sortKey} dir={sortDir} onSort={handleSort} align="right" />
-                  <th className="text-right px-4 py-2.5 font-medium text-muted-foreground">Cost/reg</th>
+                  <th className="text-right px-4 py-2.5 font-medium text-muted-foreground"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {rows.map((r, i) => {
-                  const conv = Number(r.conversion_rate);
-                  const convClass = conv >= 10
-                    ? "text-emerald-500"
-                    : conv >= 5
-                    ? "text-amber-500"
-                    : "text-muted-foreground";
+                {rows.map((r) => {
+                  const conv = capPct(r.conversion_rate);
+                  const isDirect = r.utm_source === DIRECT_SOURCE;
                   return (
-                    <tr key={i} className="hover:bg-muted/20 transition-colors">
+                    <tr key={rowKey(r)} className="hover:bg-muted/20 transition-colors">
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
                           <span
                             className="h-2 w-2 rounded-full shrink-0"
                             style={{ backgroundColor: sourceColor(r.utm_source) }}
                           />
-                          <span className="font-medium">
-                            {r.utm_source || <span className="text-muted-foreground">(none)</span>}
-                          </span>
+                          <span className="font-medium">{r.utm_source}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 text-muted-foreground">
-                        {r.utm_medium || <span className="italic">(none)</span>}
-                      </td>
-                      <td className="px-4 py-2.5 max-w-[160px]">
-                        <span className="font-mono text-[11px] bg-muted px-1.5 py-0.5 rounded truncate block">
-                          {r.utm_campaign || <span className="text-muted-foreground not-italic">(none)</span>}
+                      <td className="px-4 py-2.5 text-muted-foreground">{r.utm_medium}</td>
+                      <td className="px-4 py-2.5 max-w-[200px]">
+                        <span className="font-mono text-[11px] bg-muted px-1.5 py-0.5 rounded truncate block" title={r.utm_campaign}>
+                          {r.utm_campaign}
                         </span>
+                        {r.saved?.label && <span className="block text-[11px] text-muted-foreground truncate mt-0.5">{r.saved.label}</span>}
                       </td>
-                      <td className="px-4 py-2.5 text-muted-foreground italic text-[11px]">—</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        {Number(r.clicks).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-emerald-600">
-                        {Number(r.registrations).toLocaleString()}
+                      <td className="px-4 py-2.5 text-muted-foreground text-[11px] max-w-[120px] truncate">
+                        {r.saved?.utm_content || "—"}
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums">
-                        <span className={`font-medium ${convClass}`}>
-                          {conv.toFixed(1)}%
-                        </span>
+                        {r.clicks.toLocaleString()}
                       </td>
-                      <td className="px-4 py-2.5 text-right text-muted-foreground tabular-nums">—</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums font-semibold">
+                        {r.registrations > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => openRegs(r)}
+                            className="text-emerald-600 underline decoration-dotted underline-offset-4 hover:decoration-solid hover:text-emerald-700"
+                            title="View these registrations"
+                          >
+                            {r.registrations.toLocaleString()}
+                          </button>
+                        ) : (
+                          <span className="text-muted-foreground">0</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">
+                        {r.checked_in.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">
+                        {isDirect ? (
+                          <span className="text-muted-foreground" title="Direct registrations have no link clicks">—</span>
+                        ) : (
+                          <span className={`font-medium ${convClassOf(conv)}`}>{conv.toFixed(1)}%</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                        {/* Direct traffic has no tracked link to copy or edit. */}
+                        {!isDirect && (
+                          <div className="inline-flex items-center gap-0.5">
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => copyRowLink(r)} title="Copy link" aria-label="Copy link">
+                              <Copy className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setLinkDialog({ open: true, initial: draftFor(r) })} title="Edit link" aria-label="Edit link">
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteTarget(targetForRow(r))} title="Delete link" aria-label="Delete link">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -1692,19 +1259,92 @@ export default function UtmAnalyticsPage({
         </div>
       )}
 
-      {/* ── Individual Participant Attribution ── */}
-      <ParticipantAttributionSection eventId={eventId} />
-
       {/* ── Saved links ── */}
       <SavedLinksSection
-        eventId={eventId}
         savedRows={savedLinks}
-        analyticsRows={rawRows}
-        onSaved={handleLinkSaved}
+        analyticsRows={summaryRows}
+        onDelete={(link) => setDeleteTarget(targetForLink(link))}
+        onEdit={(link) => setLinkDialog({
+          open: true,
+          initial: { utm_source: link.utm_source, utm_medium: link.utm_medium, utm_campaign: link.utm_campaign, utm_content: link.utm_content, utm_term: link.utm_term, label: link.label },
+        })}
       />
 
-      {/* ── Share link generator ── */}
-      <ShareLinkGenerator eventId={eventId} eventSlug={eventSlug} orgSlug={orgSlug} onLinkSaved={handleLinkSaved} />
+      {/* ── Partners ── */}
+      <UtmPartnersSection eventId={eventId} links={shareableLinks} />
+
+      <UtmLinkDialog
+        open={linkDialog.open}
+        onOpenChange={(open) => setLinkDialog((d) => ({ ...d, open }))}
+        eventId={eventId}
+        eventSlug={eventSlug}
+        orgSlug={orgSlug}
+        initial={linkDialog.initial}
+        onSaved={handleLinkSaved}
+      />
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }}>
+        <AlertDialogContent className="w-[calc(100vw-2rem)] max-w-md rounded-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this tracked link?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-left">
+                {deleteTarget && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {deleteTarget.label && <span className="text-[13px] font-medium text-foreground w-full">{deleteTarget.label}</span>}
+                    {([["source", deleteTarget.utm_source], ["medium", deleteTarget.utm_medium], ["campaign", deleteTarget.utm_campaign]] as const).map(([k, v]) => (
+                      <span key={k} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-muted border border-border font-mono max-w-full">
+                        <span className="text-muted-foreground">{k}:</span><span className="truncate">{v}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[13px]">
+                  This removes the link{deleteTarget?.saved ? " from your saved links" : ""}
+                  {deleteTargetStats.clicks > 0 && (
+                    <> and permanently deletes its{" "}
+                      <span className="font-medium text-foreground">
+                        {deleteTargetStats.clicks.toLocaleString()} recorded click{deleteTargetStats.clicks === 1 ? "" : "s"}
+                      </span>
+                    </>
+                  )}.
+                </p>
+                {deleteTargetStats.registrations > 0 ? (
+                  <p className="text-[13px]">
+                    Its{" "}
+                    <span className="font-medium text-foreground">
+                      {deleteTargetStats.registrations.toLocaleString()} registration{deleteTargetStats.registrations === 1 ? "" : "s"}
+                    </span>{" "}
+                    {deleteTargetStats.registrations === 1 ? "is a lead and is" : "are leads and are"} kept, still credited to this
+                    link — so it will keep appearing in the breakdown.
+                  </p>
+                ) : (
+                  <p className="text-[13px]">It has no registrations, so it will disappear from this page.</p>
+                )}
+                <p className="text-[12px] text-muted-foreground">Any partner this link is shared with loses access to it. This can't be undone.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel disabled={deleting} className="mt-0 h-10 sm:h-9">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); void confirmDelete(); }}
+              disabled={deleting}
+              className="h-10 sm:h-9 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Deleting…" : "Delete link"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <UtmRegistrationsDialog
+        row={regsFor}
+        leads={regsFor ? leadsByKey.get(rowKey(regsFor)) ?? [] : []}
+        loading={leadsQuery.isLoading}
+        error={leadsQuery.isError}
+        rangeLabel={rangeLabel}
+        onOpenChange={(open) => { if (!open) setRegsFor(null); }}
+      />
 
     </div>
   );

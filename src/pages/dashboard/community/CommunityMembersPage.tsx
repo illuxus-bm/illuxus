@@ -15,6 +15,7 @@ import { MoreHorizontal, Search, Shield, ShieldOff, UserCog, UserX } from "lucid
 import { canManageSettings, canModerate, type CommunityRole } from "@/lib/community/rbac";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { fetchPublicProfiles } from "@/lib/public-profiles";
 
 const ROLE_BADGE: Record<string, string> = {
   member:    "bg-muted text-muted-foreground",
@@ -70,12 +71,9 @@ export default function CommunityMembersPage() {
       const list = (rows ?? []) as unknown as { user_id: string; role: CommunityRole; status: MemberRow["status"]; joined_at: string }[];
       if (list.length === 0) return [] as MemberRow[];
       const ids = list.map((r) => r.user_id);
-      const { data: profs } = await supabase
-        .from("profiles")
-        .select("user_id, display_name, avatar_url, company, designation")
-        .in("user_id", ids);
+      const profs = await fetchPublicProfiles(ids);
       const byUser = new Map<string, MemberRow["profile"]>();
-      (profs ?? []).forEach((p) => byUser.set(p.user_id, p as never));
+      profs.forEach((p) => byUser.set(p.user_id, p as never));
       return list.map((r) => ({ ...r, profile: byUser.get(r.user_id) ?? null })) as MemberRow[];
     },
   });

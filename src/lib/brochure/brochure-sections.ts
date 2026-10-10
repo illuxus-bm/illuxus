@@ -169,6 +169,10 @@ export interface AgendaSessionInput {
 export interface AgendaRow {
   title: string;
   timeRangeText: string;
+  /** Start time alone, zero-padded (`"09:30 AM"`). The Poster_Bold agenda's
+   *  time chip shows only when a session starts, as the reference brochure
+   *  does — the full range doesn't fit the chip without wrapping. */
+  startTimeText: string;
   /** Omitted (never an empty string) when the session has no speakers. */
   speakerLine?: string;
   /** Omitted (never an empty string) when the session has no description
@@ -191,6 +195,8 @@ export interface AgendaSectionContent {
 
 /** Human-readable time-of-day format shared by both ends of the range. */
 const AGENDA_TIME_FORMAT = "h:mm a";
+/** Zero-padded start time for the Poster_Bold agenda's time chip. */
+const AGENDA_START_TIME_FORMAT = "hh:mm a";
 
 /** Builds one session's agenda row: title, formatted time range, and an
  *  omitted-when-absent speaker line. Never throws. */
@@ -201,6 +207,7 @@ function buildAgendaRow(session: AgendaSessionInput): AgendaRow {
   const row: AgendaRow = {
     title: session.title,
     timeRangeText: `${startText} - ${endText}`,
+    startTimeText: formatDate(new Date(session.start_time), AGENDA_START_TIME_FORMAT),
   };
 
   if (session.speakerNames.length > 0) {

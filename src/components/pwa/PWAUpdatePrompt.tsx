@@ -4,9 +4,10 @@ import { toast } from "sonner";
 import { logger } from "@/lib/observability";
 
 /**
- * Listens for newly-installed service workers and prompts the user with a
- * non-intrusive Sonner toast. Update only happens when the user opts in;
- * otherwise the next cold start will pick up the new version anyway.
+ * Registers the service worker and keeps it current. The worker is built
+ * with `skipWaiting` (vite.config.ts), so a new deploy activates on its own
+ * and the next refresh / visit loads it; the "new version" toast below is
+ * only a fallback for a worker that still ends up waiting.
  *
  * Mounted once near the top of the React tree (see App.tsx). It renders
  * nothing of its own — just hooks into the SW lifecycle and surfaces toasts.
@@ -36,10 +37,23 @@ export function PWAUpdatePrompt() {
           60 * 60 * 1000,
         );
 
+        // Also check whenever the tab comes back to the foreground, so a
+        // deploy is picked up on return rather than up to an hour later.
+        const onVisible = () => {
+          if (document.visibilityState !== "visible") return;
+          registration.update().catch((err) =>
+            logger.debug("pwa.update_check_failed", { error_message: err?.message }),
+          );
+        };
+        document.addEventListener("visibilitychange", onVisible);
+
         // Best-effort cleanup: register a one-shot pagehide listener.
         window.addEventListener(
           "pagehide",
-          () => clearInterval(interval),
+          () => {
+            clearInterval(interval);
+            document.removeEventListener("visibilitychange", onVisible);
+          },
           { once: true },
         );
       }

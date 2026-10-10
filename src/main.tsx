@@ -3,6 +3,22 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 
+/**
+ * A tab opened before a deploy still runs the old bundle; when it lazy-loads
+ * a route whose chunk the deploy replaced, the import fails. Reload once to
+ * pick up the new build instead of showing the "couldn't load" screen. The
+ * timestamp guard stops a reload loop if the chunk is genuinely broken.
+ */
+window.addEventListener("vite:preloadError", (event) => {
+  const KEY = "illuxus:chunk-reload-at";
+  let last = 0;
+  try { last = Number(sessionStorage.getItem(KEY) || 0); } catch { /* storage blocked */ }
+  if (Date.now() - last < 10_000) return;
+  try { sessionStorage.setItem(KEY, String(Date.now())); } catch { /* storage blocked */ }
+  event.preventDefault();
+  window.location.reload();
+});
+
 const root = createRoot(document.getElementById("root")!);
 root.render(<App />);
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { AuthorProfile, CommunityChannel, CommunityMessage, MessageWithAuthor } from "@/lib/community/types";
+import { fetchPublicProfile, fetchPublicProfiles } from "@/lib/public-profiles";
 
 export function useCommunityChannels(communityId: string | undefined) {
   return useQuery({
@@ -41,12 +42,9 @@ export function useChannelMessages(channelId: string | undefined) {
       const msgs = ((data as unknown as CommunityMessage[]) ?? []).reverse();
       const ids = Array.from(new Set(msgs.map((m) => m.author_id)));
       if (ids.length === 0) return [] as MessageWithAuthor[];
-      const { data: profs } = await supabase
-        .from("profiles")
-        .select("user_id, display_name, avatar_url")
-        .in("user_id", ids);
+      const profs = await fetchPublicProfiles(ids);
       const byUser = new Map<string, AuthorProfile>();
-      (profs ?? []).forEach((p) => byUser.set(p.user_id, p as AuthorProfile));
+      profs.forEach((p) => byUser.set(p.user_id, p as AuthorProfile));
       return msgs.map((m) => ({ ...m, author: byUser.get(m.author_id) ?? null }));
     },
   });
@@ -61,11 +59,7 @@ export function useChannelMessages(channelId: string | undefined) {
         { event: "INSERT", schema: "public", table: "community_messages", filter: `channel_id=eq.${channelId}` },
         async (payload) => {
           const row = payload.new as CommunityMessage;
-          const { data: prof } = await supabase
-            .from("profiles")
-            .select("user_id, display_name, avatar_url")
-            .eq("user_id", row.author_id)
-            .maybeSingle();
+          const prof = await fetchPublicProfile(row.author_id);
           const withAuthor: MessageWithAuthor = { ...row, author: (prof as AuthorProfile | null) ?? null };
           qc.setQueryData<MessageWithAuthor[]>(queryKey, (prev) => {
             if (!prev) return prev;

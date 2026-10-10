@@ -12,13 +12,14 @@
  * for days or weeks.
  *
  * This helper:
- *   1. Resolves every email that should know about the new application
- *      (event creator + workspace owner + any org_members with role
- *      owner/admin), de-duplicated and format-validated.
- *   2. Pulls event identity (title, slug, org name) so the email body has
+ *   1. Pulls event identity (title, slug, org name) so the email body has
  *      enough context that the organiser doesn't have to dig.
- *   3. Calls the existing `send-event-email` edge function in system-mail
- *      mode (`event_id: "invite"`) — no migrations, no new functions.
+ *   2. Calls the `send-event-email` edge function in "application" mode.
+ *      The function verifies the caller really has an application for the
+ *      event and resolves the organisers' addresses itself (event creator,
+ *      workspace owner, org owners/admins). The browser never chooses the
+ *      recipients, and never needs to read other users' email addresses —
+ *      which it could not do anyway (emails live in auth.users).
  *
  * Failures are non-fatal. The application row already exists; a missed
  * notification doesn't lose data.
@@ -26,7 +27,6 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
-import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 import { uuid } from "@/lib/uuid";
 import { publicOrigin } from "@/lib/publicUrl";
 
@@ -51,64 +51,14 @@ interface EventLookup {
   organizations: { name: string | null; owner_id: string | null; slug: string | null } | null;
 }
 
-/** Resolve every email address that should get the heads-up. */
-async function resolveRecipients(eventId: string): Promise<{
-  emails: string[];
-  event: EventLookup | null;
-}> {
+/** Event identity used to word the notification. */
+async function lookupEvent(eventId: string): Promise<EventLookup | null> {
   const { data: ev } = await supabase
     .from("events")
     .select("id, title, slug, user_id, organizations(name, owner_id, slug)")
     .eq("id", eventId)
     .maybeSingle();
-  const event = ev as unknown as EventLookup | null;
-  if (!event) return { emails: [], event: null };
-
-  // Collect user_ids worth notifying:
-  //  • event creator
-  //  • org owner (canonical)
-  //  • every org_members row with role owner/admin
-  const userIds = new Set<string>();
-  if (event.user_id) userIds.add(event.user_id);
-  if (event.organizations?.owner_id) userIds.add(event.organizations.owner_id);
-
-  // Pull privileged org_members. RLS allows authenticated org members to
-  // read their own org's member list, which is exactly what we need —
-  // applicants are signed-in users by the time this runs.
-  if (event.organizations) {
-    const { data: orgRow } = await supabase
-      .from("events")
-      .select("org_id")
-      .eq("id", eventId)
-      .maybeSingle();
-    const orgId = (orgRow as { org_id?: string | null } | null)?.org_id ?? null;
-    if (orgId) {
-      const { data: ownersAndAdmins } = await supabase
-        .from("org_members")
-        .select("user_id, role")
-        .eq("org_id", orgId)
-        .in("role", ["owner", "admin"]);
-      for (const m of ownersAndAdmins ?? []) {
-        if (m.user_id) userIds.add(m.user_id);
-      }
-    }
-  }
-
-  if (userIds.size === 0) return { emails: [], event };
-
-  const { data: profileRows } = await supabase
-    .from("profiles")
-    .select("user_id, email")
-    .in("user_id", Array.from(userIds));
-  const emails = Array.from(
-    new Set(
-      (profileRows ?? [])
-        .map((p: { email?: string | null }) => normalizeEmail(p.email))
-        .filter((e: string) => isValidEmailFormat(e)),
-    ),
-  );
-
-  return { emails, event };
+  return ev as unknown as EventLookup | null;
 }
 
 function escapeText(s: string): string {
@@ -156,15 +106,8 @@ export async function notifyOrganiserOfApplication(
   input: ApplicationNotifyInput,
 ): Promise<{ ok: true; notified: number } | { ok: false; error: string }> {
   try {
-    const { emails, event } = await resolveRecipients(input.eventId);
+    const event = await lookupEvent(input.eventId);
     if (!event) return { ok: false, error: "Event not found" };
-    if (emails.length === 0) {
-      logger.warn("application notify — no organiser recipients resolved", {
-        event_id: input.eventId,
-        kind: input.kind,
-      });
-      return { ok: false, error: "No organiser emails on file" };
-    }
 
     const eventTitle = event.title || "your event";
     const orgName = event.organizations?.name || "The organising team";
@@ -192,11 +135,13 @@ export async function notifyOrganiserOfApplication(
 
     const { data, error } = await supabase.functions.invoke("send-event-email", {
       body: {
-        event_id: "invite",
+        // The server checks the caller's application for this event and
+        // delivers to the event's organisers.
+        event_id: "application",
+        target_event_id: event.id,
         email_id: uuid(),
         subject,
         body,
-        recipient_emails: emails,
       },
     });
     if (error) {
@@ -210,7 +155,7 @@ export async function notifyOrganiserOfApplication(
     type SendResult = { success?: boolean; sent?: number; error?: string };
     const result = (data ?? null) as SendResult | null;
     if (result?.error) return { ok: false, error: result.error };
-    return { ok: true, notified: result?.sent ?? emails.length };
+    return { ok: true, notified: result?.sent ?? 0 };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn("application notify threw", {

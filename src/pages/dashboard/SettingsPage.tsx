@@ -24,6 +24,7 @@ import PersonFieldsForm, { type PersonFields, emptyPersonFields, displayName as 
 import { uuid } from "@/lib/uuid";
 import { publicOrigin } from "@/lib/publicUrl";
 import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
+import { fetchPublicProfile, fetchPublicProfiles } from "@/lib/public-profiles";
 
 type Profile = Tables<"profiles">;
 
@@ -33,6 +34,17 @@ const ROLE_OPTIONS = [
   { value: "member", label: "Member", icon: UserCog, description: "Create & manage events" },
   { value: "viewer", label: "Viewer", icon: Eye, description: "View only" },
 ];
+
+/** Lower-cased member emails for one workspace, via the manager-only
+ *  `org_member_emails` RPC (migration 037). Returns [] when the RPC fails
+ *  so callers degrade to "unknown" instead of blocking the action. */
+async function fetchMemberEmails(orgId: string): Promise<{ user_id: string; email: string }[]> {
+  const { data, error } = await supabase.rpc("org_member_emails" as never, { _org_id: orgId } as never);
+  if (error || !Array.isArray(data)) return [];
+  return (data as { user_id: string; email: string | null }[])
+    .filter((r) => !!r.email)
+    .map((r) => ({ user_id: r.user_id, email: r.email!.toLowerCase() }));
+}
 
 const roleBadgeColor = (role: string) => {
   switch (role) {
@@ -127,12 +139,9 @@ const SettingsPage = () => {
     if (membersRes.data) {
       // Fetch profiles for members
       const userIds = membersRes.data.map((m) => m.user_id);
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("user_id, display_name, avatar_url")
-        .in("user_id", userIds);
-      
-      const profileMap = new Map(profiles?.map((p) => [p.user_id, p]) || []);
+      const profiles = await fetchPublicProfiles(userIds);
+
+      const profileMap = new Map(profiles.map((p) => [p.user_id, p]));
       setMembers(
         membersRes.data.map((m) => ({
           ...m,
@@ -241,18 +250,9 @@ const SettingsPage = () => {
     setInviting(true);
 
     // Pre-flight: check if this email is already an active member of the org.
-    // org_members stores user_ids, so look up by email via profiles.
-    const { data: existingMember } = await supabase
-      .from("org_members")
-      .select("id, role, profiles:user_id(email)")
-      .eq("org_id", org.id)
-      .maybeSingle()
-      // Note: we can't filter directly by email on org_members; do a client-side check below.
-      .limit(100) as unknown as { data: { id: string; role: string; profiles?: { email?: string } | null }[] | null };
-
-    const memberEmails = (existingMember ?? []).map((m: { profiles?: { email?: string } | null }) =>
-      m.profiles?.email?.toLowerCase() ?? ""
-    );
+    // Emails live on auth.users (not profiles), so read them through the
+    // manager-only `org_member_emails` RPC (migration 037).
+    const memberEmails = (await fetchMemberEmails(org.id)).map((m) => m.email);
     if (memberEmails.includes(emailNormalized)) {
       setInviting(false);
       toast({ title: "Already a member", description: `${emailNormalized} is already part of this organisation.`, variant: "destructive" });
@@ -393,7 +393,17 @@ const SettingsPage = () => {
         let note: string | null = null;
         let delivered = false;
         if (fnError) {
+          // Non-2xx responses arrive as `FunctionsHttpError` with the real
+          // body in `context` (a Response); surface its `error` instead of
+          // the generic "Edge Function returned a non-2xx status code".
           note = fnError.message || "Edge function returned an error";
+          const ctx = (fnError as { context?: Response }).context;
+          if (ctx && typeof ctx.text === "function") {
+            try {
+              const parsed = JSON.parse(await ctx.text()) as SendResult;
+              if (parsed.error) note = parsed.error;
+            } catch { /* keep generic note */ }
+          }
         } else if (result?.error) {
           note = result.error;
         } else if (result?.provider === "console") {
@@ -448,18 +458,16 @@ const SettingsPage = () => {
     if (!org) return;
 
     // Resolve the member's email + display name BEFORE deleting the row.
-    // We need the email to (a) revoke their pending invitations so the
-    // original link can't reinstate them and (b) send the removal-notice
-    // email. Email lives on auth.users which the client can't read, but
-    // the `profiles` table mirrors it; if the mirror is missing the
-    // member's email we still proceed with the removal — the removal email
-    // is best-effort.
-    const { data: profileRow } = await supabase
-      .from("profiles")
-      .select("email, display_name, first_name, last_name")
-      .eq("user_id", memberUserId)
-      .maybeSingle();
-    const removedEmail = (profileRow as { email?: string | null } | null)?.email?.toLowerCase() || null;
+    // We need the email to (a) revoke their invitations so the original
+    // link can't reinstate them and (b) send the removal-notice email.
+    // Email lives on auth.users, read via the `org_member_emails` RPC
+    // (migration 037); if it can't be resolved we still proceed with the
+    // removal — the removal email is best-effort.
+    const [profileRow, memberEmailRows] = await Promise.all([
+      fetchPublicProfile(memberUserId),
+      fetchMemberEmails(org.id),
+    ]);
+    const removedEmail = memberEmailRows.find((m) => m.user_id === memberUserId)?.email ?? null;
     const removedName = (profileRow as { display_name?: string | null; first_name?: string | null; last_name?: string | null } | null);
     const displayName = removedName?.display_name
       || [removedName?.first_name, removedName?.last_name].filter(Boolean).join(" ").trim()

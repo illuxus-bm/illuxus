@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { useAppBack } from "@/lib/app-back";
 import {
   LayoutDashboard, Settings, Radio, ClipboardList, Users, Award,
   CalendarCheck, Palette, Mail, Users2, BarChart3, FileText, ImagePlus,
@@ -9,7 +10,7 @@ import { DashboardTopBar } from "@/components/DashboardTopBar";
 import {
   SidebarProvider, Sidebar, SidebarContent, SidebarGroup,
   SidebarGroupContent, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
-  SidebarTrigger, useSidebar,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 
@@ -38,7 +39,7 @@ function EventCommunitySidebar({ eventId, eventTitle }: { eventId: string; event
 
   return (
     <Sidebar collapsible="icon" className="border-r border-border bg-card">
-      <SidebarContent className="pt-1" style={{ paddingTop: '78px' }}>
+      <SidebarContent className="pt-3">
         {!collapsed && (
           <div className="px-3 py-2 mb-1">
             <p className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-medium">Event</p>
@@ -102,6 +103,7 @@ export function CommunityShell({
   eventTitle?: string | null;
 }) {
   const navigate = useNavigate();
+  const goBack = useAppBack(eventId ? `/dashboard/events/${eventId}` : "/community");
 
   return (
     <SidebarProvider>
@@ -119,15 +121,8 @@ export function CommunityShell({
             {/* Event-context header: back arrow + event name — mirrors EventDetailPage header */}
             {eventId && (
               <header className="border-b border-border bg-card/80 px-3 sm:px-4 py-2.5 flex items-center gap-2 min-w-0">
-                <SidebarTrigger className="h-7 w-7" aria-label="Toggle event sidebar" />
                 <button
-                  onClick={() => {
-                    if (window.history.length > 1) {
-                      navigate(-1);
-                    } else {
-                      navigate(`/dashboard/events/${eventId}`, { replace: true });
-                    }
-                  }}
+                  onClick={goBack}
                   className="h-7 w-7 shrink-0 flex items-center justify-center rounded-md hover:bg-muted transition-colors"
                   aria-label="Back to event"
                 >

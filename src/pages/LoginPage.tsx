@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { publicOrigin } from "@/lib/publicUrl";
@@ -6,7 +6,9 @@ import { captureUtm, loadStoredUtm } from "@/lib/utm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Eye, EyeOff, Ticket, Building2, ChevronLeft } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, Ticket, Building2, ChevronLeft, MailCheck } from "lucide-react";
+import { REGEXP_ONLY_DIGITS } from "input-otp";
+import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import TwoFactorChallengeDialog from "@/components/auth/TwoFactorChallengeDialog";
@@ -22,6 +24,12 @@ import PersonFieldsForm, {
   validatePersonFields,
   type PersonFields,
 } from "@/components/people/PersonFieldsForm";
+
+/** Digit range accepted for the sign-up verification code. Supabase's
+ *  "Email OTP Length" decides what is emailed (6–10); this project sends 8,
+ *  and 6 is accepted too so the step keeps working if that setting changes. */
+const SIGNUP_OTP_MIN = 6;
+const SIGNUP_OTP_MAX = 8;
 
 const LoginPage = () => {
   const [email, setEmail] = useState("");
@@ -45,6 +53,22 @@ const LoginPage = () => {
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  /** Email waiting for its sign-up verification code. While set, the card
+   *  shows the code-entry step; `verifyFrom` is where "Back" returns to. */
+  const [verifyEmail, setVerifyEmail] = useState<string | null>(null);
+  const [verifyFrom, setVerifyFrom] = useState<"signup" | "signin">("signup");
+  const [otp, setOtp] = useState("");
+  const [resendIn, setResendIn] = useState(0);
+  // One verification at a time: a pasted full code fires both onChange and
+  // onComplete, and a second call with the spent code would report failure.
+  const verifyingRef = useRef(false);
+
+  // Resend cooldown — Supabase rejects a second email within 60s anyway.
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setTimeout(() => setResendIn((n) => n - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendIn]);
   const navigate = useNavigate();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
@@ -113,10 +137,98 @@ const LoginPage = () => {
     });
     return "/dashboard";
   };
+  // Already signed in with an invite token in the URL — e.g. the invitee
+  // clicked the email-verification link (which redirects here with the
+  // token), or an existing user opened the invite while logged in. The
+  // submit handlers only redeem on a fresh sign-in, so redeem here.
+  useEffect(() => {
+    if (!inviteToken) return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (cancelled || !data.session) return;
+      const inviteNext = await consumeInviteIfAny();
+      // Full reload so OrgContext picks up the new org_members row.
+      if (!cancelled && inviteNext) window.location.replace(inviteNext);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteToken]);
+
   const { content } = useSiteContent();
   const { theme: appTheme } = useTheme();
   const { brandName, logoUrl, logoUrlDark } = content.navbar;
   const activeLogoUrl = appTheme === "dark" ? (logoUrlDark || logoUrl) : logoUrl;
+
+  /** Where the link in the verification email lands. The email also carries
+   *  the code, which is the primary path; the link is a fallback. Invitees
+   *  come back to `/login?invite=<token>` so the invite is still redeemed. */
+  const signupRedirectTo = () =>
+    inviteToken
+      ? `${publicOrigin()}/login?invite=${encodeURIComponent(inviteToken)}`
+      : publicOrigin();
+
+  const startVerification = (address: string, from: "signup" | "signin") => {
+    setVerifyEmail(address);
+    setVerifyFrom(from);
+    setOtp("");
+    setResendIn(60);
+  };
+
+  /** Route a newly verified (signed-in) user: redeem a pending invite first,
+   *  then any `?next=` (ticket claim), then onboarding / discover. */
+  const finishSignup = async (signedUpAs?: string) => {
+    const inviteNext = await consumeInviteIfAny();
+    if (inviteNext) {
+      // Full reload so OrgContext sees the new org_members row.
+      window.location.replace(inviteNext);
+      return;
+    }
+    toast({ title: "Account created", description: "Welcome to Illuxus." });
+    navigate(safeNext ?? (signedUpAs === "organizer" ? "/onboarding" : "/discover"), { replace: true });
+  };
+
+  const verifyCode = async (code: string) => {
+    if (!verifyEmail || code.length < SIGNUP_OTP_MIN || code.length > SIGNUP_OTP_MAX || verifyingRef.current) return;
+    verifyingRef.current = true;
+    setLoading(true);
+    let { data, error } = await supabase.auth.verifyOtp({ email: verifyEmail, token: code, type: "email" });
+    if (error) {
+      // Some auth server versions only accept the dedicated sign-up type
+      // for a confirmation code.
+      const retry = await supabase.auth.verifyOtp({ email: verifyEmail, token: code, type: "signup" });
+      if (!retry.error) ({ data, error } = retry);
+    }
+    if (error || !data.session) {
+      toast({
+        title: "That code didn't work",
+        description: "It may be mistyped or expired. Check the latest email, or resend a new code.",
+        variant: "destructive",
+      });
+      setOtp("");
+      setLoading(false);
+      verifyingRef.current = false;
+      return;
+    }
+    setLoading(false);
+    await finishSignup(data.user?.user_metadata?.account_type);
+    verifyingRef.current = false;
+  };
+
+  const resendCode = async () => {
+    if (!verifyEmail || resendIn > 0) return;
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: verifyEmail,
+      options: { emailRedirectTo: signupRedirectTo() },
+    });
+    if (error) {
+      toast({ title: "Couldn't resend the code", description: error.message, variant: "destructive" });
+      return;
+    }
+    setResendIn(60);
+    toast({ title: "New code sent", description: `Check ${verifyEmail} for the latest code.` });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,7 +272,10 @@ const LoginPage = () => {
         email,
         password,
         options: {
-          emailRedirectTo: publicOrigin(),
+          // Invitees come back to `/login?invite=<token>` after verifying so
+          // the effect below redeems the invitation; otherwise the token is
+          // lost and they land in onboarding instead of the workspace.
+          emailRedirectTo: signupRedirectTo(),
           data: {
             account_type: accountType,
             title: personCheck.data.title || "",
@@ -184,37 +299,32 @@ const LoginPage = () => {
         },
       });
       if (error) {
-        toast({ title: "Error", description: error.message, variant: "destructive" });
+        // Gateway timeouts (504) from GoTrue come back with an empty JSON body,
+        // so `error.message` is literally "{}". Show something actionable.
+        const status = (error as { status?: number }).status;
+        const raw = error.message?.trim();
+        const description =
+          !raw || raw === "{}" || status === 504
+            ? "Sign-up is taking longer than expected. If you receive a verification email, use it to activate your account; otherwise please try again in a minute."
+            : raw;
+        toast({ title: "Error", description, variant: "destructive" });
       } else if (signUpResult?.session) {
-        // Auto-session path: email confirmation is disabled OR auto-confirm
-        // fired. Two sub-cases that both need handling here, otherwise the
-        // new user lands on the wrong page:
-        //  1. They came in via `/login?invite=<token>` → consume the invite
-        //     so the org_members row is created with the chosen role.
-        //  2. They came in via `/login?next=/t/<id>` (ticket claim flow).
-        const inviteNext = await consumeInviteIfAny();
-        const destination = inviteNext ?? safeNext ?? "/";
-        toast({ title: "Account created", description: "Welcome to Illuxus." });
-        // Force a full reload when we accepted an invitation so the
-        // OrgContext re-fetches `memberships` (which was empty when the
-        // user record was first created). Without this, `OnboardingGuard`
-        // sees no org and bounces the new member to /onboarding.
-        if (inviteNext) {
-          window.location.assign(destination);
-        } else {
-          navigate(destination);
-        }
-      } else {
+        // Email confirmation is disabled — the user is already signed in.
+        await finishSignup(accountType);
+      } else if (signUpResult?.user && signUpResult.user.identities?.length === 0) {
+        // Supabase's answer for an email that already has a confirmed
+        // account: no error, no identities, and no email sent.
         toast({
-          title: "Check your email",
-          description: `We sent a verification link to ${email}. Open it to activate your account${inviteToken ? " and accept the workspace invitation" : safeNext ? " and view your ticket" : ""}.`,
+          title: "You already have an account",
+          description: "Sign in with this email instead.",
         });
-        // Email confirmation is required — Supabase will not return a session.
-        // Take them to the sign-in screen so they can log in after verifying.
         setIsSignUp(false);
         setSignUpStep(1);
         setPassword("");
-        setPerson(emptyPersonFields());
+      } else {
+        // Email confirmation is required: Supabase emailed a code. Verifying
+        // it signs the user in, so they never have to log in separately.
+        startVerification(email, "signup");
       }
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -224,7 +334,18 @@ const LoginPage = () => {
         // when the visitor was sent here from a ticket link — they probably
         // haven't created an account yet.
         const isInvalid = /invalid login credentials/i.test(error.message);
-        if (isInvalid && claimingTicket) {
+        if (/email not confirmed/i.test(error.message)) {
+          await supabase.auth.resend({
+            type: "signup",
+            email,
+            options: { emailRedirectTo: signupRedirectTo() },
+          });
+          toast({
+            title: "Verify your email to continue",
+            description: `We sent a new code to ${email}.`,
+          });
+          startVerification(email, "signin");
+        } else if (isInvalid && claimingTicket) {
           toast({
             title: "No account yet for this email",
             description: "Create an account below using the same email and your ticket will appear automatically.",
@@ -295,19 +416,21 @@ const LoginPage = () => {
             // OrgContext before the OnboardingGuard runs. SPA navigation
             // would otherwise hit the guard with the stale empty
             // memberships array and bounce the new member to /onboarding.
-            window.location.assign(next);
+            window.location.replace(next);
           } else {
-            navigate(next);
+            navigate(next, { replace: true });
           }
         } else {
-          navigate("/dashboard");
+          navigate("/dashboard", { replace: true });
         }
       }
     }
     setLoading(false);
   };
 
-  const title = mustChangePassword
+  const title = verifyEmail
+    ? "Verify your email"
+    : mustChangePassword
     ? "Set your new password"
     : isForgot
       ? "Reset password"
@@ -340,7 +463,7 @@ const LoginPage = () => {
           }}
           onVerified={() => {
             setTwoFactor((s) => ({ ...s, open: false }));
-            navigate(twoFactor.nextRoute);
+            navigate(twoFactor.nextRoute, { replace: true });
           }}
           title="Verify it's you"
           description={`Enter the 6-digit code we sent to ${twoFactor.email} to finish signing in.`}
@@ -362,8 +485,82 @@ const LoginPage = () => {
         )}
 
         <div className="bg-card border border-border rounded-xl p-6">
-          {/* ── Must change password screen ─── */}
-          {mustChangePassword ? (
+          {/* ── Sign-up email verification code ─── */}
+          {verifyEmail ? (
+            <form
+              onSubmit={(e) => { e.preventDefault(); void verifyCode(otp); }}
+              className="space-y-5"
+            >
+              <div className="text-center space-y-2">
+                <div className="mx-auto h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                  <MailCheck className="h-5 w-5 text-primary" />
+                </div>
+                <p className="text-[13px] text-muted-foreground leading-relaxed">
+                  We sent a verification code to{" "}
+                  <span className="font-medium text-foreground break-all">{verifyEmail}</span>.
+                  Enter it below to verify your email{inviteToken ? " and join the workspace" : ""}.
+                </p>
+              </div>
+              <div className="flex justify-center">
+                <InputOTP
+                  maxLength={SIGNUP_OTP_MAX}
+                  value={otp}
+                  onChange={(code) => {
+                    // A pasted or autofilled code arrives in one change —
+                    // verify it straight away, whatever its length.
+                    const filledAtOnce = code.length - otp.length > 1;
+                    setOtp(code);
+                    if (filledAtOnce && code.length >= SIGNUP_OTP_MIN) void verifyCode(code);
+                  }}
+                  onComplete={(code) => void verifyCode(code)}
+                  pattern={REGEXP_ONLY_DIGITS}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  disabled={loading}
+                >
+                  <InputOTPGroup>
+                    {Array.from({ length: SIGNUP_OTP_MAX }, (_, i) => (
+                      <InputOTPSlot key={i} index={i} className="h-10 w-7 min-[380px]:w-9" />
+                    ))}
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+              <Button
+                type="submit"
+                className="w-full h-9 text-sm font-medium"
+                disabled={loading || otp.length < SIGNUP_OTP_MIN}
+              >
+                {loading ? "Verifying…" : "Verify & continue"}
+              </Button>
+              <div className="text-center text-[12.5px] text-muted-foreground space-y-1.5">
+                <p>
+                  Didn't get it? Check your spam folder, or{" "}
+                  <button
+                    type="button"
+                    onClick={() => void resendCode()}
+                    disabled={resendIn > 0}
+                    className="font-medium text-foreground hover:underline disabled:no-underline disabled:text-muted-foreground disabled:cursor-not-allowed"
+                  >
+                    {resendIn > 0 ? `resend in ${resendIn}s` : "resend the code"}
+                  </button>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVerifyEmail(null);
+                    setOtp("");
+                    setIsSignUp(verifyFrom === "signup");
+                    setSignUpStep(1);
+                  }}
+                  className="inline-flex items-center gap-1 hover:text-foreground"
+                >
+                  <ChevronLeft className="h-3 w-3" />
+                  {verifyFrom === "signup" ? "Use a different email" : "Back to sign in"}
+                </button>
+              </div>
+            </form>
+          ) : mustChangePassword ? (
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -405,9 +602,9 @@ const LoginPage = () => {
                   // Hard reload so OrgContext picks up the just-inserted
                   // org_members row. SPA navigation would race with the
                   // existing context snapshot and bounce them to onboarding.
-                  window.location.assign(inviteNext);
+                  window.location.replace(inviteNext);
                 } else {
-                  navigate(safeNext ?? "/discover");
+                  navigate(safeNext ?? "/discover", { replace: true });
                 }
                 setLoading(false);
               }}

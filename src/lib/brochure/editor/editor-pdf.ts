@@ -26,7 +26,9 @@ import {
   mirrorProps,
   shadowProps,
   shapeFillProps,
+  shapePolygonPoints,
   textExtras,
+  textVerticalOffset,
   transformedText,
 } from "./editor-render-props";
 import { ensureFontLoaded } from "./editor-fonts";
@@ -75,7 +77,13 @@ function loadImageForCanvas(url: string): Promise<HTMLImageElement | null> {
  */
 export const PREVIEW_DPI = 110;
 
-async function renderPageToImage(
+/**
+ * Renders one page to a canvas at `dpi`. Exported for the page thumbnails,
+ * which draw each page through this — the real renderer — at a low
+ * resolution, so a thumbnail is a small picture of the page rather than a
+ * coloured placeholder.
+ */
+export async function renderPageToCanvas(
   page: BrochurePage,
   dpi: number = EXPORT_DPI,
 ): Promise<HTMLCanvasElement> {
@@ -206,26 +214,29 @@ function drawTextInto(
   dpi: number = EXPORT_DPI,
   pxPerMm: number = mmToPx(1, EXPORT_DPI),
 ) {
-  group.add(
-    new Konva.Text({
-      x: 0,
-      y: 0,
-      width: w,
-      height: h,
-      // Text styling goes through the shared mappers so the exported PDF cannot
-      // disagree with the canvas. See `editor-render-props.ts`.
-      text: transformedText(el.content, el.textTransform),
-      fontFamily: el.fontFamily,
-      fontSize: ptToPx(el.fontSize, dpi),
-      fontStyle: fontStyleString(el.fontWeight, el.fontStyle),
-      fill: el.color,
-      align: el.align,
-      lineHeight: el.lineHeight,
-      wrap: "word",
-      ...textExtras(el, ptToPx(1, dpi), pxPerMm),
-      ...shadowProps(el.shadow, pxPerMm),
-    })
-  );
+  // No `height`: a fixed-height Konva text node drops every line that doesn't
+  // fit, so text longer than its box used to be cut off in the PDF. It is
+  // drawn at its natural height instead and positioned inside the box by the
+  // same shared rule the canvas uses.
+  const node = new Konva.Text({
+    x: 0,
+    y: 0,
+    width: w,
+    // Text styling goes through the shared mappers so the exported PDF cannot
+    // disagree with the canvas. See `editor-render-props.ts`.
+    text: transformedText(el.content, el.textTransform),
+    fontFamily: el.fontFamily,
+    fontSize: ptToPx(el.fontSize, dpi),
+    fontStyle: fontStyleString(el.fontWeight, el.fontStyle),
+    fill: el.color,
+    align: el.align,
+    lineHeight: el.lineHeight,
+    wrap: "word",
+    ...textExtras(el, ptToPx(1, dpi), pxPerMm),
+    ...shadowProps(el.shadow, pxPerMm),
+  });
+  node.y(textVerticalOffset(h, node.height(), el.verticalAlign));
+  group.add(node);
 }
 
 async function drawImageInto(
@@ -337,6 +348,15 @@ function drawShapeInto(
     );
     return;
   }
+  if (el.shape === "line") {
+    group.add(new Konva.Line({ points: [0, h / 2, w, h / 2], ...common, lineCap: "round" }));
+    return;
+  }
+  const polygon = shapePolygonPoints(el.shape, w, h);
+  if (polygon) {
+    group.add(new Konva.Line({ points: polygon, closed: true, lineJoin: "round", ...common }));
+    return;
+  }
   group.add(
     new Konva.Rect({
       x: 0,
@@ -442,7 +462,7 @@ export async function exportDocumentToPdf(
     if (i > 0) {
       pdf.addPage([page.width, page.height], page.width > page.height ? "landscape" : "portrait");
     }
-    const canvas = await renderPageToImage(page, dpi);
+    const canvas = await renderPageToCanvas(page, dpi);
     const dataUrl = canvas.toDataURL("image/png");
     pdf.addImage(dataUrl, "PNG", 0, 0, page.width, page.height);
     onProgress?.(i + 1, doc.pages.length);

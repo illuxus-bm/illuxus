@@ -7,9 +7,9 @@
  * + `.getPublicUrl(...)`), writing rendered creative PNGs under a new
  * `event-creatives/{event_id}/` prefix of the existing `site-assets` bucket
  * (Requirement 9.3 — no new bucket or policy). This module is deliberately
- * separate from the pure rendering modules (`creative-templates.ts`,
- * `creative-renderer.ts`, `creative-batch.ts`): those own template/plan/batch
- * logic and never touch Supabase, while this module owns the actual Storage
+ * separate from the creative studio's rendering modules (`studio/`): those
+ * own template and scene logic and never touch Supabase, while this module
+ * owns the actual Storage
  * upload and `event_creatives` insert/read/delete calls.
  *
  * `buildCreativeAssetRecord` is kept pure (no Supabase calls) so its
@@ -19,11 +19,11 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import type { Database, Json } from "@/integrations/supabase/types";
+import type { Json } from "@/integrations/supabase/types";
 import { logger } from "@/lib/observability";
 
-import type { CustomizationConfig } from "./creative-customization";
-import type { CreativeType, PlatformFormat } from "./creative-templates";
+/** The kinds of creative `event_creatives.creative_type` accepts. */
+export type CreativeType = "speaker" | "sponsor" | "combo" | "event";
 
 export interface UploadCreativeAssetResult {
   assetUrl: string;
@@ -62,48 +62,13 @@ export async function uploadCreativeAsset(
   return { assetUrl: data.publicUrl, storagePath: path };
 }
 
-/**
- * Uploads a Creative-specific watermark logo to the existing `site-assets`
- * Storage bucket under `watermark-logos/{orgId}/` and returns its public URL
- * and storage path (Requirement 6.4). Reuses the existing bucket's RLS
- * policies (public read + authenticated write) — no new bucket, no new
- * policy needed (Requirement 11.4). Mirrors the `uploadCreativeAsset`
- * upsert-safe pattern so a retry with the same filename overwrites in place
- * instead of orphaning a duplicate file. `blob.type` is preferred as the
- * content type when set (organizer may upload PNG, SVG, or JPEG); falls
- * back to `image/png` for blobs without a MIME type.
- */
-export async function uploadWatermarkLogo(
-  orgId: string,
-  filename: string,
-  blob: Blob
-): Promise<{ url: string; storagePath: string }> {
-  const path = `watermark-logos/${orgId}/${filename}`;
-  const { error } = await supabase.storage.from("site-assets").upload(path, blob, {
-    cacheControl: "3600",
-    upsert: true,
-    contentType: blob.type || "image/png",
-  });
-  if (error) {
-    logger.error("watermark logo upload failed", {
-      org_id: orgId,
-      storage_path: path,
-      error_message: error.message,
-    });
-    throw error;
-  }
-
-  const { data } = supabase.storage.from("site-assets").getPublicUrl(path);
-  return { url: data.publicUrl, storagePath: path };
-}
-
 export interface CreativeAssetInput {
   eventId: string;
   creativeType: CreativeType;
   speakerId?: string | null;
   sponsorId?: string | null;
   templateId: string;
-  platformFormat: PlatformFormat["id"];
+  platformFormat: string;
   assetUrl: string;
   storagePath: string;
   createdBy: string;
@@ -127,7 +92,7 @@ export interface CreativeAssetInput {
    * preserving the exact shape produced by pre-customization callers per
    * the base-spec Additivity_Invariant (Requirement 14.3).
    */
-  customization?: CustomizationConfig;
+  customization?: Record<string, unknown>;
 }
 
 export interface CreativeAssetRecord {
@@ -187,7 +152,7 @@ export function buildCreativeAssetRecord(input: CreativeAssetInput): CreativeAss
     storage_path: input.storagePath,
     created_by: input.createdBy,
     metadata: input.metadata ?? {},
-    customization: (input.customization ?? {}) as Record<string, unknown>,
+    customization: input.customization ?? {},
   };
 }
 
@@ -236,8 +201,7 @@ export interface EventCreativeRow {
    * `customization jsonb NOT NULL DEFAULT '{}'::jsonb`, so every row (old
    * or new) is guaranteed to have this field non-null — pre-customization
    * rows read as `{}` and customized rows carry the full
-   * `CustomizationConfig` shape (Requirement 12.1, 14.3). Feed through
-   * `parseCustomization` before use.
+   * customization payload (Requirement 12.1, 14.3).
    */
   customization: Json;
 }
@@ -360,106 +324,4 @@ export function isAuthorizedForEventCreatives(
   isAdmin: boolean
 ): boolean {
   return requesterId === ownerId || isAdmin;
-}
-
-/**
- * Row shape of the `event_creative_backgrounds` table (introduced by the
- * Creative_AI_Backgrounds feature). Sourced directly from the generated
- * `Database` types so any future schema change automatically propagates
- * through call sites without a manual duplicate to maintain.
- */
-export type EventCreativeBackgroundRow =
-  Database["public"]["Tables"]["event_creative_backgrounds"]["Row"];
-
-/**
- * Fetches an event's AI_Background_Assets, ordered most-to-least recently
- * created (Requirement 7.1). Mirrors `fetchEventCreatives` exactly: relies
- * on the database `ORDER BY created_at DESC` (backed by the
- * `event_creative_backgrounds_event_idx` index from migration
- * `023_creative_ai_backgrounds.sql`) as the primary ordering guarantee, and
- * on failure logs via `logger.error` and returns `[]` so the
- * `AiBackgroundLibrary` render path can degrade gracefully.
- */
-export async function fetchEventCreativeBackgrounds(
-  eventId: string
-): Promise<EventCreativeBackgroundRow[]> {
-  const { data, error } = await supabase
-    .from("event_creative_backgrounds")
-    .select("*")
-    .eq("event_id", eventId)
-    .order("created_at", { ascending: false });
-  if (error) {
-    logger.error("ai background library fetch failed", {
-      event_id: eventId,
-      error_message: error.message,
-    });
-    return [];
-  }
-  return data ?? [];
-}
-
-export interface DeleteEventCreativeBackgroundResult {
-  storageDeleted: boolean;
-  recordDeleted: boolean;
-}
-
-/**
- * Deletes an AI_Background_Asset (Requirement 6.4): removes its PNG from
- * `site-assets` Storage AND its `event_creative_backgrounds` row. Always
- * attempts BOTH steps exactly once — even if the storage delete fails, the
- * record delete is still attempted (and vice versa) — via
- * `Promise.allSettled` (not `Promise.all`), so a transient failure in one
- * step never silently skips the other. Never throws; reports which step(s)
- * succeeded/failed via the returned result so the caller
- * (`AiBackgroundLibrary`) can show a precise toast and decide whether to
- * remove the row from local state. Mirrors the `deleteCreativeAsset` shape
- * (Property 18).
- */
-export async function deleteEventCreativeBackground(
-  id: string,
-  storagePath: string
-): Promise<DeleteEventCreativeBackgroundResult> {
-  const [storageResult, recordResult] = await Promise.allSettled([
-    supabase.storage.from("site-assets").remove([storagePath]),
-    supabase.from("event_creative_backgrounds").delete().eq("id", id),
-  ]);
-
-  const storageDeleted =
-    storageResult.status === "fulfilled" && !storageResult.value.error;
-  const recordDeleted =
-    recordResult.status === "fulfilled" && !recordResult.value.error;
-
-  if (!storageDeleted) {
-    const reason =
-      storageResult.status === "rejected"
-        ? (storageResult.reason as Error)?.message
-        : storageResult.value.error?.message;
-    logger.error("ai background storage delete failed", {
-      id,
-      storage_path: storagePath,
-      error_message: reason,
-    });
-  }
-  if (!recordDeleted) {
-    const reason =
-      recordResult.status === "rejected"
-        ? (recordResult.reason as Error)?.message
-        : recordResult.value.error?.message;
-    logger.error("ai background record delete failed", {
-      id,
-      error_message: reason,
-    });
-  }
-
-  // Partial failure (one step succeeded, the other failed) gets its own
-  // summary log so `AiBackgroundLibrary` can be diagnosed from logs alone.
-  if (storageDeleted !== recordDeleted) {
-    logger.error("ai background delete partial failure", {
-      id,
-      storage_deleted: storageDeleted,
-      record_deleted: recordDeleted,
-    });
-  }
-
-  return { storageDeleted, recordDeleted };
 }

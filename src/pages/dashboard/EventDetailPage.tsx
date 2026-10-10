@@ -1,5 +1,6 @@
 import { useEffect, useState, Suspense, lazy } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useAppBack } from "@/lib/app-back";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import type { Tables } from "@/integrations/supabase/types";
@@ -13,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent,
   SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar
@@ -90,7 +91,7 @@ function EventSidebar({ active, onSelect, eventTitle, eventFormat, canAccessCrea
 
   return (
     <Sidebar collapsible="icon" className="border-r border-border bg-card">
-      <SidebarContent className="pt-1" style={{ paddingTop: '78px' }}>
+      <SidebarContent className="pt-3">
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -120,6 +121,7 @@ type Registration = Tables<"registrations">;
 const EventDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const goBack = useAppBack("/dashboard/events");
   const [searchParams, setSearchParams] = useSearchParams();
   const { org } = useOrg();
   const { user: authUser, isAdmin } = useAuth();
@@ -432,7 +434,7 @@ const EventDetailPage = () => {
   return (
     <SidebarProvider>
       <div className="min-h-screen flex flex-col w-full bg-background">
-        <DashboardTopBar showSidebarTrigger={false} />
+        <DashboardTopBar />
         <div className="flex flex-1 w-full min-w-0">
           <EventSidebar active={activeSection} onSelect={async (k) => {
           if (k === "broadcast") { setActiveSection("broadcast"); return; }
@@ -455,26 +457,12 @@ const EventDetailPage = () => {
           {/* Header */}
           <header className="border-b border-border bg-card/80 glass px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 min-w-0">
             <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
-              <SidebarTrigger className="h-7 w-7" aria-label="Toggle event sidebar" />
               <button
-                onClick={() => {
-                  // Return to whichever page navigated us here (Events list,
-                  // Admin → Events Moderation, Reports, etc.). Only fall back
-                  // to the events list when there is genuinely no history —
-                  // e.g. this tab was opened directly via a shared link.
-                  //
-                  // Detection: window.history.length is 1 on a fresh tab. Any
-                  // in-app navigation bumps it above 1. Using `navigate(-1)`
-                  // when we have history preserves the exact origin route
-                  // (including admin sub-routes) instead of hardcoding
-                  // `/dashboard`, which for super admins gets rewritten to
-                  // `/dashboard/admin` by DashboardLanding.
-                  if (window.history.length > 1) {
-                    navigate(-1);
-                  } else {
-                    navigate("/dashboard/events", { replace: true });
-                  }
-                }}
+                // Return to whichever in-app page navigated us here (Events
+                // list, Admin → Events Moderation, Reports, …). Falls back to
+                // the events list when the previous entry is the login page,
+                // another site, or missing (a link opened in a new tab).
+                onClick={goBack}
                 className="h-7 w-7 shrink-0 flex items-center justify-center rounded-md hover:bg-muted transition-colors"
                 aria-label="Back"
               >

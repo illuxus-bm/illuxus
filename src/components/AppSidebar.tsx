@@ -102,7 +102,7 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon" className="app-chrome border-r border-border/60 bg-sidebar">
-      <SidebarContent className="pb-2 flex flex-col" style={{ paddingTop: '78px' }}>
+      <SidebarContent className="pt-3 pb-2 flex flex-col">
         {/* Workspace switcher */}
         {!collapsed && org && (
           <div className="mx-3 mb-2">

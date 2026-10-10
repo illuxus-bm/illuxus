@@ -33,7 +33,42 @@
 
 import type { EventPageConfig } from "@/components/event/page-form/types";
 
-export { tierAccentColor } from "@/lib/creatives/creative-templates";
+/**
+ * Platinum/gold/silver/bronze/custom → accent color mapping, sharing the same
+ * palette as SponsorManagement.tsx's `TIERS` constant. That component uses
+ * Tailwind classes referencing CSS custom properties (theme-reactive, for
+ * screen UI); this function returns literal color strings usable directly as
+ * a canvas `fillStyle`, since canvas rendering can't consume CSS variables or
+ * Tailwind classes. Requirement 3.4.
+ *
+ * Falls back to the bronze color for unrecognized tier values, mirroring
+ * SponsorManagement.tsx's `tierColor()` fallback behavior (TIERS[3] = bronze).
+ */
+export function tierAccentColor(tier: string): string {
+  switch (tier) {
+    case "platinum":
+      // --brand-purple (:root, src/index.css)
+      return "hsl(265, 85%, 60%)";
+    case "gold":
+      // --brand-amber (:root, src/index.css)
+      return "hsl(38, 96%, 52%)";
+    case "silver":
+      // SponsorManagement.tsx uses `bg-muted text-muted-foreground` for silver,
+      // which has no brand HSL var of its own — `--muted-foreground` is
+      // theme-dependent, so a fixed neutral gray literal (slate-500) stands in
+      // for canvas rendering.
+      return "#64748b";
+    case "custom":
+      // SponsorManagement.tsx uses `bg-primary/10 text-primary` for custom,
+      // and `--primary` is theme-dependent — use the :root default literal.
+      return "hsl(222, 25%, 10%)";
+    case "bronze":
+    default:
+      // --brand-orange (:root, src/index.css); also the fallback for any
+      // unrecognized tier value.
+      return "hsl(22, 95%, 56%)";
+  }
+}
 
 // ─── Core types ───────────────────────────────────────────────────────────
 
@@ -125,15 +160,59 @@ export interface BrochureTheme {
 
 // ─── Brochure_Theme registry (Requirement 1.1) ───────────────────────────────
 //
-// Three presets, each pairing a distinct cover style with a distinct
-// autoTable theme so an organizer has a genuinely different visual result
-// to choose between (see design.md's rationale).
+// Two presets ship. Poster Bold is listed first on purpose: the first entry
+// is the default for an event with no saved brochure preferences, and Poster
+// Bold is the house brochure format (the DevOps Connect reference).
 
 export const BROCHURE_THEMES: BrochureTheme[] = [
   {
+    // Poster_Bold theme — the DevOps-Connect-style brochure format
+    // (bright orange + solid-black + white poster pages, pill-chip
+    // date/venue on the cover, rounded card content sections, orange
+    // numbered value props, card-based agenda). Enables three extra
+    // sections (`abstract`, `whySponsor`, `pricing`) that pull their
+    // content from `brochurePrefs.posterContent` on the event's page
+    // config. Every color/font here is still resolved through
+    // `resolveBrochureTheme`'s override precedence — organizers can
+    // fully recolor/refont this theme from the configurator's
+    // color/font override controls, matching the fully-customizable
+    // requirement for the reference DevOps Connect brochure.
+    id: "poster-bold",
+    name: "Poster Bold",
+    description:
+      "Conference brochure: big stacked title cover, orange & black pages, two-column timetable, why-sponsor table, pricing cards and registration form.",
+    margins: { top: 22, right: 20, bottom: 22, left: 20 },
+    cover: {
+      style: "poster-bold",
+      defaultBackgroundColor: "#ffffff",
+      titleFontSizePt: 44,
+      accentBarHeightMm: 0,
+    },
+    heading: {
+      fontSizePt: 26,
+      fontStyle: "bold",
+      showAccentUnderline: false,
+    },
+    table: {
+      theme: "plain",
+      fontSizePt: 10.5,
+      cellPaddingMm: 3,
+      headFillDefault: "#ff4612",
+    },
+    // Two-column session cards (time chip + title + description block +
+    // speaker line) matching the reference DevOps Connect agenda page,
+    // rather than a dense table row per session.
+    agenda: { layout: "timetable-cards" },
+    defaultColors: {
+      primaryColor: "#000000",
+      accentColor: "#ff4612", // the reference brochure's orange
+      fontFamily: "Poppins",
+    },
+  },
+  {
     id: "classic-editorial",
     name: "Classic Editorial",
-    description: "Print-magazine layout: hero image banner up top, editorial title below on a solid page.",
+    description: "Plain editorial layout: serif type, a table agenda and simple speaker, sponsor and venue pages.",
     margins: { top: 22, right: 20, bottom: 22, left: 20 },
     cover: {
       // Image occupies the top ~45% of the page (banner), title/date/accent
@@ -160,50 +239,6 @@ export const BROCHURE_THEMES: BrochureTheme[] = [
       primaryColor: "#1e3a8a", // navy
       accentColor: "#eab308", // gold
       fontFamily: "Playfair Display",
-    },
-  },
-  {
-    // Poster_Bold theme — the DevOps-Connect-style brochure format
-    // (bright orange + solid-black + white poster pages, pill-chip
-    // date/venue on the cover, rounded card content sections, orange
-    // numbered value props, card-based agenda). Enables three extra
-    // sections (`abstract`, `whySponsor`, `pricing`) that pull their
-    // content from `brochurePrefs.posterContent` on the event's page
-    // config. Every color/font here is still resolved through
-    // `resolveBrochureTheme`'s override precedence — organizers can
-    // fully recolor/refont this theme from the configurator's
-    // color/font override controls, matching the fully-customizable
-    // requirement for the reference DevOps Connect brochure.
-    id: "poster-bold",
-    name: "Poster Bold",
-    description:
-      "Big-format poster: pill-chip cover, orange & black solid-color pages, card-based agenda, numbered value props, pricing cards.",
-    margins: { top: 22, right: 20, bottom: 22, left: 20 },
-    cover: {
-      style: "poster-bold",
-      defaultBackgroundColor: "#ffffff",
-      titleFontSizePt: 44,
-      accentBarHeightMm: 0,
-    },
-    heading: {
-      fontSizePt: 26,
-      fontStyle: "bold",
-      showAccentUnderline: false,
-    },
-    table: {
-      theme: "plain",
-      fontSizePt: 10.5,
-      cellPaddingMm: 3,
-      headFillDefault: "#ff5722",
-    },
-    // Two-column session cards (time chip + title + description block +
-    // speaker line) matching the reference DevOps Connect agenda page,
-    // rather than a dense table row per session.
-    agenda: { layout: "timetable-cards" },
-    defaultColors: {
-      primaryColor: "#000000",
-      accentColor: "#ff5722", // brand-forward orange
-      fontFamily: "Poppins",
     },
   },
   // Themes below (Modern Minimal, Bold Conference, Corporate Bold) stay
@@ -561,6 +596,9 @@ export const POSTER_BOLD_SECTION_LAYOUT: SectionLayout = [
   { id: "speakers", included: true },
   { id: "sponsors", included: true },
   { id: "pricing", included: true },
+  // Off until the organizer fills in the tiers — but listed, so the
+  // partnership packages page can be switched on from this theme too.
+  { id: "sponsorshipPackages", included: false },
   { id: "venueLogistics", included: true },
 ];
 

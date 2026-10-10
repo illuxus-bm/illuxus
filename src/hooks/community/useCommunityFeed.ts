@@ -14,18 +14,16 @@ import type {
   PostWithAuthor,
 } from "@/lib/community/types";
 import type { CommunityPostType } from "@/lib/community/rbac";
+import { fetchPublicProfiles } from "@/lib/public-profiles";
 
 const PAGE_SIZE = 20;
 
 async function attachAuthors(posts: CommunityPost[]): Promise<PostWithAuthor[]> {
   if (posts.length === 0) return [];
   const ids = Array.from(new Set(posts.map((p) => p.author_id)));
-  const { data } = await supabase
-    .from("profiles")
-    .select("user_id, display_name, avatar_url")
-    .in("user_id", ids);
+  const data = await fetchPublicProfiles(ids);
   const byUser = new Map<string, AuthorProfile>();
-  (data ?? []).forEach((p) => byUser.set(p.user_id, p as AuthorProfile));
+  data.forEach((p) => byUser.set(p.user_id, p as AuthorProfile));
   return posts.map((p) => ({ ...p, author: byUser.get(p.author_id) ?? null }));
 }
 
@@ -121,12 +119,9 @@ export function usePostComments(postId: string | undefined) {
       const rows = (data as unknown as CommentWithAuthor[]) ?? [];
       const ids = Array.from(new Set(rows.map((r) => r.author_id)));
       if (ids.length === 0) return rows;
-      const { data: profs } = await supabase
-        .from("profiles")
-        .select("user_id, display_name, avatar_url")
-        .in("user_id", ids);
+      const profs = await fetchPublicProfiles(ids);
       const byUser = new Map<string, AuthorProfile>();
-      (profs ?? []).forEach((p) => byUser.set(p.user_id, p as AuthorProfile));
+      profs.forEach((p) => byUser.set(p.user_id, p as AuthorProfile));
       return rows.map((c) => ({ ...c, author: byUser.get(c.author_id) ?? null }));
     },
   });

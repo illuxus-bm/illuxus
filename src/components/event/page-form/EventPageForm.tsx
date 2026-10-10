@@ -8,8 +8,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Save, ExternalLink, ChevronUp, ChevronDown, Plus, Trash2, Eye, GripVertical,
+  Save, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, Eye, GripVertical,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import MarkdownEditor from "@/components/MarkdownEditor";
 import {
   DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors,
@@ -51,6 +52,12 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [view, setView] = useState<"edit" | "preview">("edit");
+  // Phones show either the section list or one section's editor; md+ shows both.
+  const [mobileDetail, setMobileDetail] = useState(false);
+  const openSection = (id: string) => {
+    setSelectedId(id);
+    setMobileDetail(true);
+  };
   const { toast } = useToast();
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { org } = useOrg();
@@ -280,28 +287,38 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] -m-4 lg:-m-6 min-w-0 overflow-hidden">
+    <div className={cn(
+      "flex flex-col h-[calc(100dvh-8rem)] -m-4 lg:-m-6 min-w-0 overflow-hidden",
+      // Phones: 16px form text so iOS Safari doesn't zoom into focused fields.
+      "max-md:[&_input]:text-base max-md:[&_textarea]:text-base max-md:[&_select]:text-base",
+    )}>
       {/* Toolbar */}
-      <div className="h-12 border-b border-border bg-card flex items-center justify-between px-4 shrink-0">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold">Landing page</h2>
-          {dirty && <span className="text-[11px] text-muted-foreground">· Unsaved changes</span>}
+      <div className="h-14 md:h-12 border-b border-border bg-card flex items-center justify-between gap-2 px-3 md:px-4 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <h2 className="text-sm font-semibold truncate">Landing page</h2>
+          {dirty && (
+            <>
+              <span className="md:hidden h-2 w-2 shrink-0 rounded-full bg-amber-500" aria-label="Unsaved changes" />
+              <span className="hidden md:inline text-[11px] text-muted-foreground">· Unsaved changes</span>
+            </>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
           <div className="inline-flex rounded-md border border-border p-0.5 bg-secondary/40">
             <button
               onClick={() => setView("edit")}
-              className={`px-2.5 h-7 text-[12px] rounded ${view === "edit" ? "bg-background shadow-sm font-medium" : "text-muted-foreground"}`}
+              className={`px-2.5 h-8 md:h-7 text-[13px] md:text-[12px] rounded ${view === "edit" ? "bg-background shadow-sm font-medium" : "text-muted-foreground"}`}
             >Edit</button>
             <button
               onClick={() => setView("preview")}
-              className={`px-2.5 h-7 text-[12px] rounded ${view === "preview" ? "bg-background shadow-sm font-medium" : "text-muted-foreground"}`}
+              className={`px-2.5 h-8 md:h-7 text-[13px] md:text-[12px] rounded ${view === "preview" ? "bg-background shadow-sm font-medium" : "text-muted-foreground"}`}
             >Preview</button>
           </div>
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-[12px] gap-1"
+            className="h-9 w-9 px-0 sm:w-auto sm:px-3 md:h-7 text-[12px] gap-1"
+            aria-label="Open the public page"
             onClick={async () => {
               const href = eventPublicUrl({ id: eventId, slug: event?.slug ?? null }, orgHandle);
               // Open a tab synchronously so popup blockers don't block it,
@@ -312,10 +329,10 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
               if (win) win.location.href = href; else window.open(href, "_blank");
             }}
           >
-            <ExternalLink className="h-3 w-3" /> Open
+            <ExternalLink className="h-3.5 w-3.5 md:h-3 md:w-3" /> <span className="hidden sm:inline">Open</span>
           </Button>
-          <Button size="sm" className="h-7 text-[12px] gap-1" onClick={handleSave} disabled={saving || !dirty}>
-            <Save className="h-3 w-3" /> {saving ? "Saving…" : dirty ? "Save" : "Saved"}
+          <Button size="sm" className="h-9 md:h-7 px-3 text-[13px] md:text-[12px] gap-1" onClick={handleSave} disabled={saving || !dirty}>
+            <Save className="h-3.5 w-3.5 md:h-3 md:w-3" /> {saving ? "Saving…" : dirty ? "Save" : "Saved"}
           </Button>
         </div>
       </div>
@@ -336,13 +353,41 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
           </div>
         </div>
       ) : (
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-[280px_1fr] overflow-hidden">
+        <div className="flex-1 min-h-0 grid grid-cols-1 grid-rows-1 md:grid-cols-[280px_1fr] overflow-hidden">
           <SectionListAside
-            sections={flatSections} selectedId={selectedId} setSelectedId={setSelectedId}
+            sections={flatSections}
+            // Highlight the section actually being edited — the initial id
+            // may not exist in this config, in which case the first is shown.
+            selectedId={selectedId === "__banner" ? selectedId : selected.id}
+            setSelectedId={openSection}
             toggle={toggle} move={move} reorder={reorder} config={config} update={update}
+            className={cn(mobileDetail && "max-md:hidden")}
           />
-          <main className="overflow-y-auto bg-muted/20">
-            <div className="max-w-2xl mx-auto p-6">
+          <main className={cn("min-h-0 overflow-y-auto overscroll-contain bg-muted/20", !mobileDetail && "max-md:hidden")}>
+            {/* Phone-only: back to the list, with the section's visibility switch */}
+            <div className="md:hidden sticky top-0 z-10 flex items-center gap-2 h-12 px-2 border-b border-border bg-card/95 backdrop-blur">
+              <button
+                type="button"
+                onClick={() => setMobileDetail(false)}
+                className="inline-flex items-center gap-0.5 h-9 pl-1 pr-2 rounded-md text-[14px] font-medium text-primary hover:bg-secondary"
+              >
+                <ChevronLeft className="h-5 w-5" /> Sections
+              </button>
+              <span className="flex-1 min-w-0 truncate text-center text-[14px] font-semibold">
+                {selectedId === "__banner"
+                  ? "Banner & Cover"
+                  : SECTION_CATALOG.find((m) => m.id === selected.id)?.label}
+              </span>
+              {selectedId !== "__banner" ? (
+                <Switch
+                  checked={selected.enabled}
+                  onCheckedChange={() => toggle(selected.id)}
+                  aria-label="Show this section on the public page"
+                  className="mr-1"
+                />
+              ) : <span className="w-[86px]" aria-hidden />}
+            </div>
+            <div className="max-w-2xl mx-auto p-4 md:p-6">
               {selectedId === "__banner" ? (
                 <BannerCard
                   eventId={eventId}
@@ -387,8 +432,9 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
 
 /* ─── Section list sidebar (shared by edit + live views) ─── */
 function SectionListAside({
-  sections, selectedId, setSelectedId, toggle, move, reorder, config, update,
+  sections, selectedId, setSelectedId, toggle, move, reorder, config, update, className,
 }: {
+  className?: string;
   sections: { meta: typeof SECTION_CATALOG[number]; section: EventSection }[];
   selectedId: string;
   setSelectedId: (id: string) => void;
@@ -414,22 +460,23 @@ function SectionListAside({
   };
 
   return (
-    <aside className="border-r border-border bg-card overflow-y-auto">
-      <div className="p-3 space-y-4">
+    <aside className={cn("min-h-0 md:border-r border-border bg-card overflow-y-auto overscroll-contain", className)}>
+      <div className="p-3 max-md:p-4 space-y-4">
         {/* Banner & Cover — dedicated tab (placed above Theme & SEO for prominence) */}
         <button
           type="button"
           onClick={() => setSelectedId("__banner")}
-          className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-left transition-colors ${
+          className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 max-md:py-3 text-left transition-colors ${
             selectedId === "__banner"
-              ? "border-primary bg-secondary"
+              ? "md:border-primary md:bg-secondary border-border bg-background"
               : "border-border bg-background hover:bg-secondary/60"
           }`}
         >
           <div>
-            <p className="text-[12px] font-semibold">Banner &amp; Cover</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Landscape &amp; portrait images</p>
+            <p className="text-[12px] max-md:text-[14px] font-semibold">Banner &amp; Cover</p>
+            <p className="text-[10px] max-md:text-[12px] text-muted-foreground mt-0.5">Landscape &amp; portrait images</p>
           </div>
+          <ChevronRight className="md:hidden h-4 w-4 text-muted-foreground shrink-0" />
         </button>
 
         {/* Hide the big event-title heading.
@@ -444,16 +491,16 @@ function SectionListAside({
             confined to this one presentation point rather than pushed into
             storage, where a negative boolean would produce
             `!hideEventTitle` reads everywhere. */}
-        <div className="rounded-lg border border-border bg-background px-3 py-2">
+        <div className="rounded-lg border border-border bg-background px-3 py-2 max-md:py-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <Label
                 htmlFor="hide-event-title"
-                className="text-[12px] font-semibold cursor-pointer"
+                className="text-[12px] max-md:text-[14px] font-semibold cursor-pointer"
               >
                 Hide event title
               </Label>
-              <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+              <p className="text-[10px] max-md:text-[12px] text-muted-foreground mt-0.5 leading-snug">
                 Turn on if your banner already shows the name. Search, sharing
                 and listings are unaffected.
               </p>
@@ -470,7 +517,7 @@ function SectionListAside({
 
         {/* Theme & SEO (collapsed by default) */}
         <details className="rounded-lg border border-border bg-background">
-          <summary className="cursor-pointer px-3 py-2 text-[12px] font-semibold select-none">Theme & SEO</summary>
+          <summary className="cursor-pointer px-3 py-2 max-md:py-3 text-[12px] max-md:text-[14px] font-semibold select-none">Theme & SEO</summary>
           <div className="px-3 py-2 space-y-3">
             {/* Preset themes */}
             <div>
@@ -551,8 +598,11 @@ function SectionListAside({
         </details>
 
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70 mb-1.5 px-1">
+          <p className="text-[10px] max-md:text-[11px] font-bold uppercase tracking-widest text-muted-foreground/70 mb-1.5 px-1">
             Sections
+          </p>
+          <p className="md:hidden text-[12px] text-muted-foreground px-1 -mt-1 mb-2">
+            Tap a section to edit it. Use the switch to show or hide it.
           </p>
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={sections.map(s => s.section.id)} strategy={verticalListSortingStrategy}>
@@ -607,15 +657,15 @@ function SortableSectionRow({
     <li
       ref={setNodeRef}
       style={style}
-      className={`group flex items-center gap-1.5 rounded-lg px-1.5 py-1.5 transition-all duration-200 ${
-        active ? "bg-secondary shadow-sm" : "hover:bg-secondary/60"
+      className={`group flex items-center gap-1.5 max-md:gap-2 rounded-lg px-1.5 py-1.5 max-md:py-1 max-md:border max-md:border-border max-md:bg-background transition-all duration-200 ${
+        active ? "md:bg-secondary md:shadow-sm" : "hover:bg-secondary/60"
       } ${isDragging ? "ring-1 ring-primary" : ""}`}
     >
       <button
         type="button"
         {...attributes}
         {...listeners}
-        className="h-5 w-4 inline-flex items-center justify-center text-muted-foreground/50 hover:text-foreground cursor-grab active:cursor-grabbing touch-none"
+        className="h-5 w-4 max-md:h-10 max-md:w-6 inline-flex items-center justify-center text-muted-foreground/50 hover:text-foreground cursor-grab active:cursor-grabbing touch-none"
         aria-label="Drag to reorder"
       >
         <GripVertical className="h-3.5 w-3.5" />
@@ -626,14 +676,17 @@ function SortableSectionRow({
         aria-label={`Enable ${label}`}
         className="h-[18px] w-8 data-[state=checked]:bg-primary [&>span]:h-3.5 [&>span]:w-3.5 [&>span]:data-[state=checked]:translate-x-3.5 transition-all duration-200"
       />
-      <button onClick={onSelect} className="flex-1 text-left min-w-0">
-        <p className={`text-[12px] truncate transition-colors ${enabled ? "font-medium text-foreground" : "text-muted-foreground"}`}>{label}</p>
+      <button onClick={onSelect} className="flex-1 text-left min-w-0 max-md:h-10 max-md:flex max-md:items-center max-md:gap-1">
+        <p className={`text-[12px] max-md:text-[14px] truncate transition-colors ${enabled ? "font-medium text-foreground" : "text-muted-foreground"}`}>{label}</p>
       </button>
-      <button onClick={onMoveUp} disabled={isFirst} className="opacity-0 group-hover:opacity-100 disabled:opacity-20 h-5 w-5 inline-flex items-center justify-center rounded hover:bg-background transition-opacity" aria-label="Move up">
-        <ChevronUp className="h-3 w-3" />
+      <button onClick={onMoveUp} disabled={isFirst} className="md:opacity-0 md:group-hover:opacity-100 disabled:opacity-20 md:disabled:opacity-0 md:group-hover:disabled:opacity-20 h-5 w-5 max-md:h-9 max-md:w-8 inline-flex items-center justify-center rounded hover:bg-secondary transition-opacity" aria-label="Move up">
+        <ChevronUp className="h-3 w-3 max-md:h-4 max-md:w-4" />
       </button>
-      <button onClick={onMoveDown} disabled={isLast} className="opacity-0 group-hover:opacity-100 disabled:opacity-20 h-5 w-5 inline-flex items-center justify-center rounded hover:bg-background transition-opacity" aria-label="Move down">
-        <ChevronDown className="h-3 w-3" />
+      <button onClick={onMoveDown} disabled={isLast} className="md:opacity-0 md:group-hover:opacity-100 disabled:opacity-20 md:disabled:opacity-0 md:group-hover:disabled:opacity-20 h-5 w-5 max-md:h-9 max-md:w-8 inline-flex items-center justify-center rounded hover:bg-secondary transition-opacity" aria-label="Move down">
+        <ChevronDown className="h-3 w-3 max-md:h-4 max-md:w-4" />
+      </button>
+      <button onClick={onSelect} className="md:hidden h-9 w-6 inline-flex items-center justify-center text-muted-foreground" aria-label={`Edit ${label}`}>
+        <ChevronRight className="h-4 w-4" />
       </button>
     </li>
   );
@@ -738,9 +791,10 @@ function SectionForm({ section, onUpdate, eventId, eventStartIso, eventDescripti
 
   const Header = (
     <div className="mb-5">
-      <h3 className="text-base font-semibold">{meta?.label}</h3>
-      <p className="text-xs text-muted-foreground mt-0.5">{meta?.description}</p>
-      {!section.enabled && <p className="text-[11px] text-amber-600 mt-2">This section is hidden on the public page. Enable it from the left.</p>}
+      {/* Phones show the section name in the sticky bar above, so only the description here. */}
+      <h3 className="max-md:hidden text-base font-semibold">{meta?.label}</h3>
+      <p className="text-xs max-md:text-[13px] text-muted-foreground mt-0.5">{meta?.description}</p>
+      {!section.enabled && <p className="text-[11px] max-md:text-[12px] text-amber-600 mt-2">This section is hidden on the public page. Turn on its switch to show it.</p>}
     </div>
   );
 

@@ -19,6 +19,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import EventCardLuma from "@/components/EventCardLuma";
 import OrgSubscribeButton from "@/components/OrgSubscribeButton";
 import SiteHeader from "@/components/SiteHeader";
+import RouteSeo from "@/components/RouteSeo";
 import { useTheme } from "@/contexts/ThemeContext";
 
 interface OrgRow {
@@ -177,6 +178,14 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
   const bio = cfg.bio || "";
   const accentLink = cfg.accentLink || {};
 
+  // Page metadata — by default the company's own: logo, name, bio. The same
+  // values are served to link-preview crawlers by `api/org-og`.
+  const seoUrl = `https://illuxus.com/org/${org.subdomain || org.slug}`;
+  const seoBio = bio.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  const seoDescription = seoBio
+    ? (seoBio.length > 200 ? `${seoBio.slice(0, 199).trimEnd()}…` : seoBio)
+    : `Events by ${org.name} on illuxus. See what's coming up and register.`;
+
   // Resolve viewer's timezone + formatted current time.
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const tzShort = (() => {
@@ -200,6 +209,20 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
         minHeight: "100vh",
       }}
     >
+      <RouteSeo
+        title={org.name}
+        description={seoDescription}
+        canonical={seoUrl}
+        ogImage={org.logo_url || undefined}
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@type": "Organization",
+          name: org.name,
+          url: seoUrl,
+          ...(org.logo_url ? { logo: org.logo_url } : {}),
+          ...(seoBio ? { description: seoBio } : {}),
+        }}
+      />
       {!isAdmin && <PreviewHostBanner />}
 
       {/* Centralized site header — Illuxus logo only, no menu. */}

@@ -53,6 +53,10 @@
 
 @layer base {
   :root {
+    /* App header height: 56px bar + border + the status-bar inset. Shared by
+       DashboardTopBar and SiteHeader, and used to start sidebars (desktop and
+       the mobile sheet) below the header so it is never covered. */
+    --app-header-h: calc(3.5rem + 1px + env(safe-area-inset-top, 0px)); /* 56px bar + 1px border */
     /* Public site horizontal gutters — mirrored by <SiteContainer />.
        Header, footer, and landing sections all share these values. */
     --site-max-w: 72rem;        /* matches Tailwind max-w-6xl */

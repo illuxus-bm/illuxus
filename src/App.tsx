@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Suspense, lazy } from "react";
 import { BrowserRouter, Route, Routes, Navigate, useParams, useLocation } from "react-router-dom";
+import { HistoryTracker } from "@/lib/app-back";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -98,6 +99,8 @@ const CompleteProfilePage = lazyWithLog("CompleteProfilePage", () => import("./p
 const SelfCheckInPage = lazyWithLog("SelfCheckInPage", () => import("./pages/SelfCheckInPage.tsx"));
 const SelfCheckOutPage = lazyWithLog("SelfCheckOutPage", () => import("./pages/SelfCheckOutPage.tsx"));
 const SponsorEventsPage = lazyWithLog("SponsorEventsPage", () => import("./pages/sponsor/SponsorEventsPage.tsx"));
+const PartnerEventsPage = lazyWithLog("PartnerEventsPage", () => import("./pages/partner/PartnerEventsPage.tsx"));
+const PartnerDashboardPage = lazyWithLog("PartnerDashboardPage", () => import("./pages/partner/PartnerDashboardPage.tsx"));
 const SponsorEventDetailPage = lazyWithLog("SponsorEventDetailPage", () => import("./pages/sponsor/SponsorEventDetailPage.tsx"));
 const SponsorAcceptInvitePage = lazyWithLog("SponsorAcceptInvitePage", () => import("./pages/sponsor/AcceptInvitePage.tsx"));
 const SpeakerEventsPage = lazyWithLog("SpeakerEventsPage", () => import("./pages/speaker/SpeakerEventsPage.tsx"));
@@ -289,6 +292,7 @@ const App = () => (
         <PWAUpdatePrompt />
         <PWAInstallPrompt />
         <BrowserRouter>
+          <HistoryTracker />
           <RootErrorBoundary>
             <AuthProvider>
               <OrgProvider>
@@ -358,6 +362,8 @@ const App = () => (
                 <Route path="/checkin/:eventId" element={<RouteErrorBoundary><SelfCheckInPage /></RouteErrorBoundary>} />
                 <Route path="/checkout/:eventId" element={<RouteErrorBoundary><SelfCheckOutPage /></RouteErrorBoundary>} />
                 <Route path="/sponsor" element={<RouteErrorBoundary><SponsorEventsPage /></RouteErrorBoundary>} />
+                <Route path="/partner" element={<RouteErrorBoundary><PartnerEventsPage /></RouteErrorBoundary>} />
+                <Route path="/partner/:accessId" element={<RouteErrorBoundary><PartnerDashboardPage /></RouteErrorBoundary>} />
                 <Route path="/sponsor/events/:eventId" element={<RouteErrorBoundary><SponsorEventDetailPage /></RouteErrorBoundary>} />
                 <Route path="/sponsor/accept" element={<RouteErrorBoundary><SponsorAcceptInvitePage /></RouteErrorBoundary>} />
                 <Route path="/speaker" element={<RouteErrorBoundary><SpeakerEventsPage /></RouteErrorBoundary>} />

@@ -12,17 +12,24 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Printer, Trash2, Plus, FlaskConical,
   AlignLeft, AlignCenter, AlignRight, AlignJustify, RefreshCw,
+  Download, ChevronDown, FileText, FileImage, RotateCcw, Save, X,
 } from "lucide-react";
-import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  buildPrintHtml, printBadges, printCalibration,
-  type BadgeData, type PrintMode, type PrintSize, type PrintUnit,
+  buildPrintHtml, printBadges, printCalibration, normalizePrintSize, DEFAULT_PRINT_SIZE,
+  DEFAULT_BAND_COLORS, sanitizeBandColors, bandTextColor, type BandColors,
+  type BadgeData, type PrintMode, type PrintOptions, type PrintSize, type PrintUnit,
 } from "@/lib/print-badges";
+import { downloadBadges, type BadgeExportFormat } from "@/lib/badge-export";
+import { loadBandPresets, saveBandPresets, sameBandColors, type BandColorPreset } from "@/lib/badge-band-presets";
 import type { FitWarning } from "@/lib/fit-engine";
-import { loadSizes, saveSizes, badgeSizeMm, type SavedSize, createCompanyBrandedDesign } from "@/lib/badge-design";
+import { loadSizes, saveSizes, badgeSizeMm, type SavedSize } from "@/lib/badge-design";
 
 // ─── Font options ─────────────────────────────────────────────────────────────
 
@@ -78,6 +85,10 @@ type Prefs = {
   ch: number;
   cu: PrintUnit;
   thermalMode: boolean;
+  /** Print the attendee's check-in QR code under the company name. */
+  showQr?: boolean;
+  /** Participant band colours last used (validated on load). */
+  bandColors?: BandColors;
   /** Thermal print-head DPI — see `PrintOptions.thermalDpi` in
    *  `print-badges.ts`. Persisted per browser so an organizer with a
    *  specific printer doesn't re-pick it every session. */
@@ -106,16 +117,11 @@ const TYPE_OPTIONS: { v: PrintMode; label: string; sub: string }[] = [
 ];
 
 const SIZE_OPTIONS: { v: PrintSize; label: string; sub: string }[] = [
-  { v: "a6",          label: "A6 single",        sub: "148 × 105 mm · 1/page" },
-  { v: "a4-2up",      label: "A4 · 2-up",        sub: "186 × 134 mm · 2/page" },
-  { v: "avery-3x8",   label: "Avery 3×8",         sub: "63 × 34 mm · 24/sheet" },
-  { v: "thermal-4x6", label: "Thermal 4×6 in",   sub: "101.6 × 152.4 mm · helett H30C, Dymo 4XL" },
-  { v: "thermal-4x5", label: "Thermal 4×5 in",   sub: "101.6 × 127 mm · compact badge" },
-  { v: "thermal-50",  label: "Thermal 50 mm",    sub: "50 × 80 mm" },
-  { v: "thermal-58",  label: "Thermal 58 mm",    sub: "58 × 80 mm" },
-  { v: "thermal-80",  label: "Thermal 80 mm",    sub: "80 × 100 mm" },
-  { v: "thermal-100", label: "Thermal 100 mm",   sub: "100 × 150 mm" },
-  { v: "custom",      label: "Custom",            sub: "Enter W × H" },
+  { v: "thermal-4x5", label: "4 × 5 in",       sub: "101.6 × 127 mm · label printer (default)" },
+  { v: "thermal-4x6", label: "4 × 6 in",       sub: "101.6 × 152.4 mm · helett H30C, Dymo 4XL" },
+  { v: "a6",          label: "A6",             sub: "105 × 148 mm · badge-holder insert" },
+  { v: "a4-4up",      label: "A4 · 4 per sheet", sub: "105 × 148 mm · office printer, cut to size" },
+  { v: "custom",      label: "Custom",         sub: "Enter W × H" },
 ];
 
 // ─── FontStylePanel ───────────────────────────────────────────────────────────
@@ -161,12 +167,13 @@ function FontStylePanel({
 
   return (
     <div className="space-y-3 pt-1">
-      {/* Row 1: Family + Name size + Company size */}
-      <div className="flex gap-2">
+      {/* Row 1: Family, then name / company sizes */}
+      <div className="space-y-1">
+        <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Font</Label>
         <select
           value={font.family}
           onChange={(e) => set({ family: e.target.value })}
-          className="flex-1 h-9 rounded-md border border-input bg-background text-[13px] px-2"
+          className="w-full h-9 rounded-md border border-input bg-background text-[13px] px-2"
           style={{ fontFamily: font.family }}
           aria-label="Font family"
         >
@@ -174,28 +181,29 @@ function FontStylePanel({
             <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
           ))}
         </select>
-        <div className="flex flex-col gap-0.5">
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Name size (pt)</Label>
           <select
             value={font.sizePt}
             onChange={(e) => { const v = Number(e.target.value); setSizeStr(String(v)); set({ sizePt: v }); }}
-            className="w-16 h-[18px] rounded border border-input bg-background text-[10px] px-1"
+            className="w-full h-9 rounded-md border border-input bg-background text-[13px] px-2"
             aria-label="Name font size"
-            title="Name size (pt)"
           >
             {FONT_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">Company size (pt)</Label>
           <select
             value={font.companySizePt ?? 12}
             onChange={(e) => { const v = Number(e.target.value); setCoSizeStr(String(v)); set({ companySizePt: v }); }}
-            className="w-16 h-[18px] rounded border border-input bg-background text-[10px] px-1"
+            className="w-full h-9 rounded-md border border-input bg-background text-[13px] px-2"
             aria-label="Company font size"
-            title="Company size (pt)"
           >
             {FONT_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
-          <div className="flex justify-between text-[8px] text-muted-foreground px-0.5">
-            <span>Name</span><span>Co.</span>
-          </div>
         </div>
       </div>
 
@@ -294,6 +302,149 @@ function FontStylePanel({
   );
 }
 
+// ─── BandColorsPanel ──────────────────────────────────────────────────────────
+
+const BAND_ROWS: { key: keyof BandColors; label: string; hint: string }[] = [
+  { key: "attendee", label: "Attendee", hint: "Attendees and named ticket types" },
+  { key: "speaker",  label: "Speaker",  hint: "Speakers" },
+  { key: "partner",  label: "Partner",  hint: "Sponsors and partners" },
+];
+
+function BandColorsPanel({
+  colors, onChange, presets, onPresetsChange,
+}: {
+  colors: BandColors;
+  onChange: (c: BandColors) => void;
+  presets: BandColorPreset[];
+  onPresetsChange: (p: BandColorPreset[]) => void;
+}) {
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState("");
+  const [hexDraft, setHexDraft] = useState<BandColors>(colors);
+  useEffect(() => { setHexDraft(colors); }, [colors]);
+
+  const isDefault = sameBandColors(colors, DEFAULT_BAND_COLORS);
+  const savePreset = () => {
+    const trimmed = name.trim().slice(0, 40);
+    if (!trimmed) return;
+    const next = [...presets.filter((p) => p.name.toLowerCase() !== trimmed.toLowerCase()), { name: trimmed, colors }];
+    onPresetsChange(next);
+    setNaming(false);
+    setName("");
+    toast.success(`Saved preset "${trimmed}"`);
+  };
+
+  const chip = (label: string, c: BandColors, active: boolean, onApply: () => void, onDelete?: () => void) => (
+    <div
+      key={label}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border pl-1.5 pr-2 py-1 text-[12px] transition-colors",
+        active ? "border-primary bg-primary/5 text-primary" : "border-border bg-background hover:bg-muted/50",
+      )}
+    >
+      <button type="button" onClick={onApply} className="inline-flex items-center gap-1.5 font-medium">
+        <span className="flex -space-x-1">
+          {(["attendee", "speaker", "partner"] as const).map((k) => (
+            <span key={k} className="h-3.5 w-3.5 rounded-full border border-background" style={{ background: c[k] }} />
+          ))}
+        </span>
+        {label}
+      </button>
+      {onDelete && (
+        <button type="button" onClick={onDelete} className="opacity-50 hover:opacity-100" aria-label={`Delete preset ${label}`}>
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
+        {BAND_ROWS.map(({ key, label, hint }) => (
+          <div key={key} className="flex items-center gap-3">
+            <div
+              className="flex-1 min-w-0 h-9 rounded-md flex items-center justify-center text-[11px] font-bold uppercase tracking-[0.08em]"
+              style={{ background: colors[key], color: bandTextColor(colors[key]) }}
+              title={hint}
+            >
+              {label}
+            </div>
+            <input
+              type="color"
+              value={colors[key]}
+              onChange={(e) => onChange({ ...colors, [key]: e.target.value })}
+              className="h-9 w-10 shrink-0 rounded-md border border-border cursor-pointer p-0.5 bg-background"
+              aria-label={`${label} band colour`}
+            />
+            <Input
+              value={hexDraft[key]}
+              onChange={(e) => setHexDraft({ ...hexDraft, [key]: e.target.value })}
+              onBlur={() => {
+                const v = hexDraft[key].trim();
+                const hex = v.startsWith("#") ? v : `#${v}`;
+                const next = sanitizeBandColors({ ...colors, [key]: hex });
+                if (next[key] === hex.toLowerCase()) onChange(next);
+                else setHexDraft(colors);
+              }}
+              className="h-9 w-[92px] shrink-0 font-mono text-[12px] uppercase"
+              aria-label={`${label} band colour hex`}
+              maxLength={7}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Presets</div>
+        <div className="flex flex-wrap gap-1.5">
+          {chip("Default", DEFAULT_BAND_COLORS, isDefault, () => onChange(DEFAULT_BAND_COLORS))}
+          {presets.map((p, i) =>
+            chip(
+              p.name,
+              p.colors,
+              sameBandColors(colors, p.colors),
+              () => onChange(p.colors),
+              () => onPresetsChange(presets.filter((_, idx) => idx !== i)),
+            ),
+          )}
+        </div>
+        {naming ? (
+          <div className="flex gap-2">
+            <Input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); savePreset(); }
+                if (e.key === "Escape") { setNaming(false); setName(""); }
+              }}
+              placeholder="Preset name, e.g. CFO Connect"
+              className="h-9 text-[13px]"
+              maxLength={40}
+            />
+            <Button size="sm" className="h-9" onClick={savePreset} disabled={!name.trim()}>Save</Button>
+            <Button size="sm" variant="ghost" className="h-9 px-2" onClick={() => { setNaming(false); setName(""); }} aria-label="Cancel">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-[12px]" onClick={() => setNaming(true)}>
+              <Save className="h-3.5 w-3.5" /> Save as preset
+            </Button>
+            {!isDefault && (
+              <Button size="sm" variant="ghost" className="h-8 gap-1.5 text-[12px]" onClick={() => onChange(DEFAULT_BAND_COLORS)}>
+                <RotateCcw className="h-3.5 w-3.5" /> Reset
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -311,16 +462,21 @@ export default function PrintBadgesDialog({
   const p = loadPrefs();
 
   const [mode,        setMode       ] = useState<PrintMode >(p.mode        ?? defaultMode);
-  const [size,        setSize       ] = useState<PrintSize >(p.size        ?? "thermal-4x5");
+  const [size,        setSize       ] = useState<PrintSize >(normalizePrintSize(p.size));
   const [copies,      setCopies     ] = useState<number    >(p.copies      ?? 1);
   const [cw,          setCw         ] = useState<number    >(p.cw          ?? 4);
   const [ch,          setCh         ] = useState<number    >(p.ch          ?? 3);
   const [cu,          setCu         ] = useState<PrintUnit >(p.cu          ?? "in");
   const [thermalMode, setThermalMode] = useState<boolean   >(p.thermalMode ?? false);
+  const [showQr,      setShowQr     ] = useState<boolean   >(p.showQr      ?? false);
+  const [bandColors,  setBandColors ] = useState<BandColors>(sanitizeBandColors(p.bandColors));
+  const [bandPresets, setBandPresets] = useState<BandColorPreset[]>(() => loadBandPresets());
+  const updateBandPresets = (next: BandColorPreset[]) => { setBandPresets(next); saveBandPresets(next); };
+  // Phones show one pane at a time; md+ shows settings and preview side by side.
+  const [mobilePane, setMobilePane] = useState<"settings" | "preview">("settings");
   const [thermalDpi,  setThermalDpi ] = useState<203 | 300 >(p.thermalDpi  ?? 203);
   const [thermalOffsetTop, setThermalOffsetTop] = useState<number>(p.thermalOffset?.topMm ?? 0);
   const [thermalOffsetLeft, setThermalOffsetLeft] = useState<number>(p.thermalOffset?.leftMm ?? 0);
-  const [designOverride, setDesignOverride] = useState<ReturnType<typeof createCompanyBrandedDesign> | null>(null);
   const [sizes,       setSizes      ] = useState<SavedSize[]>(() => loadSizes());
   const [font,        setFont       ] = useState<FontStyle >(p.font        ?? defaultFontStyle());
   // Fit warnings surfaced from the last `buildPrintHtml` preview run. Empty
@@ -343,7 +499,7 @@ export default function PrintBadgesDialog({
     if (!open) return;
     const prefs = loadPrefs();
     setMode(defaultMode ?? prefs.mode ?? "badge");
-    setSize(prefs.size ?? "thermal-4x5");
+    setSize(normalizePrintSize(prefs.size ?? DEFAULT_PRINT_SIZE));
     const pCopies = prefs.copies ?? 1;
     const pCw = prefs.cw ?? 4;
     const pCh = prefs.ch ?? 3;
@@ -353,6 +509,10 @@ export default function PrintBadgesDialog({
     setCh(pCh); setChStr(String(pCh));
     setCu(pCu);
     setThermalMode(prefs.thermalMode ?? false);
+    setShowQr(prefs.showQr ?? false);
+    setBandColors(sanitizeBandColors(prefs.bandColors));
+    setBandPresets(loadBandPresets());
+    setMobilePane("settings");
     setThermalDpi(prefs.thermalDpi ?? 203);
     const offTop = prefs.thermalOffset?.topMm ?? 0;
     const offLeft = prefs.thermalOffset?.leftMm ?? 0;
@@ -360,11 +520,6 @@ export default function PrintBadgesDialog({
     setThermalOffsetLeft(offLeft); setThermalOffsetLeftStr(String(offLeft));
     setFont(prefs.font ?? defaultFontStyle());
     setSizes(loadSizes());
-    
-    // Auto-apply company branded design for horizontal banner by default
-    if (!prefs.designOverride) {
-      setDesignOverride(createCompanyBrandedDesign());
-    }
   }, [open, defaultMode]);
 
   useEffect(() => {
@@ -375,9 +530,9 @@ export default function PrintBadgesDialog({
         ? { topMm: thermalOffsetTop, leftMm: thermalOffsetLeft }
         : undefined;
     localStorage.setItem(PREF_KEY, JSON.stringify({
-      mode, size, copies, cw, ch, cu, thermalMode, thermalDpi, thermalOffset, font,
+      mode, size, copies, cw, ch, cu, thermalMode, showQr, bandColors, thermalDpi, thermalOffset, font,
     }));
-  }, [mode, size, copies, cw, ch, cu, thermalMode, thermalDpi, thermalOffsetTop, thermalOffsetLeft, font]);
+  }, [mode, size, copies, cw, ch, cu, thermalMode, showQr, bandColors, thermalDpi, thermalOffsetTop, thermalOffsetLeft, font]);
 
   const dims = useMemo(
     () => badgeSizeMm(size, { width: cw, height: ch, unit: cu }),
@@ -388,21 +543,28 @@ export default function PrintBadgesDialog({
 
   // ── Print ──────────────────────────────────────────────────────────────────
 
+  // One options object for print, preview and download, so a downloaded
+  // badge is exactly what would print.
+  const printOptions = useMemo<PrintOptions>(() => {
+    const thermalActive = thermalMode || isThermalSize;
+    return {
+      mode, size, copies, eventTitle,
+      custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
+      thermalMode,
+      showQr,
+      bandColors,
+      thermalDpi: thermalActive ? thermalDpi : undefined,
+      thermalOffset:
+        thermalActive && (thermalOffsetTop !== 0 || thermalOffsetLeft !== 0)
+          ? { topMm: thermalOffsetTop, leftMm: thermalOffsetLeft }
+          : undefined,
+      font,
+    };
+  }, [mode, size, copies, eventTitle, cw, ch, cu, thermalMode, isThermalSize, showQr, bandColors, thermalDpi, thermalOffsetTop, thermalOffsetLeft, font]);
+
   const runPrint = async (rows: BadgeData[]) => {
     try {
-      const thermalActive = thermalMode || isThermalSize;
-      await printBadges(rows, {
-        mode, size, copies, eventTitle,
-        custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
-        design: designOverride || undefined,
-        thermalMode: thermalActive,
-        thermalDpi: thermalActive ? thermalDpi : undefined,
-        thermalOffset:
-          thermalActive && (thermalOffsetTop !== 0 || thermalOffsetLeft !== 0)
-            ? { topMm: thermalOffsetTop, leftMm: thermalOffsetLeft }
-            : undefined,
-        font,
-      });
+      await printBadges(rows, printOptions);
     } catch (err) {
       if ((err as Error).message === "popup-blocked") {
         toast.error("Pop-up blocked", { description: "Allow pop-ups for this site to print badges." });
@@ -429,12 +591,33 @@ export default function PrintBadgesDialog({
   };
 
   const handlePrint     = async () => { await runPrint(badges); onOpenChange(false); };
-  const handleTestPrint = async () => {
-    const sample = badges[0] ?? {
-      name: "Jane Doe", email: "jane@example.com", company: "Acme Inc.",
-      ticket_type: "general", qr_payload: "TEST-CODE", event_title: eventTitle,
-    };
-    await runPrint([sample]);
+
+  const [downloading, setDownloading] = useState(false);
+  const handleDownload = async (format: BadgeExportFormat) => {
+    if (badges.length === 0 || downloading) return;
+    setDownloading(true);
+    const label = format === "pdf" ? "PDF" : "JPG";
+    const id = toast.loading(`Preparing ${label}…`, {
+      description: badges.length > 1 ? `0 of ${badges.length} badges` : undefined,
+    });
+    try {
+      await downloadBadges(badges, printOptions, format, (done, totalBadges) => {
+        if (totalBadges > 1) {
+          toast.loading(`Preparing ${label}…`, { id, description: `${done} of ${totalBadges} badges` });
+        }
+      });
+      toast.success(`${label} downloaded`, {
+        id,
+        description: format === "jpg" && badges.length > 1 ? "Saved as a ZIP of JPG files." : undefined,
+      });
+    } catch (err) {
+      toast.error(`Couldn't create the ${label}`, {
+        id,
+        description: (err as Error)?.message || "Please try again.",
+      });
+    } finally {
+      setDownloading(false);
+    }
   };
 
   // ── Custom size presets ────────────────────────────────────────────────────
@@ -462,83 +645,101 @@ export default function PrintBadgesDialog({
 
   // ── Live preview ──────────────────────────────────────────────────────────
 
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [previewHtml, setPreviewHtml] = useState<string>("");
   const [previewLoading, setPreviewLoading] = useState(false);
+
+  // The parent rebuilds `badges` on every render (e.g. each realtime
+  // registration update). Key the preview on the sample's content instead of
+  // the array's identity, otherwise every parent render rebuilt the preview
+  // and rewrote the iframe, re-fetching the banner and fonts each time.
+  const sampleKey = JSON.stringify(badges[0] ?? null);
+  const sample = useMemo<BadgeData>(
+    () => badges[0] ?? {
+      name: "Jane Doe", email: "jane@example.com", company: "Acme Inc.",
+      ticket_type: "general", participant_type: "Attendee", qr_payload: "PREVIEW", event_title: eventTitle,
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sampleKey, eventTitle],
+  );
 
   const refreshPreview = useMemo(
     () => async () => {
       setPreviewLoading(true);
       try {
-        const sample = badges[0] ?? {
-          name: "Jane Doe", email: "jane@example.com", company: "Acme Inc.",
-          ticket_type: "general", qr_payload: "PREVIEW", event_title: eventTitle,
-        };
-        const thermalActive = thermalMode || isThermalSize;
-        const { html, warnings } = await buildPrintHtml([sample], {
-          // previewFit scales the badge down so the WHOLE label is visible
-          // inside the preview pane. Without it the iframe renders the badge
-          // at its true physical size (a4-2up = 186mm ~ 703px), which is
-          // wider than the pane — the badge gets cropped and scrollbars
-          // appear, so only a mid-badge slice (usually the QR) is visible.
-          previewFit: true,
-          mode, size, copies: 1, eventTitle,
-          custom: size === "custom" ? { width: cw, height: ch, unit: cu } : undefined,
-          design: designOverride || undefined,
-          thermalMode: thermalActive,
-          thermalDpi: thermalActive ? thermalDpi : undefined,
-          thermalOffset:
-            thermalActive && (thermalOffsetTop !== 0 || thermalOffsetLeft !== 0)
-              ? { topMm: thermalOffsetTop, leftMm: thermalOffsetLeft }
-              : undefined,
-          font,
-        });
+        // previewFit scales the badge down so the WHOLE label is visible
+        // inside the preview pane instead of being cropped at physical size.
+        const { html, warnings } = await buildPrintHtml([sample], { ...printOptions, copies: 1, previewFit: true });
         setPreviewHtml(html);
         setPreviewWarnings(warnings);
       } finally {
         setPreviewLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mode, size, cw, ch, cu, thermalMode, thermalDpi, thermalOffsetTop, thermalOffsetLeft, isThermalSize, font, eventTitle, badges, designOverride],
+    [sample, printOptions],
   );
 
-  // Refresh preview when key settings change (debounced 400ms)
+  // Whether a preview has been scheduled since the dialog opened: the first
+  // one runs immediately, later setting changes are debounced.
+  const previewScheduledRef = useRef(false);
   useEffect(() => {
-    const t = setTimeout(() => { void refreshPreview(); }, 400);
-    return () => clearTimeout(t);
-  }, [refreshPreview]);
+    if (!open) previewScheduledRef.current = false;
+  }, [open]);
 
-  // Write HTML into the iframe when it changes
+  // Warm the browser cache with the banner as soon as the dialog opens.
   useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe || !previewHtml) return;
-    const doc = iframe.contentDocument;
-    if (!doc) return;
-    doc.open();
-    doc.write(previewHtml);
-    doc.close();
-  }, [previewHtml]);
+    if (open && sample.banner_url) new Image().src = sample.banner_url;
+  }, [open, sample.banner_url]);
+
+  // Render immediately on open; debounce later setting changes. Nothing is
+  // rendered while the dialog is closed.
+  useEffect(() => {
+    if (!open) return;
+    const delay = previewScheduledRef.current ? 250 : 0;
+    previewScheduledRef.current = true;
+    const t = setTimeout(() => { void refreshPreview(); }, delay);
+    return () => clearTimeout(t);
+  }, [open, refreshPreview]);
 
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-6xl w-[96vw] p-0 gap-0 max-h-[94vh] flex flex-col overflow-hidden">
+      <DialogContent className="p-0 gap-0 flex flex-col overflow-hidden w-full max-w-none h-[100dvh] max-h-[100dvh] rounded-none border-0 sm:h-auto sm:max-h-[94vh] sm:w-[96vw] sm:max-w-6xl sm:rounded-lg sm:border">
 
-        <DialogHeader className="px-5 pt-5 pb-3 border-b border-border shrink-0 space-y-0.5">
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <Printer className="h-4 w-4" /> Print settings
+        <DialogHeader className="px-4 sm:px-5 pt-4 sm:pt-5 pb-3 border-b border-border shrink-0 space-y-0.5 text-left">
+          <DialogTitle className="flex items-center gap-2 text-base pr-8">
+            <Printer className="h-4 w-4" /> Print or download badges
           </DialogTitle>
           <DialogDescription className="text-[12px]">
-            {badges.length} attendee{badges.length === 1 ? "" : "s"} selected
+            {badges.length} attendee{badges.length === 1 ? "" : "s"} selected · {total} label{total === 1 ? "" : "s"}
           </DialogDescription>
+          {/* Phone-only pane switcher */}
+          <div className="md:hidden grid grid-cols-2 gap-1 p-1 mt-3 bg-muted rounded-lg" role="tablist" aria-label="Print dialog view">
+            {(["settings", "preview"] as const).map((pane) => (
+              <button
+                key={pane}
+                type="button"
+                role="tab"
+                aria-selected={mobilePane === pane}
+                onClick={() => setMobilePane(pane)}
+                className={cn(
+                  "h-8 rounded-md text-[13px] font-medium transition-colors",
+                  mobilePane === pane ? "bg-card text-foreground shadow-sm" : "text-muted-foreground",
+                )}
+              >
+                {pane === "settings" ? "Settings" : "Preview"}
+              </button>
+            ))}
+          </div>
         </DialogHeader>
 
         <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
 
           {/* LEFT — settings (scrollable) */}
-          <div className="overflow-y-auto px-5 py-4 space-y-5 md:border-r border-border min-h-0">
+          <div className={cn(
+            "overflow-y-auto overscroll-contain px-4 sm:px-5 py-4 space-y-5 md:border-r border-border min-h-0",
+            mobilePane !== "settings" && "max-md:hidden",
+          )}>
 
           {/* TYPE */}
           <section>
@@ -560,16 +761,6 @@ export default function PrintBadgesDialog({
                 </label>
               ))}
             </RadioGroup>
-          </section>
-
-          {/* FONT STYLE */}
-          <section className="border border-border rounded-lg overflow-hidden">
-            <div className="px-3 py-2 bg-muted/30 border-b border-border">
-              <span className="text-[12px] font-semibold">Font Style</span>
-            </div>
-            <div className="px-3 pb-3 pt-1">
-              <FontStylePanel font={font} onChange={setFont} />
-            </div>
           </section>
 
           {/* LABEL SIZE */}
@@ -639,45 +830,46 @@ export default function PrintBadgesDialog({
               </p>
             )}
 
-            {/* Quick preset for company branding layout */}
-            <div className="mt-3 pt-2 border-t border-border/50">
-              <div className="flex gap-2">
-                <Button
-                  size="sm" 
-                  variant="outline" 
-                  className="flex-1 h-8 text-[12px] gap-2"
-                  onClick={() => {
-                    // Apply 4×5 inch size and company-branded design
-                    setSize("thermal-4x5");
-                    const brandedDesign = createCompanyBrandedDesign();
-                    setDesignOverride(brandedDesign);
-                    toast.success("Applied horizontal banner layout - 4×5 inch edge-to-edge format!");
-                  }}
-                >
-                  🏢 Horizontal Banner (4×5" Edge-to-Edge)
-                </Button>
-                {designOverride && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 text-[12px]"
-                    onClick={() => {
-                      setDesignOverride(null);
-                      toast.success("Reset to default badge design");
-                    }}
-                  >
-                    Reset
-                  </Button>
-                )}
+          </section>
+
+          {/* PARTICIPANT BAND COLOURS — default badge layout only */}
+          {mode === "badge" && (
+            <section className="border border-border rounded-lg overflow-hidden">
+              <div className="px-3 py-2 bg-muted/30 border-b border-border">
+                <span className="text-[12px] font-semibold">Participant band colours</span>
+                <p className="text-[11px] text-muted-foreground mt-0.5">The strip at the bottom of the badge. Saved for next time.</p>
               </div>
-              <p className="text-[10px] text-muted-foreground mt-1">
-                Edge-to-edge horizontal banner: Company branding header + Name + Company (4×5 inch default)
-              </p>
-              {designOverride && (
-                <p className="text-[10px] text-primary mt-1">
-                  ✓ Using horizontal banner design (4×5 inch edge-to-edge)
-                </p>
-              )}
+              <div className="p-3">
+                <BandColorsPanel
+                  colors={bandColors}
+                  onChange={(c) => setBandColors(sanitizeBandColors(c))}
+                  presets={bandPresets}
+                  onPresetsChange={updateBandPresets}
+                />
+              </div>
+            </section>
+          )}
+
+          {/* QR CODE */}
+          <section>
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <Checkbox checked={showQr} onCheckedChange={(v) => setShowQr(!!v)} className="mt-0.5 shrink-0" />
+              <div>
+                <div className="text-[12px] font-medium">Include check-in QR code</div>
+                <div className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
+                  Adds the attendee's QR under their company so staff can scan badges at the door.
+                </div>
+              </div>
+            </label>
+          </section>
+
+          {/* FONT STYLE */}
+          <section className="border border-border rounded-lg overflow-hidden">
+            <div className="px-3 py-2 bg-muted/30 border-b border-border">
+              <span className="text-[12px] font-semibold">Font Style</span>
+            </div>
+            <div className="px-3 pb-3 pt-1">
+              <FontStylePanel font={font} onChange={setFont} />
             </div>
           </section>
 
@@ -696,9 +888,9 @@ export default function PrintBadgesDialog({
             <label className="flex items-start gap-2.5 cursor-pointer">
               <Checkbox checked={thermalMode} onCheckedChange={(v) => setThermalMode(!!v)} className="mt-0.5 shrink-0" />
               <div>
-                <div className="text-[12px] font-medium">Thermal printer mode</div>
+                <div className="text-[12px] font-medium">Black &amp; white (thermal printer)</div>
                 <div className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
-                  Strips backgrounds and colours. Use with USB or Bluetooth thermal printers for crisp black-and-white output.
+                  Converts the banner to greyscale and prints the participant band in black. Use with monochrome thermal printers.
                 </div>
               </div>
             </label>
@@ -830,7 +1022,10 @@ export default function PrintBadgesDialog({
           </div>
 
           {/* RIGHT — live preview (full height) */}
-          <div className="flex flex-col bg-muted/20 min-h-0 border-t md:border-t-0 border-border">
+          <div className={cn(
+            "flex flex-col bg-muted/20 min-h-0",
+            mobilePane !== "preview" && "max-md:hidden",
+          )}>
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-background/60 shrink-0">
               <div className="flex items-center gap-2">
                 <span className="text-[12px] font-semibold">Live preview</span>
@@ -871,10 +1066,10 @@ export default function PrintBadgesDialog({
             <div className="flex-1 min-h-0 p-4 flex items-stretch justify-stretch overflow-hidden">
               {previewHtml ? (
                 <iframe
-                  ref={iframeRef}
+                  srcDoc={previewHtml}
                   title="Badge preview"
                   className="rounded border border-border/50 shadow-sm bg-white w-full h-full"
-                  style={{ border: "none", minHeight: "320px" }}
+                  style={{ border: "none" }}
                   sandbox="allow-same-origin"
                 />
               ) : (
@@ -888,17 +1083,47 @@ export default function PrintBadgesDialog({
 
         </div>
 
-        <DialogFooter className="px-5 py-3 border-t border-border bg-muted/30 shrink-0 sm:justify-between gap-2 flex-wrap">
-          <span className="text-[12px] text-muted-foreground self-center">
+        <DialogFooter className="px-4 sm:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-border bg-background sm:bg-muted/30 shrink-0 flex-row items-center justify-between sm:justify-between gap-3 sm:space-x-0">
+          <span className="hidden sm:block text-[12px] text-muted-foreground">
             <span className="font-medium text-foreground">{total}</span>{" "}label{total === 1 ? "" : "s"} total
           </span>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={handleTestPrint} className="gap-1.5 text-[12px]">
-              <FlaskConical className="h-3.5 w-3.5" /> Test print
+          <div className="flex w-full sm:w-auto items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="hidden sm:inline-flex h-9 px-4 text-[13px]"
+            >
+              Cancel
             </Button>
-            <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button size="sm" onClick={handlePrint} disabled={badges.length === 0} className="gap-1.5">
-              <Printer className="h-3.5 w-3.5" /> Print
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  disabled={badges.length === 0 || downloading}
+                  className="flex-1 sm:flex-none h-11 sm:h-9 px-4 gap-2 text-[14px] sm:text-[13px]"
+                >
+                  {downloading
+                    ? <RefreshCw className="h-4 w-4 animate-spin" />
+                    : <Download className="h-4 w-4" />}
+                  Download
+                  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onSelect={() => void handleDownload("pdf")} className="gap-2 text-[13px]">
+                  <FileText className="h-3.5 w-3.5" /> Save as PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void handleDownload("jpg")} className="gap-2 text-[13px]">
+                  <FileImage className="h-3.5 w-3.5" /> Save as JPG
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              onClick={handlePrint}
+              disabled={badges.length === 0}
+              className="flex-1 sm:flex-none h-11 sm:h-9 px-4 gap-2 text-[14px] sm:text-[13px]"
+            >
+              <Printer className="h-4 w-4" /> Print {total > 1 ? `${total} badges` : "badge"}
             </Button>
           </div>
         </DialogFooter>

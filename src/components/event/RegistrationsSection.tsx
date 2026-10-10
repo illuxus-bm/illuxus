@@ -24,6 +24,7 @@ import SelfServiceCheckDialog from "./registrations/SelfServiceCheckDialog";
 import { useEventCheckinCounters } from "@/hooks/useEventCheckinCounters";
 import AddParticipantDialog from "./AddParticipantDialog";
 import PrintBadgesDialog from "./registrations/PrintBadgesDialog";
+import { participantLabel } from "@/lib/print-badges";
 import BulkCheckInDialog from "./registrations/BulkCheckInDialog";
 import RegistrantQuickView, { type QuickViewRow } from "./registrations/RegistrantQuickView";
 import ImportRegistrationsDialog from "./registrations/ImportRegistrationsDialog";
@@ -1202,6 +1203,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       // a designation on the registrations join, so it stays null.
       title: r.registration?.designation ?? null,
       ticket_type: r.ticket_type,
+      participant_type: participantLabel(r.kind, r.ticket_type),
       qr_payload: r.qr_payload,
       banner_url: eventInfo?.banner_landscape_url ?? null,
       event_title: eventInfo?.title,
@@ -1263,6 +1265,19 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
           />
           <Button size="sm" variant="outline" className="h-7 text-[12px] gap-1.5" onClick={() => setQrOpen(true)}>
             <ScanLine className="h-3 w-3" /> Scan
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-[12px] gap-1.5"
+            title={
+              selected.size > 0
+                ? `Download badges for the ${selected.size} selected`
+                : "Download badges for everyone in the current view"
+            }
+            onClick={() => openPrintAll("badge")}
+          >
+            <Download className="h-3 w-3" /> Download badges
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

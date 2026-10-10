@@ -318,10 +318,18 @@ export interface EventPageConfig {
      * without introducing a second persistence key.
      */
     posterContent?: {
-      /** Brand logo shown at the top of every content page (page 2+). Not
-       *  the same as the cover image — the cover image renders as the
-       *  hero, this logo is a small wordmark. */
+      /** Event logo / icon. Sits above the title on the cover and beside
+       *  the event name at the top of every inner page. Not the same as
+       *  the cover image — that renders as the hero. */
       logoUrl?: string;
+      /** Variant of the logo for the accent-colored and black pages (a
+       *  white or black version), where a logo in the accent color would
+       *  disappear into the background. Falls back to `logoUrl`. */
+      logoOnDarkUrl?: string;
+      /** Cover hero image. Falls back to the event's own image / banner.
+       *  A cut-out (transparent PNG) of a landmark gives the reference
+       *  look, with the accent block showing either side of it. */
+      coverImageUrl?: string;
       /** Organizer / production company logo shown in the cover footer
        *  ("Conceptualized & Organized by"). */
       organizerLogoUrl?: string;

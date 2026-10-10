@@ -410,7 +410,21 @@ export default function BrochureConfiguratorDialog({
         : theme.id === "corporate-bold"
           ? CORPORATE_BOLD_SECTION_LAYOUT
           : DEFAULT_SECTION_LAYOUT;
-    setSectionLayout(prefs?.sectionLayout ?? fallbackLayout);
+    // A layout saved before a section existed doesn't list it, and the
+    // Sections list only shows what the layout lists — so the section could
+    // never be switched on. Append anything the preset has that the saved
+    // layout lacks, switched off, leaving the saved order and choices alone.
+    const savedLayout = prefs?.sectionLayout;
+    setSectionLayout(
+      savedLayout
+        ? [
+            ...savedLayout,
+            ...fallbackLayout
+              .filter((entry) => !savedLayout.some((s) => s.id === entry.id))
+              .map((entry) => ({ ...entry, included: false })),
+          ]
+        : fallbackLayout
+    );
     setPosterContent(prefs?.posterContent ?? {});
     hydratedRef.current = true;
   }, [open, eventPageConfig]);
@@ -503,18 +517,24 @@ export default function BrochureConfiguratorDialog({
       dateText: (() => {
         try {
           const d = new Date(event.date);
-          return `${d.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" })}  |  ${d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })} onwards`;
+          // "12 Aug 2026 | 09:00 AM onwards" — day first, as on the cover pill.
+          return `${d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} | ${d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })} onwards`;
         } catch {
           return event.date;
         }
       })(),
       venueText: event.venue ?? event.location ?? "",
-      // Prefer the mobile / portrait banner (matches the event's mobile-view
-      // hero); fall back through image_url, then the landscape banner so the
-      // cover always has something to render.
+      // An explicit brochure cover image wins. Otherwise use the event's own
+      // artwork, landscape first: the cover's hero slot is a wide band, and a
+      // portrait banner cropped into it shows only a strip of itself.
       coverImageUrl:
-        event.banner_portrait_url ?? event.image_url ?? event.banner_landscape_url ?? "",
+        posterContent.coverImageUrl ||
+        event.image_url ||
+        event.banner_landscape_url ||
+        event.banner_portrait_url ||
+        "",
       logoUrl: posterContent.logoUrl,
+      logoOnDarkUrl: posterContent.logoOnDarkUrl,
       organizerLogoUrl: posterContent.organizerLogoUrl,
       socialLinks: posterContent.socialLinks,
       coverTagline: posterContent.coverTagline,
@@ -581,10 +601,10 @@ export default function BrochureConfiguratorDialog({
             themeId: selectedTheme.id,
             colorOverride: themeOverride,
             sectionLayout,
-            posterContent:
-              selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold"
-                ? posterContent
-                : undefined,
+            // Saved for every theme: the partnership packages table lives in
+            // here and is available on all of them, and writing `undefined`
+            // would wipe content entered under another theme.
+            posterContent,
           })
         );
       }
@@ -646,8 +666,8 @@ export default function BrochureConfiguratorDialog({
           <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
             {/* LEFT — settings (scrollable) */}
             <div className="overflow-y-auto px-5 py-4 space-y-5 md:border-r border-border min-h-0">
-              {/* BROCHURE THEME — Classic Editorial and Poster Bold ship
-                  today; picking a theme also seeds the matching section
+              {/* BROCHURE THEME — Poster Bold (the default) and Classic
+                  Editorial ship today; picking a theme also seeds the matching section
                   layout preset (see the theme-change effect below) so an
                   organizer switching to Poster Bold gets its Abstract /
                   Why Sponsor / Pricing pages on by default. Any further
@@ -1012,12 +1032,30 @@ function PosterBoldContentPanel({
       {/* Logos + social */}
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <Label className="text-[11px]">Header wordmark URL</Label>
+          <Label className="text-[11px]">Event logo / icon URL</Label>
           <Input
             className="h-8 text-[12px]"
             value={value.logoUrl ?? ""}
             placeholder="https://…/logo.png"
             onChange={(e) => set("logoUrl", e.target.value || undefined)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[11px]">Logo for colored pages URL</Label>
+          <Input
+            className="h-8 text-[12px]"
+            value={value.logoOnDarkUrl ?? ""}
+            placeholder="https://…/logo-white.png"
+            onChange={(e) => set("logoOnDarkUrl", e.target.value || undefined)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[11px]">Cover image URL</Label>
+          <Input
+            className="h-8 text-[12px]"
+            value={value.coverImageUrl ?? ""}
+            placeholder="Defaults to the event image"
+            onChange={(e) => set("coverImageUrl", e.target.value || undefined)}
           />
         </div>
         <div className="space-y-1">
@@ -1072,26 +1110,30 @@ function PosterBoldContentPanel({
       {/* Cover extras — shared by both Poster_Bold and Corporate_Bold. */}
       <div className="space-y-2">
         <div className="space-y-1">
-          <Label className="text-[11px]">Cover tagline pill (optional)</Label>
+          <Label className="text-[11px]">Cover subtitle (optional)</Label>
           <Input
             className="h-8 text-[12px]"
             value={value.coverTagline ?? ""}
-            placeholder="The Next Big Shift"
+            placeholder="Redefining DevOps in the Era of Intelligent Automation"
             onChange={(e) => set("coverTagline", e.target.value || undefined)}
           />
         </div>
-        <div className="space-y-1">
-          <Label className="text-[11px]">Cover chip labels (one per line)</Label>
-          <Textarea
-            className="text-[12px] min-h-[52px]"
-            value={arrayToLines(value.coverPills)}
-            placeholder={"Autonomy\nGovernance\nCapital"}
-            onChange={(e) => {
-              const next = linesToArray(e.target.value);
-              set("coverPills", next.length > 0 ? next : undefined);
-            }}
-          />
-        </div>
+        {/* Chip labels belong to the Corporate Bold cover; the Poster Bold
+            cover has no place for them, so the field isn't offered there. */}
+        {isCorporateBold && (
+          <div className="space-y-1">
+            <Label className="text-[11px]">Cover chip labels (one per line)</Label>
+            <Textarea
+              className="text-[12px] min-h-[52px]"
+              value={arrayToLines(value.coverPills)}
+              placeholder={"Autonomy\nGovernance\nCapital"}
+              onChange={(e) => {
+                const next = linesToArray(e.target.value);
+                set("coverPills", next.length > 0 ? next : undefined);
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Poster_Bold-only sections (Why Sponsor + Pricing) */}

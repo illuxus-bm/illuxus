@@ -61,13 +61,19 @@ export default defineConfig(({ mode }) => {
       //   storage assets (cache-first, ~30 days). The Supabase REST API is
       //   network-first with a 3s timeout so a slow link still falls back to
       //   the last-known response without locking the user out of fresh data.
-      // - skipWaiting: false — never silently swap the SW. The new worker waits
-      //   until the user clicks "Update" in the toast.
+      // - skipWaiting: true — a new deploy's worker activates as soon as it
+      //   installs, so a normal refresh / next visit shows the latest release.
+      //   With `false` it waited until every illuxus tab was closed, leaving
+      //   users on stale builds after each deploy. Open pages are NOT
+      //   reloaded (no lost form state); a page that later fails to fetch a
+      //   chunk removed by the deploy reloads itself once (see main.tsx).
       // - clientsClaim: true — once activated, take control of all open tabs.
       // - cleanupOutdatedCaches: true — drop precached assets from prior
       //   deploys so users don't accumulate stale chunks over time.
-      // - navigationPreload: true — start fetching the navigation request in
-      //   parallel with SW boot for snappier cold navigations.
+      // - navigationPreload: false — page navigations are answered from the
+      //   precached `index.html` (navigateFallback), so a preload request would
+      //   never be consumed: it wastes a network round trip and Chrome logs
+      //   "navigation preload request was cancelled" on every page load.
       VitePWA({
         registerType: "prompt",
         injectRegister: false,
@@ -103,10 +109,10 @@ export default defineConfig(({ mode }) => {
             /^\/auth\//,
             // Edge function URLs (full https URLs are denylisted automatically).
           ],
-          navigationPreload: true,
+          navigationPreload: false,
           cleanupOutdatedCaches: true,
           clientsClaim: true,
-          skipWaiting: false,
+          skipWaiting: true,
           runtimeCaching: [
             {
               urlPattern: ({ url }) =>

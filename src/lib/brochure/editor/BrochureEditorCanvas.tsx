@@ -66,9 +66,12 @@ import {
   mirrorProps,
   shadowProps,
   shapeFillProps,
+  shapePolygonPoints,
   textExtras,
+  textVerticalOffset,
   transformedText,
 } from "./editor-render-props";
+import { measureTextHeightPx, withFittedHeight } from "./editor-text-layout";
 
 interface Props {
   document: BrochureDocument;
@@ -86,6 +89,12 @@ interface Props {
    */
   selectedElementIds: string[];
   onSelect: (elementIds: string[]) => void;
+  /**
+   * Files dropped onto the page, with the drop point in page millimetres.
+   * The parent turns them into image elements; the canvas only reports where
+   * they landed.
+   */
+  onDropFiles?: (files: File[], at: { x: number; y: number }) => void;
 }
 
 export default function BrochureEditorCanvas({
@@ -94,6 +103,7 @@ export default function BrochureEditorCanvas({
   activePageId,
   selectedElementIds,
   onSelect,
+  onDropFiles,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -391,7 +401,16 @@ export default function BrochureEditorCanvas({
         isolate ? ids : expandSelectionToGroups(page, ids);
 
       if (!additive) {
-        onSelect(grow([elementId]));
+        const card = grow([elementId]);
+        // Clicking a piece of a card that is ALREADY selected as a whole steps
+        // inside it and selects just that piece — click once for the card,
+        // click again for the part, as in Canva. Without this the only way in
+        // was Alt-click, which nobody discovers.
+        const cardIsSelected =
+          card.length > 1 &&
+          card.length === selectedElementIds.length &&
+          card.every((id) => selectedElementIds.includes(id));
+        onSelect(cardIsSelected ? [elementId] : card);
         return;
       }
       // Toggling a card removes all of its members, not just the one clicked.
@@ -600,6 +619,12 @@ export default function BrochureEditorCanvas({
           ...geometry,
           fontSize: Math.max(1, element.fontSize * typeScale),
         });
+      } else if (element.kind === "text" && Math.abs(absX - 1) > 0.001) {
+        // Dragging a side handle re-wraps the text, so the box follows the new
+        // wrap instead of keeping a height that no longer fits it.
+        const { height: _dragged, ...widthChange } = geometry;
+        void _dragged;
+        next = updateElement(next, page.id, id, withFittedHeight(element, widthChange));
       } else {
         next = updateElement(next, page.id, id, geometry);
       }
@@ -618,6 +643,9 @@ export default function BrochureEditorCanvas({
   const handleStageMouseDown = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       if (!isBackgroundTarget(e.target)) return;
+      // Left button only: a right-click opens the context menu, and its
+      // mouse-up never reaches the stage, which would strand the marquee.
+      if (e.evt.button !== 0) return;
       const pos = e.target.getStage()?.getPointerPosition();
       if (!pos) return;
       marqueeStartRef.current = { x: pos.x, y: pos.y };
@@ -715,7 +743,29 @@ export default function BrochureEditorCanvas({
           {/* `relative` so the in-place text editor can be absolutely
               positioned over the element it's editing, and so it pans and zooms
               with the page instead of floating at a fixed screen offset. */}
-          <div className="m-auto relative" style={{ width: stageW, height: stageH }}>
+          <div
+            className="m-auto relative"
+            style={{ width: stageW, height: stageH }}
+            // Drop an image file straight onto the page. `dragover` must be
+            // cancelled or the browser never fires `drop` — it navigates to
+            // the file instead, throwing the editor away.
+            onDragOver={(e) => {
+              if (!onDropFiles || !Array.from(e.dataTransfer.types).includes("Files")) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+            }}
+            onDrop={(e) => {
+              if (!onDropFiles) return;
+              const files = Array.from(e.dataTransfer.files);
+              if (files.length === 0) return;
+              e.preventDefault();
+              const rect = e.currentTarget.getBoundingClientRect();
+              onDropFiles(files, {
+                x: (e.clientX - rect.left) / scalePxPerMm,
+                y: (e.clientY - rect.top) / scalePxPerMm,
+              });
+            }}
+          >
       {stageW > 0 && stageH > 0 && (
         <Stage
           ref={stageRef}
@@ -842,8 +892,15 @@ export default function BrochureEditorCanvas({
                 scale={scalePxPerMm}
                 onCommit={(value) => {
                   const patch =
-                    editingElement.kind === "text" ? { content: value } : { text: value };
-                  onChange(updateElement(doc, page.id, editingElement.id, patch));
+                    editingElement.kind === "text"
+                      ? withFittedHeight(editingElement, { content: value })
+                      : { text: value };
+                  const unchanged =
+                    editingElement.kind === "text"
+                      ? value === editingElement.content
+                      : value === editingElement.text;
+                  // Clicking into a text box and straight back out isn't an edit.
+                  if (!unchanged) onChange(updateElement(doc, page.id, editingElement.id, patch));
                   setEditingId(null);
                 }}
                 onCancel={() => setEditingId(null)}
@@ -1115,6 +1172,11 @@ function ElementNode(props: ElementNodeProps) {
         // Touch has no modifier keys, so a tap always selects the whole card.
         onSelect(false, false);
       }}
+      onContextMenu={() => {
+        // Right-click acts on what's under the cursor. The native event is left
+        // to bubble: the editor's context menu opens from it.
+        if (!isSelected) onSelect(false, false);
+      }}
       onDblClick={(e) => {
         if (!onStartEditing) return;
         e.cancelBubble = true;
@@ -1198,28 +1260,70 @@ function ElementBody({
   }
 }
 
+/** Re-renders its caller when a web font finishes loading, so anything measured
+ *  against the fallback font is measured again against the real one. */
+function useFontEpoch(): number {
+  const [epoch, setEpoch] = useState(0);
+  useEffect(() => onFontLoaded(() => setEpoch((n) => n + 1)), []);
+  return epoch;
+}
+
 function TextBody({ el, width, height, scale }: { el: TextElement; width: number; height: number; scale: number }) {
   // `ptToMm(1) * scale` is the pt→px factor at this zoom level; letter spacing
   // is stored in points so it tracks the type size.
   const ptToPxFactor = ptToMm(1) * scale;
+  const fontEpoch = useFontEpoch();
+
+  // The text is drawn at its natural height — no Konva `height` — because a
+  // fixed-height text node drops every line that doesn't fit, which is how a
+  // retyped heading used to lose its last words. The box then only positions
+  // it: `textVerticalOffset` is the rule the PDF exporter shares.
+  const align = el.verticalAlign ?? "top";
+  const offsetY = useMemo(
+    () => (align === "top" ? 0 : textVerticalOffset(height, measureTextHeightPx(el, width, scale), align)),
+    // `fontEpoch` is a real dependency: the measurement changes when the font
+    // arrives, even though no prop did.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      align,
+      height,
+      width,
+      scale,
+      fontEpoch,
+      el.content,
+      el.textTransform,
+      el.fontFamily,
+      el.fontSize,
+      el.fontWeight,
+      el.fontStyle,
+      el.lineHeight,
+      el.letterSpacing,
+    ],
+  );
+
   return (
-    <Text
-      x={0}
-      y={0}
-      width={width}
-      height={height}
-      text={transformedText(el.content, el.textTransform)}
-      fontFamily={el.fontFamily}
-      fontSize={ptToMm(el.fontSize) * scale}
-      fontStyle={fontStyleString(el.fontWeight, el.fontStyle)}
-      fill={el.color}
-      align={el.align}
-      lineHeight={el.lineHeight}
-      wrap="word"
-      listening
-      {...textExtras(el, ptToPxFactor, scale)}
-      {...shadowProps(el.shadow, scale)}
-    />
+    <>
+      {/* The whole box stays clickable, not just the glyphs — otherwise a short
+          label in a tall box could only be grabbed by hitting a letter. An
+          invisible fill is still a hit region in Konva. */}
+      <Rect x={0} y={0} width={width} height={height} fill="rgba(0,0,0,0)" />
+      <Text
+        x={0}
+        y={offsetY}
+        width={width}
+        text={transformedText(el.content, el.textTransform)}
+        fontFamily={el.fontFamily}
+        fontSize={ptToMm(el.fontSize) * scale}
+        fontStyle={fontStyleString(el.fontWeight, el.fontStyle)}
+        fill={el.color}
+        align={el.align}
+        lineHeight={el.lineHeight}
+        wrap="word"
+        listening
+        {...textExtras(el, ptToPxFactor, scale)}
+        {...shadowProps(el.shadow, scale)}
+      />
+    </>
   );
 }
 
@@ -1338,6 +1442,22 @@ function ShapeBody({ el, width, height, scale }: { el: ShapeElement; width: numb
       />
     );
   }
+  if (el.shape === "line") {
+    // The stroke runs through the middle of the box; the box's height is only
+    // there to be grabbed, so the hit region is widened to match it.
+    return (
+      <Line
+        points={[0, height / 2, width, height / 2]}
+        lineCap="round"
+        hitStrokeWidth={Math.max(height, strokeWidthPx)}
+        {...common}
+      />
+    );
+  }
+  const polygon = shapePolygonPoints(el.shape, width, height);
+  if (polygon) {
+    return <Line points={polygon} closed lineJoin="round" {...common} />;
+  }
   return (
     <Rect x={0} y={0} width={width} height={height} cornerRadius={el.cornerRadius * scale} {...common} />
   );
@@ -1435,6 +1555,15 @@ function InPlaceTextEditor({
     node.select();
   }, []);
 
+  // Grow with the text. At a fixed height, everything typed past the bottom of
+  // the box was simply invisible until the edit was committed.
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || element.kind !== "text") return;
+    node.style.height = "auto";
+    node.style.height = `${Math.max(node.scrollHeight, element.height * scale)}px`;
+  }, [value, element.kind, element.height, scale]);
+
   const isText = element.kind === "text";
   const fontPx = ptToMm(element.fontSize) * scale;
 
@@ -1482,9 +1611,11 @@ function InPlaceTextEditor({
         margin: 0,
         resize: "none",
         overflow: "hidden",
-        // Rotation shares the element's centre pivot, matching Konva.
+        // Both renderers rotate an element about its top-left corner (a Konva
+        // group's origin), so the editor has to as well or the caret sits
+        // somewhere other than the text it's editing.
         transform: element.rotation ? `rotate(${element.rotation}deg)` : undefined,
-        transformOrigin: "center center",
+        transformOrigin: "top left",
       }}
     />
   );
