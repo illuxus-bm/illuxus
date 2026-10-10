@@ -11,9 +11,15 @@
  *
  * When nothing is selected the panel shows a friendly "Select an
  * element" empty state and page-level controls (page background
- * picker).
+ * picker). With several elements selected it shows the styling they
+ * can share (see `SelectionProperties`).
+ *
+ * A second tab lists the page's layers. That list is the only way to
+ * reach an element that is locked or hidden — neither can be clicked
+ * on the canvas — so without it locking or hiding something was a
+ * one-way trip.
  */
-import { useRef, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import {
   AlignCenter,
   AlignLeft,
@@ -23,8 +29,16 @@ import {
   EyeOff,
   FlipHorizontal,
   FlipVertical,
+  Image as ImageIcon,
   Italic,
   Lock,
+  Minus,
+  Plus,
+  Shapes,
+  Strikethrough,
+  Tag,
+  Type,
+  Underline,
   Unlock,
   Upload,
 } from "lucide-react";
@@ -48,42 +62,76 @@ import {
   type PillElement,
   type ShapeElement,
   type ShapeGradient,
+  type ShapeKind,
   type StrokeDash,
   type TextElement,
 } from "./editor-document";
-import { defaultGradient, defaultShadow } from "./editor-render-props";
+import { SHAPE_LABELS, defaultGradient, defaultShadow } from "./editor-render-props";
 import { EDITOR_FONTS, ensureFontLoaded } from "./editor-fonts";
+import { readImageFile } from "./editor-image-file";
+import { applySelectionStyle, sortedByZ, type SelectionStyle } from "./editor-operations";
 import { PAGE_SIZE_PRESETS, findPresetMatch } from "./editor-page-sizes";
+import { withFittedHeight } from "./editor-text-layout";
 
 interface Props {
   document: BrochureDocument;
   activePageId: string;
-  selectedElementId: string | null;
+  /** Every selected element id. One id shows that element's properties;
+   *  several show the styling they can share. */
+  selectedElementIds: string[];
   onChange: (doc: BrochureDocument) => void;
-  onSelect: (elementId: string | null) => void;
+  onSelect: (elementIds: string[]) => void;
 }
 
 export default function BrochureEditorProperties({
   document: doc,
   activePageId,
-  selectedElementId,
+  selectedElementIds,
   onChange,
   onSelect,
 }: Props) {
+  const [tab, setTab] = useState<"design" | "layers">("design");
   const page = doc.pages.find((p) => p.id === activePageId);
+  const selectedElementId = selectedElementIds.length === 1 ? selectedElementIds[0] : null;
   const element =
     (selectedElementId && page?.elements.find((el) => el.id === selectedElementId)) || null;
 
   const patchElement = (patch: Partial<BrochureElement>) => {
     if (!element || !page) return;
-    onChange(updateElement(doc, page.id, element.id, patch));
+    // A text box follows its content: changing the words, the size or the font
+    // re-fits its height, so the box never ends up shorter than its text.
+    const fitted =
+      element.kind === "text"
+        ? (withFittedHeight(element, patch as Partial<TextElement>) as Partial<BrochureElement>)
+        : patch;
+    onChange(updateElement(doc, page.id, element.id, fitted));
   };
 
   const deleteElement = () => {
     if (!element || !page) return;
     onChange(removeElement(doc, page.id, element.id));
-    onSelect(null);
+    onSelect([]);
   };
+
+  const styleSelection = (style: SelectionStyle) => {
+    if (!page) return;
+    onChange(applySelectionStyle(doc, page.id, selectedElementIds, style));
+  };
+
+  const deleteSelection = () => {
+    if (!page) return;
+    const doomed = new Set(selectedElementIds);
+    onChange({
+      ...doc,
+      pages: doc.pages.map((p) =>
+        p.id === page.id ? { ...p, elements: p.elements.filter((el) => !doomed.has(el.id)) } : p
+      ),
+      updatedAt: new Date().toISOString(),
+    });
+    onSelect([]);
+  };
+
+  const selectedElements = page ? page.elements.filter((el) => selectedElementIds.includes(el.id)) : [];
 
   const patchPageBackground = (bg: PageBackground) => {
     if (!page) return;
@@ -95,13 +143,46 @@ export default function BrochureEditorProperties({
   };
 
   return (
-    <div className="w-72 h-full border-l border-border bg-background overflow-y-auto flex-shrink-0">
-      <div className="p-3 space-y-4">
-        {element ? (
+    <div className="w-72 h-full border-l border-border bg-background flex-shrink-0 flex flex-col">
+      <div className="flex shrink-0 border-b border-border" role="tablist" aria-label="Editor panel">
+        {(["design", "layers"] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+            className={`flex-1 h-9 text-[12px] font-medium border-b-2 transition-colors ${
+              tab === id
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {id === "design" ? "Design" : `Layers${page ? ` (${page.elements.length})` : ""}`}
+          </button>
+        ))}
+      </div>
+      <div className="p-3 space-y-4 overflow-y-auto flex-1 min-h-0">
+        {tab === "layers" ? (
+          <LayersList
+            elements={page?.elements ?? []}
+            selectedElementIds={selectedElementIds}
+            onSelect={onSelect}
+            onPatch={(id, patch) => {
+              if (page) onChange(updateElement(doc, page.id, id, patch));
+            }}
+          />
+        ) : element ? (
           <ElementProperties
             element={element}
             onChange={patchElement}
             onDelete={deleteElement}
+          />
+        ) : selectedElements.length > 1 ? (
+          <SelectionProperties
+            elements={selectedElements}
+            onStyle={styleSelection}
+            onDelete={deleteSelection}
           />
         ) : (
           <PageProperties
@@ -335,9 +416,12 @@ function GeometryFields({
 function FontSelect({
   value,
   onChange,
+  placeholder,
 }: {
   value: string;
   onChange: (family: string) => void;
+  /** Shown when `value` is empty — a selection whose fonts differ. */
+  placeholder?: string;
 }) {
   const fontGroups = EDITOR_FONTS.reduce<Record<string, typeof EDITOR_FONTS>>((acc, f) => {
     if (!acc[f.category]) acc[f.category] = [];
@@ -370,7 +454,7 @@ function FontSelect({
       }}
     >
       <SelectTrigger className="h-8 text-[12px]">
-        <SelectValue />
+        <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent className="max-h-[320px]">
         {categoryOrder.map((cat) => {
@@ -435,6 +519,22 @@ function TextFields({ el, onChange }: { el: TextElement; onChange: (p: Partial<T
             onClick={() => onChange({ fontStyle: el.fontStyle === "italic" ? "normal" : "italic" })}
           >
             <Italic className="h-3.5 w-3.5" />
+          </IconToggle>
+          <IconToggle
+            active={el.textDecoration === "underline"}
+            label="Underline"
+            onClick={() => onChange({ textDecoration: el.textDecoration === "underline" ? "none" : "underline" })}
+          >
+            <Underline className="h-3.5 w-3.5" />
+          </IconToggle>
+          <IconToggle
+            active={el.textDecoration === "line-through"}
+            label="Strikethrough"
+            onClick={() =>
+              onChange({ textDecoration: el.textDecoration === "line-through" ? "none" : "line-through" })
+            }
+          >
+            <Strikethrough className="h-3.5 w-3.5" />
           </IconToggle>
           <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
           <IconToggle active={el.align === "left"} label="Align left" onClick={() => onChange({ align: "left" })}>
@@ -679,36 +779,42 @@ function ImageFields({ el, onChange }: { el: ImageElement; onChange: (p: Partial
 }
 
 function ShapeFields({ el, onChange }: { el: ShapeElement; onChange: (p: Partial<ShapeElement>) => void }) {
+  const isLine = el.shape === "line";
   return (
     <div className="space-y-2">
       <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Shape</Label>
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
           <Label className="text-[10px]">Type</Label>
-          <Select value={el.shape} onValueChange={(v) => onChange({ shape: v as "rect" | "ellipse" })}>
+          <Select value={el.shape} onValueChange={(v) => onChange({ shape: v as ShapeKind })}>
             <SelectTrigger className="h-8 text-[12px]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="rect">Rectangle</SelectItem>
-              <SelectItem value="ellipse">Ellipse</SelectItem>
+              {(Object.keys(SHAPE_LABELS) as ShapeKind[]).map((shape) => (
+                <SelectItem key={shape} value={shape}>{SHAPE_LABELS[shape]}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-1">
-          <Label className="text-[10px]">Radius (mm)</Label>
-          <Input
-            type="number"
-            value={el.cornerRadius}
-            onChange={(e) => {
-              const n = Number.parseFloat(e.target.value);
-              if (Number.isFinite(n) && n >= 0) onChange({ cornerRadius: n });
-            }}
-            className="h-8 text-[12px]"
-          />
-        </div>
+        {/* Only a rectangle has corners to round. */}
+        {el.shape === "rect" && (
+          <div className="space-y-1">
+            <Label className="text-[10px]">Radius (mm)</Label>
+            <Input
+              type="number"
+              value={el.cornerRadius}
+              onChange={(e) => {
+                const n = Number.parseFloat(e.target.value);
+                if (Number.isFinite(n) && n >= 0) onChange({ cornerRadius: n });
+              }}
+              className="h-8 text-[12px]"
+            />
+          </div>
+        )}
       </div>
-      {/* Gradient takes precedence over the flat fill in both renderers, and the
+      {/* A line is all stroke — it has no interior to fill.
+          Gradient takes precedence over the flat fill in both renderers, and the
           flat value is kept underneath so removing the gradient restores it. */}
-      {el.fillGradient ? (
+      {isLine ? null : el.fillGradient ? (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -771,10 +877,10 @@ function ShapeFields({ el, onChange }: { el: ShapeElement; onChange: (p: Partial
         </>
       )}
 
-      <ColorRow label="Stroke" value={el.stroke} onChange={(stroke) => onChange({ stroke })} />
+      <ColorRow label={isLine ? "Color" : "Stroke"} value={el.stroke} onChange={(stroke) => onChange({ stroke })} />
       <div className="grid grid-cols-2 gap-2">
         <NumberRow
-          label="Stroke width"
+          label={isLine ? "Thickness (mm)" : "Stroke width"}
           value={el.strokeWidth}
           step={0.1}
           min={0}
@@ -859,6 +965,239 @@ function PillFields({ el, onChange }: { el: PillElement; onChange: (p: Partial<P
         onChange={(strokeWidth) => onChange({ strokeWidth })}
       />
     </div>
+  );
+}
+
+// ─── Multi-selection editor ────────────────────────────────────────────────
+
+/** `value` when every element agrees on it, otherwise `undefined` ("mixed"). */
+function shared<T>(values: T[]): T | undefined {
+  return values.length > 0 && values.every((v) => v === values[0]) ? values[0] : undefined;
+}
+
+/**
+ * Styling for several elements at once.
+ *
+ * A card in the templates is half a dozen separate elements, and a click
+ * selects all of them — so this panel is what an organizer sees most often.
+ * It used to show the page settings instead, which meant recolouring a card
+ * was six separate Alt-clicks. Each control applies to whichever selected
+ * elements it makes sense for and leaves the rest alone, in one undo step.
+ *
+ * A control shows the common value when the selection agrees, and a neutral
+ * placeholder when it doesn't.
+ */
+function SelectionProperties({
+  elements,
+  onStyle,
+  onDelete,
+}: {
+  elements: BrochureElement[];
+  onStyle: (style: SelectionStyle) => void;
+  onDelete: () => void;
+}) {
+  const texts = elements.filter((el): el is TextElement | PillElement => el.kind === "text" || el.kind === "pill");
+  const fillable = elements.filter((el): el is ShapeElement | PillElement => el.kind === "shape" || el.kind === "pill");
+
+  const textColor = shared(texts.map((el) => (el.kind === "text" ? el.color : el.textColor)));
+  const fillColor = shared(fillable.map((el) => (el.kind === "shape" ? el.fill : el.fillColor)));
+  const fontFamily = shared(texts.map((el) => el.fontFamily));
+  const allBold = texts.length > 0 && texts.every((el) => (el.fontWeight ?? "normal") === "bold");
+  const opacity = shared(elements.map((el) => el.opacity));
+  const allLocked = elements.every((el) => el.locked);
+  const allHidden = elements.every((el) => el.hidden);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          {elements.length} elements
+        </Label>
+        <div className="flex items-center gap-1">
+          <IconToggle
+            active={allHidden}
+            label={allHidden ? "Show all" : "Hide all"}
+            onClick={() => onStyle({ hidden: !allHidden })}
+          >
+            {allHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          </IconToggle>
+          <IconToggle
+            active={allLocked}
+            label={allLocked ? "Unlock all" : "Lock all"}
+            onClick={() => onStyle({ locked: !allLocked })}
+          >
+            {allLocked ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+          </IconToggle>
+          <Button size="sm" variant="outline" onClick={onDelete} className="h-7 text-[11px]">
+            Delete
+          </Button>
+        </div>
+      </div>
+      <p className="text-[10px] text-muted-foreground/80 -mt-2">
+        Changes apply to every selected element they fit. Click one piece again to edit it on its own.
+      </p>
+
+      {texts.length > 0 && (
+        <div className="space-y-2">
+          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Text ({texts.length})
+          </Label>
+          <div className="space-y-1">
+            <Label className="text-[10px]">Font family</Label>
+            <FontSelect
+              value={fontFamily ?? ""}
+              placeholder="Mixed fonts"
+              onChange={(family) => onStyle({ fontFamily: family })}
+            />
+          </div>
+          <div className="flex items-center gap-1">
+            <IconToggle active={false} label="Smaller text" onClick={() => onStyle({ fontScale: 1 / 1.1 })}>
+              <Minus className="h-3.5 w-3.5" />
+            </IconToggle>
+            <span className="text-[10px] text-muted-foreground px-1">Size</span>
+            <IconToggle active={false} label="Larger text" onClick={() => onStyle({ fontScale: 1.1 })}>
+              <Plus className="h-3.5 w-3.5" />
+            </IconToggle>
+            <div className="w-px h-5 bg-border mx-1" aria-hidden="true" />
+            <IconToggle
+              active={allBold}
+              label={allBold ? "Remove bold" : "Make bold"}
+              onClick={() => onStyle({ fontWeight: allBold ? "normal" : "bold" })}
+            >
+              <Bold className="h-3.5 w-3.5" />
+            </IconToggle>
+          </div>
+          <ColorRow
+            label="Text color"
+            value={textColor ?? ""}
+            placeholder="Mixed"
+            onChange={(color) => onStyle({ textColor: color })}
+          />
+        </div>
+      )}
+
+      {fillable.length > 0 && (
+        <div className="space-y-2">
+          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Shapes ({fillable.length})
+          </Label>
+          <ColorRow
+            label="Fill color"
+            value={fillColor ?? ""}
+            placeholder="Mixed"
+            onChange={(color) => onStyle({ fillColor: color })}
+          />
+        </div>
+      )}
+
+      <SliderRow
+        label="Opacity"
+        value={opacity ?? 1}
+        min={0}
+        max={1}
+        step={0.05}
+        format={(v) => (opacity === undefined ? "Mixed" : `${Math.round(v * 100)}%`)}
+        onChange={(next) => onStyle({ opacity: next })}
+      />
+    </div>
+  );
+}
+
+// ─── Layers ────────────────────────────────────────────────────────────────
+
+/** A short, human name for an element in the layers list. */
+function layerLabel(el: BrochureElement): string {
+  if (el.kind === "text") return el.content.replace(/\s+/g, " ").trim() || "Empty text";
+  if (el.kind === "pill") return el.text.trim() || "Pill";
+  if (el.kind === "image") return "Image";
+  return SHAPE_LABELS[el.shape];
+}
+
+/**
+ * Every element on the page, front-most first.
+ *
+ * Clicking a row selects that one element — even inside a card, and even when
+ * it is locked or hidden, which the canvas can't do. Shift-click adds to the
+ * selection. The eye and padlock on each row toggle without selecting.
+ */
+function LayersList({
+  elements,
+  selectedElementIds,
+  onSelect,
+  onPatch,
+}: {
+  elements: BrochureElement[];
+  selectedElementIds: string[];
+  onSelect: (elementIds: string[]) => void;
+  onPatch: (elementId: string, patch: Partial<BrochureElement>) => void;
+}) {
+  if (elements.length === 0) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        This page is empty. Add text, an image or a shape from the bar on the left.
+      </p>
+    );
+  }
+  const frontFirst = [...sortedByZ(elements)].reverse();
+  const icon = (el: BrochureElement) =>
+    el.kind === "text" ? (
+      <Type className="h-3.5 w-3.5" />
+    ) : el.kind === "image" ? (
+      <ImageIcon className="h-3.5 w-3.5" />
+    ) : el.kind === "pill" ? (
+      <Tag className="h-3.5 w-3.5" />
+    ) : (
+      <Shapes className="h-3.5 w-3.5" />
+    );
+
+  return (
+    <ul className="space-y-0.5" aria-label="Layers, front-most first">
+      {frontFirst.map((el) => {
+        const selected = selectedElementIds.includes(el.id);
+        return (
+          <li
+            key={el.id}
+            className={`flex items-center gap-1 rounded px-1 ${selected ? "bg-primary/10" : "hover:bg-muted/60"}`}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                if (e.shiftKey || e.metaKey || e.ctrlKey) {
+                  onSelect(
+                    selected
+                      ? selectedElementIds.filter((id) => id !== el.id)
+                      : [...selectedElementIds, el.id]
+                  );
+                } else {
+                  onSelect([el.id]);
+                }
+              }}
+              className={`flex flex-1 min-w-0 items-center gap-1.5 h-7 text-left text-[11px] ${
+                el.hidden ? "text-muted-foreground/60" : ""
+              }`}
+              aria-pressed={selected}
+            >
+              <span className="shrink-0 text-muted-foreground">{icon(el)}</span>
+              <span className="truncate">{layerLabel(el)}</span>
+            </button>
+            <IconToggle
+              active={!!el.hidden}
+              label={el.hidden ? "Show" : "Hide"}
+              onClick={() => onPatch(el.id, { hidden: !el.hidden })}
+            >
+              {el.hidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+            </IconToggle>
+            <IconToggle
+              active={!!el.locked}
+              label={el.locked ? "Unlock" : "Lock"}
+              onClick={() => onPatch(el.id, { locked: !el.locked })}
+            >
+              {el.locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+            </IconToggle>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -1044,9 +1383,6 @@ function PageProperties({
 
 // ─── Image source picker ───────────────────────────────────────────────────
 
-/** Largest file we'll inline as a data URL. */
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-
 /**
  * Device upload or URL paste, shared by image elements and page backgrounds.
  *
@@ -1067,30 +1403,11 @@ function ImagePicker({
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleFile = (file: File | null) => {
+  const handleFile = async (file: File | null) => {
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("That file isn't an image", {
-        description: "Pick a PNG, JPG, WebP or SVG.",
-      });
-      return;
-    }
-    if (file.size > MAX_IMAGE_BYTES) {
-      const mb = (file.size / (1024 * 1024)).toFixed(1);
-      toast.error("Image is too large", {
-        description: `${mb} MB — the limit is 5 MB. Resize it, or paste a URL instead.`,
-      });
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = typeof reader.result === "string" ? reader.result : "";
-      if (url) onPick(url);
-    };
-    reader.onerror = () => {
-      toast.error("Couldn't read that file");
-    };
-    reader.readAsDataURL(file);
+    const result = await readImageFile(file);
+    if (result.status === "ok") onPick(result.dataUrl);
+    else toast.error(result.title, { description: result.description });
   };
 
   const isUploaded = src.startsWith("data:");
@@ -1103,7 +1420,7 @@ function ImagePicker({
         accept="image/*"
         className="hidden"
         onChange={(e) => {
-          handleFile(e.target.files?.[0] ?? null);
+          void handleFile(e.target.files?.[0] ?? null);
           // Reset so choosing the same file twice still fires a change event.
           if (fileInputRef.current) fileInputRef.current.value = "";
         }}
@@ -1230,7 +1547,18 @@ function IconToggle({
 
 // ─── Small colour input row ────────────────────────────────────────────────
 
-function ColorRow({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function ColorRow({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  /** Shown in the text field when `value` is empty — a mixed selection. */
+  placeholder?: string;
+}) {
   return (
     <div className="space-y-1">
       <Label className="text-[10px]">{label}</Label>
@@ -1244,6 +1572,7 @@ function ColorRow({ label, value, onChange }: { label: string; value: string; on
         />
         <Input
           value={value}
+          placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
           className="h-8 text-[12px] flex-1"
         />

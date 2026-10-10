@@ -25,6 +25,9 @@ import { useCallback, useRef, useState } from "react";
 export interface UseHistoryOptions {
   /** Maximum history depth. Default 50. */
   maxSize?: number;
+  /** Changes arriving within this many ms of the previous one are folded into
+   *  the same undo step. Default 400. */
+  coalesceMs?: number;
 }
 
 export interface UseHistoryResult<T> {
@@ -38,20 +41,35 @@ export interface UseHistoryResult<T> {
 }
 
 const DEFAULT_MAX = 50;
+const DEFAULT_COALESCE_MS = 400;
 
 export function useHistory<T>(initial: T, options?: UseHistoryOptions): UseHistoryResult<T> {
   const maxSize = options?.maxSize ?? DEFAULT_MAX;
+  const coalesceMs = options?.coalesceMs ?? DEFAULT_COALESCE_MS;
   const [value, setValue] = useState<T>(initial);
   const undoStack = useRef<T[]>([]);
   const redoStack = useRef<T[]>([]);
+  /** When the last `set` landed. Undo, redo and reset clear it, so the next
+   *  change after any of them always starts a fresh step. */
+  const lastSetAt = useRef(0);
   const [, forceTick] = useState(0);
   const tick = () => forceTick((n) => n + 1);
 
   const set = useCallback(
     (next: T) => {
-      undoStack.current.push(value);
-      if (undoStack.current.length > maxSize) {
-        undoStack.current.shift();
+      // A burst of changes is one edit. Typing in a field or dragging a slider
+      // fires a change per keystroke / per pixel; recording each one filled the
+      // whole 50-step history with a single word, and Undo took back one
+      // letter at a time. Keeping only the snapshot from BEFORE the burst makes
+      // one Undo restore what the organizer had before they started.
+      const now = Date.now();
+      const continuing = undoStack.current.length > 0 && now - lastSetAt.current < coalesceMs;
+      lastSetAt.current = now;
+      if (!continuing) {
+        undoStack.current.push(value);
+        if (undoStack.current.length > maxSize) {
+          undoStack.current.shift();
+        }
       }
       redoStack.current.length = 0; // any redo future is invalidated
       setValue(next);
@@ -61,12 +79,13 @@ export function useHistory<T>(initial: T, options?: UseHistoryOptions): UseHisto
     // we need the LATEST `value` at call time so the undo snapshot
     // corresponds to what the user just changed FROM.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [value, maxSize]
+    [value, maxSize, coalesceMs]
   );
 
   const undo = useCallback(() => {
     const prev = undoStack.current.pop();
     if (prev === undefined) return;
+    lastSetAt.current = 0;
     redoStack.current.push(value);
     if (redoStack.current.length > maxSize) {
       redoStack.current.shift();
@@ -79,6 +98,7 @@ export function useHistory<T>(initial: T, options?: UseHistoryOptions): UseHisto
   const redo = useCallback(() => {
     const next = redoStack.current.pop();
     if (next === undefined) return;
+    lastSetAt.current = 0;
     undoStack.current.push(value);
     if (undoStack.current.length > maxSize) {
       undoStack.current.shift();
@@ -91,6 +111,7 @@ export function useHistory<T>(initial: T, options?: UseHistoryOptions): UseHisto
   const reset = useCallback((v: T) => {
     undoStack.current.length = 0;
     redoStack.current.length = 0;
+    lastSetAt.current = 0;
     setValue(v);
     tick();
   }, []);

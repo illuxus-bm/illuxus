@@ -125,6 +125,8 @@ export interface TextElement extends Geometry {
   /** Outline drawn around the glyphs. `strokeWidth` is in mm. */
   strokeColor?: string;
   strokeWidth?: number;
+  /** Underline or strike-through. Absent means neither. */
+  textDecoration?: "none" | "underline" | "line-through";
 }
 
 /** Image element — a bitmap loaded from a URL. */
@@ -170,11 +172,22 @@ export interface ImageElement extends Geometry {
   flipV?: boolean;
 }
 
-/** Vector shape element — rect or ellipse for now, more later. */
+/**
+ * Every shape a shape element can be.
+ *
+ * `rect` and `ellipse` are drawn as such. The polygons (`triangle`, `diamond`,
+ * `hexagon`, `star`, `arrow`) are outlines fitted to the element's box — see
+ * `shapePolygonPoints` — so they stretch with it like any other shape. `line`
+ * is a stroke through the middle of the box; its box height is only the area
+ * you can grab.
+ */
+export type ShapeKind = "rect" | "ellipse" | "triangle" | "diamond" | "hexagon" | "star" | "arrow" | "line";
+
+/** Vector shape element. */
 export interface ShapeElement extends Geometry {
   id: string;
   kind: "shape";
-  shape: "rect" | "ellipse";
+  shape: ShapeKind;
   fill: string; // hex or transparent
   stroke: string; // hex
   strokeWidth: number; // mm
