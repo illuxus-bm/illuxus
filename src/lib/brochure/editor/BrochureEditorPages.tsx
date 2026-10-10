@@ -1,20 +1,36 @@
 /**
  * BrochureEditorPages — bottom bar with page thumbnails + add-page /
  * duplicate-page / delete-page controls. Clicking a thumbnail switches
- * the active page; buttons at the end append / duplicate / remove
- * pages.
+ * the active page; buttons at the end add / duplicate / remove pages.
  *
- * Thumbnails are cheap SVG placeholders keyed on page id + a running
- * "text preview" pulled from the first text element on the page. A
- * real image thumbnail render would require running the full Konva
- * export pipeline per page, which is too expensive to run on every
- * document mutation; the SVG placeholder is precise enough for
- * navigation.
+ * Each thumbnail is the page itself, drawn by the same renderer as the
+ * export at a very low resolution. A page object is replaced only when
+ * that page changes, so editing one page re-renders one thumbnail, and
+ * the render waits for a pause in editing — which is what makes a real
+ * picture affordable here.
  */
-import { Plus, Copy, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Plus, Copy, Trash2, ChevronLeft, ChevronRight, LayoutTemplate } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 import type { BrochureDocument, BrochurePage } from "./editor-document";
+import { onFontLoaded } from "./editor-fonts";
+import { renderPageToCanvas } from "./editor-pdf";
+
+/** A ready-made page the organizer can add, e.g. "Agenda" or "Pricing". */
+export interface TemplatePageOption {
+  id: string;
+  label: string;
+}
 
 interface Props {
   document: BrochureDocument;
@@ -24,6 +40,9 @@ interface Props {
   onDuplicatePage: (id: string) => void;
   onDeletePage: (id: string) => void;
   onMovePage: (id: string, direction: "earlier" | "later") => void;
+  /** Template pages offered in the "add page" menu. */
+  templatePages?: TemplatePageOption[];
+  onAddTemplatePage?: (id: string) => void;
 }
 
 export default function BrochureEditorPages({
@@ -34,10 +53,12 @@ export default function BrochureEditorPages({
   onDuplicatePage,
   onDeletePage,
   onMovePage,
+  templatePages = [],
+  onAddTemplatePage,
 }: Props) {
   const activeIndex = doc.pages.findIndex((p) => p.id === activePageId);
   return (
-    <div className="h-24 border-t border-border bg-background flex items-center gap-2 px-3 overflow-x-auto shrink-0">
+    <div className="h-28 border-t border-border bg-background flex items-center gap-2 px-3 overflow-x-auto shrink-0">
       {doc.pages.map((page, idx) => (
         <PageThumbnail
           key={page.id}
@@ -49,9 +70,8 @@ export default function BrochureEditorPages({
       ))}
 
       {/* Reordering. Without this a multi-page brochure could not be
-          resequenced at all, and "duplicate page" appended the copy to the very
-          end — so duplicating page 2 of 8 left it stranded at position 9. */}
-      <div className="flex flex-col gap-1 pl-2 border-l border-border h-full py-2 shrink-0">
+          resequenced at all. */}
+      <div className="flex flex-col gap-1 pl-2 border-l border-border h-full py-2 shrink-0 justify-center">
         <Button
           size="sm"
           variant="ghost"
@@ -76,17 +96,34 @@ export default function BrochureEditorPages({
         </Button>
       </div>
 
-      <div className="flex flex-col gap-1 pl-2 border-l border-border h-full py-2 shrink-0">
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 w-7 p-0"
-          onClick={onAddPage}
-          title="Add page"
-          aria-label="Add page"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </Button>
+      <div className="flex flex-col gap-1 pl-2 border-l border-border h-full py-2 shrink-0 justify-center">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Add page" aria-label="Add page">
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" side="top" className="min-w-[200px]">
+            <DropdownMenuItem onClick={onAddPage}>
+              <Plus className="h-3.5 w-3.5 mr-2" />
+              Blank page
+            </DropdownMenuItem>
+            {templatePages.length > 0 && onAddTemplatePage && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  From the template
+                </DropdownMenuLabel>
+                {templatePages.map((option) => (
+                  <DropdownMenuItem key={option.id} onClick={() => onAddTemplatePage(option.id)}>
+                    <LayoutTemplate className="h-3.5 w-3.5 mr-2" />
+                    {option.label}
+                  </DropdownMenuItem>
+                ))}
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           size="sm"
           variant="ghost"
@@ -113,6 +150,47 @@ export default function BrochureEditorPages({
   );
 }
 
+/** Resolution of a thumbnail render. An A4 page is ~150 × 210 px at this. */
+const THUMBNAIL_DPI = 18;
+/** How long a page must go unchanged before its thumbnail is redrawn. */
+const THUMBNAIL_DELAY_MS = 350;
+
+/**
+ * Low-resolution picture of `page`, or `null` until the first render lands.
+ *
+ * Keyed on the page OBJECT: the document is immutable, so an edit replaces
+ * only the page it touched, and only that thumbnail's effect re-runs. The
+ * previous picture stays up until the new one is ready, so thumbnails don't
+ * flicker while typing.
+ */
+function usePageThumbnail(page: BrochurePage): string | null {
+  const [src, setSrc] = useState<string | null>(null);
+  // Redraw once fonts arrive — the first render usually beats them, and would
+  // otherwise leave every thumbnail set in the fallback font.
+  const [fontEpoch, setFontEpoch] = useState(0);
+  useEffect(() => onFontLoaded(() => setFontEpoch((n) => n + 1)), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      renderPageToCanvas(page, THUMBNAIL_DPI)
+        .then((canvas) => {
+          if (!cancelled) setSrc(canvas.toDataURL("image/png"));
+        })
+        .catch(() => {
+          // A thumbnail is a convenience; a page that won't render (a
+          // cross-origin image tainting the canvas) keeps its placeholder.
+        });
+    }, THUMBNAIL_DELAY_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [page, fontEpoch]);
+
+  return src;
+}
+
 function PageThumbnail({
   page,
   index,
@@ -124,44 +202,35 @@ function PageThumbnail({
   isActive: boolean;
   onSelect: () => void;
 }) {
-  // Rough "preview": show the first text element's content
-  // truncated (so a "Speakers" heading page reads as "Speakers", etc).
-  // When a page has no text (like a full-bleed image cover), fall back
-  // to a kind-based label so the thumbnail still reads meaningfully
-  // instead of showing the generic "Page" fallback.
-  const firstText = page.elements.find((el) => el.kind === "text");
-  const previewText =
-    firstText && firstText.kind === "text"
-      ? firstText.content.slice(0, 24)
-      : page.elements.some((el) => el.kind === "image")
-        ? "Cover"
-        : "";
-  const bg =
+  const src = usePageThumbnail(page);
+  const placeholder =
     page.background.type === "solid"
       ? page.background.color
       : page.background.type === "gradient"
         ? page.background.top
         : "#f3f4f6";
+  // Thumbnails share a height and take their width from the page's own
+  // proportions, so a landscape page looks landscape.
+  const height = 76;
+  const width = Math.max(28, Math.round((height * page.width) / page.height));
 
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={`flex-shrink-0 h-full w-14 rounded border transition-colors flex flex-col items-center justify-between py-1 text-[9px] ${
-        isActive
-          ? "border-primary ring-1 ring-primary bg-primary/5"
-          : "border-border hover:bg-muted/40"
+      aria-label={`Page ${index + 1}`}
+      aria-current={isActive ? "page" : undefined}
+      className={`flex-shrink-0 rounded border p-1 transition-colors flex flex-col items-center gap-0.5 text-[9px] ${
+        isActive ? "border-primary ring-1 ring-primary bg-primary/5" : "border-border hover:bg-muted/40"
       }`}
-      style={{ borderColor: isActive ? undefined : "hsl(var(--border))" }}
     >
-      <span className="text-muted-foreground">{index + 1}</span>
       <div
-        className="w-9 h-11 rounded-sm shadow-sm border border-black/10"
-        style={{ backgroundColor: bg }}
-      />
-      <span className="text-muted-foreground truncate w-full text-center px-1">
-        {previewText || "Page"}
-      </span>
+        className="rounded-sm shadow-sm border border-black/10 overflow-hidden"
+        style={{ width, height, backgroundColor: placeholder }}
+      >
+        {src && <img src={src} alt="" width={width} height={height} className="block w-full h-full" draggable={false} />}
+      </div>
+      <span className="text-muted-foreground tabular-nums">{index + 1}</span>
     </button>
   );
 }

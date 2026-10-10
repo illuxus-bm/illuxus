@@ -162,10 +162,14 @@ describe("textExtras", () => {
     expect(textExtras({ letterSpacing: 0 }, 2, 10).letterSpacing).toBeUndefined();
   });
 
-  it("omits verticalAlign for top, which is the renderers' historic default", () => {
-    expect(textExtras({ verticalAlign: "top" }, 2, 10).verticalAlign).toBeUndefined();
-    expect(textExtras({ verticalAlign: "middle" }, 2, 10).verticalAlign).toBe("middle");
-    expect(textExtras({ verticalAlign: "bottom" }, 2, 10).verticalAlign).toBe("bottom");
+  it("never sets Konva's verticalAlign — that needs a fixed height, which clips", () => {
+    expect(textExtras({ verticalAlign: "middle" } as never, 2, 10)).not.toHaveProperty("verticalAlign");
+  });
+
+  it("passes underline and strike-through through, and omits 'none'", () => {
+    expect(textExtras({ textDecoration: "underline" }, 2, 10).textDecoration).toBe("underline");
+    expect(textExtras({ textDecoration: "line-through" }, 2, 10).textDecoration).toBe("line-through");
+    expect(textExtras({ textDecoration: "none" }, 2, 10).textDecoration).toBeUndefined();
   });
 
   it("emits a glyph outline scaled by pxPerMm", () => {

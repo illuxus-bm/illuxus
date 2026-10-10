@@ -32,6 +32,7 @@ import type {
   ElementShadow,
   ShapeElement,
   ShapeGradient,
+  ShapeKind,
   StrokeDash,
   TextElement,
 } from "./editor-document";
@@ -124,29 +125,59 @@ export interface KonvaTextExtras {
   /** Konva paints the stroke UNDER the fill for text unless told otherwise;
    *  without this an outline wider than a hairline eats into the glyph. */
   fillAfterStrokeEnabled?: boolean;
+  textDecoration?: "underline" | "line-through";
 }
 
 /**
- * Letter spacing, vertical alignment and glyph outline for a text element.
+ * Letter spacing, decoration and glyph outline for a text element.
+ *
+ * Vertical alignment is deliberately NOT here: it is resolved by
+ * `textVerticalOffset`, because Konva's own `verticalAlign` only works on a
+ * fixed-height text node, and a fixed height is what makes Konva drop lines.
  *
  * `letterSpacing` is stored in points (the same unit as `fontSize`) and
  * converted here with the caller's pt→px factor, so tracking scales with the
  * type rather than drifting between preview and export.
  */
 export function textExtras(
-  el: Pick<TextElement, "letterSpacing" | "verticalAlign" | "strokeColor" | "strokeWidth">,
+  el: Pick<TextElement, "letterSpacing" | "strokeColor" | "strokeWidth" | "textDecoration">,
   ptToPxFactor: number,
   pxPerMm: number,
 ): KonvaTextExtras {
   const extras: KonvaTextExtras = {};
   if (el.letterSpacing) extras.letterSpacing = el.letterSpacing * ptToPxFactor;
-  if (el.verticalAlign && el.verticalAlign !== "top") extras.verticalAlign = el.verticalAlign;
+  if (el.textDecoration && el.textDecoration !== "none") extras.textDecoration = el.textDecoration;
   if (el.strokeColor && el.strokeColor !== "transparent" && (el.strokeWidth ?? 0) > 0) {
     extras.stroke = el.strokeColor;
     extras.strokeWidth = (el.strokeWidth ?? 0) * pxPerMm;
     extras.fillAfterStrokeEnabled = true;
   }
   return extras;
+}
+
+/**
+ * Where a text block sits inside its element box, as an offset from the top.
+ *
+ * Both renderers draw text at its NATURAL height (no Konva `height`), because a
+ * fixed-height Konva text node silently drops every line that doesn't fit — so
+ * retyping a heading into a longer one used to make the end of it vanish from
+ * the canvas and the PDF with no warning. Drawing unclipped means the element
+ * box no longer positions the text for us, hence this.
+ *
+ * Text taller than its box is anchored at the top and overflows downward,
+ * whatever the alignment: centring it would push its first line out above the
+ * box, which reads as the text having moved.
+ */
+export function textVerticalOffset(
+  boxHeight: number,
+  naturalHeight: number,
+  verticalAlign: TextElement["verticalAlign"],
+): number {
+  const free = boxHeight - naturalHeight;
+  if (free <= 0) return 0;
+  if (verticalAlign === "middle") return free / 2;
+  if (verticalAlign === "bottom") return free;
+  return 0;
 }
 
 // ─── Shape fill / stroke ────────────────────────────────────────────────────
@@ -210,6 +241,62 @@ export function dashArray(
   const unit = Math.max(strokeWidthPx, 0.5);
   return dash === "dotted" ? [unit, unit * 2] : [unit * 4, unit * 3];
 }
+
+// ─── Polygon shapes ─────────────────────────────────────────────────────────
+
+/**
+ * Outline of a polygon shape fitted to a `width` × `height` box, as a flat
+ * `[x0, y0, x1, y1, …]` list for a closed Konva `Line`. Returns `null` for the
+ * shapes that aren't polygons (`rect`, `ellipse`, `line`), which each renderer
+ * draws with a dedicated node.
+ *
+ * Shared so the canvas and the exporter can't draw a different star.
+ */
+export function shapePolygonPoints(shape: ShapeKind, width: number, height: number): number[] | null {
+  const w = width;
+  const h = height;
+  switch (shape) {
+    case "triangle":
+      return [w / 2, 0, w, h, 0, h];
+    case "diamond":
+      return [w / 2, 0, w, h / 2, w / 2, h, 0, h / 2];
+    case "hexagon":
+      return [w * 0.25, 0, w * 0.75, 0, w, h / 2, w * 0.75, h, w * 0.25, h, 0, h / 2];
+    case "arrow": {
+      // Shaft through the middle 40% of the height, head over the last 40% of
+      // the width (capped so a very long arrow keeps a sensible head).
+      const head = Math.min(w * 0.4, h);
+      const top = h * 0.3;
+      const bottom = h * 0.7;
+      return [0, top, w - head, top, w - head, 0, w, h / 2, w - head, h, w - head, bottom, 0, bottom];
+    }
+    case "star": {
+      // Five points, first one straight up, inner radius at the classic 38%.
+      const points: number[] = [];
+      for (let i = 0; i < 10; i += 1) {
+        const radius = i % 2 === 0 ? 0.5 : 0.19;
+        const angle = -Math.PI / 2 + (i * Math.PI) / 5;
+        points.push(w / 2 + Math.cos(angle) * radius * w, h / 2 + Math.sin(angle) * radius * h);
+      }
+      return points;
+    }
+    default:
+      return null;
+  }
+}
+
+/** Display name for a shape, used by the palette, the layers list and the
+ *  properties panel. */
+export const SHAPE_LABELS: Record<ShapeKind, string> = {
+  rect: "Rectangle",
+  ellipse: "Ellipse",
+  triangle: "Triangle",
+  diamond: "Diamond",
+  hexagon: "Hexagon",
+  star: "Star",
+  arrow: "Arrow",
+  line: "Line",
+};
 
 // ─── Image mirroring ────────────────────────────────────────────────────────
 

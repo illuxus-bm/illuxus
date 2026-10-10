@@ -39,7 +39,13 @@
  * rather than the selection.
  *
  * Double-clicking a text or pill element edits it in place on the canvas.
- * Alt-clicking reaches a single element inside a grouped card.
+ * Clicking a grouped card selects the whole card; clicking one of its pieces
+ * again (or Alt-clicking) selects just that piece. Right-clicking opens a
+ * menu of the same actions as the toolbar. Image files can be dropped
+ * straight onto the page.
+ *
+ * Closing with unsaved changes asks first — the editor is unmounted on close,
+ * so there is nothing to come back to otherwise.
  *
  * Export renders each page to a Konva canvas at print DPI and stamps
  * into a jsPDF, then triggers a browser download. Save persists the
@@ -73,12 +79,31 @@ import {
   ClipboardCopy,
   ClipboardPaste,
   Scissors,
+  Lock,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { preloadAllEditorFonts } from "@/lib/brochure/editor/editor-fonts";
 
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { logger } from "@/lib/observability";
@@ -86,25 +111,32 @@ import { logger } from "@/lib/observability";
 import BrochureEditorCanvas from "@/lib/brochure/editor/BrochureEditorCanvas";
 import BrochureEditorProperties from "@/lib/brochure/editor/BrochureEditorProperties";
 import BrochureEditorPalette from "@/lib/brochure/editor/BrochureEditorPalette";
-import BrochureEditorPages from "@/lib/brochure/editor/BrochureEditorPages";
+import BrochureEditorPages, { type TemplatePageOption } from "@/lib/brochure/editor/BrochureEditorPages";
 import { EDITOR_SEED_VERSION, seedBrochureDocument, type TemplateSeedInput } from "@/lib/brochure/editor/editor-templates";
-import type { BrochureSectionId, BrochureTheme } from "@/lib/brochure/brochure-templates";
+import {
+  DEFAULT_SECTION_LAYOUT,
+  POSTER_BOLD_SECTION_LAYOUT,
+  type BrochureSectionId,
+  type BrochureTheme,
+} from "@/lib/brochure/brochure-templates";
 import {
   addElement,
-  addPage,
-  generateId,
+  newImageElement,
   newPage,
   removePage,
   type BrochureDocument,
   type BrochureElement,
-  type BrochurePage,
 } from "@/lib/brochure/editor/editor-document";
+import { placedImageSizeMm, readImageFile } from "@/lib/brochure/editor/editor-image-file";
 import {
   alignElements,
+  applySelectionStyle,
+  clonePage,
   copyElements,
   distributeElements,
   duplicateElements,
   groupElements,
+  insertPagesAfter,
   movePage,
   pasteElements,
   reorderElements,
@@ -117,6 +149,19 @@ import {
 } from "@/lib/brochure/editor/editor-operations";
 import { useHistory } from "@/lib/brochure/editor/editor-history";
 import { downloadDocumentAsPdf } from "@/lib/brochure/editor/editor-pdf";
+
+/** Names for the template pages offered in the "add page" menu. */
+const TEMPLATE_PAGE_LABELS: Partial<Record<BrochureSectionId, string>> = {
+  cover: "Cover",
+  abstract: "Abstract",
+  whySponsor: "Why Sponsor",
+  agenda: "Agenda",
+  speakers: "Speakers",
+  sponsors: "Sponsors",
+  pricing: "Pricing",
+  sponsorshipPackages: "Partnership Packages",
+  venueLogistics: "Venue & Logistics",
+};
 
 interface Props {
   open: boolean;
@@ -240,25 +285,34 @@ export default function BrochureEditorDialog({
   const [isExporting, setIsExporting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  /**
-   * The properties panel edits ONE element's kind-specific fields, so it stays
-   * single-selection. With 2+ selected it shows its page-level empty state,
-   * which is the honest thing to show — there is no meaningful "font size" for
-   * a mixed selection of a rect and two text runs.
-   */
-  const selectedElementId = selectedElementIds.length === 1 ? selectedElementIds[0] : null;
   const hasSelection = selectedElementIds.length > 0;
   const hasMultiSelection = selectedElementIds.length > 1;
+
+  /** The document as last saved (or as first loaded). Anything else is unsaved. */
+  const savedDocRef = useRef<BrochureDocument | null>(initial);
+  const [confirmClose, setConfirmClose] = useState(false);
+
+  /** Latest document for callbacks that finish after an `await` (image
+   *  reads), by which time the `doc` they closed over may be stale. */
+  const docRef = useRef(doc);
+  docRef.current = doc;
 
   // On template swap (or first mount), reset the history and select
   // the first page.
   useEffect(() => {
-    if (!open) return;
-    if (initial) {
-      history.reset(initial);
-      setActivePageId(initial.pages[0]?.id ?? null);
-      setSelectedElementIds([]);
+    if (!open || !initial) return;
+    // Saving hands the document back down as a new `initialDocument` object.
+    // That is the document already on screen, not a different one — resetting
+    // for it wiped the undo history and jumped back to page 1 on every Save.
+    const current = history.value;
+    if (current && current.id === initial.id && current.updatedAt === initial.updatedAt) {
+      savedDocRef.current = current;
+      return;
     }
+    history.reset(initial);
+    savedDocRef.current = initial;
+    setActivePageId(initial.pages[0]?.id ?? null);
+    setSelectedElementIds([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial, open]);
 
@@ -437,8 +491,8 @@ export default function BrochureEditorDialog({
     const page = current
       ? { ...base, width: current.width, height: current.height, background: current.background }
       : base;
-    const next = addPage(doc, page);
-    setDoc(next);
+    // Next to the page being worked on, not at the far end of the brochure.
+    setDoc(insertPagesAfter(doc, activePageId, [page]));
     setActivePageId(page.id);
     setSelectedElementIds([]);
   }, [doc, activePageId, setDoc]);
@@ -448,22 +502,94 @@ export default function BrochureEditorDialog({
       if (!doc) return;
       const source = doc.pages.find((p) => p.id === pageId);
       if (!source) return;
-      const cloned: BrochurePage = {
-        ...source,
-        id: generateId("page"),
-        // Each element also needs a fresh id so selecting the clone
-        // doesn't select the original.
-        elements: source.elements.map((el) => ({
-          ...el,
-          id: generateId(el.kind),
-        } as BrochureElement)),
-      };
-      setDoc(addPage(doc, cloned));
+      // Fresh ids for the page, its elements AND its card groups — a copy that
+      // kept the original's group ids would select as one card with it.
+      const cloned = clonePage(source);
+      setDoc(insertPagesAfter(doc, pageId, [cloned]));
       setActivePageId(cloned.id);
       setSelectedElementIds([]);
     },
     [doc, setDoc]
   );
+
+  // ─── Template pages ─────────────────────────────────────────────────────
+  //
+  // The pages the theme can build from the event's data. Offered in the "add
+  // page" menu so a deleted Agenda can be brought back, or a second Pricing
+  // page added, without resetting the whole brochure to the template.
+  const templatePages = useMemo<TemplatePageOption[]>(() => {
+    const layout = theme.id === "poster-bold" ? POSTER_BOLD_SECTION_LAYOUT : DEFAULT_SECTION_LAYOUT;
+    return layout.flatMap((entry) => {
+      const label = TEMPLATE_PAGE_LABELS[entry.id];
+      return label ? [{ id: entry.id, label }] : [];
+    });
+  }, [theme.id]);
+
+  const handleAddTemplatePage = useCallback(
+    (sectionId: string) => {
+      if (!doc) return;
+      const pages = seedBrochureDocument(seed, theme, [sectionId as BrochureSectionId]).pages;
+      // The seed returns one blank page when a section has no content.
+      if (pages.length === 0 || pages.every((p) => p.elements.length === 0)) {
+        toast.info("Nothing to put on that page yet", {
+          description: "Add its content in the brochure settings first, or start from a blank page.",
+        });
+        return;
+      }
+      setDoc(insertPagesAfter(doc, activePageId, pages));
+      setActivePageId(pages[0].id);
+      setSelectedElementIds([]);
+    },
+    [doc, seed, theme, activePageId, setDoc]
+  );
+
+  // ─── Dropped images ─────────────────────────────────────────────────────
+  const handleDropFiles = useCallback(
+    async (files: File[], at: { x: number; y: number }) => {
+      if (!activePageId) return;
+      const added: BrochureElement[] = [];
+      for (const file of files) {
+        const result = await readImageFile(file);
+        if (result.status !== "ok") {
+          toast.error(result.title, { description: result.description });
+          continue;
+        }
+        const latest = docRef.current;
+        const page = latest?.pages.find((p) => p.id === activePageId);
+        if (!page) return;
+        const size = placedImageSizeMm(result.width, result.height, page.width, page.height);
+        // Centred on the drop point; several files fan out so none hides another.
+        const offset = added.length * 6;
+        added.push(
+          newImageElement({
+            x: at.x - size.width / 2 + offset,
+            y: at.y - size.height / 2 + offset,
+            ...size,
+            src: result.dataUrl,
+            fit: "cover",
+          })
+        );
+      }
+      const latest = docRef.current;
+      if (!latest || added.length === 0) return;
+      // One update for the whole drop, so it is one undo step.
+      const next = added.reduce((acc, el) => addElement(acc, activePageId, el), latest);
+      setDoc(next);
+      const page = next.pages.find((p) => p.id === activePageId);
+      setSelectedElementIds(page ? page.elements.slice(-added.length).map((el) => el.id) : []);
+    },
+    [activePageId, setDoc]
+  );
+
+  // Locking takes an element out of reach of the canvas, so the selection is
+  // dropped with it — leaving the handles on something that can no longer be
+  // dragged reads as the editor having frozen.
+  const handleLockSelected = useCallback(() => {
+    if (!doc || !activePageId || !hasSelection) return;
+    setDoc(applySelectionStyle(doc, activePageId, selectedElementIds, { locked: true }));
+    setSelectedElementIds([]);
+    toast.success("Locked", { description: "Unlock it from the Layers tab on the right." });
+  }, [doc, activePageId, hasSelection, selectedElementIds, setDoc]);
 
   const handleDeletePage = useCallback(
     (pageId: string) => {
@@ -600,11 +726,13 @@ export default function BrochureEditorDialog({
   }, [doc]);
 
   const handleSave = useCallback(async () => {
-    if (!doc || !onSaveDocument) return;
+    if (!doc || !onSaveDocument) return false;
     setIsSaving(true);
     try {
       await onSaveDocument(doc);
+      savedDocRef.current = doc;
       toast.success("Brochure saved");
+      return true;
     } catch (err) {
       logger.error("brochure editor save failed", {
         error_message: err instanceof Error ? err.message : String(err),
@@ -612,10 +740,33 @@ export default function BrochureEditorDialog({
       toast.error("Save failed", {
         description: err instanceof Error ? err.message : "Unknown error.",
       });
+      return false;
     } finally {
       setIsSaving(false);
     }
   }, [doc, onSaveDocument]);
+
+  // ─── Closing ────────────────────────────────────────────────────────────
+  //
+  // The parent unmounts this dialog when it closes, taking the document and
+  // its undo history with it. Closing used to do that without a word, so an
+  // organizer who clicked away after an hour of layout lost all of it.
+  const hasUnsavedChanges = !!onSaveDocument && !!doc && doc !== savedDocRef.current;
+
+  const requestClose = useCallback(() => {
+    if (hasUnsavedChanges) setConfirmClose(true);
+    else onOpenChange(false);
+  }, [hasUnsavedChanges, onOpenChange]);
+
+  const handleSaveAndClose = useCallback(async () => {
+    const saved = await handleSave();
+    // A failed save keeps the editor open: the toast says why, and the work is
+    // still here to retry.
+    if (saved) {
+      setConfirmClose(false);
+      onOpenChange(false);
+    }
+  }, [handleSave, onOpenChange]);
 
   // ─── Reset to template ─────────────────────────────────────────────────
   //
@@ -666,12 +817,19 @@ export default function BrochureEditorDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[98vw] w-[98vw] h-[95vh] p-0 gap-0 flex flex-col overflow-hidden">
+    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : requestClose())}>
+      {/* The shared dialog adds its own close button in the top-right corner,
+          directly on top of this toolbar's. It is hidden here; the toolbar's
+          button does the same job without covering the Export button's
+          neighbour. */}
+      <DialogContent className="max-w-[98vw] w-[98vw] h-[95vh] p-0 gap-0 flex flex-col overflow-hidden [&>button.absolute]:hidden">
         {/* Toolbar */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0 bg-background">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="text-[13px] font-semibold shrink-0">Brochure editor</span>
+            <DialogTitle className="text-[13px] font-semibold shrink-0">Brochure editor</DialogTitle>
+            <DialogDescription className="sr-only">
+              Edit the brochure's pages: select, move, resize and restyle any element.
+            </DialogDescription>
             {/* Editable, because the title names the exported PDF file. It was
                 previously static text set only by the template seed, so the
                 organizer had no say in what they downloaded. */}
@@ -713,26 +871,32 @@ export default function BrochureEditorDialog({
               onClick={handleResetToTemplate}
               disabled={!doc}
               className="h-8 gap-1.5 text-[12px]"
-              title="Rebuild the current page from the live preview template. Undoable."
+              title="Rebuild the whole brochure from the template, discarding your layout. Undoable."
             >
               <RotateCcw className="h-3.5 w-3.5" />
               Reset to template
             </Button>
             <div className="w-px h-6 bg-border mx-1" />
             {onSaveDocument && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleSave}
-                disabled={isSaving || !doc}
-                className="h-8 gap-1.5 text-[12px]"
-              >
-                {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                Save
-              </Button>
+              <>
+                <span className="text-[11px] text-muted-foreground mr-1" aria-live="polite">
+                  {hasUnsavedChanges ? "Unsaved changes" : "All changes saved"}
+                </span>
+                <Button
+                  size="sm"
+                  variant={hasUnsavedChanges ? "default" : "outline"}
+                  onClick={() => void handleSave()}
+                  disabled={isSaving || !doc}
+                  className="h-8 gap-1.5 text-[12px]"
+                >
+                  {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                  Save
+                </Button>
+              </>
             )}
             <Button
               size="sm"
+              variant={hasUnsavedChanges ? "outline" : "default"}
               onClick={handleExport}
               disabled={isExporting || !doc}
               className="h-8 gap-1.5 text-[12px]"
@@ -740,7 +904,14 @@ export default function BrochureEditorDialog({
               {isExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
               Export PDF
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => onOpenChange(false)} className="h-8 w-8 p-0">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={requestClose}
+              className="h-8 w-8 p-0"
+              title="Close editor"
+              aria-label="Close editor"
+            >
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -886,10 +1057,24 @@ export default function BrochureEditorDialog({
               onClick={handlePaste}
             />
 
+            <ToolbarDivider />
+            <ToolbarButton
+              icon={<Lock className="h-3.5 w-3.5" />}
+              label="Lock in place — unlock from the Layers tab"
+              disabled={!hasSelection}
+              onClick={handleLockSelected}
+            />
+            <ToolbarButton
+              icon={<Trash2 className="h-3.5 w-3.5" />}
+              label="Delete (Del)"
+              disabled={!hasSelection}
+              onClick={handleDeleteSelected}
+            />
+
             <span className="text-[11px] text-muted-foreground ml-auto pl-3 shrink-0">
               {selectionIsGrouped
-                ? "Card selected — Alt-click a piece to edit it on its own"
-                : "Shift-click or drag on empty space to select several"}
+                ? "Card selected — click a piece again to edit it on its own"
+                : "Double-click text to edit · right-click for more · drop images onto the page"}
             </span>
           </div>
         )}
@@ -902,23 +1087,77 @@ export default function BrochureEditorDialog({
                 pageWidth={activePage.width}
                 pageHeight={activePage.height}
                 defaultFontFamily={seed.fontFamily}
+                accentColor={seed.accentColor ?? theme.defaultColors.accentColor}
+                pageColor={activePage.background.type === "solid" ? activePage.background.color : undefined}
                 onAddElement={handleAddElement}
               />
-              <div className="flex-1 min-w-0 relative">
-                <BrochureEditorCanvas
-                  document={doc}
-                  onChange={setDoc}
-                  activePageId={activePageId}
-                  selectedElementIds={selectedElementIds}
-                  onSelect={setSelectedElementIds}
-                />
-              </div>
+              {/* Right-click menu. The canvas selects whatever is under the
+                  cursor on right-click and lets the event bubble here, so the
+                  menu always acts on what was clicked. */}
+              <ContextMenu>
+                <ContextMenuTrigger asChild>
+                  <div className="flex-1 min-w-0 relative">
+                    <BrochureEditorCanvas
+                      document={doc}
+                      onChange={setDoc}
+                      activePageId={activePageId}
+                      selectedElementIds={selectedElementIds}
+                      onSelect={setSelectedElementIds}
+                      onDropFiles={(files, at) => void handleDropFiles(files, at)}
+                    />
+                  </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent className="w-56">
+                  <ContextMenuItem disabled={!hasSelection} onSelect={handleCut}>
+                    Cut <ContextMenuShortcut>Ctrl+X</ContextMenuShortcut>
+                  </ContextMenuItem>
+                  <ContextMenuItem disabled={!hasSelection} onSelect={() => void handleCopy()}>
+                    Copy <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
+                  </ContextMenuItem>
+                  <ContextMenuItem onSelect={handlePaste}>
+                    Paste <ContextMenuShortcut>Ctrl+V</ContextMenuShortcut>
+                  </ContextMenuItem>
+                  <ContextMenuItem disabled={!hasSelection} onSelect={handleDuplicateSelected}>
+                    Duplicate <ContextMenuShortcut>Ctrl+D</ContextMenuShortcut>
+                  </ContextMenuItem>
+                  <ContextMenuItem disabled={!hasSelection} onSelect={handleDeleteSelected}>
+                    Delete <ContextMenuShortcut>Del</ContextMenuShortcut>
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem disabled={!hasSelection} onSelect={() => handleReorder("front")}>
+                    Bring to front
+                  </ContextMenuItem>
+                  <ContextMenuItem disabled={!hasSelection} onSelect={() => handleReorder("forward")}>
+                    Bring forward
+                  </ContextMenuItem>
+                  <ContextMenuItem disabled={!hasSelection} onSelect={() => handleReorder("backward")}>
+                    Send backward
+                  </ContextMenuItem>
+                  <ContextMenuItem disabled={!hasSelection} onSelect={() => handleReorder("back")}>
+                    Send to back
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem disabled={selectedElementIds.length < 2} onSelect={handleGroup}>
+                    Group <ContextMenuShortcut>Ctrl+G</ContextMenuShortcut>
+                  </ContextMenuItem>
+                  <ContextMenuItem disabled={!selectionIsGrouped} onSelect={handleUngroup}>
+                    Ungroup
+                  </ContextMenuItem>
+                  <ContextMenuItem disabled={!hasSelection} onSelect={handleLockSelected}>
+                    Lock in place
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onSelect={handleSelectAllOnPage}>
+                    Select all <ContextMenuShortcut>Ctrl+A</ContextMenuShortcut>
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
               <BrochureEditorProperties
                 document={doc}
                 activePageId={activePageId}
-                selectedElementId={selectedElementId}
+                selectedElementIds={selectedElementIds}
                 onChange={setDoc}
-                onSelect={(id) => setSelectedElementIds(id ? [id] : [])}
+                onSelect={setSelectedElementIds}
               />
             </div>
             <BrochureEditorPages
@@ -932,6 +1171,8 @@ export default function BrochureEditorDialog({
               onDuplicatePage={handleDuplicatePage}
               onDeletePage={handleDeletePage}
               onMovePage={handleMovePage}
+              templatePages={templatePages}
+              onAddTemplatePage={handleAddTemplatePage}
             />
           </>
         ) : (
@@ -940,6 +1181,33 @@ export default function BrochureEditorDialog({
           </div>
         )}
       </DialogContent>
+
+      <AlertDialog open={confirmClose} onOpenChange={setConfirmClose}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save your changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have changes to this brochure that haven't been saved. Closing without saving discards them.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setConfirmClose(false);
+                onOpenChange(false);
+              }}
+            >
+              Discard changes
+            </Button>
+            <Button onClick={() => void handleSaveAndClose()} disabled={isSaving} className="gap-1.5">
+              {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Save and close
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
