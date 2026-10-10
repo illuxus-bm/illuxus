@@ -45,13 +45,7 @@ export const COLOR_SWATCHES: string[] = [
 ];
 
 /**
- * Font families offered by the organizer-facing pickers (event theme,
- * creative customization panel).
- *
- * Must stay a subset of the creatives renderer's loadable catalog in
- * `src/lib/creatives/creative-fonts.ts` — a family offered here but absent
- * there is fetched by nothing and renders in the fallback face. Property 50
- * asserts the two agree.
+ * Font families offered by the organizer-facing event theme picker.
  */
 export const FONT_OPTIONS: string[] = [
   "Poppins", "Inter", "Playfair Display", "Merriweather",

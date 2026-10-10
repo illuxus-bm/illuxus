@@ -33,7 +33,42 @@
 
 import type { EventPageConfig } from "@/components/event/page-form/types";
 
-export { tierAccentColor } from "@/lib/creatives/creative-templates";
+/**
+ * Platinum/gold/silver/bronze/custom → accent color mapping, sharing the same
+ * palette as SponsorManagement.tsx's `TIERS` constant. That component uses
+ * Tailwind classes referencing CSS custom properties (theme-reactive, for
+ * screen UI); this function returns literal color strings usable directly as
+ * a canvas `fillStyle`, since canvas rendering can't consume CSS variables or
+ * Tailwind classes. Requirement 3.4.
+ *
+ * Falls back to the bronze color for unrecognized tier values, mirroring
+ * SponsorManagement.tsx's `tierColor()` fallback behavior (TIERS[3] = bronze).
+ */
+export function tierAccentColor(tier: string): string {
+  switch (tier) {
+    case "platinum":
+      // --brand-purple (:root, src/index.css)
+      return "hsl(265, 85%, 60%)";
+    case "gold":
+      // --brand-amber (:root, src/index.css)
+      return "hsl(38, 96%, 52%)";
+    case "silver":
+      // SponsorManagement.tsx uses `bg-muted text-muted-foreground` for silver,
+      // which has no brand HSL var of its own — `--muted-foreground` is
+      // theme-dependent, so a fixed neutral gray literal (slate-500) stands in
+      // for canvas rendering.
+      return "#64748b";
+    case "custom":
+      // SponsorManagement.tsx uses `bg-primary/10 text-primary` for custom,
+      // and `--primary` is theme-dependent — use the :root default literal.
+      return "hsl(222, 25%, 10%)";
+    case "bronze":
+    default:
+      // --brand-orange (:root, src/index.css); also the fallback for any
+      // unrecognized tier value.
+      return "hsl(22, 95%, 56%)";
+  }
+}
 
 // ─── Core types ───────────────────────────────────────────────────────────
 
