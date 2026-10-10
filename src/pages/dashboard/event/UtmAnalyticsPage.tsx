@@ -58,7 +58,6 @@ import { supabaseRpc } from "@/lib/observability";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -171,14 +170,14 @@ function KpiCard({
   color?: string;
 }) {
   return (
-    <div className="border border-border rounded-xl p-4 bg-card">
-      <div className="flex items-center gap-2 mb-2">
+    <div className="border border-border rounded-xl px-3.5 py-3 bg-card min-w-0">
+      <div className="flex items-center gap-2 mb-1">
         <Icon className={`h-3.5 w-3.5 ${color}`} />
         <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">
           {label}
         </span>
       </div>
-      <p className={`text-2xl font-bold tracking-tight ${color}`}>{value}</p>
+      <p className={`text-xl font-bold tracking-tight leading-tight ${color}`}>{value}</p>
       {sub && <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>}
     </div>
   );
@@ -211,9 +210,9 @@ function FunnelViz({ clicks, registrations, checkedIn }: { clicks: number; regis
   ];
 
   return (
-    <div className="border border-border rounded-xl bg-card p-5">
+    <div className="border border-border rounded-xl bg-card p-4">
       <h3 className="text-sm font-semibold mb-1">Conversion funnel</h3>
-      <p className="text-[11px] text-muted-foreground mb-4">Tracked links only — direct registrations aren't counted against clicks.</p>
+      <p className="text-[11px] text-muted-foreground mb-3">Tracked links only — direct registrations aren't counted against clicks.</p>
       <div className="space-y-3">
         {steps.map((s) => (
           <div key={s.label}>
@@ -257,8 +256,8 @@ function SourceLeaderboard({ rows }: { rows: UtmRow[] }) {
   if (bySource.length === 0) return null;
 
   return (
-    <div className="border border-border rounded-xl bg-card p-5">
-      <h3 className="text-sm font-semibold mb-4">Source breakdown</h3>
+    <div className="border border-border rounded-xl bg-card p-4">
+      <h3 className="text-sm font-semibold mb-2">Source breakdown</h3>
       <div className="space-y-3">
         {bySource.map(({ source, registrations }) => {
           const pct = totalRegs > 0 ? Math.round((registrations / totalRegs) * 100) : 0;
@@ -732,6 +731,7 @@ export default function UtmAnalyticsPage({
     setDeleteTarget(null);
     handleLinkSaved();
     void qc.invalidateQueries({ queryKey: ["utm-clicks-since", eventId] });
+    void qc.invalidateQueries({ queryKey: partnerSharesKey(eventId) });
   };
 
   const confirmDelete = async () => {
@@ -750,13 +750,15 @@ export default function UtmAnalyticsPage({
       } as never);
 
       if (!error) {
-        const result = (data ?? {}) as { clicks_deleted?: number; registrations_kept?: number };
+        const result = (data ?? {}) as { clicks_deleted?: number; registrations_kept?: number; partners_removed?: number };
+        const partners = Number(result.partners_removed ?? 0);
+        const partnerNote = partners > 0 ? ` ${partners} partner${partners === 1 ? "" : "s"} no longer ${partners === 1 ? "has" : "have"} access.` : "";
         const kept = Number(result.registrations_kept ?? 0);
         const clicks = Number(result.clicks_deleted ?? 0);
         toast.success("Tracked link deleted", {
           description: kept > 0
-            ? `${kept} registration${kept === 1 ? "" : "s"} from it ${kept === 1 ? "is" : "are"} kept, so it still appears in the breakdown.`
-            : clicks > 0 ? `${clicks} recorded click${clicks === 1 ? "" : "s"} removed.` : undefined,
+            ? `${kept} registration${kept === 1 ? "" : "s"} from it ${kept === 1 ? "is" : "are"} kept, so it still appears in the breakdown.${partnerNote}`
+            : ((clicks > 0 ? `${clicks} recorded click${clicks === 1 ? "" : "s"} removed.` : "") + partnerNote).trim() || undefined,
         });
         afterDelete();
         return;
@@ -847,13 +849,13 @@ export default function UtmAnalyticsPage({
     conv >= 10 ? "text-emerald-500" : conv >= 5 ? "text-amber-500" : "text-muted-foreground";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
 
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <h2 className="text-base font-semibold">UTM Attribution</h2>
-          <p className="text-[12px] text-muted-foreground mt-0.5">
+          <p className="hidden sm:block text-[12px] text-muted-foreground mt-0.5">
             Track which channels and campaigns drive registrations for this event.
           </p>
         </div>
@@ -907,80 +909,67 @@ export default function UtmAnalyticsPage({
         </div>
       )}
 
-      {/* ── Filters bar ── */}
-      <div className="border border-border rounded-xl bg-card p-4 space-y-4">
-        <div className="flex items-center gap-2">
-          <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Filters</span>
-          {periodLoading && <RefreshCw className="h-3 w-3 text-muted-foreground animate-spin" aria-label="Updating" />}
-          {hasFilters && (
+      {/* ── Filters: one compact row (2 × 2 on phones) ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-[repeat(3,minmax(0,11rem))_minmax(0,1fr)_auto] gap-2 items-center" role="group" aria-label="Filters">
+        <Select value={dateRange} onValueChange={(v) => setDateRange(v as DateRange)}>
+          <SelectTrigger className="h-9 text-[12px]" aria-label="Date range"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {DATE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filterSource} onValueChange={setFilterSource}>
+          <SelectTrigger className="h-9 text-[12px]" aria-label="Source"><SelectValue placeholder="All sources" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All sources</SelectItem>
+            {sourceOptions.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filterMedium} onValueChange={setFilterMedium}>
+          <SelectTrigger className="h-9 text-[12px]" aria-label="Medium"><SelectValue placeholder="All mediums" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All mediums</SelectItem>
+            {mediumOptions.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <div className="relative min-w-0">
+          <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <Input
+            value={filterCampaign}
+            onChange={(e) => setFilterCampaign(e.target.value)}
+            className="h-9 text-[12px] max-sm:text-base pl-8 pr-8"
+            placeholder="Campaign…"
+            aria-label="Campaign"
+          />
+          {filterCampaign && (
             <button
               type="button"
-              onClick={clearFilters}
-              className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setFilterCampaign("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear campaign search"
             >
-              <X className="h-3 w-3" />
-              Clear filters
+              <X className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
-          <div className="space-y-1.5 min-w-0">
-            <Label className="text-[11px]">Date range</Label>
-            <Select value={dateRange} onValueChange={(v) => setDateRange(v as DateRange)}>
-              <SelectTrigger className="h-9 text-[12px]"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {DATE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
+        {(hasFilters || periodLoading) && (
+          <div className="col-span-2 lg:col-span-1 flex items-center justify-end gap-2 min-h-[1.25rem]">
+            {periodLoading && <RefreshCw className="h-3 w-3 text-muted-foreground animate-spin" aria-label="Updating" />}
+            {hasFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
+              >
+                <X className="h-3 w-3" />
+                Clear filters
+              </button>
+            )}
           </div>
-          <div className="space-y-1.5 min-w-0">
-            <Label className="text-[11px]">Source</Label>
-            <Select value={filterSource} onValueChange={setFilterSource}>
-              <SelectTrigger className="h-9 text-[12px]"><SelectValue placeholder="All sources" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All sources</SelectItem>
-                {sourceOptions.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5 min-w-0">
-            <Label className="text-[11px]">Medium</Label>
-            <Select value={filterMedium} onValueChange={setFilterMedium}>
-              <SelectTrigger className="h-9 text-[12px]"><SelectValue placeholder="All mediums" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All mediums</SelectItem>
-                {mediumOptions.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5 min-w-0">
-            <Label className="text-[11px]">Campaign</Label>
-            <div className="relative">
-              <Input
-                value={filterCampaign}
-                onChange={(e) => setFilterCampaign(e.target.value)}
-                className="h-9 text-[12px] max-sm:text-base pr-8"
-                placeholder="Search campaigns…"
-              />
-              {filterCampaign && (
-                <button
-                  type="button"
-                  onClick={() => setFilterCampaign("")}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  aria-label="Clear campaign search"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* ── KPI Strip ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         <KpiCard
           icon={MousePointerClick}
           label="Link clicks"
@@ -1015,9 +1004,9 @@ export default function UtmAnalyticsPage({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
           {/* Chart A: Registrations by source (grouped bar) */}
-          <div className="border border-border rounded-xl bg-card p-5 min-w-0">
-            <h3 className="text-sm font-semibold mb-4">Registrations by source</h3>
-            <ResponsiveContainer width="100%" height={220}>
+          <div className="border border-border rounded-xl bg-card p-4 min-w-0">
+            <h3 className="text-sm font-semibold mb-2">Registrations by source</h3>
+            <ResponsiveContainer width="100%" height={180}>
               <BarChart data={bySource} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="source" tick={{ fontSize: 10 }} />
@@ -1051,9 +1040,9 @@ export default function UtmAnalyticsPage({
 
           {/* Chart B: Top campaigns (horizontal bar) */}
           {topCampaigns.length > 0 && (
-            <div className="border border-border rounded-xl bg-card p-5 min-w-0">
-              <h3 className="text-sm font-semibold mb-4">Top campaigns</h3>
-              <ResponsiveContainer width="100%" height={220}>
+            <div className="border border-border rounded-xl bg-card p-4 min-w-0">
+              <h3 className="text-sm font-semibold mb-2">Top campaigns</h3>
+              <ResponsiveContainer width="100%" height={180}>
                 <BarChart
                   layout="vertical"
                   data={topCampaigns}
@@ -1097,7 +1086,7 @@ export default function UtmAnalyticsPage({
 
       {/* ── Full breakdown ── */}
       {rows.length === 0 ? (
-        <div className="border border-dashed border-border rounded-xl py-16 px-4 text-center text-[13px] text-muted-foreground">
+        <div className="border border-dashed border-border rounded-xl py-10 px-4 text-center text-[13px] text-muted-foreground">
           {periodLoading
             ? "Loading this period…"
             : periodRows.length > 0 || summaryRows.length > 0
@@ -1331,7 +1320,7 @@ export default function UtmAnalyticsPage({
                 ) : (
                   <p className="text-[13px]">It has no registrations, so it will disappear from this page.</p>
                 )}
-                <p className="text-[12px] text-muted-foreground">This can't be undone.</p>
+                <p className="text-[12px] text-muted-foreground">Any partner this link is shared with loses access to it. This can't be undone.</p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -172,6 +172,10 @@ export const updatePartnerShare = (accessId: string, permissions: PartnerPermiss
 export const revokePartnerShare = (accessId: string) =>
   rpc<PartnerShare>("utm_partner_revoke", { _access_id: accessId });
 
+/** Delete a share entirely (ends access if it was still active). Migration 043. */
+export const removePartnerShare = (accessId: string) =>
+  rpc<{ id: string; removed: boolean }>("utm_partner_remove", { _access_id: accessId });
+
 /** Where a partner goes to open what was shared (signs in / signs up first if needed). */
 export const partnerDashboardUrl = () => `${publicOrigin()}/login?next=${encodeURIComponent("/partner")}`;
 

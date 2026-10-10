@@ -9,12 +9,12 @@
  */
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Handshake, Mail, MoreHorizontal, Pencil, Plus, ShieldOff } from "lucide-react";
+import { Copy, Handshake, Mail, MoreHorizontal, Pencil, Plus, ShieldOff, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   DEFAULT_PARTNER_PERMISSIONS, PERMISSION_OPTIONS, isPartnerFeatureMissing, linkLabel, listPartnerShares,
-  partnerDashboardUrl, partnerErrorMessage, revokePartnerShare, sendPartnerInviteEmail, sharePartnerLink,
+  partnerDashboardUrl, partnerErrorMessage, removePartnerShare, revokePartnerShare, sendPartnerInviteEmail, sharePartnerLink,
   updatePartnerShare, PARTNER_NEEDS_DB_UPDATE,
   type PartnerPermissions, type PartnerShare,
 } from "@/lib/utm/partner-access";
@@ -99,6 +99,7 @@ export function UtmPartnersSection({ eventId, links }: { eventId: string; links:
   const [editing, setEditing] = useState<PartnerShare | null>(null);
   const [editPerms, setEditPerms] = useState<PartnerPermissions>(DEFAULT_PARTNER_PERMISSIONS);
   const [revoking, setRevoking] = useState<PartnerShare | null>(null);
+  const [removing, setRemoving] = useState<PartnerShare | null>(null);
 
   const linkByKey = useMemo(() => new Map(links.map((l) => [keyOf(l), l])), [links]);
   const missing = isPartnerFeatureMissing(error as { code?: string; message?: string } | null);
@@ -145,6 +146,25 @@ export function UtmPartnersSection({ eventId, links }: { eventId: string; links:
     } finally { setBusy(false); }
   };
 
+  const confirmRemove = async () => {
+    if (!removing || busy) return;
+    setBusy(true);
+    try {
+      await removePartnerShare(removing.id);
+      toast.success("Partner removed", { description: `${removing.invited_email} is no longer listed for this link.` });
+      setRemoving(null);
+      refresh();
+    } catch (e) {
+      const err = e as { code?: string; message?: string };
+      toast.error("Couldn't remove the partner", {
+        description: isPartnerFeatureMissing(err)
+          ? "Removing partners needs a one-time database update: run supabase/migrations/043_utm_partner_remove.sql in the Supabase SQL Editor."
+          : partnerErrorMessage(err),
+        duration: 12_000,
+      });
+    } finally { setBusy(false); }
+  };
+
   const resend = async (s: PartnerShare) => {
     toast.message("Sending the invitation…", { description: s.invited_email });
     const problem = await sendPartnerInviteEmail(s, null, user?.email);
@@ -164,7 +184,7 @@ export function UtmPartnersSection({ eventId, links }: { eventId: string; links:
 
   return (
     <section className="rounded-xl border border-border bg-card" aria-label="Partners">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border">
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-border">
         <div className="flex items-center gap-2 min-w-0">
           <Handshake className="h-4 w-4 text-primary shrink-0" />
           <div className="min-w-0">
@@ -186,7 +206,7 @@ export function UtmPartnersSection({ eventId, links }: { eventId: string; links:
       ) : isLoading ? (
         <p className="px-4 py-5 text-[13px] text-muted-foreground">Loading partners…</p>
       ) : shares.length === 0 ? (
-        <p className="px-4 py-6 text-[13px] text-muted-foreground text-center">
+        <p className="px-4 py-4 text-[13px] text-muted-foreground text-center">
           {links.length === 0
             ? "Create a tracked link first, then share it with a partner."
             : "No links are shared yet. Use “Share with partner” to invite an agency to one of your tracked links."}
@@ -231,7 +251,13 @@ export function UtmPartnersSection({ eventId, links }: { eventId: string; links:
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     {s.status === "revoked" ? (
-                      <DropdownMenuItem onClick={() => void reshare(s)}><Mail className="h-3.5 w-3.5 mr-2" /> Share again</DropdownMenuItem>
+                      <>
+                        <DropdownMenuItem onClick={() => void reshare(s)}><Mail className="h-3.5 w-3.5 mr-2" /> Share again</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setRemoving(s)} className="text-destructive focus:text-destructive">
+                          <Trash2 className="h-3.5 w-3.5 mr-2" /> Remove from list
+                        </DropdownMenuItem>
+                      </>
                     ) : (
                       <>
                         <DropdownMenuItem onClick={() => { setEditPerms({ can_register: s.can_register, can_view_approval: s.can_view_approval, can_view_checkin: s.can_view_checkin, can_export: s.can_export }); setEditing(s); }}>
@@ -242,6 +268,9 @@ export function UtmPartnersSection({ eventId, links }: { eventId: string; links:
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => setRevoking(s)} className="text-destructive focus:text-destructive">
                           <ShieldOff className="h-3.5 w-3.5 mr-2" /> Revoke access
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setRemoving(s)} className="text-destructive focus:text-destructive">
+                          <Trash2 className="h-3.5 w-3.5 mr-2" /> Remove partner
                         </DropdownMenuItem>
                       </>
                     )}
@@ -321,6 +350,30 @@ export function UtmPartnersSection({ eventId, links }: { eventId: string; links:
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {busy ? "Revoking…" : "Revoke access"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Remove */}
+      <AlertDialog open={removing !== null} onOpenChange={(o) => { if (!o && !busy) setRemoving(null); }}>
+        <AlertDialogContent className="w-[calc(100vw-2rem)] max-w-md rounded-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this partner?</AlertDialogTitle>
+            <AlertDialogDescription className="text-left break-words">
+              {removing?.invited_email} will be removed from {removing ? linkLabel(removing) : "this link"}
+              {removing?.status === "revoked" ? "." : " and lose access to it immediately."}{" "}
+              The registrations they brought in stay in your event. You can share the link with them again later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); void confirmRemove(); }}
+              disabled={busy}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {busy ? "Removing…" : "Remove partner"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

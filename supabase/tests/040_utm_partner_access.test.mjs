@@ -1,10 +1,10 @@
 // Tests migration 040 (UTM partner sharing) on an in-memory Postgres.
 // Focus: a partner can only ever see / add to the one link shared with them.
-// Run:  npm i --no-save @electric-sql/pglite  &&  node supabase/tests/040_utm_partner_access.test.mjs supabase/migrations/040_utm_partner_access.sql supabase/migrations/042_partner_utm_analytics.sql
+// Run:  npm i --no-save @electric-sql/pglite  &&  node supabase/tests/040_utm_partner_access.test.mjs supabase/migrations/040_utm_partner_access.sql supabase/migrations/042_partner_utm_analytics.sql supabase/migrations/043_utm_partner_remove.sql
 import fs from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 
-const migration = fs.readFileSync(process.argv[2], "utf8") + "\n" + (process.argv[3] ? fs.readFileSync(process.argv[3], "utf8") : "");
+const migration = fs.readFileSync(process.argv[2], "utf8") + "\n" + (process.argv[3] ? fs.readFileSync(process.argv[3], "utf8") : "") + "\n" + (process.argv[4] ? fs.readFileSync(process.argv[4], "utf8") : "");
 const db = new PGlite();
 
 const OWNER = "11111111-1111-4111-8111-111111111111";
@@ -443,6 +443,34 @@ expect("a banned user gets no partner access", r.v?.length === 0, r);
 await db.exec(`DELETE FROM public.events WHERE id='${OPEN_EVENT}'`);
 r = await people(AGENCY_A, G_OPEN);
 expect("deleting an event removes its shares", denied(r), r);
+
+if (process.argv[4]) {
+  console.log("\nRemoving shares (043)");
+  const remove = (uid, id) => call(uid, `SELECT public.utm_partner_remove($1)`, [id]);
+  const listed = async () => (await call(OWNER, `SELECT public.utm_partner_list($1)`, [EVENT])).v ?? [];
+  const before = (await listed()).length;
+  r = await remove(AGENCY_B, GB);
+  expect("a partner cannot remove a share", denied(r), r);
+  r = await remove(OUTSIDER, GB);
+  expect("another organiser cannot remove this event's shares", denied(r), r);
+  r = await as("anon", null, `SELECT public.utm_partner_remove('${GB}')`);
+  expect("anonymous cannot remove a share", /permission denied/i.test(r.error ?? ""), r);
+  expect("Agency B still has access before removal", !(await people(AGENCY_B, GB)).error, "");
+  r = await remove(OWNER, GB);
+  expect("organiser removes an ACTIVE share", r.v?.removed === true, r);
+  expect("…the partner loses access immediately and is notified", denied(await people(AGENCY_B, GB)) && (await grants(AGENCY_B)).v?.length === 0 && (await count(`SELECT count(*) n FROM app_notifications WHERE user_id='${AGENCY_B}' AND type='utm_partner_revoked'`)) === 1, "");
+  expect("…it is gone from the organiser's Partners list and audited", (await listed()).length === before - 1 && !(await listed()).some((x) => x.id === GB) && (await count(`SELECT count(*) n FROM audit_logs WHERE action='utm_partner.removed'`)) === 1, "");
+  r = await remove(OWNER, GB);
+  expect("removing it again is refused cleanly", denied(r), r);
+  const regsBefore = await count(`SELECT count(*) n FROM registrations WHERE event_id='${EVENT}'`);
+  r = await call(OWNER, `SELECT public.delete_utm_tracking($1,$2,$3,$4)`, [EVENT, "email", "broadcast", "cfo"]);
+  expect("deleting a tracked link also removes its partner shares (2) — and reports it", r.v?.partners_removed === 2 && r.v.links_deleted === 1 && r.v.registrations_kept >= 1, r);
+  const left = await listed();
+  expect("shares of OTHER links are untouched", left.length === 1 && left[0].id === GA, left.map((x) => [x.utm_source, x.invited_email]));
+  expect("no registration was deleted", (await count(`SELECT count(*) n FROM registrations WHERE event_id='${EVENT}'`)) === regsBefore, "");
+  r = await call(AGENCY_A, `SELECT public.delete_utm_tracking($1,$2,$3,$4)`, [EVENT, "agency-a", "referral", "cfo"]);
+  expect("a partner cannot delete a tracked link", denied(r), r);
+}
 
 console.log("\nExisting organiser behaviour is unchanged");
 r = await as("authenticated", OWNER, `SELECT count(*)::int AS n FROM public.registrations WHERE event_id='${EVENT}'`);
