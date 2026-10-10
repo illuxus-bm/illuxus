@@ -811,12 +811,6 @@ const EventDetailPage = () => {
               </Suspense>
             )}
 
-            {!["dashboard", "settings", "manage", "agenda", "exhibitors", "design", "registrations", "communicate", "reports", "broadcast", "search", "applications", "community", "utm"].includes(activeSection) && (
-              <div className="flex items-center justify-center h-64 text-muted-foreground">
-                <p className="text-sm">{sidebarNav.find(n => n.key === activeSection)?.label} — Coming soon</p>
-              </div>
-            )}
-
             {activeSection === "utm" && (
               <Suspense fallback={<FullPageLoader label="Loading UTM analytics…" />}>
                 <UtmAnalyticsPageLazy
