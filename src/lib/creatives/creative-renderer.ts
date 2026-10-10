@@ -277,20 +277,18 @@ export type PlanElement =
     }
   | {
       /**
-       * A wax-seal-styled CTA: a notched deep-red plaque with an inset
-       * lighter rule and centered label, standing in for the reference
-       * invite's stamped seal.
+       * A wax-seal CTA: an uneven blob of sealing wax with a stamped plaque
+       * pressed into it and a centered label — the reference invite's seal.
        *
-       * Distinct from `pill` because the silhouette isn't a capsule — it has
-       * scalloped edges and a double border, and its label is optically
-       * centered against the plaque rather than the bounding box.
+       * Distinct from `pill` because the silhouette isn't a capsule and it
+       * is shaded (lit body, recessed plaque) rather than flat.
        */
       kind: "seal";
       key: "ctaButton";
       box: ResolvedBox;
       text: string;
       fillColor: string;
-      /** Inset rule + scallop highlight color. */
+      /** Lighter wax tone, used where the seal catches the light. */
       accentColor: string;
       textColor: string;
       fontFamily: string;
@@ -807,8 +805,19 @@ export function buildEventPlan(
   // of the backdrop rather than sitting on top of a photo/logo. Shapes
   // are unconditional — a template that defines shapeSlots always draws
   // them, since they carry no entity data to be "missing" (Requirement:
-  // Event_Promo decorative shapes).
+  // Event_Promo decorative shapes) — unless the slot names the content it
+  // accompanies via `requires`.
   for (const shapeSlot of template.shapeSlots ?? []) {
+    // A shape tied to a piece of content is dropped along with that content,
+    // so an absent tagline doesn't leave its accent ticks behind and absent
+    // stats don't leave an empty panel.
+    if (shapeSlot.requires) {
+      const present =
+        shapeSlot.requires === "stats"
+          ? (promo.stats ?? []).some((s) => s.value || s.label)
+          : !!readPromoField(shapeSlot.requires, promo);
+      if (!present) continue;
+    }
     elements.push({
       kind: "shape",
       key: shapeSlot.key,
@@ -1757,6 +1766,9 @@ function drawShapeElement(ctx: CanvasRenderingContext2D, el: Extract<PlanElement
   if (el.strokeColor && el.strokeWidthPx && el.strokeWidthPx > 0) {
     ctx.strokeStyle = el.strokeColor;
     ctx.lineWidth = el.strokeWidthPx;
+    // Round joins, so a thick stroked polygon reads as a soft outline (the
+    // chain-link motif) rather than ending in sharp mitred spikes.
+    ctx.lineJoin = "round";
     ctx.stroke();
   }
 
@@ -1798,17 +1810,16 @@ function drawPillElement(ctx: CanvasRenderingContext2D, el: Extract<PlanElement,
     ctx.font = `${el.fontWeight} ${fontSizePx}px ${el.fontFamily}, sans-serif`;
     return ctx.measureText(text).width;
   };
-  // Pills are single-line by design — shrink-to-fit via `fitText`, but
-  // only ever draw the first line even if wrapping somehow occurs
-  // (extremely long CTA text), since a wrapped pill would look broken.
-  const fit = fitText(el.text, { x, y, width: width * 0.92, height }, el.baseSizePx, measure);
-  if (fit.lines.length === 0) return;
+  // Pills are single-line by design: the label is shrunk until it fits on one
+  // line. It used to go through `fitText`, which wraps first — and since only
+  // the first line was drawn, a long CTA lost its last words.
+  const fontSizePx = Math.min(fitSingleLine(el.text, width * 0.9, el.baseSizePx, measure), height * 0.8);
 
-  ctx.font = `${el.fontWeight} ${fit.fontSizePx}px ${el.fontFamily}, sans-serif`;
+  ctx.font = `${el.fontWeight} ${fontSizePx}px ${el.fontFamily}, sans-serif`;
   ctx.fillStyle = el.textColor;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(fit.lines[0], x + width / 2, y + height / 2);
+  ctx.fillText(el.text, x + width / 2, y + height / 2);
 }
 
 /**
@@ -2045,17 +2056,136 @@ function drawIcon(
   ctx.restore();
 }
 
-/** Number of scallop bumps along the seal's longer axis. */
-const SEAL_SCALLOPS_LONG = 9;
+/**
+ * Outline of a pressed wax seal: a rounded rectangle whose edge wanders in
+ * and out, the way wax squeezes unevenly from under a stamp.
+ *
+ * The wobble is the sum of three sines at unrelated frequencies, so it never
+ * visibly repeats, and is fixed rather than random so the same creative
+ * renders identically every time (preview and export must match).
+ */
+function traceWaxOutline(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
+  const radius = Math.min(width, height) * 0.3;
+  const amplitude = Math.min(width, height) * 0.045;
+  const straightX = width - radius * 2;
+  const straightY = height - radius * 2;
+  const arc = (Math.PI / 2) * radius;
+  const perimeter = 2 * (straightX + straightY) + 4 * arc;
+  const steps = 96;
+
+  // The rounded rectangle as eight pieces, clockwise from the top edge. Each
+  // returns a point and the outward normal at distance `d` along itself, so
+  // the wobble pushes in and out rather than along the edge.
+  type Piece = { length: number; at: (d: number) => [number, number, number, number] };
+  const edge = (x0: number, y0: number, dx: number, dy: number, nx: number, ny: number, length: number): Piece => ({
+    length,
+    at: (d) => [x0 + dx * d, y0 + dy * d, nx, ny],
+  });
+  const corner = (cx: number, cy: number, start: number): Piece => ({
+    length: arc,
+    at: (d) => {
+      const a = start + d / radius;
+      return [cx + Math.cos(a) * radius, cy + Math.sin(a) * radius, Math.cos(a), Math.sin(a)];
+    },
+  });
+  const pieces: Piece[] = [
+    edge(x + radius, y, 1, 0, 0, -1, straightX),
+    corner(x + width - radius, y + radius, -Math.PI / 2),
+    edge(x + width, y + radius, 0, 1, 1, 0, straightY),
+    corner(x + width - radius, y + height - radius, 0),
+    edge(x + width - radius, y + height, -1, 0, 0, 1, straightX),
+    corner(x + radius, y + height - radius, Math.PI / 2),
+    edge(x, y + height - radius, 0, -1, -1, 0, straightY),
+    corner(x + radius, y + radius, Math.PI),
+  ];
+
+  ctx.beginPath();
+  for (let i = 0; i <= steps; i += 1) {
+    const t = (i % steps) / steps;
+    let d = t * perimeter;
+    let piece = pieces[pieces.length - 1];
+    for (const candidate of pieces) {
+      if (d <= candidate.length) {
+        piece = candidate;
+        break;
+      }
+      d -= candidate.length;
+    }
+    const [px, py, nx, ny] = piece.at(Math.min(d, piece.length));
+
+    const a = t * Math.PI * 2;
+    const wobble = (Math.sin(a * 7 + 0.6) * 0.5 + Math.sin(a * 13 + 2.1) * 0.3 + Math.sin(a * 23 + 4.2) * 0.2) * amplitude;
+    const fx = px + nx * wobble;
+    const fy = py + ny * wobble;
+    if (i === 0) ctx.moveTo(fx, fy);
+    else ctx.lineTo(fx, fy);
+  }
+  ctx.closePath();
+}
+
+/** Plain rounded-rectangle path, with the `arcTo` fallback for engines that
+ *  lack `ctx.roundRect`. */
+function traceRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, width, height, radius);
+    return;
+  }
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + width, y, x + width, y + height, radius);
+  ctx.arcTo(x + width, y + height, x, y + height, radius);
+  ctx.arcTo(x, y + height, x, y, radius);
+  ctx.arcTo(x, y, x + width, y, radius);
+  ctx.closePath();
+}
+
+/** Smallest size a one-line label is shrunk to before it is allowed to clip. */
+const MIN_SINGLE_LINE_FONT_PX = 6;
 
 /**
- * Draws a `seal`: a notched red wax plaque with an inset rule and a centered
- * label.
+ * Font size at which `text` fits `maxWidth` on ONE line, never larger than
+ * `baseSizePx`.
  *
- * The scalloped silhouette is built by walking the perimeter of a rounded
- * rect and adding outward semicircles at regular intervals, which reads as a
- * pressed wax stamp far better than a plain rounded rect does while staying
- * fully vector (so it stays sharp at any export size).
+ * For labels that must not wrap — a CTA on a button or a seal. `fitText`
+ * wraps before it shrinks, and these elements draw only the first line, so a
+ * label that wrapped lost its last words: "Register for FREE" became
+ * "Register for" on a narrow story-format seal. Width is linear in font size,
+ * so this is a ratio rather than a search.
+ */
+function fitSingleLine(
+  text: string,
+  maxWidth: number,
+  baseSizePx: number,
+  measure: (text: string, fontSizePx: number) => number,
+): number {
+  const natural = measure(text, baseSizePx);
+  if (natural <= maxWidth || natural <= 0) return baseSizePx;
+  return Math.max(MIN_SINGLE_LINE_FONT_PX, baseSizePx * (maxWidth / natural));
+}
+
+/**
+ * Draws a `seal`: a blob of red sealing wax with a stamped plaque pressed
+ * into it and the CTA label on the plaque — the reference invite's
+ * "Register for FREE".
+ *
+ * Three things make it read as wax rather than a red button: the uneven
+ * outline, a top-lit gradient with a soft shadow beneath (so it sits ON the
+ * envelope), and the pressed plaque — a darker groove with a light lip along
+ * its lower edge, which is how an embossed recess catches light from above.
+ * Fully vector, so it stays sharp at any export size.
  */
 function drawSealElement(
   ctx: CanvasRenderingContext2D,
@@ -2064,46 +2194,51 @@ function drawSealElement(
   const { x, y, width, height } = el.box;
   if (width <= 0 || height <= 0) return;
 
-  const bump = Math.min(width, height) * 0.07;
-  // Inset the plaque so the scallops occupy the space instead of overflowing
-  // the element's box.
-  const ix = x + bump;
-  const iy = y + bump;
-  const iw = Math.max(1, width - bump * 2);
-  const ih = Math.max(1, height - bump * 2);
+  const unit = Math.min(width, height);
+  // Inset so the wobble and the shadow stay inside the element's box.
+  const pad = unit * 0.06;
+  const bx = x + pad;
+  const by = y + pad;
+  const bw = Math.max(1, width - pad * 2);
+  const bh = Math.max(1, height - pad * 2);
 
   ctx.save();
 
-  // Scallops along the two long edges plus proportionally fewer along the
-  // short edges, so bump spacing stays roughly even around the perimeter.
-  const alongX = SEAL_SCALLOPS_LONG;
-  const alongY = Math.max(2, Math.round((SEAL_SCALLOPS_LONG * ih) / iw));
-
-  ctx.beginPath();
-  ctx.rect(ix, iy, iw, ih);
-  for (let i = 0; i < alongX; i += 1) {
-    const cx = ix + ((i + 0.5) * iw) / alongX;
-    ctx.moveTo(cx + bump, iy);
-    ctx.arc(cx, iy, bump, 0, Math.PI, true);
-    ctx.moveTo(cx + bump, iy + ih);
-    ctx.arc(cx, iy + ih, bump, 0, Math.PI, false);
-  }
-  for (let i = 0; i < alongY; i += 1) {
-    const cy = iy + ((i + 0.5) * ih) / alongY;
-    ctx.moveTo(ix, cy - bump);
-    ctx.arc(ix, cy, bump, -Math.PI / 2, Math.PI / 2, true);
-    ctx.moveTo(ix + iw, cy - bump);
-    ctx.arc(ix + iw, cy, bump, -Math.PI / 2, Math.PI / 2, false);
-  }
-  ctx.fillStyle = el.fillColor;
+  // The wax body, lit from above, casting a soft shadow on the paper.
+  const body = ctx.createLinearGradient(0, by, 0, by + bh);
+  body.addColorStop(0, el.accentColor);
+  body.addColorStop(0.45, el.fillColor);
+  body.addColorStop(1, el.fillColor);
+  ctx.shadowColor = "rgba(60, 10, 10, 0.35)";
+  ctx.shadowBlur = unit * 0.14;
+  ctx.shadowOffsetY = unit * 0.05;
+  traceWaxOutline(ctx, bx, by, bw, bh);
+  ctx.fillStyle = body;
   ctx.fill();
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
 
-  // Inset rule, the detail that makes it read as stamped rather than printed.
-  const inset = Math.min(iw, ih) * 0.12;
-  ctx.beginPath();
-  ctx.rect(ix + inset, iy + inset, iw - inset * 2, ih - inset * 2);
-  ctx.strokeStyle = el.accentColor;
-  ctx.lineWidth = Math.max(1, Math.min(iw, ih) * 0.045);
+  // The stamped plaque: a recess, darker than the body.
+  const inset = unit * 0.17;
+  const px = bx + inset;
+  const py = by + inset;
+  const pw = Math.max(1, bw - inset * 2);
+  const ph = Math.max(1, bh - inset * 2);
+  const plaqueRadius = Math.min(pw, ph) * 0.18;
+
+  traceRoundedRect(ctx, px, py, pw, ph, plaqueRadius);
+  ctx.fillStyle = "rgba(90, 8, 14, 0.22)";
+  ctx.fill();
+  // Groove around the recess...
+  ctx.strokeStyle = "rgba(70, 5, 10, 0.5)";
+  ctx.lineWidth = Math.max(1, unit * 0.035);
+  ctx.stroke();
+  // ...and the lit lip just outside it.
+  const lip = unit * 0.03;
+  traceRoundedRect(ctx, px - lip, py - lip, pw + lip * 2, ph + lip * 2, plaqueRadius + lip);
+  ctx.strokeStyle = "rgba(255, 190, 190, 0.35)";
+  ctx.lineWidth = Math.max(1, unit * 0.02);
   ctx.stroke();
 
   if (el.text) {
@@ -2111,19 +2246,16 @@ function drawSealElement(
       ctx.font = `${el.fontWeight} ${fontSizePx}px ${el.fontFamily}, sans-serif`;
       return ctx.measureText(text).width;
     };
-    const fit = fitText(
-      el.text,
-      { x: ix, y: iy, width: (iw - inset * 2) * 0.9, height: ih },
-      el.baseSizePx,
-      measure,
-    );
-    if (fit.lines.length > 0) {
-      ctx.font = `${el.fontWeight} ${fit.fontSizePx}px ${el.fontFamily}, sans-serif`;
-      ctx.fillStyle = el.textColor;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(fit.lines[0], ix + iw / 2, iy + ih / 2);
-    }
+    // One line, shrunk to fit — never wrapped, which would drop words.
+    const fontSizePx = Math.min(fitSingleLine(el.text, pw * 0.9, el.baseSizePx, measure), ph * 0.8);
+    ctx.font = `${el.fontWeight} ${fontSizePx}px ${el.fontFamily}, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    // A hairline of shadow under the label, so it looks pressed in.
+    ctx.fillStyle = "rgba(70, 5, 10, 0.45)";
+    ctx.fillText(el.text, px + pw / 2, py + ph / 2 + Math.max(1, unit * 0.012));
+    ctx.fillStyle = el.textColor;
+    ctx.fillText(el.text, px + pw / 2, py + ph / 2);
   }
 
   ctx.restore();
