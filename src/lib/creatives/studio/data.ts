@@ -137,6 +137,7 @@ export function deriveContent(event: StudioEventSource, config: EventPageConfig)
     linkLabel: "Register online",
     sideLabel: "Speaker",
     scriptLine: isVirtual ? "Join online" : "A Session",
+    introLine: "Meet our speaker",
   };
 }
 

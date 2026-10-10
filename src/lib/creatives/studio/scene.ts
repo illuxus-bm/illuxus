@@ -126,7 +126,7 @@ export interface DotsNode extends NodeBase {
   color: string;
 }
 
-export type IconName = "pin" | "check-circle" | "play-circle" | "link" | "chevron-up" | "calendar" | "clock";
+export type IconName = "pin" | "check-circle" | "play-circle" | "link" | "chevron-up" | "calendar" | "clock" | "phone" | "globe";
 
 export interface IconNode extends NodeBase {
   kind: "icon";

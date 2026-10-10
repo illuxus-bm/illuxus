@@ -1,7 +1,8 @@
 /**
  * Creative studio templates.
  *
- * Three poster designs, each a pure function from event data to a `Scene`:
+ * Poster designs, each a pure function from event data to a `Scene`. The
+ * first three:
  *
  *   - Spotlight — one speaker's portrait bleeding into a tinted panel beside
  *     the event details, under a white organiser header and over a dark
@@ -24,6 +25,7 @@ import {
   mix,
   readableOn,
   type Fill,
+  type IconName,
   type ImageNode,
   type Scene,
   type SceneNode,
@@ -92,6 +94,8 @@ export interface StudioContent {
   sideLabel: string;
   /** The handwritten line on the Session and Training designs. */
   scriptLine: string;
+  /** The script headline on the Introducing design ("Meet our speaker"). */
+  introLine: string;
 }
 
 export type StudioContentKey = keyof StudioContent;
@@ -784,7 +788,7 @@ function organizerMark(
 /** An icon with a line of text beside it, vertically centred on the icon. */
 function iconLine(
   scene: SceneBuilder,
-  icon: "pin" | "calendar" | "clock",
+  icon: IconName,
   value: string,
   x: number,
   y: number,
@@ -1162,6 +1166,472 @@ function buildHeadliner(input: BuildInput): Scene {
   return scene.done();
 }
 
+// ─── Conference ──────────────────────────────────────────────────────────────
+
+const CARD_MAX_SPEAKERS = 3;
+
+function buildConference(input: BuildInput): Scene {
+  const { format, content, palette } = input;
+  const W = format.width;
+  const H = format.height;
+  const s = Math.min(W / 1080, H / 1350);
+  const ink = palette.primary;
+  const pop = palette.accent;
+  const paper = palette.ground;
+  const speakers = input.speakers.slice(0, CARD_MAX_SPEAKERS);
+  const scene = createScene(format, paper);
+  const centre = { align: "center" as const, valign: "middle" as const };
+  const heroH = H * 0.5;
+
+  // The event's cover photo under a tint, with the page rising into it as a
+  // shallow hill.
+  scene.add({ kind: "rect", x: 0, y: 0, w: W, h: heroH, fill: { type: "linear", from: [0, 0], to: [1, 1], stops: [[0, lighten(ink, 0.2)], [1, darken(ink, 0.3)]] } });
+  if (input.coverImageUrl) scene.add({ kind: "image", role: "cover", src: input.coverImageUrl, fit: "cover", x: 0, y: 0, w: W, h: heroH });
+  else scene.skip();
+  scene.add({ kind: "rect", x: 0, y: 0, w: W, h: heroH, fill: { type: "linear", from: [0, 0], to: [0, 1], stops: [[0, alpha(ink, 0.35)], [1, alpha(ink, 0.72)]] } });
+  scene.add({ kind: "ellipse", cx: W / 2, cy: heroH + H * 0.07, rx: W * 0.8, ry: H * 0.11, fill: paper });
+
+  scene.add({ kind: "rect", x: W * 0.36, y: 0, w: W * 0.28, h: H * 0.085, fill: paper, radius: [0, 0, W * 0.07, W * 0.07] });
+  organizerMark(scene, input, { x: W * 0.39, y: H * 0.012, w: W * 0.22, h: H * 0.058 }, { color: ink, size: 26 * s, align: "center", weight: 800 });
+
+  const title = splitLineupTitle(content.eventTitle, input.year);
+  scene.text(title.top, W * 0.1, H * 0.105, W * 0.8, H * 0.07, {
+    family: HAND, weight: 700, size: 72 * s, minSize: 32 * s, color: pop, ...centre, maxLines: 1, rotation: -3,
+  });
+  scene.text(upper([title.script, title.year].filter(Boolean).join(" ")), W * 0.06, H * 0.165, W * 0.88, H * 0.1, {
+    family: CONDENSED, weight: 400, size: 136 * s, minSize: 50 * s, color: "#ffffff", ...centre, maxLines: 1,
+    shadow: { color: "rgba(0,0,0,0.35)", blur: 10 * s, offsetX: 0, offsetY: 4 * s },
+  });
+
+  const zoneY = H * 0.3;
+  const zoneH = H * 0.34;
+  const n = speakers.length;
+  if (n > 0) {
+    const cardW = Math.min(W * 0.275, zoneH * 0.6);
+    const cardH = Math.min(zoneH, cardW * 1.72);
+    const gap = W * 0.025;
+    const total = n * cardW + (n - 1) * gap;
+    const y = zoneY + (zoneH - cardH) / 2;
+    speakers.forEach((speaker, i) => {
+      const x = (W - total) / 2 + i * (cardW + gap);
+      const pad = cardW * 0.07;
+      const d = cardW - pad * 2;
+      const ring = 6 * s;
+      scene.add({ kind: "rect", x, y, w: cardW, h: cardH, fill: "#ffffff", radius: cardW / 2, shadow: { color: "rgba(0,0,0,0.22)", blur: 26 * s, offsetX: 0, offsetY: 8 * s } });
+      scene.add({ kind: "ellipse", cx: x + cardW / 2, cy: y + pad + d / 2, rx: d / 2, ry: d / 2, fill: pop });
+      scene.add(
+        portrait({ x: x + pad + ring, y: y + pad + ring, w: d - ring * 2, h: d - ring * 2 }, speaker, null, {
+          background: pop, color: "#ffffff", family: SANS, label: speaker.name,
+        }, { circle: true }),
+      );
+      const ty = y + pad + d;
+      scene.text(upper(content.sideLabel), x + cardW * 0.1, ty + cardW * 0.05, cardW * 0.8, cardW * 0.12, {
+        family: SANS, weight: 800, size: 25 * s, minSize: 12 * s, color: ink, ...centre, maxLines: 1,
+      });
+      scene.text(speaker.name, x + cardW * 0.08, ty + cardW * 0.16, cardW * 0.84, cardW * 0.2, {
+        family: HAND, weight: 700, size: 42 * s, minSize: 18 * s, color: darken(pop, 0.12), ...centre, maxLines: 1, role: "speaker-name",
+      });
+      scene.text(speaker.role, x + cardW * 0.16, ty + cardW * 0.37, cardW * 0.68, cardW * 0.2, {
+        family: SANS, weight: 500, size: 20 * s, minSize: 11 * s, color: alpha(ink, 0.85), ...centre, lineHeight: 1.15, maxLines: 2,
+      });
+    });
+  } else if (content.description.trim()) {
+    const panel = { x: W * 0.1, y: zoneY + zoneH * 0.18, w: W * 0.8, h: zoneH * 0.64 };
+    scene.add({ kind: "rect", ...panel, fill: "#ffffff", radius: 30 * s, shadow: { color: "rgba(0,0,0,0.2)", blur: 26 * s, offsetX: 0, offsetY: 8 * s } });
+    scene.text(content.description, panel.x + panel.w * 0.08, panel.y, panel.w * 0.84, panel.h, {
+      family: SANS, weight: 500, size: 30 * s, minSize: 16 * s, color: ink, ...centre, lineHeight: 1.4, maxLines: 5,
+    });
+  }
+
+  const bar = { x: W * 0.06, y: H * 0.68, w: W * 0.88, h: H * 0.115 };
+  scene.add({ kind: "rect", ...bar, fill: "#ffffff", radius: 20 * s, stroke: alpha(ink, 0.14), strokeWidth: 1.5 * s, shadow: { color: "rgba(0,0,0,0.16)", blur: 20 * s, offsetX: 0, offsetY: 6 * s } });
+  scene.text(content.subtitle, bar.x + bar.w * 0.04, bar.y + bar.h * 0.1, bar.w * 0.92, bar.h * 0.3, {
+    family: SANS, weight: 500, size: 24 * s, minSize: 14 * s, color: ink, ...centre, maxLines: 1,
+  });
+  const colW = bar.w / 3;
+  const size = 23 * s;
+  const rowY = bar.y + bar.h * (content.subtitle.trim() ? 0.68 : 0.5) - size * 0.75;
+  const detail = { family: SANS, weight: 700, color: ink, iconColor: pop };
+  iconLine(scene, "calendar", content.dateLine, bar.x + colW * 0.08, rowY, colW * 0.86, size, detail);
+  iconLine(scene, "clock", content.timeLine, bar.x + colW * 1.08, rowY, colW * 0.86, size, detail);
+  iconLine(scene, "pin", content.venueName, bar.x + colW * 2.08, rowY, colW * 0.86, size, detail);
+  [1, 2].forEach((i) =>
+    scene.add({ kind: "line", x1: bar.x + colW * i, y1: rowY, x2: bar.x + colW * i, y2: rowY + size * 1.5, color: alpha(ink, 0.3), width: 1.5 * s }),
+  );
+
+  const ctaW = W * 0.36;
+  const ctaH = 68 * s;
+  scene.add({ kind: "rect", x: (W - ctaW) / 2, y: H * 0.83, w: ctaW, h: ctaH, fill: pop, radius: ctaH / 2 });
+  scene.text(upper(content.ctaLabel), (W - ctaW) / 2 + ctaW * 0.08, H * 0.83, ctaW * 0.84, ctaH, {
+    family: "Archivo", weight: 800, size: 30 * s, minSize: 14 * s, color: readableOn(pop, ink, "#ffffff"), ...centre, letterSpacing: 2 * s, maxLines: 1,
+  });
+  const foot = { family: SANS, weight: 700, color: ink, iconColor: pop };
+  iconLine(scene, "globe", content.website, W * 0.07, H * 0.925, W * 0.46, 22 * s, foot);
+  iconLine(scene, "phone", content.phone, W * 0.63, H * 0.925, W * 0.3, 22 * s, foot);
+  return scene.done();
+}
+
+// ─── Trio ────────────────────────────────────────────────────────────────────
+
+function buildTrio(input: BuildInput): Scene {
+  const { format, content, palette } = input;
+  const W = format.width;
+  const H = format.height;
+  const s = Math.min(W / 1080, H / 1350);
+  const night = palette.primary;
+  const band = palette.accent;
+  const onBand = readableOn(band, "#0b0b0b", "#ffffff");
+  const speakers = input.speakers.slice(0, CARD_MAX_SPEAKERS);
+  const scene = createScene(format, night);
+  const centre = { align: "center" as const, valign: "middle" as const };
+
+  if (input.coverImageUrl) scene.add({ kind: "image", role: "cover", src: input.coverImageUrl, fit: "cover", x: 0, y: 0, w: W, h: H, grayscale: true, opacity: 0.26 });
+  else scene.skip();
+  scene.text(upper(content.formatLabel), W * 0.1, H * 0.032, W * 0.8, H * 0.045, { family: BODY, weight: 400, size: 44 * s, minSize: 20 * s, color: "#ffffff", ...centre, maxLines: 1 });
+  const lines = balanceWords(content.eventTitle, content.eventTitle.trim().length > 14 ? 2 : 1);
+  scene.text(upper(lines.join("\n")), W * 0.05, H * 0.1, W * 0.9, H * 0.255, {
+    family: DISPLAY, weight: 400, size: Math.min(220 * s, (H * 0.25) / (1.04 * Math.max(1, lines.length))), minSize: 60 * s, color: "#ffffff", ...centre, lineHeight: 1.04, maxLines: Math.max(1, lines.length),
+  });
+
+  const bandY = Math.round(H * 0.87);
+  const zoneTop = H * 0.385;
+  const n = speakers.length;
+  if (n > 0) {
+    const colours = n === 1 ? [palette.ground] : n === 2 ? ["#19c8d6", palette.ground] : ["#19c8d6", palette.ground, "#ff4545"];
+    const panelW = W * 0.262;
+    const mid = (n - 1) / 2;
+    const left = (W - n * panelW) / 2;
+    const tops = speakers.map((_, i) => zoneTop + (i === mid ? 0 : H * 0.028));
+    speakers.forEach((_, i) => {
+      scene.add({
+        kind: "rect", x: left + i * panelW, y: tops[i], w: panelW, h: bandY - tops[i] + 20 * s, fill: colours[i],
+        rotation: i === mid ? 0 : i < mid ? -1.5 : 1.5,
+      });
+    });
+    speakers.forEach((speaker, i) => {
+      const x = left + i * panelW;
+      const inset = panelW * 0.07;
+      const photoY = tops[i] + (bandY - tops[i]) * 0.13;
+      scene.add(
+        portrait({ x: x + inset, y: photoY, w: panelW - inset * 2, h: bandY - photoY }, speaker, null, {
+          background: darken(colours[i], 0.25), color: "#ffffff", family: BODY, label: speaker.name,
+        }, { grayscale: true }),
+      );
+      const fadeH = (bandY - tops[i]) * 0.45;
+      scene.add({ kind: "rect", x: x + inset - 1, y: bandY - fadeH, w: panelW - inset * 2 + 2, h: fadeH, fill: { type: "linear", from: [0, 0], to: [0, 1], stops: [[0, alpha(night, 0)], [0.85, alpha(night, 0.94)], [1, night]] } });
+      scene.text(content.sideLabel.toLowerCase(), x, bandY - 122 * s, panelW, 34 * s, { family: BODY, weight: 400, size: 25 * s, minSize: 13 * s, color: "#ffffff", ...centre, maxLines: 1 });
+      scene.text(upper(speaker.name), x + panelW * 0.04, bandY - 90 * s, panelW * 0.92, 52 * s, {
+        family: BODY, weight: 500, size: 34 * s, minSize: 15 * s, color: "#ffffff", ...centre, maxLines: 1, role: "speaker-name",
+      });
+    });
+  } else {
+    scene.text(content.description, W * 0.12, zoneTop, W * 0.76, bandY - zoneTop, { family: BODY, weight: 400, size: 40 * s, minSize: 20 * s, color: "#ffffff", ...centre, lineHeight: 1.45, maxLines: 6 });
+  }
+
+  const bandH = H - bandY;
+  scene.add({ kind: "rect", x: 0, y: bandY, w: W, h: bandH, fill: band });
+  const small = { family: BODY, weight: 500, size: 25 * s, minSize: 13 * s, color: onBand, valign: "middle" as const, maxLines: 1 };
+  const large = { family: BODY, weight: 500, size: 40 * s, minSize: 18 * s, color: onBand, valign: "middle" as const, maxLines: 1 };
+  scene.text(upper(content.dateLine), W * 0.08, bandY + bandH * 0.2, W * 0.4, bandH * 0.24, small);
+  scene.text(upper(content.timeLine), W * 0.08, bandY + bandH * 0.44, W * 0.4, bandH * 0.36, large);
+  scene.text(upper(content.venueAddress), W * 0.52, bandY + bandH * 0.2, W * 0.4, bandH * 0.24, { ...small, size: 20 * s, minSize: 16 * s, align: "right" });
+  scene.text(upper(content.venueName), W * 0.52, bandY + bandH * 0.44, W * 0.4, bandH * 0.36, { ...large, align: "right" });
+  return scene.done();
+}
+
+// ─── Introducing ─────────────────────────────────────────────────────────────
+
+function buildIntroducing(input: BuildInput): Scene {
+  const { format, content, palette } = input;
+  const W = format.width;
+  const H = format.height;
+  const wide = W / H > 1.4;
+  const s = Math.min(W, H) / 1080;
+  const navy = palette.primary;
+  const frame = palette.ground;
+  const onStrip = readableOn(palette.accent, navy, "#ffffff");
+  const speaker = input.speakers[0];
+  const scene = createScene(format, navy);
+
+  if (input.coverImageUrl) scene.add({ kind: "image", role: "cover", src: input.coverImageUrl, fit: "cover", x: 0, y: 0, w: W, h: H, opacity: 0.16 });
+  else scene.skip();
+  scene.add({ kind: "rect", x: 0, y: 0, w: W, h: H, fill: { type: "radial", center: [0.25, 0.6], radius: 0.8, stops: [[0, alpha(lighten(navy, 0.25), 0.55)], [1, alpha(navy, 0)]] } });
+
+  const lineH = (wide ? 50 : 40) * s;
+  organizerMark(scene, input, { x: W * 0.05, y: H * 0.04, w: W * 0.3, h: H * 0.13 }, { color: "#ffffff", size: (wide ? 50 : 42) * s, align: "left", weight: 800 });
+  const rx = W * 0.42;
+  const rw = W * 0.53;
+  const heading = { family: SANS, weight: 800, size: lineH * 0.74, minSize: lineH * 0.4, color: "#ffffff", align: "right" as const, valign: "middle" as const, maxLines: 1 };
+  scene.text(upper(content.dateLine), rx, H * 0.04, rw, lineH, heading);
+  scene.text(upper(content.venueName), rx, H * 0.04 + lineH, rw, lineH, heading);
+  if (input.sponsors.length > 0) {
+    const shown = Math.min(3, input.sponsors.length);
+    const tilesW = rw * (shown / 3);
+    sponsorTiles(scene, input.sponsors, { x: rx + rw - tilesW, y: H * 0.04 + lineH * 2.3, w: tilesW, h: lineH * 1.5 }, navy, s * 0.6);
+  }
+
+  const stripH = Math.round(H * 0.105);
+  const bodyY = H * (wide ? 0.3 : 0.25);
+  const bodyH = H - stripH - bodyY;
+  const frameW = W * (wide ? 0.25 : 0.37);
+  const frameH = Math.min(bodyH * 0.8, frameW * 1.3);
+  const frameX = W * 0.9 - frameW;
+  const frameY = bodyY + (bodyH - frameH) / 2 + 10 * s;
+  const offset = 24 * s;
+  scene.add({ kind: "rect", x: frameX + offset, y: frameY - offset, w: frameW, h: frameH, stroke: frame, strokeWidth: 3 * s });
+  scene.add({ kind: "rect", x: frameX, y: frameY, w: frameW, h: frameH, fill: frame, shadow: { color: "rgba(0,0,0,0.35)", blur: 28 * s, offsetX: 0, offsetY: 10 * s } });
+  const border = 9 * s;
+  scene.add(
+    portrait({ x: frameX + border, y: frameY + border, w: frameW - border * 2, h: frameH - border * 2 }, speaker, input.coverImageUrl, {
+      background: lighten(navy, 0.2), color: "#ffffff", family: SANS, label: content.eventTitle,
+    }),
+  );
+
+  const lx = W * 0.07;
+  const lw = frameX - lx - W * 0.05;
+  scene.text(balanceWords(content.introLine, 2).join("\n"), lx, bodyY + bodyH * 0.04, lw, bodyH * 0.46, {
+    family: SCRIPT, weight: 400, size: 150 * s, minSize: 54 * s, color: "#ffffff", valign: "middle", lineHeight: 1.02, maxLines: 2,
+    shadow: { color: "rgba(0,0,0,0.3)", blur: 6 * s, offsetX: 2 * s, offsetY: 3 * s },
+  });
+  const ruleY = bodyY + bodyH * 0.55;
+  scene.add({ kind: "line", x1: lx, y1: ruleY, x2: lx + lw * 0.86, y2: ruleY - 8 * s, color: "#ffffff", width: 5 * s, round: true });
+  scene.add({ kind: "line", x1: lx + lw * 0.1, y1: ruleY + 12 * s, x2: lx + lw * 0.7, y2: ruleY + 7 * s, color: alpha("#ffffff", 0.6), width: 2 * s, round: true });
+  scene.text(upper(speaker?.name || content.eventTitle), lx, bodyY + bodyH * 0.6, lw, bodyH * 0.12, {
+    family: SANS, weight: 800, size: 50 * s, minSize: 24 * s, color: "#ffffff", valign: "middle", letterSpacing: 2 * s, maxLines: 1, role: "speaker-name",
+  });
+  scene.text(speaker ? speaker.role : content.subtitle, lx, bodyY + bodyH * 0.725, lw, bodyH * 0.2, {
+    family: SANS, weight: 500, italic: true, size: 34 * s, minSize: 18 * s, color: "#ffffff", valign: "top", lineHeight: 1.25, maxLines: 2,
+  });
+
+  const stripY = H - stripH;
+  scene.add({ kind: "rect", x: 0, y: stripY, w: W, h: stripH, fill: palette.accent });
+  scene.text(upper(speaker ? content.eventTitle : content.ctaLabel), W * 0.06, stripY, W * 0.5, stripH, {
+    family: SANS, weight: 800, size: 36 * s, minSize: 17 * s, color: onStrip, valign: "middle", letterSpacing: s, lineHeight: 1.1, maxLines: 2,
+  });
+  scene.text(content.website, W * 0.58, stripY, W * 0.36, stripH, { family: SANS, weight: 600, size: 26 * s, minSize: 14 * s, color: onStrip, align: "right", valign: "middle", maxLines: 1 });
+  return scene.done();
+}
+
+// ─── Summit ──────────────────────────────────────────────────────────────────
+
+function buildSummit(input: BuildInput): Scene {
+  const { format, content, palette } = input;
+  const W = format.width;
+  const H = format.height;
+  const s = Math.min(W / 1080, H / 1350);
+  const night = palette.primary;
+  const speakers = input.speakers.slice(0, CARD_MAX_SPEAKERS);
+  const scene = createScene(format, night);
+  const centre = { align: "center" as const, valign: "middle" as const };
+
+  scene.add({ kind: "rect", x: 0, y: 0, w: W, h: H, fill: { type: "radial", center: [0.5, 0.4], radius: 0.75, stops: [[0, alpha(mix(night, palette.ground, 0.45), 0.7)], [1, alpha(night, 0)]] } });
+  organizerMark(scene, input, { x: W * 0.07, y: H * 0.04, w: W * 0.36, h: H * 0.05 }, { color: "#ffffff", size: 32 * s, align: "left", weight: 700 });
+  scene.text(upper(content.formatLabel), W * 0.5, H * 0.04, W * 0.43, H * 0.05, {
+    family: "Archivo", weight: 800, size: 30 * s, minSize: 15 * s, color: palette.accent, align: "right", valign: "middle", letterSpacing: s, maxLines: 1,
+  });
+  const lines = balanceWords(content.eventTitle, content.eventTitle.trim().length > 16 ? 2 : 1);
+  scene.text(lines.join("\n"), W * 0.07, H * 0.115, W * 0.86, H * 0.14, {
+    family: BODY, weight: 700, size: 78 * s, minSize: 34 * s, color: "#ffffff", ...centre, lineHeight: 1.16, maxLines: Math.max(1, lines.length),
+  });
+  scene.text(content.subtitle, W * 0.1, H * 0.268, W * 0.8, H * 0.04, { family: BODY, weight: 500, size: 30 * s, minSize: 16 * s, color: "#ffffff", ...centre, maxLines: 1 });
+
+  const zoneY = H * 0.335;
+  const zoneH = H * 0.31;
+  const n = speakers.length;
+  if (n > 0) {
+    const gap = W * 0.035;
+    const cardW = W * 0.26;
+    const cardH = Math.min(zoneH, cardW * 1.55);
+    const total = n * cardW + (n - 1) * gap;
+    const y = zoneY + (zoneH - cardH) / 2;
+    const mid = (n - 1) / 2;
+    speakers.forEach((speaker, i) => {
+      const x = (W - total) / 2 + i * (cardW + gap);
+      const colour = i === mid ? palette.accent : palette.ground;
+      const deep = darken(colour, 0.4);
+      const curve = cardW * 0.42;
+      const onCard = "#ffffff";
+      scene.add({ kind: "rect", x, y, w: cardW, h: cardH, radius: [0, curve, 0, curve], fill: { type: "linear", from: [0, 0], to: [0, 1], stops: [[0, colour], [1, deep]] } });
+      const photoY = y + cardH * 0.36;
+      scene.add(
+        portrait({ x, y: photoY, w: cardW, h: cardH - (photoY - y) }, speaker, null, {
+          background: mix(colour, deep, 0.7), color: "#ffffff", family: BODY, label: speaker.name,
+        }, { radius: [0, 0, 0, curve] }),
+      );
+      // Melts the photo's top edge into the card.
+      const edge = mix(colour, deep, 0.36);
+      scene.add({ kind: "rect", x, y: photoY - 1, w: cardW, h: cardH * 0.22, fill: { type: "linear", from: [0, 0], to: [0, 1], stops: [[0, edge], [1, alpha(edge, 0)]] } });
+      scene.text(speaker.name, x + cardW * 0.08, y + cardH * 0.055, cardW * 0.68, cardH * 0.1, {
+        family: BODY, weight: 700, size: 25 * s, minSize: 12 * s, color: onCard, valign: "middle", maxLines: 1, role: "speaker-name",
+      });
+      scene.text(speaker.role, x + cardW * 0.08, y + cardH * 0.16, cardW * 0.78, cardH * 0.15, {
+        family: BODY, weight: 400, size: 16 * s, minSize: 10 * s, color: alpha(onCard, 0.92), valign: "top", lineHeight: 1.25, maxLines: 2,
+      });
+    });
+  } else {
+    scene.text(content.description, W * 0.12, zoneY, W * 0.76, zoneH, { family: BODY, weight: 400, size: 32 * s, minSize: 17 * s, color: "#ffffff", ...centre, lineHeight: 1.5, maxLines: 6 });
+  }
+
+  const rowY = H * 0.695;
+  const iconSize = 50 * s;
+  const strong = { family: BODY, weight: 600, size: 26 * s, minSize: 14 * s, color: "#ffffff", valign: "middle" as const, maxLines: 1 };
+  const light = { family: BODY, weight: 400, size: 20 * s, minSize: 12 * s, color: alpha("#ffffff", 0.85), valign: "middle" as const, maxLines: 1 };
+  scene.add({ kind: "icon", name: "clock", x: W * 0.09, y: rowY + 6 * s, size: iconSize, color: palette.accent });
+  scene.text(content.timeLine, W * 0.09 + iconSize * 1.35, rowY, W * 0.32, 34 * s, strong);
+  scene.text(content.dateLine, W * 0.09 + iconSize * 1.35, rowY + 34 * s, W * 0.32, 28 * s, light);
+  scene.add({ kind: "icon", name: "pin", x: W * 0.53, y: rowY + 6 * s, size: iconSize, color: palette.accent });
+  scene.text(content.venueName, W * 0.53 + iconSize * 1.35, rowY, W * 0.33, 34 * s, strong);
+  scene.text(content.venueAddress, W * 0.53 + iconSize * 1.35, rowY + 34 * s, W * 0.33, 28 * s, { ...light, minSize: 16 * s });
+  scene.text(content.phone.trim() ? `${content.infoLabel} ${content.phone}`.trim() : "", W * 0.1, H * 0.785, W * 0.8, H * 0.035, {
+    family: BODY, weight: 500, size: 23 * s, minSize: 13 * s, color: alpha("#ffffff", 0.9), ...centre, maxLines: 1,
+  });
+
+  const pill = { x: W * 0.17, y: H * 0.86, w: W * 0.66, h: 78 * s };
+  scene.add({ kind: "rect", ...pill, fill: "#ffffff", radius: pill.h / 2, shadow: { color: alpha(lighten(palette.ground, 0.3), 0.85), blur: 34 * s, offsetX: 0, offsetY: 0 } });
+  const hasSite = content.website.trim().length > 0;
+  const inner = { x: pill.x + 7 * s, y: pill.y + 7 * s, w: (hasSite ? pill.w * 0.4 : pill.w) - 14 * s, h: pill.h - 14 * s };
+  scene.add({ kind: "rect", ...inner, fill: night, radius: inner.h / 2 });
+  scene.text(content.ctaLabel, inner.x + inner.w * 0.06, inner.y, inner.w * 0.88, inner.h, { family: BODY, weight: 600, size: 26 * s, minSize: 13 * s, color: "#ffffff", ...centre, maxLines: 1 });
+  scene.text(content.website, pill.x + pill.w * 0.42, pill.y, pill.w * 0.54, pill.h, { family: BODY, weight: 500, size: 25 * s, minSize: 12 * s, color: night, ...centre, maxLines: 1 });
+  return scene.done();
+}
+
+// ─── Roster ──────────────────────────────────────────────────────────────────
+
+const ROSTER_MAX_SPEAKERS = 5;
+
+function buildRoster(input: BuildInput): Scene {
+  const { format, content, palette } = input;
+  const W = format.width;
+  const H = format.height;
+  const s = Math.min(W / 1200, H / 800);
+  const deep = palette.primary;
+  const pale = palette.ground;
+  const onPale = readableOn(pale, deep, "#ffffff");
+  const speakers = input.speakers.slice(0, ROSTER_MAX_SPEAKERS);
+  const scene = createScene(format, deep);
+
+  scene.add({ kind: "rect", x: 0, y: 0, w: W, h: H, fill: { type: "linear", from: [0, 0], to: [1, 1], stops: [[0, lighten(deep, 0.1)], [1, darken(deep, 0.4)]] } });
+  const stripH = Math.round(H * 0.17);
+  const stripY = H - stripH;
+  const heading = { family: "Archivo", weight: 800, valign: "middle" as const };
+  scene.text(upper(content.subtitle), W * 0.06, H * 0.055, W * 0.6, H * 0.045, { ...heading, weight: 700, size: 24 * s, minSize: 13 * s, color: palette.accent, maxLines: 1 });
+  scene.text(content.eventTitle, W * 0.06, H * 0.1, W * 0.6, H * 0.13, { ...heading, size: 48 * s, minSize: 24 * s, color: "#ffffff", lineHeight: 1.1, maxLines: 2 });
+  scene.text(upper(content.speakersLabel), W * 0.06, H * 0.245, W * 0.72, H * 0.085, { ...heading, size: 56 * s, minSize: 24 * s, color: pale, maxLines: 1 });
+  organizerMark(scene, input, { x: W * 0.7, y: H * 0.06, w: W * 0.24, h: H * 0.13 }, { color: "#ffffff", size: 34 * s, align: "right", weight: 700 });
+
+  const rowTop = H * 0.36;
+  const avail = stripY - H * 0.03 - rowTop;
+  const n = speakers.length;
+  if (n > 0) {
+    // Tall sizes have the height for two rows, which keeps the portraits large.
+    const cols = W / H <= 1.4 && n > 3 ? 3 : n;
+    const rows = Math.ceil(n / cols);
+    const u = rows > 1 || W / H <= 1.4 ? s * 1.3 : s;
+    const colW = (W * 0.9) / cols;
+    const cellH = avail / rows;
+    const nameH = 36 * u;
+    const roleH = 44 * u;
+    const d = Math.min(colW * 0.68, cellH - nameH - roleH - 16 * u, W * 0.24);
+    speakers.forEach((speaker, i) => {
+      const row = Math.floor(i / cols);
+      const inRow = Math.min(cols, n - row * cols);
+      const cx = W / 2 + (i - row * cols - (inRow - 1) / 2) * colW;
+      const top = rowTop + row * cellH + (cellH - d - nameH - roleH - 16 * u) / 2;
+      scene.add({ kind: "ellipse", cx, cy: top + d / 2, rx: d / 2, ry: d / 2, fill: "#ffffff", stroke: palette.accent, strokeWidth: 5 * s });
+      const ring = 5 * s;
+      scene.add(
+        portrait({ x: cx - d / 2 + ring, y: top + ring, w: d - ring * 2, h: d - ring * 2 }, speaker, null, {
+          background: mix(deep, pale, 0.4), color: "#ffffff", family: SANS, label: speaker.name,
+        }, { circle: true, grayscale: true }),
+      );
+      scene.text(speaker.name, cx - colW * 0.47, top + d + 16 * u, colW * 0.94, nameH, {
+        family: "Archivo", weight: 700, size: 24 * u, minSize: 12 * u, color: pale, align: "center", valign: "middle", maxLines: 1, role: "speaker-name",
+      });
+      scene.text(speaker.role, cx - colW * 0.44, top + d + 16 * u + nameH, colW * 0.88, roleH, {
+        family: BODY, weight: 400, size: 15 * u, minSize: 10 * u, color: "#ffffff", align: "center", valign: "top", lineHeight: 1.3, maxLines: 2,
+      });
+    });
+  } else {
+    scene.text(content.description, W * 0.12, rowTop, W * 0.76, avail, { family: BODY, weight: 400, size: 30 * s, minSize: 16 * s, color: "#ffffff", align: "center", valign: "middle", lineHeight: 1.5, maxLines: 5 });
+  }
+
+  scene.add({ kind: "rect", x: 0, y: stripY, w: W, h: stripH, fill: pale });
+  scene.add({ kind: "rect", x: 0, y: stripY, w: W, h: 6 * s, fill: palette.accent });
+  const label = { ...heading, size: 21 * s, minSize: 12 * s, color: onPale, maxLines: 1 };
+  if (input.sponsors.length > 0) {
+    const shown = Math.min(3, input.sponsors.length);
+    scene.text(upper(content.sponsorLabel), W * 0.06, stripY + stripH * 0.12, W * 0.42, stripH * 0.26, label);
+    sponsorTiles(scene, input.sponsors, { x: W * 0.06, y: stripY + stripH * 0.42, w: W * 0.14 * shown, h: stripH * 0.42 }, deep, s * 0.6);
+  } else {
+    scene.text(upper(content.ctaLabel), W * 0.06, stripY + stripH * 0.18, W * 0.42, stripH * 0.32, { ...label, size: 30 * s });
+    scene.text(content.website, W * 0.06, stripY + stripH * 0.5, W * 0.42, stripH * 0.3, { family: BODY, weight: 500, size: 21 * s, minSize: 12 * s, color: onPale, valign: "middle", maxLines: 1 });
+  }
+  scene.text(upper(content.dateLine), W * 0.52, stripY + stripH * 0.18, W * 0.42, stripH * 0.32, { ...label, size: 30 * s, align: "right" });
+  scene.text(content.venueName, W * 0.52, stripY + stripH * 0.5, W * 0.42, stripH * 0.3, { family: BODY, weight: 500, size: 22 * s, minSize: 12 * s, color: onPale, align: "right", valign: "middle", maxLines: 1 });
+  return scene.done();
+}
+
+// ─── Talkshow ────────────────────────────────────────────────────────────────
+
+/** Where each of the four portraits sits, as fractions of the canvas. */
+const TALKSHOW_SLOTS: Array<[number, number]> = [
+  [0.5, 0.56],
+  [0.8, 0.33],
+  [0.2, 0.7],
+  [0.79, 0.7],
+];
+
+function buildTalkshow(input: BuildInput): Scene {
+  const { format, content, palette } = input;
+  const W = format.width;
+  const H = format.height;
+  const s = Math.min(W, H) / 1080;
+  const deep = palette.primary;
+  const gold = palette.accent;
+  const speakers = input.speakers.slice(0, TALKSHOW_SLOTS.length);
+  const scene = createScene(format, darken(deep, 0.35));
+
+  if (input.coverImageUrl) scene.add({ kind: "image", role: "cover", src: input.coverImageUrl, fit: "cover", x: 0, y: 0, w: W, h: H, grayscale: true, opacity: 0.16 });
+  else scene.skip();
+  scene.add({ kind: "rect", x: 0, y: 0, w: W, h: H, fill: { type: "radial", center: [0.55, 0.5], radius: 0.8, stops: [[0, alpha(lighten(deep, 0.12), 0.9)], [1, alpha(deep, 0)]] } });
+  scene.add({ kind: "dots", x: W * 0.06, y: H * 0.9, cols: 5, rows: 3, gap: 14 * s, r: 2 * s, color: alpha(gold, 0.8) });
+  scene.add({ kind: "dots", x: W * 0.72, y: H * 0.13, cols: 12, rows: 6, gap: 14 * s, r: 1.6 * s, color: alpha(palette.ground, 0.35) });
+
+  organizerMark(scene, input, { x: W * 0.64, y: H * 0.045, w: W * 0.29, h: H * 0.06 }, { color: "#ffffff", size: 30 * s, align: "right", weight: 800 });
+  const lx = W * 0.07;
+  scene.text(content.eventTitle, lx, H * 0.115, W * 0.56, H * 0.1, { family: BODY, weight: 500, size: 60 * s, minSize: 28 * s, color: "#ffffff", valign: "bottom", lineHeight: 1.1, maxLines: 2 });
+  scene.text(content.formatLabel, lx, H * 0.218, W * 0.56, H * 0.065, { family: BODY, weight: 700, size: 60 * s, minSize: 26 * s, color: gold, valign: "middle", maxLines: 1 });
+  scene.text(content.description, lx, H * 0.292, W * 0.5, H * 0.055, { family: BODY, weight: 400, size: 18 * s, minSize: 12 * s, color: alpha("#ffffff", 0.9), valign: "top", lineHeight: 1.35, maxLines: 2 });
+  scene.text(content.scriptLine.toLowerCase(), W * 0.05, H * 0.365, W * 0.33, H * 0.085, { family: HAND, weight: 700, size: 78 * s, minSize: 32 * s, color: gold, valign: "middle", maxLines: 1, rotation: -5 });
+  scene.text(upper(content.subtitle), lx, H * 0.452, W * 0.3, H * 0.03, { family: BODY, weight: 500, size: 18 * s, minSize: 10 * s, color: "#ffffff", valign: "middle", letterSpacing: 3 * s, maxLines: 1 });
+
+  const photoW = W * 0.25;
+  const photoH = Math.min(photoW * 1.05, H * 0.21);
+  speakers.forEach((speaker, i) => {
+    const [fx, fy] = TALKSHOW_SLOTS[i];
+    const x = W * fx - photoW / 2;
+    const y = H * fy - photoH / 2;
+    const edge = i % 2 === 0 ? palette.ground : gold;
+    scene.add(
+      portrait({ x, y, w: photoW, h: photoH }, speaker, null, {
+        background: lighten(deep, 0.18), color: "#ffffff", family: BODY, label: speaker.name,
+      }, { grayscale: true, radius: 16 * s }),
+    );
+    scene.add({ kind: "rect", x: x - 1, y: y + photoH * 0.6, w: photoW + 2, h: photoH * 0.4 + 1, fill: { type: "linear", from: [0, 0], to: [0, 1], stops: [[0, alpha(deep, 0)], [1, alpha(deep, 0.9)]] } });
+    const plate = { x: x - photoW * 0.04, y: y + photoH - 14 * s, w: photoW * 1.08, h: 48 * s };
+    scene.add({ kind: "rect", ...plate, fill: darken(deep, 0.45), stroke: edge, strokeWidth: 3 * s });
+    scene.add({ kind: "rect", x: plate.x + plate.w - 9 * s, y: plate.y, w: 9 * s, h: plate.h, fill: edge });
+    scene.text(speaker.name, plate.x + plate.w * 0.05, plate.y, plate.w * 0.86, plate.h, {
+      family: BODY, weight: 600, size: 22 * s, minSize: 11 * s, color: "#ffffff", align: "center", valign: "middle", maxLines: 1, role: "speaker-name",
+    });
+  });
+
+  scene.text(upper(content.linkLabel), W * 0.1, H * 0.895, W * 0.8, H * 0.03, { family: BODY, weight: 700, size: 20 * s, minSize: 11 * s, color: gold, align: "center", valign: "middle", letterSpacing: 4 * s, maxLines: 1 });
+  scene.text(content.website, W * 0.1, H * 0.93, W * 0.8, H * 0.035, { family: BODY, weight: 600, size: 22 * s, minSize: 12 * s, color: palette.ground, align: "center", valign: "middle", letterSpacing: 4 * s, maxLines: 1 });
+  return scene.done();
+}
+
 // ─── Catalogue ───────────────────────────────────────────────────────────────
 
 export const STUDIO_TEMPLATES: StudioTemplate[] = [
@@ -1355,6 +1825,134 @@ export const STUDIO_TEMPLATES: StudioTemplate[] = [
       { key: "description", label: "Description (no speakers)", multiline: true },
     ],
     build: buildWorkshop,
+  },
+  {
+    id: "studio-conference",
+    name: "Conference",
+    description: "The event photo and title over up to three speaker cards, a details bar and a button.",
+    maxSpeakers: CARD_MAX_SPEAKERS,
+    palette: { primary: "#1b2a4e", accent: "#f7a614", ground: "#ffffff" },
+    paletteLabels: { primary: "Text & photo tint", accent: "Accent", ground: "Background" },
+    formats: TALL_FORMATS,
+    fields: [
+      { key: "organizerName", label: "Organiser" },
+      { key: "eventTitle", label: "Event title" },
+      { key: "sideLabel", label: "Card label" },
+      { key: "subtitle", label: "Line above the details" },
+      { key: "dateLine", label: "Date" },
+      { key: "timeLine", label: "Time" },
+      { key: "venueName", label: "Venue" },
+      { key: "ctaLabel", label: "Button" },
+      { key: "website", label: "Website" },
+      { key: "phone", label: "Phone" },
+      { key: "description", label: "Description (no speakers)", multiline: true },
+    ],
+    build: buildConference,
+  },
+  {
+    id: "studio-trio",
+    name: "Trio",
+    description: "A huge headline over three colour panels of black-and-white speakers, with a bright footer band.",
+    maxSpeakers: CARD_MAX_SPEAKERS,
+    palette: { primary: "#0b0b0b", accent: "#19f5c1", ground: "#ffc400" },
+    paletteLabels: { primary: "Background", accent: "Footer band", ground: "Centre panel" },
+    formats: TALL_FORMATS,
+    fields: [
+      { key: "formatLabel", label: "Top label" },
+      { key: "eventTitle", label: "Headline" },
+      { key: "sideLabel", label: "Label above each name" },
+      { key: "dateLine", label: "Date" },
+      { key: "timeLine", label: "Time" },
+      { key: "venueName", label: "Venue" },
+      { key: "venueAddress", label: "Address" },
+      { key: "description", label: "Description (no speakers)", multiline: true },
+    ],
+    build: buildTrio,
+  },
+  {
+    id: "studio-introducing",
+    name: "Introducing",
+    description: "A script \"Meet our speaker\" beside a framed portrait, with date, venue and sponsors on top.",
+    maxSpeakers: 1,
+    palette: { primary: "#16245c", accent: "#f4b63f", ground: "#ffffff" },
+    paletteLabels: { primary: "Background", accent: "Footer strip", ground: "Photo frame" },
+    formats: ["instagram-post", "instagram-portrait", "linkedin-post"],
+    fields: [
+      { key: "introLine", label: "Script headline" },
+      { key: "organizerName", label: "Organiser" },
+      { key: "dateLine", label: "Date" },
+      { key: "venueName", label: "Venue" },
+      { key: "eventTitle", label: "Event title" },
+      { key: "website", label: "Website" },
+    ],
+    build: buildIntroducing,
+  },
+  {
+    id: "studio-summit",
+    name: "Summit",
+    description: "A dark poster with up to three arched speaker cards, timing, venue and a glowing button.",
+    maxSpeakers: CARD_MAX_SPEAKERS,
+    palette: { primary: "#050b2a", accent: "#f08a24", ground: "#2f62e6" },
+    paletteLabels: { primary: "Background", accent: "Centre card & icons", ground: "Side cards & glow" },
+    formats: TALL_FORMATS,
+    fields: [
+      { key: "organizerName", label: "Organiser" },
+      { key: "formatLabel", label: "Top-right label" },
+      { key: "eventTitle", label: "Title" },
+      { key: "subtitle", label: "Line below the title" },
+      { key: "timeLine", label: "Time" },
+      { key: "dateLine", label: "Date" },
+      { key: "venueName", label: "Venue" },
+      { key: "venueAddress", label: "Address" },
+      { key: "infoLabel", label: "Phone heading" },
+      { key: "phone", label: "Phone" },
+      { key: "ctaLabel", label: "Button" },
+      { key: "website", label: "Website" },
+      { key: "description", label: "Description (no speakers)", multiline: true },
+    ],
+    build: buildSummit,
+  },
+  {
+    id: "studio-roster",
+    name: "Roster",
+    description: "A row of up to five ringed speaker portraits with names and roles, over a sponsor strip.",
+    maxSpeakers: ROSTER_MAX_SPEAKERS,
+    palette: { primary: "#0b3a4d", accent: "#f26a1b", ground: "#c9eef7" },
+    paletteLabels: { primary: "Background", accent: "Rings & rule", ground: "Headings & strip" },
+    formats: ["linkedin-post", "instagram-post", "instagram-portrait"],
+    fields: [
+      { key: "subtitle", label: "Line above the title" },
+      { key: "eventTitle", label: "Event title" },
+      { key: "speakersLabel", label: "Speakers heading" },
+      { key: "organizerName", label: "Organiser" },
+      { key: "sponsorLabel", label: "Sponsor heading" },
+      { key: "dateLine", label: "Date" },
+      { key: "venueName", label: "Venue" },
+      { key: "ctaLabel", label: "Call to action (no sponsor)" },
+      { key: "website", label: "Website (no sponsor)" },
+      { key: "description", label: "Description (no speakers)", multiline: true },
+    ],
+    build: buildRoster,
+  },
+  {
+    id: "studio-talkshow",
+    name: "Talkshow",
+    description: "Up to four black-and-white speakers scattered across a deep backdrop, each with a name plate.",
+    maxSpeakers: TALKSHOW_SLOTS.length,
+    palette: { primary: "#0a1b6b", accent: "#ffb400", ground: "#18b4f5" },
+    paletteLabels: { primary: "Background", accent: "Highlight", ground: "Plates & website" },
+    formats: TALL_FORMATS,
+    fields: [
+      { key: "organizerName", label: "Organiser" },
+      { key: "eventTitle", label: "Title" },
+      { key: "formatLabel", label: "Highlighted line" },
+      { key: "description", label: "Description", multiline: true },
+      { key: "scriptLine", label: "Handwritten line" },
+      { key: "subtitle", label: "Line under the handwriting" },
+      { key: "linkLabel", label: "Link heading" },
+      { key: "website", label: "Website" },
+    ],
+    build: buildTalkshow,
   },
 ];
 

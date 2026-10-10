@@ -45,6 +45,7 @@ const CONTENT: StudioContent = {
   linkLabel: "Register online",
   sideLabel: "Speaker",
   scriptLine: "A Session",
+  introLine: "Meet our speaker",
 };
 
 const SPEAKERS: StudioSpeaker[] = ["Maela Agatha", "John Levis", "Dave Light", "Mary Ann", "Heart Joy", "Sixth Person"].map(
@@ -158,6 +159,19 @@ describe("event data on the creative", () => {
     for (const id of ["studio-training", "studio-workshop"]) {
       expect(sceneImageUrls(build(id, 0, { speakers: SPEAKERS }))).toHaveLength(6);
     }
+  });
+
+  it("the multi-speaker designs feature as many speakers as they declare", () => {
+    for (const [id, count] of [["studio-conference", 3], ["studio-trio", 3], ["studio-summit", 3], ["studio-roster", 5], ["studio-talkshow", 4]] as const) {
+      const scene = build(id, 0, { speakers: SPEAKERS, coverImageUrl: null });
+      expect(scene.nodes.filter((n) => n.kind === "image" && n.role === "speaker-photo")).toHaveLength(count);
+      expect(scene.nodes.filter((n) => n.kind === "text" && n.role === "speaker-name")).toHaveLength(count);
+    }
+  });
+
+  it("Introducing sets the script headline beside the speaker's name and role", () => {
+    const scene = build("studio-introducing", 0);
+    expect(texts(scene)).toEqual(expect.arrayContaining(["Meet our\nspeaker", "MAELA AGATHA", "CEO, Salford & Co."]));
   });
 
   it("Speaker Card uses the speaker's own bio when there is one", () => {

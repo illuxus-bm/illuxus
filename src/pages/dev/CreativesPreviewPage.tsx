@@ -42,6 +42,7 @@ const CONTENT: StudioContent = {
   linkLabel: "Register online",
   sideLabel: "Speaker #1",
   scriptLine: "A Session",
+  introLine: "Meet our speaker",
 };
 
 const NAMES: Array<[string, string]> = [
@@ -75,7 +76,7 @@ export default function CreativesPreviewPage() {
                 speakers: speakers.slice(0, template.maxSpeakers),
                 sponsors: [{ id: "sponsor-1", name: "Men's Wearhouse", logoUrl: null }],
                 organizerLogoUrl: null,
-                coverImageUrl: null,
+                coverImageUrl: withPhotos ? "https://picsum.photos/id/1067/1200/900" : null,
                 year: "2026",
                 palette: template.palette,
               };

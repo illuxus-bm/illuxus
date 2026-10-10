@@ -261,6 +261,20 @@ function drawIcon(ctx: Ctx, node: IconNode): void {
       ctx.stroke();
       ctx.stroke(new Path2D("M12 7v5l3.2 2"));
       break;
+    case "phone":
+      ctx.fill(
+        new Path2D(
+          "M6.62 10.79a15.05 15.05 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.02-.24 11.4 11.4 0 0 0 3.57.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1.02l-2.2 2.2z",
+        ),
+      );
+      break;
+    case "globe":
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(12, 12, 9, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.stroke(new Path2D("M3 12h18M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18"));
+      break;
     case "chevron-up":
       ctx.lineWidth = 1.1;
       ctx.lineJoin = "miter";
