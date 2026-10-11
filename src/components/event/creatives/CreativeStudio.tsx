@@ -1,6 +1,11 @@
 /**
- * CreativeStudio — pick a design, pick who it features, adjust the copy,
- * download.
+ * CreativeStudio — pick what the graphic announces (the event, a speaker,
+ * the line-up, a partner), pick a design, adjust anything, download.
+ *
+ * Designs are grouped by kind and by design direction (see
+ * `lib/creatives/studio/directions.ts`). Every design is a scene of
+ * individual elements, so each line, photo and shape can be selected on the
+ * canvas and edited, moved, restyled or removed.
  *
  * Everything shown comes from the event's own data (`loadStudioData`): the
  * speakers and their photos, the sponsors' logos, the date, venue and
@@ -41,6 +46,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { buildCreativeAssetRecord, insertCreativeAssetRecord, uploadCreativeAsset } from "@/lib/creatives/creative-storage";
 import { loadStudioData, type StudioData } from "@/lib/creatives/studio/data";
+import { STUDIO_CATEGORIES, type StudioCategory } from "@/lib/creatives/studio/directions";
 import {
   addNode,
   applyEdits,
@@ -55,7 +61,7 @@ import {
   type SceneEdits,
 } from "@/lib/creatives/studio/edits";
 import { loadImage, measureTextHeight, renderSceneToBlob } from "@/lib/creatives/studio/render";
-import { isHexColor, readableOn, type SceneNode, type TextNode } from "@/lib/creatives/studio/scene";
+import { isHexColor, readableOn, type Scene, type SceneNode, type TextNode } from "@/lib/creatives/studio/scene";
 import {
   findStudioFormat,
   findStudioTemplate,
@@ -73,6 +79,8 @@ import { logger } from "@/lib/observability";
 import { cn } from "@/lib/utils";
 
 interface StudioPrefs {
+  /** What the graphic announces; decides which designs the picker shows. */
+  category: StudioCategory;
   templateId: string;
   formatId: string;
   overrides: Partial<StudioContent>;
@@ -88,8 +96,12 @@ const UNDO_COALESCE_MS = 700;
 /** Text properties that change how tall the text is. */
 const TEXT_LAYOUT_KEYS = ["text", "size", "family", "weight", "lineHeight", "letterSpacing"];
 
+const firstOf = (category: StudioCategory): StudioTemplate =>
+  STUDIO_TEMPLATES.find((t) => t.category === category) ?? STUDIO_TEMPLATES[0];
+
 const DEFAULT_PREFS: StudioPrefs = {
-  templateId: STUDIO_TEMPLATES[0].id,
+  category: "event",
+  templateId: firstOf("event").id,
   formatId: STUDIO_FORMATS[0].id,
   overrides: {},
   palettes: {},
@@ -107,6 +119,7 @@ function readPrefs(eventId: string): StudioPrefs {
     if (!raw) return DEFAULT_PREFS;
     const parsed = JSON.parse(raw) as Partial<StudioPrefs>;
     return {
+      category: STUDIO_CATEGORIES.some((c) => c.id === parsed.category) ? (parsed.category as StudioCategory) : DEFAULT_PREFS.category,
       templateId: typeof parsed.templateId === "string" ? parsed.templateId : DEFAULT_PREFS.templateId,
       formatId: typeof parsed.formatId === "string" ? parsed.formatId : DEFAULT_PREFS.formatId,
       overrides: parsed.overrides && typeof parsed.overrides === "object" ? parsed.overrides : {},
@@ -141,6 +154,40 @@ function SectionHeading({ step, title, hint }: { step: number; title: string; hi
   );
 }
 
+/**
+ * A design thumbnail that is only built and drawn once it scrolls into view,
+ * so a picker with dozens of designs opens instantly.
+ */
+function LazyThumb({ build }: { build: () => Scene | null }) {
+  const holder = useRef<HTMLDivElement>(null);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    const el = holder.current;
+    if (!el || seen) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setSeen(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setSeen(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "240px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [seen]);
+  const scene = useMemo(() => (seen ? build() : null), [seen, build]);
+  return (
+    <div ref={holder} className="aspect-square w-full bg-muted">
+      {scene && <SceneCanvas scene={scene} pixelWidth={120} />}
+    </div>
+  );
+}
+
 function SpeakerAvatar({ speaker }: { speaker: StudioSpeaker }) {
   const [failed, setFailed] = useState(false);
   if (speaker.photoUrl && !failed) {
@@ -159,6 +206,10 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [prefs, setPrefs] = useState<StudioPrefs>(() => readPrefs(eventId));
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  /** The partner a partner graphic features; defaults to the event's first sponsor. */
+  const [sponsorId, setSponsorId] = useState<string | null>(null);
+  /** Design direction shown in the picker ("all" for every direction). */
+  const [family, setFamily] = useState("all");
   const [busy, setBusy] = useState<"download" | "save" | "batch" | null>(null);
   const [panel, setPanel] = useState("design");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -196,6 +247,7 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
   }, [eventId, prefs]);
 
   const template = findStudioTemplate(prefs.templateId);
+  const category: StudioCategory = template.category ?? prefs.category;
   // A design that isn't laid out for the chosen size falls back to its first.
   const format = findStudioFormat(
     !template.formats || template.formats.includes(prefs.formatId) ? prefs.formatId : template.formats[0],
@@ -240,14 +292,15 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
               format,
               content,
               speakers,
-              sponsors: data.sponsors,
+              // The chosen partner leads, so partner designs feature it.
+              sponsors: [...data.sponsors].sort((a, b) => Number(b.id === sponsorId) - Number(a.id === sponsorId)),
               organizerLogoUrl: data.organizerLogoUrl,
               coverImageUrl: data.coverImageUrl,
               year: data.year,
               palette: targetPalette,
             }
           : null,
-    [data, content, format],
+    [data, content, format, sponsorId],
   );
 
   const baseScene = useMemo(() => {
@@ -256,13 +309,26 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
   }, [inputFor, template, featured, palette]);
   const scene = useMemo(() => (baseScene ? applyEdits(baseScene, edits) : null), [baseScene, edits]);
 
-  const thumbnails = useMemo(
+  /** The designs offered for the current kind of graphic, and their directions. */
+  const options = useMemo(() => STUDIO_TEMPLATES.filter((t) => t.category === category), [category]);
+  const families = useMemo(() => [...new Set(options.map((t) => t.family ?? "Other"))], [options]);
+  const shown = useMemo(
+    () => (family === "all" || !families.includes(family) ? options : options.filter((t) => (t.family ?? "Other") === family)),
+    [options, families, family],
+  );
+  const thumbnailBuilders = useMemo(
     () =>
-      STUDIO_TEMPLATES.map((option) => {
-        const input = inputFor(option, featuredFor(option), { ...option.palette, ...prefs.palettes[option.id] });
-        return input ? option.build({ ...input, format: THUMBNAIL_FORMAT }) : null;
-      }),
-    [inputFor, featuredFor, prefs.palettes],
+      new Map(
+        shown.map((option) => [
+          option.id,
+          (): Scene | null => {
+            const input = inputFor(option, featuredFor(option), { ...option.palette, ...prefs.palettes[option.id] });
+            const size = !option.formats || option.formats.includes(THUMBNAIL_FORMAT.id) ? THUMBNAIL_FORMAT : findStudioFormat(option.formats[0]);
+            return input ? option.build({ ...input, format: size }) : null;
+          },
+        ]),
+      ),
+    [shown, inputFor, featuredFor, prefs.palettes],
   );
 
   if (loadError) {
@@ -277,7 +343,12 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
   }
 
   const single = template.maxSpeakers === 1;
-  const subject = single && featured[0] ? featured[0].name : content.eventTitle;
+  const partner = category === "partner" ? (data.sponsors.find((s) => s.id === sponsorId) ?? data.sponsors[0]) : undefined;
+  const subject = single && featured[0] ? featured[0].name : partner ? partner.name : content.eventTitle;
+  const chooseCategory = (next: StudioCategory): void => {
+    setFamily("all");
+    setPrefs((p) => ({ ...p, category: next, templateId: findStudioTemplate(p.templateId).category === next ? p.templateId : firstOf(next).id }));
+  };
   const editedKeys = Object.keys(prefs.overrides) as Array<keyof StudioContent>;
   const paletteEdited = Object.keys(prefs.palettes[template.id] ?? {}).length > 0;
 
@@ -465,8 +536,9 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
       await insertCreativeAssetRecord(
         buildCreativeAssetRecord({
           eventId,
-          creativeType: speaker ? "speaker" : "event",
+          creativeType: speaker ? "speaker" : partner ? "sponsor" : "event",
           speakerId: speaker?.id ?? null,
+          sponsorId: !speaker && partner ? partner.id : null,
           templateId: template.id,
           platformFormat: format.id,
           assetUrl,
@@ -497,7 +569,7 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
-      <Tabs value={panel} onValueChange={setPanel}>
+      <Tabs value={panel} onValueChange={setPanel} className="order-2 min-w-0 lg:order-1">
         <TabsList className="mb-4 grid w-full grid-cols-3">
           <TabsTrigger value="design">Design</TabsTrigger>
           <TabsTrigger value="element">Element</TabsTrigger>
@@ -527,34 +599,79 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
         </TabsContent>
         <TabsContent value="design" className="space-y-7">
         <section>
-          <SectionHeading step={1} title="Design" />
-          <div className="grid grid-cols-3 gap-2">
-            {STUDIO_TEMPLATES.map((option, index) => {
-              const thumbnail = thumbnails[index];
+          <SectionHeading step={1} title="What is it for?" />
+          <div className="grid grid-cols-4 gap-1.5" role="radiogroup" aria-label="Kind of graphic">
+            {STUDIO_CATEGORIES.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={option.id === category}
+                onClick={() => chooseCategory(option.id)}
+                className={cn(
+                  "h-10 rounded-lg border text-[13px] font-medium transition sm:h-9",
+                  option.id === category ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <div className="flex items-baseline justify-between">
+            <SectionHeading step={2} title="Design" />
+            <span className="text-[11px] text-muted-foreground">
+              {shown.length} of {options.length} designs
+            </span>
+          </div>
+          <div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-1" role="radiogroup" aria-label="Design direction">
+            {["all", ...families].map((name) => (
+              <button
+                key={name}
+                type="button"
+                role="radio"
+                aria-checked={family === name}
+                onClick={() => setFamily(name)}
+                className={cn(
+                  "h-8 shrink-0 rounded-full border px-3 text-[12px] font-medium transition",
+                  family === name ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {name === "all" ? "All" : name}
+              </button>
+            ))}
+          </div>
+          <div className="grid max-h-[26rem] grid-cols-3 gap-2 overflow-y-auto overscroll-contain rounded-lg border border-border p-2 lg:max-h-[30rem]" role="radiogroup" aria-label="Design">
+            {shown.map((option) => {
               const active = option.id === template.id;
+              const build = thumbnailBuilders.get(option.id);
               return (
                 <button
                   key={option.id}
                   type="button"
+                  role="radio"
                   title={option.description}
-                  aria-pressed={active}
+                  aria-checked={active}
+                  aria-label={option.name}
                   onClick={() => setPrefs((p) => ({ ...p, templateId: option.id }))}
                   className={cn(
                     "overflow-hidden rounded-lg border bg-card text-left transition",
                     active ? "border-foreground ring-1 ring-foreground" : "border-border hover:border-foreground/40",
                   )}
                 >
-                  {thumbnail && <SceneCanvas scene={thumbnail} pixelWidth={120} />}
-                  <span className="block px-2 py-1.5 text-[12px] font-medium text-foreground">{option.name}</span>
+                  {build && <LazyThumb build={build} />}
+                  <span className="block truncate px-2 py-1.5 text-[11px] font-medium text-foreground">{option.name}</span>
                 </button>
               );
             })}
           </div>
-          <p className="mt-2 text-[12px] text-muted-foreground">{template.description}</p>
+          <p className="mt-2 text-[12px] text-muted-foreground">{template.description} Click anything on the preview to edit it.</p>
         </section>
 
         <section>
-          <SectionHeading step={2} title="Size" />
+          <SectionHeading step={3} title="Size" />
           <div className="grid grid-cols-2 gap-2">
             {STUDIO_FORMATS.map((option) => (
               <button
@@ -576,9 +693,44 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
           </div>
         </section>
 
+        {category === "partner" && (
+          <section>
+            <SectionHeading step={4} title="Partner" hint="Pick who this graphic features" />
+            {data.sponsors.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-border px-3 py-4 text-[12px] text-muted-foreground">
+                This event has no sponsors yet. Add them under Sponsors and their logos will appear here; until then the design
+                shows a placeholder name you can edit on the canvas.
+              </p>
+            ) : (
+              <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
+                {data.sponsors.map((sponsor) => {
+                  const active = partner?.id === sponsor.id;
+                  return (
+                    <button
+                      key={sponsor.id}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => setSponsorId(sponsor.id)}
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-lg border px-2.5 py-2 text-left transition",
+                        active ? "border-foreground bg-muted" : "border-transparent hover:bg-muted/60",
+                      )}
+                    >
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">{sponsor.name}</span>
+                      {!sponsor.logoUrl && <span className="shrink-0 text-[10px] text-muted-foreground">No logo</span>}
+                      {active && <Check className="h-4 w-4 shrink-0 text-foreground" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
+        {template.maxSpeakers > 0 && (
         <section>
           <SectionHeading
-            step={3}
+            step={4}
             title={single ? "Speaker" : "Speakers"}
             hint={single ? "Pick who this creative features" : `Up to ${template.maxSpeakers}, in event order`}
           />
@@ -617,10 +769,11 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
             </div>
           )}
         </section>
+        )}
 
         <section>
           <div className="flex items-start justify-between">
-            <SectionHeading step={4} title="Text" hint="Filled in from your event" />
+            <SectionHeading step={category === "partner" || template.maxSpeakers > 0 ? 5 : 4} title="Text" hint="Filled in from your event" />
             {editedKeys.length > 0 && (
               <button
                 type="button"
@@ -664,7 +817,7 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
 
         <section>
           <div className="flex items-start justify-between">
-            <SectionHeading step={5} title="Colours" />
+            <SectionHeading step={category === "partner" || template.maxSpeakers > 0 ? 6 : 5} title="Colours" />
             {paletteEdited && (
               <button
                 type="button"
@@ -711,7 +864,7 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
         </TabsContent>
       </Tabs>
 
-      <div className="lg:sticky lg:top-4 lg:self-start">
+      <div className="order-1 min-w-0 lg:order-2 lg:sticky lg:top-4 lg:self-start">
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
           <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 text-[12px]" onClick={addText}>
             <Type className="h-3.5 w-3.5" /> Text

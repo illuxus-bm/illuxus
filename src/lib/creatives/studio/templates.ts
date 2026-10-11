@@ -31,6 +31,7 @@ import {
   type SceneNode,
   type TextNode,
 } from "./scene";
+import { DIRECTION_TEMPLATES, type StudioCategory } from "./directions";
 
 // ─── Formats ─────────────────────────────────────────────────────────────────
 
@@ -96,6 +97,8 @@ export interface StudioContent {
   scriptLine: string;
   /** The script headline on the Introducing design ("Meet our speaker"). */
   introLine: string;
+  /** The headline of a partner announcement ("Proud to partner with"). */
+  partnerLine: string;
 }
 
 export type StudioContentKey = keyof StudioContent;
@@ -130,6 +133,10 @@ export interface StudioTemplate {
   id: string;
   name: string;
   description: string;
+  /** What the design announces; the picker groups designs by it. */
+  category?: StudioCategory;
+  /** The design direction (visual family) it belongs to. */
+  family?: string;
   /** How many speakers the design features. */
   maxSpeakers: number;
   palette: StudioPalette;
@@ -1634,7 +1641,8 @@ function buildTalkshow(input: BuildInput): Scene {
 
 // ─── Catalogue ───────────────────────────────────────────────────────────────
 
-export const STUDIO_TEMPLATES: StudioTemplate[] = [
+/** The reference-poster designs. */
+const POSTER_TEMPLATES: StudioTemplate[] = [
   {
     id: "studio-spotlight",
     name: "Spotlight",
@@ -1954,6 +1962,15 @@ export const STUDIO_TEMPLATES: StudioTemplate[] = [
     ],
     build: buildTalkshow,
   },
+];
+
+/**
+ * Every design: the art-directed directions first, then the reference
+ * posters (filed under the kind of graphic they make).
+ */
+export const STUDIO_TEMPLATES: StudioTemplate[] = [
+  ...DIRECTION_TEMPLATES,
+  ...POSTER_TEMPLATES.map((t): StudioTemplate => ({ ...t, category: t.maxSpeakers === 1 ? "speaker" : "lineup", family: "Posters" })),
 ];
 
 export function findStudioTemplate(id: string): StudioTemplate {

@@ -1,22 +1,16 @@
 /**
  * CreativesSection — dashboard entry point for an event's promotional
- * creatives: two ways to make them, and the library of the ones that have
- * been saved.
- *
- *  • Designs — branded graphics composed from the event's banner, photos,
- *    logos and colours (palettes are read from the banner). Pick, tweak,
- *    download; works on a phone.
- *  • Studio — the element-by-element editor, for full control over a poster.
+ * creatives: the studio where they are designed (pick a design, then edit
+ * anything on it), and the library of the ones that have been saved.
  */
 import { useState } from "react";
 
 import CreativeLibrary from "@/components/event/creatives/CreativeLibrary";
 import CreativeStudio from "@/components/event/creatives/CreativeStudio";
-import BrandedDesigns from "@/components/event/creatives/studio/BrandedDesigns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function CreativesSection({ eventId }: { eventId: string }) {
-  const [tab, setTab] = useState("designs");
+  const [tab, setTab] = useState("studio");
   // Bumped on every save so the library refetches the next time it is shown.
   const [libraryKey, setLibraryKey] = useState(0);
 
@@ -29,23 +23,19 @@ export default function CreativesSection({ eventId }: { eventId: string }) {
             Graphics built from this event's banner, speakers, sponsors, date and venue. Pick a design, then adjust anything you like.
           </p>
         </div>
-        <TabsList className="w-full sm:w-auto grid grid-cols-3 sm:inline-flex">
-          <TabsTrigger value="designs">Designs</TabsTrigger>
-          <TabsTrigger value="studio">Studio</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-2 sm:inline-flex sm:w-auto">
+          <TabsTrigger value="studio">Create</TabsTrigger>
           <TabsTrigger value="library">Saved</TabsTrigger>
         </TabsList>
       </div>
 
-      <TabsContent value="designs" forceMount className="data-[state=inactive]:hidden">
-        <BrandedDesigns eventId={eventId} onSaved={() => setLibraryKey((k) => k + 1)} />
-      </TabsContent>
       {/* Kept mounted so switching to the library and back doesn't refetch
           the event or drop an in-progress export. */}
       <TabsContent value="studio" forceMount className="data-[state=inactive]:hidden">
         <CreativeStudio eventId={eventId} onSaved={() => setLibraryKey((k) => k + 1)} />
       </TabsContent>
       <TabsContent value="library">
-        <CreativeLibrary key={libraryKey} eventId={eventId} onCreate={() => setTab("designs")} />
+        <CreativeLibrary key={libraryKey} eventId={eventId} onCreate={() => setTab("studio")} />
       </TabsContent>
     </Tabs>
   );
