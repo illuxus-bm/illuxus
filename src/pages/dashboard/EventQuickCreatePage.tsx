@@ -165,11 +165,27 @@ export default function EventQuickCreatePage() {
           description: `${venueVendor.business_name} has been notified by email.`,
         });
       } catch (err) {
+        // Supabase errors are plain PostgrestError objects, not Error
+        // instances, so unwrap them explicitly so the real message
+        // (column missing, RLS denied, etc.) reaches the toast instead
+        // of the generic fallback that hid every failure before.
+        const rawMessage =
+          err instanceof Error
+            ? err.message
+            : (err as { message?: string; details?: string; hint?: string; code?: string } | null)?.message ??
+              (err as { details?: string } | null)?.details ??
+              null;
+        const errCode = (err as { code?: string } | null)?.code;
         toast({
           title: "Event created — venue notification failed",
-          description: err instanceof Error ? err.message : "The vendor was not notified. Try again from the event dashboard.",
+          description:
+            rawMessage
+              ? `${rawMessage}${errCode ? ` (code ${errCode})` : ""}`
+              : "The vendor was not notified. Try again from the event dashboard.",
           variant: "destructive",
         });
+        // eslint-disable-next-line no-console
+        console.error("[venue selection] mutation failed:", err);
       }
     } else if (venueVendor && !org?.id) {
       // Diagnostic: previously this branch silently fell through to the

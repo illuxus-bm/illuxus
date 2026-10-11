@@ -1,10 +1,12 @@
-import { useTheme } from "@/contexts/ThemeContext";
 import SiteHeader from "@/components/SiteHeader";
 import HeroSection from "@/components/HeroSection";
 import FeaturesSection from "@/components/FeaturesSection";
 import PricingSection from "@/components/PricingSection";
 import TestimonialsSection from "@/components/TestimonialsSection";
 import CTASection from "@/components/CTASection";
+import { CinemaReel } from "@/components/cinematic/CinemaReel";
+import { useSmoothScroll } from "@/components/landing/useSmoothScroll";
+import "@/components/landing/landing.css";
 import RouteSeo from "@/components/RouteSeo";
 
 // Long-tail keyword set for the home / landing page. Each public route gets a
@@ -365,27 +367,19 @@ const HOME_JSON_LD = {
 };
 
 /**
- * Landing page — renders on either a light or dark canvas depending on the
- * user's active theme. The `dark` class is applied conditionally so the
- * ThemeToggle in the navbar actually switches the landing canvas.
+ * Landing page. Colours come from the app theme tokens, so the header's
+ * theme toggle switches the whole canvas between ink-navy and paper.
  *
- * The radial gradient background is only shown in dark mode; in light mode
- * the page uses a plain white background so text stays readable.
+ * The wrapper clips horizontal overflow with `overflow-x-clip` rather than
+ * `hidden`: `hidden` would turn it into a scroll container and break the
+ * sticky header and the pinned story stage.
  */
 const Index = () => {
-  const { theme } = useTheme();
+  useSmoothScroll();
   return (
-    <div
-      data-landing="true"
-      className={`${theme === "dark" ? "dark" : ""} relative min-h-screen overflow-x-hidden bg-white dark:bg-[#09090B] text-gray-900 dark:text-white`}
-      style={{
-        backgroundImage:
-          theme === "dark"
-            ? "radial-gradient(80% 50% at 50% 0%, rgba(99, 102, 241, 0.10), transparent 70%)," +
-              "radial-gradient(60% 60% at 50% 120%, rgba(168, 85, 247, 0.08), transparent 70%)"
-            : undefined,
-      }}
-    >
+    <div data-landing="true" className="relative min-h-screen overflow-x-clip bg-background text-foreground">
+      {/* Drafting grid, fixed so the page glides over it. */}
+      <div aria-hidden="true" className="blueprint-grid pointer-events-none fixed inset-0 z-0" />
       <SiteHeader landingMode />
       <RouteSeo
         title="illuxus — All-in-one event management platform | Ticketing, Webinars, Communities"
@@ -396,10 +390,11 @@ const Index = () => {
         ogType="website"
         jsonLd={HOME_JSON_LD}
       />
-      <main>
+      <main className="relative z-10">
         <HeroSection />
         <TestimonialsSection />
         <FeaturesSection />
+        <CinemaReel />
         <PricingSection />
         <CTASection />
       </main>

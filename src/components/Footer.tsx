@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useTheme } from "@/contexts/ThemeContext";
 import { SiteContainer } from "@/components/layout/SiteContainer";
+import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 
 /** Render a footer link correctly depending on its href:
  *  - External (http/https) → <a target="_blank">
@@ -37,7 +38,7 @@ const Footer = () => {
   const activeLogoUrl = theme === "dark" ? (logoUrlDark || logoUrl) : logoUrl;
 
   return (
-    <footer className="border-t border-border py-12">
+    <footer className="relative z-10 border-t border-border py-14">
       <SiteContainer>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
           <div className="col-span-2 md:col-span-1">
@@ -49,20 +50,15 @@ const Footer = () => {
                   className="h-7 w-auto max-w-[160px] object-contain"
                 />
               ) : (
-                <>
-                  <div className="h-6 w-6 rounded-md bg-foreground flex items-center justify-center">
-                    <span className="text-background text-[10px] font-bold">{brandName.charAt(0)}</span>
-                  </div>
-                  <span className="text-sm font-semibold tracking-tight">{brandName}</span>
-                </>
+                <IlluxusWordmark height={24} ariaLabel={brandName} />
               )}
             </Link>
-            <p className="text-[13px] text-muted-foreground mt-3 leading-relaxed">{f.tagline}</p>
+            <p className="text-[13px] text-muted-foreground mt-4 leading-relaxed max-w-[220px]">{f.tagline}</p>
           </div>
 
           {f.columns.map((col, ci) => (
             <div key={`${col.title}-${ci}`}>
-              <h4 className="text-[12px] font-medium uppercase tracking-wider text-muted-foreground/60 mb-3">
+              <h4 className="eyebrow !text-[11px] text-foreground mb-4">
                 {col.title}
               </h4>
               <ul className="space-y-2">
