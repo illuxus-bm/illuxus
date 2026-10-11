@@ -30,6 +30,7 @@ import {
   buildCreativeAssetRecord, insertCreativeAssetRecord, uploadCreativeAsset,
 } from "@/lib/creatives/creative-storage";
 import { designsFor, type StudioKind } from "@/lib/creatives/studio/studio-designs";
+import { STUDIO_KITS } from "@/lib/creatives/studio/studio-kits";
 import { FONT_PAIRS, type Img, type StudioAssets, type StudioContent } from "@/lib/creatives/studio/studio-draw";
 import {
   buildPaletteSet, customPalette, extractImageColors, type StudioPalette,
@@ -89,7 +90,9 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [kind, setKind] = useState<StudioKind>("event");
-  const [designId, setDesignId] = useState("event-hero");
+  const [designId, setDesignId] = useState("");
+  /** Which visual style the design picker is showing ("all" = every style). */
+  const [styleId, setStyleId] = useState("all");
   const [paletteId, setPaletteId] = useState<string | null>(null);
   const [custom, setCustom] = useState({ primary: "#4f46e5", accent: "#f59e0b", light: false });
   const [fontId, setFontId] = useState("modern");
@@ -191,6 +194,7 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
   const kindMeta = KINDS.find((k) => k.id === kind)!;
   const designs = designsFor(kind);
   const design = designs.find((d) => d.id === designId) ?? designs[0];
+  const shownDesigns = styleId === "all" ? designs : designs.filter((d) => d.kit.id === styleId);
   const size = sizeById(sizeId);
   const fonts = FONT_PAIRS.find((f) => f.id === fontId) ?? FONT_PAIRS[0];
 
@@ -404,10 +408,26 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
                 </fieldset>
               )}
 
-              <div className="space-y-1.5">
-                <p className={LABEL}>Design</p>
-                <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Design">
-                  {designs.map((d) => (
+              <div className="space-y-2">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className={LABEL}>Design</p>
+                  <p className="text-[11px] text-muted-foreground">{shownDesigns.length} of {designs.length} designs</p>
+                </div>
+                <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1" role="radiogroup" aria-label="Style">
+                  {[{ id: "all", name: "All styles" }, ...STUDIO_KITS].map((k) => (
+                    <button
+                      key={k.id}
+                      role="radio"
+                      aria-checked={styleId === k.id}
+                      onClick={() => setStyleId(k.id)}
+                      className={`shrink-0 rounded-full border px-3 h-9 sm:h-8 text-[12px] font-medium transition-colors ${styleId === k.id ? "bg-foreground text-background border-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}
+                    >
+                      {k.name}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-3 gap-2 max-h-[26rem] lg:max-h-[30rem] overflow-y-auto overscroll-contain rounded-lg border border-border p-2" role="radiogroup" aria-label="Design">
+                  {shownDesigns.map((d) => (
                     <button
                       key={d.id}
                       role="radio"
@@ -415,9 +435,9 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
                       onClick={() => setDesignId(d.id)}
                       className={`relative rounded-lg border p-1.5 text-left transition-colors ${design.id === d.id ? "border-foreground ring-1 ring-foreground" : "border-border hover:border-foreground/40"}`}
                     >
-                      <div className="flex justify-center"><StudioThumb spec={{ ...spec, design: d }} size={STUDIO_SIZES[0]} width={96} /></div>
-                      <span className="block mt-1.5 text-[12px] font-medium leading-tight truncate">{d.name}</span>
-                      <span className="block text-[10px] text-muted-foreground leading-tight line-clamp-2">{d.blurb}</span>
+                      <StudioThumb spec={{ ...spec, design: d }} size={STUDIO_SIZES[0]} />
+                      <span className="block mt-1.5 text-[11px] font-medium leading-tight truncate">{d.layout.name}</span>
+                      <span className="block text-[10px] text-muted-foreground leading-tight truncate">{d.kit.name}</span>
                       {design.id === d.id && <span className="absolute top-2.5 right-2.5 h-4 w-4 rounded-full bg-foreground text-background flex items-center justify-center"><Check className="h-3 w-3" /></span>}
                     </button>
                   ))}

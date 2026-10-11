@@ -8,7 +8,7 @@
  */
 import { ensureWebFont } from "@/lib/webfonts";
 import type { StudioDesign } from "./studio-designs";
-import { shapeOf, type FontPair, type Img, type Scene, type StudioAssets, type StudioContent } from "./studio-draw";
+import { shapeOf, type AuditBox, type FontPair, type Img, type Scene, type StudioAssets, type StudioContent } from "./studio-draw";
 import type { StudioPalette } from "./studio-palette";
 
 export interface StudioSize {
@@ -82,7 +82,7 @@ export async function ensureStudioFonts(fonts: FontPair): Promise<void> {
  * scales the backing store (use < 1 for a light on-screen preview, 1 for
  * export) without changing the composition.
  */
-export function renderStudio(canvas: HTMLCanvasElement, spec: StudioSpec, width: number, height: number, pixelRatio = 1): void {
+export function renderStudio(canvas: HTMLCanvasElement, spec: StudioSpec, width: number, height: number, pixelRatio = 1, audit?: AuditBox[]): void {
   canvas.width = Math.max(1, Math.round(width * pixelRatio));
   canvas.height = Math.max(1, Math.round(height * pixelRatio));
   const ctx = canvas.getContext("2d");
@@ -98,6 +98,7 @@ export function renderStudio(canvas: HTMLCanvasElement, spec: StudioSpec, width:
     ctx, w: width, h: height, u, shape,
     m: u * (shape === "wide" ? 7.5 : 7),
     p: spec.palette, f: spec.fonts, t: spec.content, a: spec.assets,
+    k: spec.design.kit, audit,
   };
   ctx.save();
   spec.design.draw(scene);

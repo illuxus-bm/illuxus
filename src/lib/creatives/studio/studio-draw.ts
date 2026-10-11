@@ -54,6 +54,44 @@ export interface StudioAssets {
 
 export type Shape = "wide" | "square" | "tall";
 
+/** A rectangle in design pixels. */
+export interface Rect { x: number; y: number; w: number; h: number }
+
+/** What was painted where — recorded only when a scene is rendered with an audit list. */
+export interface AuditBox extends Rect {
+  /** text: copy and buttons · media: photos, logos, banners · mark: the organiser's mark. */
+  kind: "text" | "media" | "mark";
+  label: string;
+}
+
+/**
+ * A visual style: how the background, photo frames, labels and finishing
+ * touches look. Every layout is drawn through a kit, so one layout yields a
+ * distinct design per kit.
+ */
+export interface StyleKit {
+  id: string;
+  name: string;
+  /** Paint the whole background. `focus` is where the layout's main subject sits. */
+  backdrop: (s: Scene, focus: { x: number; y: number }) => void;
+  /** Text colours to use on this backdrop. */
+  tone: (s: Scene) => { ink: string; muted: string };
+  /**
+   * Paint a framed picture inside `box` — the frame and all of its
+   * decoration stay within the box. `paint` draws the picture itself into
+   * the rectangle it is given (already clipped to the frame's shape).
+   * `soft` asks for gently rounded corners whatever the kit's usual shape —
+   * for pictures that carry their own lettering, like an event banner.
+   */
+  media: (s: Scene, box: Rect, paint: (inner: Rect) => void, label?: string, soft?: boolean) => void;
+  /** The small label above a headline, as a stackable block. */
+  label: (s: Scene, text: string, maxWidth: number) => Block;
+  /** A short divider, as a stackable block. */
+  rule: (s: Scene, width: number) => CustomBlock;
+  /** Painted last, over everything (grain, frame lines). */
+  finish: (s: Scene) => void;
+}
+
 /** Everything a design needs to draw itself. */
 export interface Scene {
   ctx: CanvasRenderingContext2D;
@@ -68,6 +106,48 @@ export interface Scene {
   f: FontPair;
   t: StudioContent;
   a: StudioAssets;
+  /** The visual style in use. */
+  k: StyleKit;
+  /** When present, every painted text block, picture and mark is recorded here. */
+  audit?: AuditBox[];
+  /** > 0 while painting the inside of an element that was already recorded as a whole. */
+  auditMute?: number;
+}
+
+/** Record a painted element (in canvas pixels, whatever transform is active). */
+export function note(s: Scene, kind: AuditBox["kind"], x: number, y: number, w: number, h: number, label = "") {
+  if (!s.audit || (s.auditMute ?? 0) > 0 || w <= 0 || h <= 0) return;
+  const t = s.ctx.getTransform();
+  s.audit.push({ kind, label, x: t.a * x + t.e, y: t.d * y + t.f, w: t.a * w, h: t.d * h });
+}
+
+/** Paint the inside of an element without recording its parts separately. */
+export function muted<T>(s: Scene, fn: () => T): T {
+  s.auditMute = (s.auditMute ?? 0) + 1;
+  try { return fn(); } finally { s.auditMute -= 1; }
+}
+
+/* ── Rectangles ────────────────────────────────────────────────────────── */
+
+export const inset = (r: Rect, dx: number, dy = dx): Rect => ({ x: r.x + dx, y: r.y + dy, w: Math.max(0, r.w - dx * 2), h: Math.max(0, r.h - dy * 2) });
+
+/** Split top / bottom. `top` is a height in pixels, or a fraction when ≤ 1. */
+export function splitV(r: Rect, top: number, gapPx = 0): [Rect, Rect] {
+  const th = Math.max(0, Math.min(r.h - gapPx, top <= 1 ? (r.h - gapPx) * top : top));
+  return [{ x: r.x, y: r.y, w: r.w, h: th }, { x: r.x, y: r.y + th + gapPx, w: r.w, h: Math.max(0, r.h - th - gapPx) }];
+}
+
+/** Split left / right. `left` is a width in pixels, or a fraction when ≤ 1. */
+export function splitH(r: Rect, left: number, gapPx = 0): [Rect, Rect] {
+  const lw = Math.max(0, Math.min(r.w - gapPx, left <= 1 ? (r.w - gapPx) * left : left));
+  return [{ x: r.x, y: r.y, w: lw, h: r.h }, { x: r.x + lw + gapPx, y: r.y, w: Math.max(0, r.w - lw - gapPx), h: r.h }];
+}
+
+/** The largest box of the given aspect ratio (w / h) centred in `r`. */
+export function fitRect(r: Rect, aspect: number, alignX = 0.5, alignY = 0.5): Rect {
+  let w = r.w, h = r.w / aspect;
+  if (h > r.h) { h = r.h; w = r.h * aspect; }
+  return { x: r.x + (r.w - w) * alignX, y: r.y + (r.h - h) * alignY, w, h };
 }
 
 export function shapeOf(w: number, h: number): Shape {
@@ -183,6 +263,10 @@ export function paintText(s: Scene, b: TextBlock, x: number, y: number) {
   const first = y + (lh - b.size) / 2 + b.size * 0.8;
   b.lines.forEach((line, i) => ctx.fillText(line, x, first + i * lh));
   ctx.restore();
+  const align = b.o.align ?? "left";
+  const left = align === "center" ? x - b.width / 2 : align === "right" ? x - b.width : x;
+  // The ink itself: cap height to baseline, not the full line box.
+  note(s, "text", left, y + (lh - b.size) / 2 + b.size * 0.08, b.width, (b.lines.length - 1) * lh + b.size * 0.86, b.lines[0]);
 }
 
 /* ── Stacks ────────────────────────────────────────────────────────────── */
@@ -234,6 +318,15 @@ export function paintStackIn(
   paintStack(s, blocks, 0, 0, align);
   ctx.restore();
   return { top, bottom: top + used };
+}
+
+/** Paint a stack inside a rectangle; `align` also picks the horizontal anchor. */
+export function paintStackRect(
+  s: Scene, blocks: (Block | null | false | undefined)[], r: Rect,
+  align: "left" | "center" | "right" = "left", anchor: "top" | "mid" | "bottom" = "mid",
+) {
+  const x = align === "center" ? r.x + r.w / 2 : align === "right" ? r.x + r.w : r.x;
+  return paintStackIn(s, blocks, x, r.y, r.y + r.h, align, anchor);
 }
 
 /** Drop empty blocks together with the gap that led into them. */
@@ -315,6 +408,7 @@ export function drawPortrait(s: Scene, img: Img | null | undefined, name: string
     ctx.fillText(initials(name), box.x + box.w / 2, box.y + box.h / 2 + size * 0.04);
   }
   ctx.restore();
+  note(s, "media", box.x, box.y, box.w, box.h, name);
 }
 
 /* ── Atmosphere ────────────────────────────────────────────────────────── */
@@ -407,7 +501,7 @@ export function grain(s: Scene, strength = 0.06) {
 /* ── Small components ──────────────────────────────────────────────────── */
 
 /** A rounded label, measured so it can sit in a stack. */
-export function pill(s: Scene, raw: string, o: { size: number; bg: string; color: string; maxWidth: number; outline?: string; upper?: boolean; weight?: number }): CustomBlock {
+export function pill(s: Scene, raw: string, o: { size: number; bg: string; color: string; maxWidth: number; outline?: string; upper?: boolean; weight?: number; radius?: number }): CustomBlock {
   if (!raw.trim()) return { kind: "custom", height: 0, width: 0, paint: () => undefined };
   const upper = o.upper ?? true;
   const text = layoutText(s, raw, {
@@ -420,11 +514,12 @@ export function pill(s: Scene, raw: string, o: { size: number; bg: string; color
     kind: "custom", width, height,
     paint: (x, y) => {
       const { ctx } = s;
-      roundRect(ctx, x, y, width, height, height / 2);
+      roundRect(ctx, x, y, width, height, o.radius ?? height / 2);
       ctx.fillStyle = o.bg;
       ctx.fill();
       if (o.outline) { ctx.lineWidth = Math.max(1.5, o.size * 0.08); ctx.strokeStyle = o.outline; ctx.stroke(); }
-      paintText(s, { ...text, o: { ...text.o, align: "left" } }, x + padX, y + padY);
+      note(s, "text", x, y, width, height, raw);
+      muted(s, () => paintText(s, { ...text, o: { ...text.o, align: "left" } }, x + padX, y + padY));
     },
   };
 }
@@ -448,7 +543,8 @@ export function ctaButton(s: Scene, size: number, maxWidth: number): CustomBlock
       ctx.fillStyle = p.accent;
       ctx.fill();
       ctx.restore();
-      paintText(s, { ...text, o: { ...text.o, align: "left" } }, x + padX, y + padY);
+      note(s, "text", x, y, width, height, label);
+      muted(s, () => paintText(s, { ...text, o: { ...text.o, align: "left" } }, x + padX, y + padY));
       // Arrow
       const ax = x + padX + text.width + size * 0.55, ay = y + height / 2;
       ctx.save();
@@ -470,8 +566,20 @@ export function metaLine(s: Scene, size: number, maxWidth: number, color: string
   return layoutText(s, parts.join("   •   "), { font: "body", weight, size, minSize: size * 0.72, color, maxWidth, maxLines: 2, lineHeight: 1.35 });
 }
 
+/** Width the organiser mark will take at `height` (0 when there is nothing to show). */
+export function orgMarkWidth(s: Scene, height: number): number {
+  const { a, t } = s;
+  if (a.orgLogo) {
+    const { iw, ih } = dims(a.orgLogo);
+    const pad = height * 0.18;
+    return Math.min((height - pad * 2) * (iw / Math.max(1, ih)), height * 3.2) + pad * 2;
+  }
+  if (!t.orgName.trim()) return 0;
+  return layoutText(s, t.orgName, { font: "body", weight: 700, size: height * 0.42, color: "#000", maxWidth: s.w * 0.5, upper: true, tracking: 0.16 }).width;
+}
+
 /** Organiser mark for a corner: the logo on a small light plate, or the name. */
-export function orgMark(s: Scene, x: number, y: number, height: number, align: "left" | "right" = "left", onImage = false) {
+export function orgMark(s: Scene, x: number, y: number, height: number, align: "left" | "center" | "right" = "left", onImage = false) {
   const { ctx, p, a, t } = s;
   if (a.orgLogo) {
     const { iw, ih } = dims(a.orgLogo);
@@ -479,7 +587,7 @@ export function orgMark(s: Scene, x: number, y: number, height: number, align: "
     const innerH = height - pad * 2;
     const innerW = Math.min(innerH * (iw / ih), height * 3.2);
     const plateW = innerW + pad * 2;
-    const px = align === "left" ? x : x - plateW;
+    const px = align === "left" ? x : align === "center" ? x - plateW / 2 : x - plateW;
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.18)"; ctx.shadowBlur = height * 0.25; ctx.shadowOffsetY = height * 0.06;
     roundRect(ctx, px, y, plateW, height, height * 0.24);
@@ -487,9 +595,12 @@ export function orgMark(s: Scene, x: number, y: number, height: number, align: "
     ctx.fill();
     ctx.restore();
     drawContain(ctx, a.orgLogo, px + pad, y + pad, innerW, innerH);
+    note(s, "mark", px, y, plateW, height, "organiser logo");
     return;
   }
   if (!t.orgName.trim()) return;
   const b = layoutText(s, t.orgName, { font: "body", weight: 700, size: height * 0.42, color: onImage ? "#ffffff" : p.ink, maxWidth: s.w * 0.5, upper: true, tracking: 0.16 });
-  paintText(s, { ...b, o: { ...b.o, align } }, x, y + (height - b.height) / 2);
+  const left = align === "left" ? x : align === "center" ? x - b.width / 2 : x - b.width;
+  note(s, "mark", left, y + (height - b.height) / 2, b.width, b.height, "organiser name");
+  muted(s, () => paintText(s, { ...b, o: { ...b.o, align } }, x, y + (height - b.height) / 2));
 }

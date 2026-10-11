@@ -59,15 +59,31 @@ export function StudioPreview({ spec, size, maxHeightVh = 62 }: { spec: StudioSp
   );
 }
 
-/** A small, fixed-width rendering used in the design picker. */
-export function StudioThumb({ spec, size, width = 104 }: { spec: StudioSpec; size: StudioSize; width?: number }) {
+/**
+ * A small rendering used in the design picker. It fills its container's
+ * width and is only drawn once it has scrolled into view, so a picker with
+ * dozens of designs stays quick.
+ */
+export function StudioThumb({ spec, size }: { spec: StudioSpec; size: StudioSize }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const [seen, setSeen] = useState(false);
   const fontsTick = useFontsReady(spec);
-  const height = Math.round((width * size.height) / size.width);
   useEffect(() => {
-    if (!canvas.current) return;
+    const el = canvas.current;
+    if (!el || seen) return;
+    if (typeof IntersectionObserver === "undefined") { setSeen(true); return; }
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { setSeen(true); io.disconnect(); }
+    }, { rootMargin: "200px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [seen]);
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el || !seen) return;
+    const width = el.clientWidth || 96;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    renderStudio(canvas.current, spec, size.width, size.height, (width * dpr) / size.width);
-  }, [spec, size, width, fontsTick]);
-  return <canvas ref={canvas} aria-hidden="true" style={{ width, height }} className="rounded-md block" />;
+    renderStudio(el, spec, size.width, size.height, (width * dpr) / size.width);
+  }, [spec, size, seen, fontsTick]);
+  return <canvas ref={canvas} aria-hidden="true" style={{ width: "100%", aspectRatio: `${size.width} / ${size.height}` }} className="rounded-md block bg-muted" />;
 }

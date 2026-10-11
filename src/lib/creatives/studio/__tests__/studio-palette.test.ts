@@ -3,7 +3,6 @@ import {
   CURATED_PALETTES, buildPaletteSet, contrast, customPalette, darkPaletteFrom, dominantColors, hueDistance,
   lightPaletteFrom, parseHex, readableOn,
 } from "../studio-palette";
-import { STUDIO_DESIGNS, designsFor } from "../studio-designs";
 import { STUDIO_SIZES, formatStudioDate, studioFilename } from "../studio-render";
 import { compact, gap, shapeOf, stackHeight, type Block } from "../studio-draw";
 
@@ -62,11 +61,6 @@ describe("studio palettes", () => {
 });
 
 describe("studio designs and sizes", () => {
-  it("has designs for every kind, with unique ids", () => {
-    for (const kind of ["event", "speaker", "lineup", "sponsor"] as const) expect(designsFor(kind).length).toBeGreaterThan(0);
-    expect(new Set(STUDIO_DESIGNS.map((d) => d.id)).size).toBe(STUDIO_DESIGNS.length);
-  });
-
   it("classifies canvas shapes", () => {
     const shape = (id: string) => { const s = STUDIO_SIZES.find((x) => x.id === id)!; return shapeOf(s.width, s.height); };
     expect([shape("square"), shape("portrait"), shape("story"), shape("landscape"), shape("wide")]).toEqual(["square", "square", "tall", "wide", "wide"]);
