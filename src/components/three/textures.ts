@@ -54,6 +54,7 @@ export interface TicketArt {
   paper: string;
   ink: string;
   foil: string;
+  foilInk: string;
 }
 
 export function drawTicketFront(canvas: HTMLCanvasElement, art: TicketArt) {
@@ -90,7 +91,7 @@ export function drawTicketFront(canvas: HTMLCanvasElement, art: TicketArt) {
   roundedRect(ctx, tearX - 56 - chipW, 78, chipW, 60, 30);
   ctx.fillStyle = art.foil;
   ctx.fill();
-  ctx.fillStyle = "#1A1200";
+  ctx.fillStyle = art.foilInk;
   ctx.fillText(tier, tearX - 56 - chipW + 28, 119);
 
   // Event name

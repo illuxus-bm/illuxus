@@ -140,7 +140,7 @@ export const DEFAULT_SITE_CONTENT: SiteContentMap = {
       "https://dcfygmgjqldvynbvmwdy.supabase.co/storage/v1/object/public/site-assets/favicon/1777010462147-m60zhn.png",
     faviconUrl: "/favicon.ico",
     siteUrl: "",
-    themeColor: "#071d33",
+    themeColor: "#0b0b1a",
   },
   navbar: {
     brandName: "Illuxus",
