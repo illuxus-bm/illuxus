@@ -605,7 +605,7 @@ function Scene({ theme, onReady }: { theme: StageTheme; onReady?: () => void }) 
   return (
     <>
       <fog attach="fog" args={[palette.background, 20, 60]} />
-      <hemisphereLight args={["#F2F6FB", theme === "dark" ? "#6B7280" : "#C7CAD1", theme === "dark" ? 2.3 : 2.5]} />
+      <hemisphereLight args={["#F2F6FB", theme === "dark" ? "#766A9E" : "#CFC9DE", theme === "dark" ? 2.3 : 2.5]} />
       <directionalLight position={[3, 6, 8]} intensity={2.6} color="#FFFFFF" />
       <directionalLight position={[-6, 3, -4]} intensity={0.7} color="#8DB8FF" />
 

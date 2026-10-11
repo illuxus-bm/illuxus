@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import { useSiteContent } from "@/hooks/useSiteContent";
-import { useTheme } from "@/contexts/ThemeContext";
 import { SiteContainer } from "@/components/layout/SiteContainer";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 
@@ -32,10 +31,8 @@ function FooterLink({ href, label }: { href: string; label: string }) {
 
 const Footer = () => {
   const { content } = useSiteContent();
-  const { theme } = useTheme();
   const f = content.footer;
-  const { brandName, logoUrl, logoUrlDark } = content.navbar;
-  const activeLogoUrl = theme === "dark" ? (logoUrlDark || logoUrl) : logoUrl;
+  const { brandName } = content.navbar;
 
   return (
     <footer className="relative z-10 border-t border-border py-14">
@@ -43,15 +40,7 @@ const Footer = () => {
         <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
           <div className="col-span-2 md:col-span-1">
             <Link to="/" className="flex items-center gap-2">
-              {activeLogoUrl ? (
-                <img
-                  src={activeLogoUrl}
-                  alt={brandName}
-                  className="h-7 w-auto max-w-[160px] object-contain"
-                />
-              ) : (
-                <IlluxusWordmark height={24} ariaLabel={brandName} />
-              )}
+              <IlluxusWordmark height={24} ariaLabel={brandName} />
             </Link>
             <p className="text-[13px] text-muted-foreground mt-4 leading-relaxed max-w-[220px]">{f.tagline}</p>
           </div>
