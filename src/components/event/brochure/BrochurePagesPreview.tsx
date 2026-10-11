@@ -27,7 +27,8 @@ function PageImage({ page, index, epoch }: { page: BrochurePage; index: number; 
   useEffect(() => {
     let cancelled = false;
     const timer = setTimeout(() => {
-      renderPageToCanvas(page, PREVIEW_PAGE_DPI)
+      // Shown even when a host blocks export: this canvas is only ever copied.
+      renderPageToCanvas(page, PREVIEW_PAGE_DPI, { showBlocked: true })
         .then((source) => {
           const canvas = canvasRef.current;
           if (cancelled || !canvas) return;

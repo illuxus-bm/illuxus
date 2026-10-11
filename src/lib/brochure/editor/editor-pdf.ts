@@ -19,6 +19,8 @@
 import jsPDF from "jspdf";
 import Konva from "konva";
 
+import { loadCanvasImage } from "@/lib/image-loader";
+
 import { EXPORT_DPI, computeImageDrawBox, mmToPx, ptToPx } from "./editor-units";
 import {
   dashArray,
@@ -45,22 +47,27 @@ import {
 } from "./editor-document";
 
 /**
- * Loads an image URL into an HTMLImageElement, respecting CORS so the
- * resulting canvas is not tainted (a tainted canvas throws on
- * `.toDataURL`). Resolves `null` on any failure.
+ * How a render treats images whose host blocks cross-origin reads.
+ *
+ * Such an image can be drawn, but doing so taints the canvas, and a tainted
+ * canvas cannot be read back — which is what the PDF export and the page
+ * thumbnails do. So those leave the image out (and `blocked`, when given,
+ * collects its URL so the caller can say so), while the on-screen preview
+ * sets `showBlocked` and draws it: it only ever copies the canvas to another
+ * canvas, which a tainted one allows.
  */
-function loadImageForCanvas(url: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    if (!url) {
-      resolve(null);
-      return;
-    }
-    const img = new window.Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = url;
-  });
+export interface ImagePolicy {
+  showBlocked?: boolean;
+  blocked?: Set<string>;
+}
+
+/** Loads an image for a page render. Resolves `null` when it can't be used. */
+async function loadImageForCanvas(url: string, policy: ImagePolicy = {}): Promise<HTMLImageElement | null> {
+  const loaded = await loadCanvasImage(url);
+  if (!loaded) return null;
+  if (loaded.exportable || policy.showBlocked) return loaded.image;
+  policy.blocked?.add(url);
+  return null;
 }
 
 /**
@@ -86,6 +93,7 @@ export const PREVIEW_DPI = 110;
 export async function renderPageToCanvas(
   page: BrochurePage,
   dpi: number = EXPORT_DPI,
+  images: ImagePolicy = {},
 ): Promise<HTMLCanvasElement> {
   // Container is off-DOM; Konva mounts into a real element but we
   // never attach it to the document so it stays invisible.
@@ -98,7 +106,7 @@ export async function renderPageToCanvas(
 
   // Background layer.
   const bgLayer = new Konva.Layer();
-  await drawPageBackground(bgLayer, page.background, widthPx, heightPx);
+  await drawPageBackground(bgLayer, page.background, widthPx, heightPx, images);
   stage.add(bgLayer);
 
   // Content layer.
@@ -111,7 +119,7 @@ export async function renderPageToCanvas(
     .filter((el) => !el.hidden)
     .sort((a, b) => a.zIndex - b.zIndex);
   for (const el of sorted) {
-    await drawElement(contentLayer, el, pxPerMm, dpi);
+    await drawElement(contentLayer, el, pxPerMm, dpi, images);
   }
   stage.add(contentLayer);
 
@@ -127,7 +135,8 @@ async function drawPageBackground(
   layer: Konva.Layer,
   bg: PageBackground,
   widthPx: number,
-  heightPx: number
+  heightPx: number,
+  images: ImagePolicy = {},
 ): Promise<void> {
   if (bg.type === "solid") {
     layer.add(new Konva.Rect({ x: 0, y: 0, width: widthPx, height: heightPx, fill: bg.color }));
@@ -148,7 +157,7 @@ async function drawPageBackground(
     return;
   }
   // Image background.
-  const img = await loadImageForCanvas(bg.src);
+  const img = await loadImageForCanvas(bg.src, images);
   layer.add(new Konva.Rect({ x: 0, y: 0, width: widthPx, height: heightPx, fill: "#f3f4f6" }));
   if (img) {
     const box = computeImageDrawBox({
@@ -175,6 +184,7 @@ async function drawElement(
   el: BrochureElement,
   pxPerMm: number,
   dpi: number = EXPORT_DPI,
+  images: ImagePolicy = {},
 ): Promise<void> {
   const xPx = el.x * pxPerMm;
   const yPx = el.y * pxPerMm;
@@ -193,7 +203,7 @@ async function drawElement(
       drawTextInto(group, el, wPx, hPx, dpi, pxPerMm);
       break;
     case "image":
-      await drawImageInto(group, el, wPx, hPx, pxPerMm);
+      await drawImageInto(group, el, wPx, hPx, pxPerMm, images);
       break;
     case "shape":
       drawShapeInto(group, el, wPx, hPx, pxPerMm);
@@ -245,8 +255,9 @@ async function drawImageInto(
   w: number,
   h: number,
   pxPerMm: number,
+  images: ImagePolicy = {},
 ) {
-  const img = await loadImageForCanvas(el.src);
+  const img = await loadImageForCanvas(el.src, images);
   const radiusPx = el.cornerRadius * pxPerMm;
 
   // Rounded-corner clip via a Konva.Path wrapping group (simpler:
@@ -423,6 +434,8 @@ export async function exportDocumentToPdf(
    *  passes `PREVIEW_DPI` so a debounced re-render stays responsive. Layout
    *  is unaffected — only pixel density changes. */
   dpi: number = EXPORT_DPI,
+  /** Collects the URLs of images left out because their host blocks export. */
+  blocked?: Set<string>,
 ): Promise<Blob> {
   // Explicitly request every font family used anywhere in the document
   // BEFORE rendering any page. Previously this function only awaited
@@ -462,7 +475,7 @@ export async function exportDocumentToPdf(
     if (i > 0) {
       pdf.addPage([page.width, page.height], page.width > page.height ? "landscape" : "portrait");
     }
-    const canvas = await renderPageToCanvas(page, dpi);
+    const canvas = await renderPageToCanvas(page, dpi, { blocked });
     const dataUrl = canvas.toDataURL("image/png");
     pdf.addImage(dataUrl, "PNG", 0, 0, page.width, page.height);
     onProgress?.(i + 1, doc.pages.length);
@@ -501,8 +514,9 @@ export async function downloadDocumentAsPdf(
   doc: BrochureDocument,
   filename: string,
   onProgress?: (completed: number, total: number) => void
-): Promise<void> {
-  const blob = await exportDocumentToPdf(doc, onProgress);
+): Promise<{ blockedImages: number }> {
+  const blocked = new Set<string>();
+  const blob = await exportDocumentToPdf(doc, onProgress, EXPORT_DPI, blocked);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -511,4 +525,14 @@ export async function downloadDocumentAsPdf(
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return { blockedImages: blocked.size };
+}
+
+/** What to tell the organiser when a PDF had to leave images out. */
+export function blockedImagesMessage(count: number): string {
+  return `${count} image${count === 1 ? " was" : "s were"} left out of the PDF because ${
+    count === 1 ? "its" : "their"
+  } host doesn't allow downloads. Upload ${count === 1 ? "it" : "them"} to the event (or replace ${
+    count === 1 ? "it" : "them"
+  } in the editor) and export again.`;
 }

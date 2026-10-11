@@ -5,6 +5,7 @@
  * for every font and image a scene needs before drawing, so the PNG it
  * produces never contains fallback type or half-loaded photos.
  */
+import { loadCanvasImage } from "@/lib/image-loader";
 import { ensureWebFont } from "@/lib/webfonts";
 
 import { nodeBounds, type Fill, type IconNode, type ImageNode, type Radius, type Scene, type SceneNode, type TextNode } from "./scene";
@@ -373,29 +374,18 @@ export function drawScene(ctx: Ctx, scene: Scene, images: Map<string, HTMLImageE
 
 // ─── Asset loading ───────────────────────────────────────────────────────────
 
-const imageCache = new Map<string, Promise<HTMLImageElement | null>>();
-
 /**
- * Loads an image for canvas drawing. `crossOrigin` is set so photos served
- * from Supabase Storage don't taint the canvas (a tainted canvas can't be
- * exported). Never rejects: a photo that fails to load resolves `null` and
- * the node draws its fallback instead.
+ * Loads an image for canvas drawing. Never rejects: a photo that cannot be
+ * loaded at all resolves `null` and the node draws its fallback instead.
+ *
+ * Goes through the shared loader, so a photo whose plain CORS load fails is
+ * retried past the browser cache and, failing that, still shown. A photo
+ * shown that way cannot be exported — the export then fails with a message
+ * saying which kind of image is the problem, rather than the creative quietly
+ * showing initials where the speaker should be.
  */
-export function loadImage(url: string): Promise<HTMLImageElement | null> {
-  const cached = imageCache.get(url);
-  if (cached) return cached;
-  const promise = new Promise<HTMLImageElement | null>((resolve) => {
-    const img = new Image();
-    if (!url.startsWith("data:")) img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => {
-      imageCache.delete(url);
-      resolve(null);
-    };
-    img.src = url;
-  });
-  imageCache.set(url, promise);
-  return promise;
+export async function loadImage(url: string): Promise<HTMLImageElement | null> {
+  return (await loadCanvasImage(url))?.image ?? null;
 }
 
 /** Every `(family, weights)` a scene's text needs. Pure. */

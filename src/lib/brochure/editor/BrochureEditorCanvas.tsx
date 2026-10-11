@@ -21,7 +21,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Group, Rect, Ellipse, Line, Text, Image, Transformer } from "react-konva";
 import type Konva from "konva";
-import useImage from "use-image";
+import { loadCanvasImage } from "@/lib/image-loader";
 import { Maximize2, Minus, Plus } from "lucide-react";
 
 import {
@@ -1044,8 +1044,34 @@ function PageBackgroundNode({ background, width, height }: { background: PageBac
   return <ImageBackground src={background.src} fit={background.fit} width={width} height={height} />;
 }
 
+/**
+ * Loads an image for the editing canvas through the shared loader, so an
+ * image whose plain CORS load fails (a stale cache entry, a host without CORS
+ * headers) is still shown instead of collapsing to the "failed to load" box.
+ */
+function useCanvasImage(src: string): [HTMLImageElement | undefined, "loading" | "loaded" | "failed"] {
+  const [state, setState] = useState<{ src: string; image?: HTMLImageElement; status: "loading" | "loaded" | "failed" }>({ src, status: "loading" });
+  useEffect(() => {
+    let cancelled = false;
+    if (!src) {
+      setState({ src, status: "failed" });
+      return;
+    }
+    setState({ src, status: "loading" });
+    void loadCanvasImage(src).then((loaded) => {
+      if (cancelled) return;
+      setState(loaded ? { src, image: loaded.image, status: "loaded" } : { src, status: "failed" });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+  // A result for a previous `src` is never shown under the new one.
+  return state.src === src ? [state.image, state.status] : [undefined, "loading"];
+}
+
 function ImageBackground({ src, fit, width, height }: { src: string; fit: "cover" | "contain"; width: number; height: number }) {
-  const [image] = useImage(src, "anonymous");
+  const [image] = useCanvasImage(src);
   if (!image) {
     return <Rect id="page-bg" x={0} y={0} width={width} height={height} fill="#f3f4f6" listening />;
   }
@@ -1328,7 +1354,7 @@ function TextBody({ el, width, height, scale }: { el: TextElement; width: number
 }
 
 function ImageBody({ el, width, height, scale }: { el: ImageElement; width: number; height: number; scale: number }) {
-  const [image, status] = useImage(el.src || "", "anonymous");
+  const [image, status] = useCanvasImage(el.src || "");
   const radiusPx = el.cornerRadius * scale;
   if (status !== "loaded" || !image) {
     // Placeholder gray box while loading / on error. Include a dashed

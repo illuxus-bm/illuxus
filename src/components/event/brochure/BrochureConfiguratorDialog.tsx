@@ -92,7 +92,7 @@ import {
   type SectionLayout,
 } from "@/lib/brochure/brochure-templates";
 
-import { downloadDocumentAsPdf } from "@/lib/brochure/editor/editor-pdf";
+import { blockedImagesMessage, downloadDocumentAsPdf } from "@/lib/brochure/editor/editor-pdf";
 import { isUsableDocument, resolveBrochureDocument } from "@/lib/brochure/editor/resolve-document";
 import type { BrochureDocument } from "@/lib/brochure/editor/editor-document";
 import type { TemplateSeedInput } from "@/lib/brochure/editor/editor-templates";
@@ -679,6 +679,27 @@ export default function BrochureConfiguratorDialog({
     return () => clearTimeout(timer);
   }, [inline, selectedTheme.id, themeOverride, sectionLayout, posterContent]);
 
+  // ─── Inline editor ─────────────────────────────────────────────────────────
+  //
+  // In the page, the brochure IS the editor: it is what the tab opens on.
+  // The editor keeps its own copy of the document while it is mounted, so it
+  // is remounted (`editorEpoch`) exactly when that copy should be replaced:
+  // the settings changed while nothing has been customised yet, or the
+  // organiser asked to rebuild from the template.
+  const [studioTab, setStudioTab] = useState<"edit" | "content">("edit");
+  const [editorEpoch, setEditorEpoch] = useState(0);
+  const seedSignature = useMemo(
+    () => (editorSeed ? JSON.stringify([selectedTheme.id, resolvedSectionIds, editorSeed]) : ""),
+    [editorSeed, selectedTheme.id, resolvedSectionIds],
+  );
+  const lastSignatureRef = useRef("");
+  useEffect(() => {
+    if (!seedSignature) return;
+    const changed = lastSignatureRef.current !== "" && lastSignatureRef.current !== seedSignature;
+    lastSignatureRef.current = seedSignature;
+    if (changed && !savedDocument) setEditorEpoch((n) => n + 1);
+  }, [seedSignature, savedDocument]);
+
   /** Throws away the customised layout so the brochure is built from the settings again. */
   const rebuildFromTemplate = (): void => {
     if (!window.confirm("Discard the layout you customised in the editor and rebuild the brochure from these settings?")) return;
@@ -686,6 +707,7 @@ export default function BrochureConfiguratorDialog({
       ...eventPageConfig,
       brochurePrefs: { ...(eventPageConfig.brochurePrefs ?? {}), editorDocument: undefined },
     });
+    setEditorEpoch((n) => n + 1);
     toast.success("Brochure rebuilt from the template");
   };
 
@@ -724,11 +746,12 @@ export default function BrochureConfiguratorDialog({
         return;
       }
 
-      await downloadDocumentAsPdf(
+      const { blockedImages } = await downloadDocumentAsPdf(
         resolvedDocument.document,
         buildBrochureFilename(event?.title ?? ""),
         (completed, total) => setProgress({ completed, total }),
       );
+      if (blockedImages > 0) toast.warning("Some images are missing from the PDF", { description: blockedImagesMessage(blockedImages), duration: 12000 });
 
       toast.success("Brochure ready", {
         description:
@@ -752,10 +775,12 @@ export default function BrochureConfiguratorDialog({
           Cancel
         </Button>
       )}
-      <Button size="sm" variant={inline ? "default" : "secondary"} onClick={() => setEditorOpen(true)} disabled={loading} className="gap-1.5">
-        <Sparkles className="h-3.5 w-3.5" />
-        {inline ? "Customise in editor" : "Open in Editor"}
-      </Button>
+      {!inline && (
+        <Button size="sm" variant="secondary" onClick={() => setEditorOpen(true)} disabled={loading} className="gap-1.5">
+          <Sparkles className="h-3.5 w-3.5" />
+          Open in Editor
+        </Button>
+      )}
       <Button size="sm" variant={inline ? "outline" : "default"} onClick={handleGenerate} disabled={loading || isGenerating} className="gap-1.5">
         {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
         Download PDF
@@ -1052,9 +1077,11 @@ export default function BrochureConfiguratorDialog({
           theme seeded as a live document. Save flows back through
           `onConfigChange` so the parent persists to Supabase via
           `events.page_config.brochurePrefs.editorDocument`. */}
-      {editorOpen && event && editorSeed && (
+      {(inline ? studioTab === "edit" : editorOpen) && event && editorSeed && (
         <BrochureEditorDialog
-          open={editorOpen}
+          key={inline ? editorEpoch : undefined}
+          inline={inline}
+          open={inline || editorOpen}
           onOpenChange={setEditorOpen}
           // Same theme, section list and resolved colors the preview and the
           // download use — all three now consume `editorSeed` /
@@ -1103,14 +1130,59 @@ export default function BrochureConfiguratorDialog({
           <div>
             <h2 className="text-lg font-semibold text-foreground">Brochure</h2>
             <p className="text-[13px] text-muted-foreground">
-              Built from this event's agenda, speakers, sponsors and venue. Adjust the content here, or open the editor to change
-              any element on any page.
+              Built from this event's agenda, speakers, sponsors and venue. Every element on every page can be edited.
             </p>
           </div>
-          {actions}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-border bg-muted/40 p-0.5" role="tablist" aria-label="Brochure view">
+              {(
+                [
+                  ["edit", "Edit brochure"],
+                  ["content", "Content & type"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={studioTab === value}
+                  onClick={() => setStudioTab(value)}
+                  className={`rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                    studioTab === value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {actions}
+          </div>
         </div>
-        <div className="flex h-[78vh] min-h-[560px] flex-col overflow-hidden rounded-xl border border-border">{body}</div>
-        {editor}
+        {studioTab === "edit" ? (
+          loading || !editorSeed ? (
+            <div className="flex h-[60vh] items-center justify-center text-[13px] text-muted-foreground">Loading brochure…</div>
+          ) : (
+            <>
+              <p className="text-[12px] text-muted-foreground">
+                Click anything on a page to change it — text, images, shapes, colours, position and size. Double-click text to
+                type. Changes save automatically.
+                {savedDocument && (
+                  <>
+                    {" "}
+                    This is your customised layout;{" "}
+                    <button type="button" onClick={rebuildFromTemplate} className="underline underline-offset-2 hover:text-foreground">
+                      rebuild it from the template
+                    </button>{" "}
+                    to pick up changes made under Content &amp; type.
+                  </>
+                )}
+              </p>
+              {editor}
+            </>
+          )
+        ) : (
+          <div className="flex h-[78vh] min-h-[560px] flex-col overflow-hidden rounded-xl border border-border">{body}</div>
+        )}
       </div>
     );
   }

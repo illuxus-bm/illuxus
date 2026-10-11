@@ -149,7 +149,7 @@ import {
   type LayerOp,
 } from "@/lib/brochure/editor/editor-operations";
 import { useHistory } from "@/lib/brochure/editor/editor-history";
-import { downloadDocumentAsPdf } from "@/lib/brochure/editor/editor-pdf";
+import { blockedImagesMessage, downloadDocumentAsPdf } from "@/lib/brochure/editor/editor-pdf";
 
 /** Names for the template pages offered in the "add page" menu. */
 const TEMPLATE_PAGE_LABELS: Partial<Record<BrochureSectionId, string>> = {
@@ -184,7 +184,16 @@ interface Props {
   /** Called when the user clicks Save. Parent persists to Supabase and
    *  can return a Promise for a spinner. */
   onSaveDocument?: (doc: BrochureDocument) => Promise<void> | void;
+  /**
+   * Render in the page rather than a dialog. The editor is then simply the
+   * brochure, always open: there is no close button, and edits are saved
+   * automatically a moment after they are made.
+   */
+  inline?: boolean;
 }
+
+/** How long the inline editor waits after an edit before saving it. */
+const AUTOSAVE_DELAY_MS = 1500;
 
 export default function BrochureEditorDialog({
   open,
@@ -194,6 +203,7 @@ export default function BrochureEditorDialog({
   seed,
   initialDocument,
   onSaveDocument,
+  inline = false,
 }: Props) {
   // A saved document is "stale" when it was seeded by an OLDER version
   // of `seedBrochureDocument` than what's running now (or has no
@@ -712,7 +722,8 @@ export default function BrochureEditorDialog({
     setIsExporting(true);
     try {
       const filename = `${(doc.title || "brochure").toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}.pdf`;
-      await downloadDocumentAsPdf(doc, filename);
+      const { blockedImages } = await downloadDocumentAsPdf(doc, filename);
+      if (blockedImages > 0) toast.warning("Some images are missing from the PDF", { description: blockedImagesMessage(blockedImages), duration: 12000 });
       toast.success("Brochure exported");
     } catch (err) {
       logger.error("brochure editor export failed", {
@@ -752,7 +763,46 @@ export default function BrochureEditorDialog({
   // The parent unmounts this dialog when it closes, taking the document and
   // its undo history with it. Closing used to do that without a word, so an
   // organizer who clicked away after an hour of layout lost all of it.
+  const [, setAutosaveTick] = useState(0);
   const hasUnsavedChanges = !!onSaveDocument && !!doc && doc !== savedDocRef.current;
+
+  // Inline, there is no "close" to prompt a save, so the editor saves by
+  // itself. Quietly — a toast every few seconds of editing would be noise —
+  // and only reporting a failure once per run of failures.
+  const autosaveFailedRef = useRef(false);
+  useEffect(() => {
+    if (!inline || !onSaveDocument || !doc || doc === savedDocRef.current) return;
+    const pending = doc;
+    const timer = setTimeout(() => {
+      void Promise.resolve(onSaveDocument(pending))
+        .then(() => {
+          savedDocRef.current = pending;
+          autosaveFailedRef.current = false;
+          // `savedDocRef` isn't state; nudge the "All changes saved" label.
+          setAutosaveTick((n) => n + 1);
+        })
+        .catch((err: unknown) => {
+          logger.error("brochure editor autosave failed", { error_message: err instanceof Error ? err.message : String(err) });
+          if (!autosaveFailedRef.current) toast.error("Couldn't save your changes", { description: "Use Save to try again." });
+          autosaveFailedRef.current = true;
+        });
+    }, AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [inline, doc, onSaveDocument]);
+
+  // Leaving the editor (switching to the content view) within the autosave
+  // delay must not drop the last edit: save whatever is still pending.
+  const latestDocRef = useRef(doc);
+  latestDocRef.current = doc;
+  const saveRef = useRef(onSaveDocument);
+  saveRef.current = onSaveDocument;
+  useEffect(() => {
+    if (!inline) return;
+    return () => {
+      const pending = latestDocRef.current;
+      if (pending && pending !== savedDocRef.current) void saveRef.current?.(pending);
+    };
+  }, [inline]);
 
   const requestClose = useCallback(() => {
     if (hasUnsavedChanges) setConfirmClose(true);
@@ -817,20 +867,23 @@ export default function BrochureEditorDialog({
     [activePage, selectedElementIds],
   );
 
-  return (
-    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : requestClose())}>
+  // Inline there is no dialog, so its title and description are plain elements.
+  const Title = inline ? "h2" : DialogTitle;
+  const Description = inline ? "p" : DialogDescription;
+
+  const body = (
+    <>
       {/* The shared dialog adds its own close button in the top-right corner,
           directly on top of this toolbar's. It is hidden here; the toolbar's
           button does the same job without covering the Export button's
           neighbour. */}
-      <DialogContent className="max-w-[98vw] w-[98vw] h-[95vh] p-0 gap-0 flex flex-col overflow-hidden [&>button.absolute]:hidden">
         {/* Toolbar */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0 bg-background">
           <div className="flex items-center gap-3 min-w-0">
-            <DialogTitle className="text-[13px] font-semibold shrink-0">Brochure editor</DialogTitle>
-            <DialogDescription className="sr-only">
+            <Title className="text-[13px] font-semibold shrink-0">Brochure editor</Title>
+            <Description className="sr-only">
               Edit the brochure's pages: select, move, resize and restyle any element.
-            </DialogDescription>
+            </Description>
             {/* Editable, because the title names the exported PDF file. It was
                 previously static text set only by the template seed, so the
                 organizer had no say in what they downloaded. */}
@@ -905,16 +958,18 @@ export default function BrochureEditorDialog({
               {isExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
               Export PDF
             </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={requestClose}
-              className="h-8 w-8 p-0"
-              title="Close editor"
-              aria-label="Close editor"
-            >
-              <X className="h-4 w-4" />
-            </Button>
+            {!inline && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={requestClose}
+                className="h-8 w-8 p-0"
+                title="Close editor"
+                aria-label="Close editor"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1181,8 +1236,10 @@ export default function BrochureEditorDialog({
             Loading template…
           </div>
         )}
-      </DialogContent>
+    </>
+  );
 
+  const closePrompt = (
       <AlertDialog open={confirmClose} onOpenChange={setConfirmClose}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1209,6 +1266,18 @@ export default function BrochureEditorDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+  );
+
+  if (inline) {
+    return <div className="flex h-[84vh] min-h-[620px] flex-col overflow-hidden rounded-xl border border-border bg-background">{body}</div>;
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : requestClose())}>
+      <DialogContent className="max-w-[98vw] w-[98vw] h-[95vh] p-0 gap-0 flex flex-col overflow-hidden [&>button.absolute]:hidden">
+        {body}
+      </DialogContent>
+      {closePrompt}
     </Dialog>
   );
 }
