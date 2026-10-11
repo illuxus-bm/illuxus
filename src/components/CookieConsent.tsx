@@ -115,13 +115,13 @@ export function CookieConsent() {
         >
           {/* Header row */}
           <div className="flex items-start gap-3 mb-3">
-            <div className="mt-0.5 h-8 w-8 shrink-0 rounded-lg bg-indigo-500/10 flex items-center justify-center">
-              <Cookie className="h-4 w-4 text-indigo-500" />
+            <div className="mt-0.5 h-8 w-8 shrink-0 rounded-lg bg-accent/15 flex items-center justify-center">
+              <Cookie className="h-4 w-4 text-accent" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm text-foreground leading-snug">
                 We use cookies to improve your experience and collect analytics.{" "}
-                <Link to="/privacy" className="underline underline-offset-2 text-indigo-500 hover:text-indigo-400">
+                <Link to="/privacy" className="underline underline-offset-2 text-accent hover:text-foreground">
                   Learn more
                 </Link>
               </p>
@@ -181,7 +181,7 @@ export function CookieConsent() {
           <div className="flex items-center gap-2">
             <Button
               size="sm"
-              className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8"
+              className="flex-1 text-xs h-8"
               onClick={handleAccept}
             >
               Accept all
@@ -235,8 +235,8 @@ function CookieCategory({ icon, label, description, enabled, locked, onChange }:
             aria-checked={enabled}
             onClick={() => onChange?.(!enabled)}
             className={[
-              "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
-              enabled ? "bg-indigo-600" : "bg-muted-foreground/30",
+              "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              enabled ? "bg-accent" : "bg-muted-foreground/30",
             ].join(" ")}
           >
             <span

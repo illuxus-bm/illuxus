@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
 import { usePortalAccess } from "@/hooks/usePortalAccess";
@@ -22,8 +22,8 @@ import { ArrowRight, CalendarDays, ChevronDown, ClipboardList, Compass, Handshak
  * Centralized site header used across every public segment
  * (marketing site, discover, attendee, org/event pages).
  *
- * Intentionally minimal: just the Illuxus logo on the left and an
- * auth control on the right. No primary navigation menu.
+ * Intentionally minimal: the Illuxus logo on the left and an auth control
+ * on the right. Only the marketing variant (landingMode) adds section links.
  *
  * Org / event pages can pass `theme` to inherit the page's tokens so
  * the header blends with the branded canvas.
@@ -49,7 +49,7 @@ export default function SiteHeader({
   /**
    * When true, the header renders the marketing landing variant:
    *  - "Start for free" CTA button as the rightmost action (when signed out)
-   *  - Slightly lifted glass surface tuned for the dark luminous canvas
+   *  - Translucent canvas-coloured bar with a gold top line, plus section links
    * Other surfaces (dashboard, themed event pages) pass nothing and get the
    * compact default.
    */
@@ -60,6 +60,7 @@ export default function SiteHeader({
   const { data: portalAccess } = usePortalAccess();
   const { content } = useSiteContent();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { brandName, logoUrl, logoUrlDark } = content.navbar;
   const { theme: appTheme } = useTheme();
   // Pick dark logo when in dark mode (and a dark logo is provided); fall back to the light/default logo.
@@ -121,8 +122,31 @@ export default function SiteHeader({
   const surfaceClass = themed
     ? "border-b"
     : landingMode
-      ? "border-b border-gray-200 dark:border-white/[0.08] bg-white/80 dark:bg-white/[0.06] backdrop-blur-xl supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-white/[0.04]"
+      ? "bg-background/90 backdrop-blur-md shadow-[inset_0_2px_0_hsl(var(--accent))]"
       : "";
+
+  // Section links for the marketing pages. On the landing page itself they
+  // are plain hash links (smooth-scrolled); elsewhere they route back to it.
+  const landingNav = landingMode ? (
+    <nav aria-label="Sections" className="ml-4 hidden items-center gap-1 lg:flex">
+      {content.navbar.links.map((link) => {
+        const className =
+          "inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground";
+        if (link.href.startsWith("#")) {
+          return pathname === "/" ? (
+            <a key={link.label} href={link.href} className={className}>{link.label}</a>
+          ) : (
+            <Link key={link.label} to={`/${link.href}`} className={className}>{link.label}</Link>
+          );
+        }
+        return link.href.startsWith("/") ? (
+          <Link key={link.label} to={link.href} className={className}>{link.label}</Link>
+        ) : (
+          <a key={link.label} href={link.href} className={className}>{link.label}</a>
+        );
+      })}
+    </nav>
+  ) : undefined;
 
   return (
     // Same bar as the dashboard (AppHeaderBar): size, padding, logo and
@@ -131,12 +155,13 @@ export default function SiteHeader({
       brandName={brandName}
       className={`${surfaceClass} ${className}`.trim() || undefined}
       style={styleVars}
+      leading={landingNav}
       actions={<>
           <Link
             to="/discover"
             className={
               landingMode
-                ? "inline-flex h-8 w-8 sm:w-auto items-center justify-center gap-1.5 rounded-full px-0 sm:px-3 text-[13px] font-medium text-gray-600 dark:text-white/75 transition-colors hover:bg-gray-100 dark:hover:bg-white/[0.06] hover:text-gray-900 dark:hover:text-white"
+                ? "inline-flex h-8 w-8 sm:w-auto items-center justify-center gap-1.5 rounded-full px-0 sm:px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
                 : "text-[13px] font-medium px-3 h-8 inline-flex items-center gap-1.5 rounded-full hover:bg-secondary transition-colors"
             }
             style={themed ? { color: theme?.textColor } : undefined}
@@ -145,7 +170,7 @@ export default function SiteHeader({
             <span className="hidden sm:inline">Discover</span>
           </Link>
           {landingMode ? (
-            <div className="rounded-full border border-gray-200 dark:border-white/[0.12] bg-gray-100/80 dark:bg-white/[0.06] p-0.5">
+            <div>
               <ThemeToggle size="sm" />
             </div>
           ) : (
@@ -268,13 +293,13 @@ export default function SiteHeader({
             <div className="flex items-center gap-1.5 sm:gap-2">
               <Link
                 to="/login"
-                className="hidden sm:inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium text-gray-600 dark:text-white/75 transition-colors hover:text-gray-900 dark:hover:text-white"
+                className="hidden sm:inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
               >
                 Sign in
               </Link>
               <Link
                 to="/login"
-                className="group inline-flex h-8 sm:h-9 items-center gap-1 sm:gap-1.5 rounded-full bg-gray-900 dark:bg-white px-3 sm:px-4 text-[12px] sm:text-[13px] font-semibold text-white dark:text-[#09090B] shadow-[0_8px_24px_-8px_rgba(0,0,0,0.3)] dark:shadow-[0_8px_24px_-8px_rgba(255,255,255,0.4)] transition-all duration-150 hover:bg-gray-800 dark:hover:bg-white/90 active:scale-[0.98] whitespace-nowrap"
+                className="group inline-flex h-8 sm:h-9 items-center gap-1 sm:gap-1.5 rounded-full bg-accent px-3 sm:px-4 text-[12px] sm:text-[13px] font-semibold text-accent-foreground transition-colors duration-150 hover:bg-accent/90 active:scale-[0.98] whitespace-nowrap"
               >
                 <span className="hidden sm:inline">Start for free</span>
                 <span className="sm:hidden">Sign up</span>

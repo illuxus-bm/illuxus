@@ -148,12 +148,15 @@ export function useSelectVenueVendor() {
       const inserted = selection as unknown as EventVenueSelection;
 
       // Best-effort notification. The row is already saved, so a mail
-      // hiccup shouldn't turn the whole mutation red.
+      // hiccup shouldn't turn the whole mutation red. The edge function
+      // also falls back to reading selection_id if venue_id is missing,
+      // so a pre-migration client wouldn't lose the email either.
       try {
         await supabase.functions.invoke("notify-venue-selection", {
           body: {
             event_id: eventId,
             vendor_id: vendorId,
+            venue_id: venueId ?? null,
             selection_id: inserted.id,
           },
         });

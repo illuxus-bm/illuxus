@@ -57,6 +57,7 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        highlight: "hsl(var(--highlight))",
         chart: {
           "1": "hsl(var(--chart-1))",
           "2": "hsl(var(--chart-2))",
@@ -64,6 +65,17 @@ export default {
           "4": "hsl(var(--chart-4))",
           "5": "hsl(var(--chart-5))",
         },
+      },
+      // As text, the accent uses its darker "ink" value so gold stays readable
+      // on the light paper canvas. Fills (`bg-accent`) keep the bright gold.
+      textColor: {
+        accent: {
+          DEFAULT: "hsl(var(--accent-ink))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+      },
+      fontFamily: {
+        poster: ["var(--font-poster)"],
       },
       borderRadius: {
         lg: "var(--radius)",
