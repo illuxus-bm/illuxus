@@ -22,6 +22,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Sparkles, Layers, RefreshCw, Download, Trash2, Loader2, ImageOff, X, Wand2 } from "lucide-react";
 import { logger } from "@/lib/observability";
 import { PLATFORM_FORMATS } from "@/lib/creatives/creative-templates";
+import { STUDIO_SIZES } from "@/lib/creatives/studio/studio-render";
 import {
   fetchEventCreatives,
   deleteCreativeAsset,
@@ -37,8 +38,11 @@ import {
 interface CreativeLibrarySectionProps {
   eventId: string;
   onGenerateClick: () => void; // opens CreativeGeneratorDialog
-  onBatchSpeakerClick: () => void; // opens BatchCreativeGeneratorDialog for speakers
-  onBatchSponsorClick: () => void; // opens BatchCreativeGeneratorDialog for sponsors
+  /** Batch buttons are shown only when a handler is given. */
+  onBatchSpeakerClick?: () => void; // opens BatchCreativeGeneratorDialog for speakers
+  onBatchSponsorClick?: () => void; // opens BatchCreativeGeneratorDialog for sponsors
+  /** Wording of the primary button (defaults to "Generate creative"). */
+  generateLabel?: string;
   /** Optional handler for "use this AI draft" click. When provided, the
    *  AI Drafts banner shows an "Apply" button on each draft that calls
    *  back with the draft's copy — the parent typically opens
@@ -55,7 +59,7 @@ const CREATIVE_TYPE_LABELS: Record<string, string> = {
 };
 
 function platformFormatLabel(id: string): string {
-  return PLATFORM_FORMATS.find((f) => f.id === id)?.label ?? id;
+  return PLATFORM_FORMATS.find((f) => f.id === id)?.label ?? STUDIO_SIZES.find((s) => s.id === id)?.name ?? id;
 }
 
 export default function CreativeLibrarySection({
@@ -63,6 +67,7 @@ export default function CreativeLibrarySection({
   onGenerateClick,
   onBatchSpeakerClick,
   onBatchSponsorClick,
+  generateLabel = "Generate creative",
   onApplyAiDraft,
 }: CreativeLibrarySectionProps) {
   const [rows, setRows] = useState<EventCreativeRow[]>([]);
@@ -168,17 +173,21 @@ export default function CreativeLibrarySection({
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <Button size="sm" variant="outline" onClick={onBatchSponsorClick} className="gap-1.5">
-            <Layers className="h-3.5 w-3.5" />
-            Batch: all sponsors
-          </Button>
-          <Button size="sm" variant="outline" onClick={onBatchSpeakerClick} className="gap-1.5">
-            <Layers className="h-3.5 w-3.5" />
-            Batch: all speakers
-          </Button>
+          {onBatchSponsorClick && (
+            <Button size="sm" variant="outline" onClick={onBatchSponsorClick} className="gap-1.5">
+              <Layers className="h-3.5 w-3.5" />
+              Batch: all sponsors
+            </Button>
+          )}
+          {onBatchSpeakerClick && (
+            <Button size="sm" variant="outline" onClick={onBatchSpeakerClick} className="gap-1.5">
+              <Layers className="h-3.5 w-3.5" />
+              Batch: all speakers
+            </Button>
+          )}
           <Button size="sm" onClick={onGenerateClick} className="gap-1.5">
             <Sparkles className="h-3.5 w-3.5" />
-            Generate creative
+            {generateLabel}
           </Button>
         </div>
       </div>
@@ -226,7 +235,7 @@ export default function CreativeLibrarySection({
           </div>
           <Button size="sm" onClick={onGenerateClick} className="gap-1.5">
             <Sparkles className="h-3.5 w-3.5" />
-            Generate creative
+            {generateLabel}
           </Button>
         </div>
       ) : (

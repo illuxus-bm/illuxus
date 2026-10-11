@@ -27,6 +27,8 @@ import CreativeLibrarySection from "@/components/event/creatives/CreativeLibrary
 import CreativeGeneratorDialog from "@/components/event/creatives/CreativeGeneratorDialog";
 import BatchCreativeGeneratorDialog from "@/components/event/creatives/BatchCreativeGeneratorDialog";
 import AiBackgroundLibrary from "@/components/event/creatives/AiBackgroundLibrary";
+import CreativeStudio from "@/components/event/creatives/studio/CreativeStudio";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { applyAiDraft, type AiCopyDraft } from "@/lib/creatives/creative-ai";
 import type { CreativeType } from "@/lib/creatives/creative-templates";
@@ -43,6 +45,7 @@ export default function CreativesSection({ eventId }: { eventId: string }) {
   const [batchSpeakerOpen, setBatchSpeakerOpen] = useState(false);
   const [batchSponsorOpen, setBatchSponsorOpen] = useState(false);
   const [libraryKey, setLibraryKey] = useState(0);
+  const [tab, setTab] = useState("studio");
   // Prefill state for the "Apply AI draft" flow. When set, the
   // CreativeGeneratorDialog opens on the Event_Promo tab with the
   // draft's tagline / CTA / stats already populated. Cleared after the
@@ -149,29 +152,42 @@ export default function CreativesSection({ eventId }: { eventId: string }) {
 
   return (
     <>
-      <Tabs defaultValue="creatives" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="creatives">Creatives</TabsTrigger>
-          <TabsTrigger value="ai-backgrounds">AI backgrounds</TabsTrigger>
-          <TabsTrigger value="brand-kits">Brand kits</TabsTrigger>
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4">
+        <TabsList className="w-full sm:w-auto grid grid-cols-3 sm:inline-flex">
+          <TabsTrigger value="studio">Create</TabsTrigger>
+          <TabsTrigger value="library">Library</TabsTrigger>
+          <TabsTrigger value="classic">Classic tools</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="creatives" className="space-y-4">
+        {/* The Studio: new designs built from the event's own banner, photos and colours. */}
+        <TabsContent value="studio">
+          <CreativeStudio eventId={eventId} onSaved={() => setLibraryKey((k) => k + 1)} />
+        </TabsContent>
+
+        <TabsContent value="library" className="space-y-4">
           <CreativeLibrarySection
             key={libraryKey}
             eventId={eventId}
-            onGenerateClick={() => setGeneratorOpen(true)}
-            onBatchSpeakerClick={() => setBatchSpeakerOpen(true)}
-            onBatchSponsorClick={() => setBatchSponsorOpen(true)}
+            onGenerateClick={() => setTab("studio")}
+            generateLabel="Create a graphic"
             onApplyAiDraft={handleApplyAiDraft}
           />
         </TabsContent>
 
-        <TabsContent value="ai-backgrounds" className="space-y-4">
+        {/* The earlier template generator and its companions, kept for existing workflows. */}
+        <TabsContent value="classic" className="space-y-6">
+          <div className="rounded-lg border border-border p-4 space-y-3">
+            <div>
+              <p className="text-[13px] font-medium">Classic template generator</p>
+              <p className="text-[12px] text-muted-foreground">The earlier slot-based templates, the custom template builder and batch runs.</p>
+            </div>
+            <div className="grid grid-cols-1 sm:flex sm:flex-wrap gap-2">
+              <Button size="sm" variant="outline" className="h-10 sm:h-8" onClick={() => setGeneratorOpen(true)}>Open generator</Button>
+              <Button size="sm" variant="outline" className="h-10 sm:h-8" onClick={() => setBatchSpeakerOpen(true)}>Batch: all speakers</Button>
+              <Button size="sm" variant="outline" className="h-10 sm:h-8" onClick={() => setBatchSponsorOpen(true)}>Batch: all sponsors</Button>
+            </div>
+          </div>
           <AiBackgroundLibrary eventId={eventId} variant="peer" />
-        </TabsContent>
-
-        <TabsContent value="brand-kits" className="space-y-4">
           <Suspense
             fallback={
               <div className="flex items-center justify-center py-16 text-[13px] text-muted-foreground">
