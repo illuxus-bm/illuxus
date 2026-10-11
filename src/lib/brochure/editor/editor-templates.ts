@@ -39,7 +39,7 @@ import {
   wrapTextLines,
 } from "./editor-text-metrics";
 import { ptToMm } from "./editor-units";
-import type { BrochureSectionId, BrochureTheme } from "../brochure-templates";
+import { isPosterFamily, type BrochureSectionId, type BrochureTheme } from "../brochure-templates";
 import {
   buildAgendaSectionContent,
   buildSpeakerRows,
@@ -133,6 +133,9 @@ export interface TemplateSeedInput {
   /** Cover hero image URL. Empty string is allowed; the cover then shows
    *  only the accent band where the image would sit. */
   coverImageUrl: string;
+  /** A finished portrait poster to use as the whole first page, edge to
+   *  edge, instead of the designed cover. */
+  coverPosterUrl?: string;
   /** Event logo / icon. Sits above the title on the cover and beside the
    *  event name at the top of every inner page. */
   logoUrl?: string;
@@ -220,11 +223,78 @@ export function seedBrochureDocument(
     pages.push(...buildEditorPagesForSection(id, ctx, coverTitleColor, isCorporateBold));
   }
 
+  if (theme.scheme) applyScheme(pages, theme.scheme);
+
   return {
     ...doc,
     pages: pages.length > 0 ? pages : [newPage()],
     templateVersion: EDITOR_SEED_VERSION,
   };
+}
+
+const SVG_DATA_PREFIX = "data:image/svg+xml;utf8,";
+
+/**
+ * Recolours pages laid out in the poster's black / white / paper into a
+ * brochure type's scheme, and scales corner radii.
+ *
+ * Every poster page is drawn with exactly those three neutrals plus the
+ * accent, and always as contrasting pairs (black on white, white on black,
+ * black on the accent). Swapping each neutral for its scheme colour therefore
+ * keeps every pair readable — a black page with white type becomes an
+ * ink-coloured page with card-coloured type — which is why this can be one
+ * pass over the finished pages instead of a colour parameter threaded through
+ * every builder. Accent colours, greys and photographs are left alone.
+ */
+function applyScheme(pages: BrochurePage[], scheme: NonNullable<BrochureTheme["scheme"]>): void {
+  const brightness = (hex: string): number => {
+    const n = Number.parseInt(hex.replace("#", "").padEnd(6, "0").slice(0, 6), 16);
+    return ((n >> 16) & 255) * 0.299 + ((n >> 8) & 255) * 0.587 + (n & 255) * 0.114;
+  };
+  const darkScheme = brightness(scheme.ink) > brightness(scheme.paper);
+  const swap = (color: string): string => {
+    const key = color.toLowerCase();
+    if (key === "#000000" || key === "#000") return scheme.ink;
+    if (key === "#ffffff" || key === "#fff") return scheme.card;
+    if (key === PAPER) return scheme.paper;
+    // On a dark scheme the supporting greys (secondary text, table rules)
+    // would sink into the page, so they flip to the matching light grey.
+    const grey = /^#([0-9a-f]{2})\1\1$/.exec(key);
+    if (darkScheme && grey) {
+      const flipped = (255 - Number.parseInt(grey[1], 16)).toString(16).padStart(2, "0");
+      return `#${flipped}${flipped}${flipped}`;
+    }
+    return color;
+  };
+  const scale = scheme.cornerScale ?? 1;
+  for (const page of pages) {
+    // A page that is nothing but a full-bleed poster has no scheme to take.
+    if (page.background.type === "solid") page.background = { type: "solid", color: swap(page.background.color) };
+    for (const el of page.elements) {
+      if (el.kind === "text") {
+        el.color = swap(el.color);
+      } else if (el.kind === "shape") {
+        el.fill = swap(el.fill);
+        el.stroke = swap(el.stroke);
+        el.cornerRadius *= scale;
+      } else if (el.kind === "pill") {
+        el.textColor = swap(el.textColor);
+        el.fillColor = swap(el.fillColor);
+        el.strokeColor = swap(el.strokeColor);
+      } else if (el.kind === "image") {
+        el.cornerRadius *= scale;
+        // Glyph icons drawn in black (ticks, bullets) follow the ink; brand
+        // icons and anything drawn on the accent keep their own colours.
+        if (el.src.startsWith(SVG_DATA_PREFIX)) {
+          const svg = decodeURIComponent(el.src.slice(SVG_DATA_PREFIX.length));
+          if (/#000(000)?\b/i.test(svg)) {
+            const recoloured = svg.replace(/#(?:000000|000|ffffff|fff)\b/gi, (match) => swap(match));
+            el.src = SVG_DATA_PREFIX + encodeURIComponent(recoloured);
+          }
+        }
+      }
+    }
+  }
 }
 
 /** Everything a page builder needs, resolved once per seed. */
@@ -245,6 +315,7 @@ function buildEditorPagesForSection(
   const one = (page: BrochurePage | null): BrochurePage[] => (page ? [page] : []);
   switch (id) {
     case "cover":
+      if (input.coverPosterUrl?.trim()) return one(buildPosterImageCoverPage(input.coverPosterUrl.trim()));
       return one(
         isCorporateBold ? buildCorporateBoldCoverPage(ctx, coverTitleColor) : buildPosterBoldCoverPage(ctx, coverTitleColor)
       );
@@ -325,7 +396,27 @@ function makePage(kind: string, background: string, elements: BrochureElement[])
 }
 
 function isPosterTheme(theme: BrochureTheme): boolean {
-  return theme.id === "poster-bold";
+  return isPosterFamily(theme);
+}
+
+/**
+ * A first page that is the event's finished poster and nothing else: the
+ * image fills the sheet edge to edge, cropped rather than letterboxed where
+ * its proportions differ from the page's. It is an ordinary image element,
+ * so the crop can be moved or the page built on in the editor.
+ */
+function buildPosterImageCoverPage(posterUrl: string): BrochurePage {
+  const { elements, push } = createPusher();
+  push(newImageElement({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, src: posterUrl, fit: "cover" }));
+  return {
+    id: generateId("page"),
+    width: PAGE_W,
+    height: PAGE_H,
+    // Photographic, so it takes no scheme colour; black shows only if the
+    // poster fails to load.
+    background: { type: "gradient", top: "#111111", bottom: "#111111" },
+    elements,
+  };
 }
 
 /**

@@ -115,6 +115,7 @@ import BrochureEditorPages, { type TemplatePageOption } from "@/lib/brochure/edi
 import { EDITOR_SEED_VERSION, seedBrochureDocument, type TemplateSeedInput } from "@/lib/brochure/editor/editor-templates";
 import {
   DEFAULT_SECTION_LAYOUT,
+  isPosterFamily,
   POSTER_BOLD_SECTION_LAYOUT,
   type BrochureSectionId,
   type BrochureTheme,
@@ -518,7 +519,7 @@ export default function BrochureEditorDialog({
   // page" menu so a deleted Agenda can be brought back, or a second Pricing
   // page added, without resetting the whole brochure to the template.
   const templatePages = useMemo<TemplatePageOption[]>(() => {
-    const layout = theme.id === "poster-bold" ? POSTER_BOLD_SECTION_LAYOUT : DEFAULT_SECTION_LAYOUT;
+    const layout = isPosterFamily(theme) ? POSTER_BOLD_SECTION_LAYOUT : DEFAULT_SECTION_LAYOUT;
     return layout.flatMap((entry) => {
       const label = TEMPLATE_PAGE_LABELS[entry.id];
       return label ? [{ id: entry.id, label }] : [];

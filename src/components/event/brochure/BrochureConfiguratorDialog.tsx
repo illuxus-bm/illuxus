@@ -79,6 +79,7 @@ import {
   BROCHURE_THEMES,
   CORPORATE_BOLD_SECTION_LAYOUT,
   DEFAULT_SECTION_LAYOUT,
+  isPosterFamily,
   POSTER_BOLD_SECTION_LAYOUT,
   readBrochurePrefs,
   resolveBrochureTheme,
@@ -453,7 +454,7 @@ export default function BrochureConfiguratorDialog({
     // when picking Poster_Bold is almost always "give me the full poster
     // spread", not "the same layout as a Classic Editorial brochure".
     const fallbackLayout =
-      theme.id === "poster-bold"
+      isPosterFamily(theme)
         ? POSTER_BOLD_SECTION_LAYOUT
         : theme.id === "corporate-bold"
           ? CORPORATE_BOLD_SECTION_LAYOUT
@@ -486,15 +487,24 @@ export default function BrochureConfiguratorDialog({
   // posterContent copy are preserved across the switch so re-picking a
   // theme doesn't discard anything the organizer already typed in.
   const handleThemeChange = (next: BrochureTheme) => {
+    const previous = selectedTheme;
     setSelectedTheme(next);
+    // Brochure types that share the poster layout share its sections too, so
+    // moving between them keeps the organiser's section choices and order.
+    if (isPosterFamily(next) && isPosterFamily(previous)) return;
     setSectionLayout(
-      next.id === "poster-bold"
+      isPosterFamily(next)
         ? POSTER_BOLD_SECTION_LAYOUT
         : next.id === "corporate-bold"
           ? CORPORATE_BOLD_SECTION_LAYOUT
           : DEFAULT_SECTION_LAYOUT,
     );
   };
+
+  // The first page: the event's portrait poster edge to edge when it has one
+  // (unless the organiser prefers the designed cover).
+  const portraitPosterUrl = event?.banner_portrait_url?.trim() || "";
+  const coverStyle: "poster" | "designed" = portraitPosterUrl && posterContent.coverStyle !== "designed" ? "poster" : "designed";
 
   // Reset purely transient (non-persisted) state whenever the dialog
   // re-opens — mirrors CreativeGeneratorDialog's open-reset effect. The
@@ -530,7 +540,7 @@ export default function BrochureConfiguratorDialog({
       // the page builder's stock amber rather than the theme's orange.
       primaryColor: chosen(eventPageConfig.theme?.primaryColor, DEFAULT_THEME.primaryColor),
       accentColor: chosen(eventPageConfig.theme?.accentColor, DEFAULT_THEME.accentColor),
-      fontFamily: eventPageConfig.theme?.fontFamily,
+      fontFamily: chosen(eventPageConfig.theme?.fontFamily, DEFAULT_THEME.fontFamily),
     }),
     [eventPageConfig.theme?.primaryColor, eventPageConfig.theme?.accentColor, eventPageConfig.theme?.fontFamily]
   );
@@ -579,6 +589,7 @@ export default function BrochureConfiguratorDialog({
       // An explicit brochure cover image wins. Otherwise use the event's own
       // artwork, landscape first: the cover's hero slot is a wide band, and a
       // portrait banner cropped into it shows only a strip of itself.
+      coverPosterUrl: coverStyle === "poster" ? portraitPosterUrl : undefined,
       coverImageUrl:
         posterContent.coverImageUrl ||
         event.image_url ||
@@ -616,7 +627,7 @@ export default function BrochureConfiguratorDialog({
         footnote: posterContent.sponsorshipFootnote,
       },
     };
-  }, [event, posterContent, selectedTheme.id, resolvedColors, sessions, speakers, sponsors, venueLogistics]);
+  }, [event, posterContent, selectedTheme.id, resolvedColors, sessions, speakers, sponsors, venueLogistics, coverStyle, portraitPosterUrl]);
 
   // The organizer's persisted WYSIWYG document, if any.
   //
@@ -771,7 +782,7 @@ export default function BrochureConfiguratorDialog({
                   in the editor from either seed. */}
               <section>
                 <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">
-                  Brochure theme
+                  Brochure type
                 </Label>
                 <RadioGroup
                   value={selectedTheme.id}
@@ -789,7 +800,15 @@ export default function BrochureConfiguratorDialog({
                       }`}
                     >
                       <RadioGroupItem value={t.id} className="sr-only" />
-                      <div className="text-[13px] font-medium leading-tight">{t.name}</div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[13px] font-medium leading-tight">{t.name}</div>
+                        {/* The type's page, type and accent colours. */}
+                        <div className="flex shrink-0 -space-x-1" aria-hidden>
+                          {[t.scheme?.paper ?? t.cover.defaultBackgroundColor, t.scheme?.ink ?? t.defaultColors.primaryColor, t.defaultColors.accentColor].map((color, i) => (
+                            <span key={i} className="h-3.5 w-3.5 rounded-full border border-border" style={{ background: color }} />
+                          ))}
+                        </div>
+                      </div>
                       <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
                         {t.description}
                       </div>
@@ -799,6 +818,42 @@ export default function BrochureConfiguratorDialog({
                 <div className="text-[10px] text-muted-foreground/80 mt-1.5">
                   Every element — text, images, shapes, colours, layout — can be changed in the editor.
                 </div>
+              </section>
+
+              {/* FIRST PAGE */}
+              <section>
+                <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">First page</Label>
+                <RadioGroup
+                  value={coverStyle}
+                  onValueChange={(value) => setPosterContent((prev) => ({ ...prev, coverStyle: value === "designed" ? "designed" : "poster" }))}
+                  className="grid grid-cols-2 gap-2"
+                >
+                  {(
+                    [
+                      ["poster", "Event poster", "Your portrait (mobile) poster fills the page edge to edge."],
+                      ["designed", "Designed cover", "Title, date, venue and artwork laid out by the brochure type."],
+                    ] as const
+                  ).map(([value, name, description]) => {
+                    const unavailable = value === "poster" && !portraitPosterUrl;
+                    return (
+                      <label
+                        key={value}
+                        className={`border rounded-lg px-3 py-2 transition-colors ${
+                          unavailable ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+                        } ${coverStyle === value ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}
+                      >
+                        <RadioGroupItem value={value} disabled={unavailable} className="sr-only" />
+                        <div className="text-[13px] font-medium leading-tight">{name}</div>
+                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">{description}</div>
+                      </label>
+                    );
+                  })}
+                </RadioGroup>
+                {!portraitPosterUrl && (
+                  <div className="text-[10px] text-muted-foreground/80 mt-1.5">
+                    This event has no portrait poster yet. Add one under the event's banner images and it becomes the first page.
+                  </div>
+                )}
               </section>
 
               {/* COLOR / FONT OVERRIDES */}
@@ -846,7 +901,7 @@ export default function BrochureConfiguratorDialog({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__default">Use event theme font</SelectItem>
+                        <SelectItem value="__default">Default for this brochure type</SelectItem>
                         {FONT_OPTIONS.map((f) => (
                           <SelectItem key={f} value={f}>
                             {f}
@@ -875,11 +930,12 @@ export default function BrochureConfiguratorDialog({
                   conditionally reveals subsections based on which theme
                   is active so an organizer only fills in what actually
                   renders. */}
-              {(selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold") && (
+              {(isPosterFamily(selectedTheme) || selectedTheme.id === "corporate-bold") && (
                 <PosterBoldContentPanel
                   value={posterContent}
                   onChange={setPosterContent}
-                  themeId={selectedTheme.id}
+                  // Every type on the poster layout fills the same fields.
+                  themeId={isPosterFamily(selectedTheme) ? "poster-bold" : selectedTheme.id}
                 />
               )}
 

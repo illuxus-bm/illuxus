@@ -156,6 +156,53 @@ export interface BrochureTheme {
   /** Built-in defaults used by `resolveBrochureTheme` when the event's
    *  Event_Theme doesn't define a color (Requirement 1.3). */
   defaultColors: { primaryColor: string; accentColor: string; fontFamily: string };
+  /**
+   * Colour scheme for a brochure type built on the poster layout. The poster
+   * pages are laid out in black, white and an off-white paper; a scheme says
+   * what those three become, so one layout yields a dark brochure, a navy and
+   * gold one, and so on. Omitted on the original Poster Bold and on themes
+   * with their own page builders.
+   */
+  scheme?: BrochureScheme;
+}
+
+export interface BrochureScheme {
+  /** Page colour (replaces the off-white paper). */
+  paper: string;
+  /** Card and panel colour (replaces white). */
+  card: string;
+  /** Text and solid-chip colour (replaces black). Must contrast with
+   *  `paper`, `card` and the theme's accent. */
+  ink: string;
+  /** Multiplies every corner radius: 0 squares the cards and chips off. */
+  cornerScale?: number;
+}
+
+/** `true` for every brochure type that uses the poster layout and its content fields. */
+export function isPosterFamily(theme: BrochureTheme): boolean {
+  return theme.cover.style === "poster-bold";
+}
+
+/** A brochure type that is the poster layout in another scheme and face. */
+function posterVariant(
+  id: string,
+  name: string,
+  description: string,
+  colors: BrochureTheme["defaultColors"],
+  scheme: BrochureScheme,
+): BrochureTheme {
+  return {
+    id,
+    name,
+    description,
+    margins: { top: 22, right: 20, bottom: 22, left: 20 },
+    cover: { style: "poster-bold", defaultBackgroundColor: scheme.paper, titleFontSizePt: 44, accentBarHeightMm: 0 },
+    heading: { fontSizePt: 26, fontStyle: "bold", showAccentUnderline: false },
+    table: { theme: "plain", fontSizePt: 10.5, cellPaddingMm: 3, headFillDefault: colors.accentColor },
+    agenda: { layout: "timetable-cards" },
+    defaultColors: colors,
+    scheme,
+  };
 }
 
 // ─── Brochure_Theme registry (Requirement 1.1) ───────────────────────────────
@@ -241,6 +288,34 @@ export const BROCHURE_THEMES: BrochureTheme[] = [
       fontFamily: "Playfair Display",
     },
   },
+  posterVariant(
+    "midnight",
+    "Midnight",
+    "Dark brochure: deep navy pages, white type and an indigo accent.",
+    { primaryColor: "#ffffff", accentColor: "#6366f1", fontFamily: "Space Grotesk" },
+    { paper: "#0b1020", card: "#19213d", ink: "#ffffff" },
+  ),
+  posterVariant(
+    "executive",
+    "Executive",
+    "Formal brochure: navy type on ivory, gold accent pages, square corners.",
+    { primaryColor: "#14213d", accentColor: "#d9a93a", fontFamily: "Montserrat" },
+    { paper: "#faf7f0", card: "#ffffff", ink: "#14213d", cornerScale: 0 },
+  ),
+  posterVariant(
+    "evergreen",
+    "Evergreen",
+    "Fresh brochure: deep green type on a pale mint page with an emerald accent.",
+    { primaryColor: "#0b3d2e", accentColor: "#34d399", fontFamily: "DM Sans" },
+    { paper: "#f0f8f3", card: "#ffffff", ink: "#0b3d2e" },
+  ),
+  posterVariant(
+    "royal",
+    "Royal",
+    "Rich brochure: deep violet type on lavender with a soft purple accent and extra-round cards.",
+    { primaryColor: "#2e1065", accentColor: "#a78bfa", fontFamily: "Work Sans" },
+    { paper: "#f6f1ff", card: "#ffffff", ink: "#2e1065", cornerScale: 1.6 },
+  ),
   // Themes below (Modern Minimal, Bold Conference, Corporate Bold) stay
   // removed — Classic Editorial and Poster Bold are the two shipped
   // themes now. The editor lets an organizer produce any of the removed

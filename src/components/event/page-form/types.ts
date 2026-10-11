@@ -435,6 +435,12 @@ export interface EventPageConfig {
       additionalPartnerships?: Array<{ label: string; price: string }>;
       /** Small print under each table. */
       sponsorshipFootnote?: string;
+      /**
+       * What the first page is: the event's portrait (mobile) poster filling
+       * the page edge to edge, or the cover the brochure type designs.
+       * Unset means the poster whenever the event has one.
+       */
+      coverStyle?: "poster" | "designed";
     };
     /**
      * Serialized WYSIWYG editor document. When present, the editor
