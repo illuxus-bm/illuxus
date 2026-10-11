@@ -63,28 +63,39 @@
     --site-gutter-x: 1rem;       /* px-4 */
     --site-gutter-x-sm: 1.5rem;  /* sm:px-6 */
 
+    /* Type families. Onest carries the whole UI; Bebas Neue is the condensed
+       poster face reserved for big marketing headlines (`.poster`). */
+    --font-sans: 'Onest', 'Poppins', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-poster: 'Bebas Neue', 'Oswald', 'Arial Narrow', Impact, sans-serif;
+
     /* Bright, clean canvas */
     --background: 0 0% 100%;
-    --foreground: 222 25% 10%;
+    --foreground: 258 35% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 25% 10%;
+    --card-foreground: 258 35% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 25% 10%;
+    --popover-foreground: 258 35% 11%;
 
-    --primary: 222 25% 10%;
+    --primary: 258 35% 11%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 222 25% 10%;
+    --secondary: 258 20% 96%;
+    --secondary-foreground: 258 35% 11%;
 
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
+    --muted: 258 20% 96%;
+    --muted-foreground: 258 8% 44%;
 
-    /* Bright primary accent (vivid blue) */
-    --accent: 220 95% 56%;
+    /* Brand accent: violet. `--accent-ink` is the
+       accent as text; `--highlight` colours the emphasised words in poster
+       headlines; `--spot` is the sparing gold used on a few standout elements. */
+    --accent: 258 90% 66%;
     --accent-foreground: 0 0% 100%;
+    --accent-ink: 263 70% 50%;
+    --highlight: 262 83% 58%;
+    --spot: 43 92% 52%;
+    --spot-foreground: 42 100% 5%;
     --success: 142 72% 42%;
 
     /* Bright, basic primary palette */
@@ -101,50 +112,54 @@
     --destructive: 0 90% 58%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 220 95% 56%;
+    --border: 258 14% 91%;
+    --input: 258 14% 91%;
+    --ring: 258 90% 66%;
 
     --radius: 0.75rem;
 
-    --chart-1: 220 95% 56%;
+    --chart-1: 258 90% 66%;
     --chart-2: 142 72% 42%;
     --chart-3: 38 96% 52%;
-    --chart-4: 265 85% 60%;
+    --chart-4: 239 84% 67%;
     --chart-5: 330 88% 60%;
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 220 9% 35%;
-    --sidebar-primary: 222 25% 10%;
+    --sidebar-foreground: 258 8% 35%;
+    --sidebar-primary: 258 35% 11%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 14% 96%;
-    --sidebar-accent-foreground: 222 25% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 220 95% 56%;
+    --sidebar-accent: 258 20% 96%;
+    --sidebar-accent-foreground: 258 35% 11%;
+    --sidebar-border: 258 14% 91%;
+    --sidebar-ring: 258 90% 66%;
   }
 
   .dark {
     /* Deep neutral canvas, bright accents preserved */
-    --background: 224 16% 7%;
+    --background: 258 41% 7%;
     --foreground: 0 0% 98%;
 
-    --card: 224 14% 10%;
+    --card: 258 32% 11%;
     --card-foreground: 0 0% 98%;
 
-    --popover: 224 14% 10%;
+    --popover: 258 32% 11%;
     --popover-foreground: 0 0% 98%;
 
     --primary: 0 0% 98%;
-    --primary-foreground: 224 16% 7%;
+    --primary-foreground: 258 41% 7%;
 
-    --secondary: 224 12% 14%;
+    --secondary: 258 26% 15%;
     --secondary-foreground: 0 0% 98%;
 
-    --muted: 224 12% 14%;
-    --muted-foreground: 220 8% 62%;
+    --muted: 258 26% 15%;
+    --muted-foreground: 258 12% 66%;
 
-    --accent: 220 95% 62%;
+    --accent: 258 90% 66%;
     --accent-foreground: 0 0% 100%;
+    --accent-ink: 255 92% 76%;
+    --highlight: 252 95% 85%;
+    --spot: 43 92% 52%;
+    --spot-foreground: 42 100% 5%;
     --success: 142 70% 50%;
 
     /* Brighter brand tones for legibility on dark */
@@ -161,24 +176,24 @@
     --destructive: 0 80% 58%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 224 10% 18%;
-    --input: 224 10% 18%;
-    --ring: 220 95% 62%;
+    --border: 258 22% 20%;
+    --input: 258 22% 22%;
+    --ring: 258 90% 66%;
 
-    --chart-1: 220 95% 62%;
+    --chart-1: 258 90% 72%;
     --chart-2: 142 70% 50%;
     --chart-3: 38 96% 58%;
-    --chart-4: 265 88% 68%;
+    --chart-4: 234 89% 74%;
     --chart-5: 330 90% 66%;
 
-    --sidebar-background: 224 16% 8%;
-    --sidebar-foreground: 220 8% 65%;
+    --sidebar-background: 258 41% 6%;
+    --sidebar-foreground: 258 12% 68%;
     --sidebar-primary: 0 0% 98%;
-    --sidebar-primary-foreground: 224 16% 7%;
-    --sidebar-accent: 224 12% 13%;
+    --sidebar-primary-foreground: 258 41% 7%;
+    --sidebar-accent: 258 26% 14%;
     --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 224 10% 16%;
-    --sidebar-ring: 220 95% 62%;
+    --sidebar-border: 258 22% 16%;
+    --sidebar-ring: 258 90% 66%;
   }
 }
 
@@ -206,7 +221,7 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Poppins', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-sans);
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -225,11 +240,11 @@
   pre,
   tt,
   var {
-    font-family: 'Poppins', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-sans);
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Poppins', system-ui, sans-serif;
+    font-family: var(--font-sans);
     letter-spacing: -0.025em;
     font-weight: 700;
     color: hsl(var(--foreground));
@@ -287,15 +302,15 @@
   /* Editorial heading scale used by landing + dashboard for consistency */
   /* Headings use Poppins which has taller vertical metrics than Inter — keep
      line-heights slightly looser to avoid descender clipping / overlap. */
-  .h-display { font-family: 'Poppins', system-ui, sans-serif; font-weight: 800; letter-spacing: -0.035em; line-height: 1.1; }
-  .h-section { font-family: 'Poppins', system-ui, sans-serif; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; }
-  .h-page    { font-family: 'Poppins', system-ui, sans-serif; font-weight: 700; letter-spacing: -0.025em; line-height: 1.2; }
-  .h-card    { font-family: 'Poppins', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.02em; line-height: 1.3; }
-  .eyebrow   { font-family: 'Poppins', system-ui, sans-serif; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; font-size: 0.75rem; }
+  .h-display { font-family: var(--font-sans); font-weight: 800; letter-spacing: -0.035em; line-height: 1.1; }
+  .h-section { font-family: var(--font-sans); font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; }
+  .h-page    { font-family: var(--font-sans); font-weight: 700; letter-spacing: -0.025em; line-height: 1.2; }
+  .h-card    { font-family: var(--font-sans); font-weight: 600; letter-spacing: -0.02em; line-height: 1.3; }
+  .eyebrow   { font-family: var(--font-sans); font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; font-size: 0.75rem; }
 
   /* Display class — same family, tighter tracking + heavier weight */
   .font-display {
-    font-family: 'Poppins', system-ui, sans-serif;
+    font-family: var(--font-sans);
     letter-spacing: -0.035em;
     font-weight: 700;
   }
@@ -369,7 +384,7 @@
   .mono {
     /* Kept as a utility for tabular/numeric emphasis but uses the global
        Poppins family so typography stays consistent app-wide. */
-    font-family: 'Poppins', system-ui, sans-serif;
+    font-family: var(--font-sans);
     font-variant-numeric: tabular-nums;
   }
 
@@ -378,7 +393,7 @@
   .font-mono,
   .font-sans,
   .font-serif {
-    font-family: 'Poppins', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-sans);
   }
 
   /* Poppins descenders clip when line-height is exactly 1. Soften

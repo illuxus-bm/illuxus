@@ -5,7 +5,7 @@
  * Mirrors `CreativeGeneratorDialog.tsx`'s two-pane dialog structure: a
  * scrollable left settings pane (Brochure_Theme picker, color/font
  * overrides, section reorder/include list, "save as event default"
- * toggle) and a right pane hosting the live `BrochurePreviewFrame`.
+ * toggle) and a right pane hosting the live `BrochurePagesPreview`.
  *
  * On open, fetches everything the brochure needs for `eventId` — the event
  * row, sessions (with per-session speaker names resolved via the
@@ -64,20 +64,22 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, Download, Loader2, Sparkles } from "lucide-react";
+import { FileText, Download, Loader2, Plus, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
 
 import BrochureSectionList from "./BrochureSectionList";
-import BrochurePreviewFrame from "./BrochurePreviewFrame";
+import { defaultPosterContent, fillPosterDefaults, type PosterContent } from "@/lib/brochure/brochure-defaults";
+import BrochurePagesPreview from "./BrochurePagesPreview";
 import BrochureEditorDialog from "./BrochureEditorDialog";
 
 import {
   BROCHURE_THEMES,
   CORPORATE_BOLD_SECTION_LAYOUT,
   DEFAULT_SECTION_LAYOUT,
+  isPosterFamily,
   POSTER_BOLD_SECTION_LAYOUT,
   readBrochurePrefs,
   resolveBrochureTheme,
@@ -90,7 +92,7 @@ import {
   type SectionLayout,
 } from "@/lib/brochure/brochure-templates";
 
-import { downloadDocumentAsPdf } from "@/lib/brochure/editor/editor-pdf";
+import { blockedImagesMessage, downloadDocumentAsPdf } from "@/lib/brochure/editor/editor-pdf";
 import { isUsableDocument, resolveBrochureDocument } from "@/lib/brochure/editor/resolve-document";
 import type { BrochureDocument } from "@/lib/brochure/editor/editor-document";
 import type { TemplateSeedInput } from "@/lib/brochure/editor/editor-templates";
@@ -101,7 +103,7 @@ import type {
   VenueLogisticsInput,
 } from "@/lib/brochure/brochure-sections";
 import { COLOR_SWATCHES, FONT_OPTIONS } from "@/components/event/page-form/presets";
-import { normalizeConfig, type DateVenueData, type EventPageConfig } from "@/components/event/page-form/types";
+import { DEFAULT_THEME, normalizeConfig, type DateVenueData, type EventPageConfig } from "@/components/event/page-form/types";
 
 interface BrochureConfiguratorDialogProps {
   open: boolean;
@@ -109,7 +111,21 @@ interface BrochureConfiguratorDialogProps {
   eventId: string;
   eventPageConfig: EventPageConfig; // for reading/writing brochurePrefs and theme colors
   onConfigChange: (config: EventPageConfig) => void; // caller persists via supabase.from("events").update({ page_config })
+  /**
+   * Render in the page instead of a dialog: the Brochure tab shows the
+   * settings, the live preview and the editor button straight away, and every
+   * choice is saved as it is made. `open` should be `true`.
+   */
+  inline?: boolean;
 }
+
+/** `value`, unless it is just the untouched default. */
+function chosen(value: string | undefined, untouched: string): string | undefined {
+  return value && value.toLowerCase() !== untouched.toLowerCase() ? value : undefined;
+}
+
+/** How long the inline studio waits after a change before saving it. */
+const AUTOSAVE_DELAY_MS = 900;
 
 /** Raw `events` columns the Cover_Section and Venue_Logistics_Section need. */
 interface BrochureEventRow {
@@ -337,6 +353,7 @@ export default function BrochureConfiguratorDialog({
   eventId,
   eventPageConfig,
   onConfigChange,
+  inline = false,
 }: BrochureConfiguratorDialogProps) {
   const [loading, setLoading] = useState(true);
   const [event, setEvent] = useState<BrochureEventRow | null>(null);
@@ -351,9 +368,6 @@ export default function BrochureConfiguratorDialog({
   // `eventPageConfig.brochurePrefs.posterContent`; edits in this dialog
   // flow through the same `saveBrochurePrefs` path as `sectionLayout` /
   // `themeOverride` when "save as event default" is on.
-  type PosterContent = NonNullable<
-    NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]
-  >;
   const [posterContent, setPosterContent] = useState<PosterContent>({});
   const hydratedRef = useRef(false);
 
@@ -386,6 +400,41 @@ export default function BrochureConfiguratorDialog({
     };
   }, [open, eventId]);
 
+  // What the event can say about itself, for the brochure's starting copy.
+  const [defaultsSource, setDefaultsSource] = useState<{ description: string | null; organizerLogoUrl: string | null } | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let mounted = true;
+    void (async () => {
+      const { data: row } = await supabase.from("events").select("description, org_id").eq("id", eventId).maybeSingle();
+      const org = row?.org_id
+        ? (await supabase.from("organizations").select("logo_url").eq("id", row.org_id).maybeSingle()).data
+        : null;
+      if (mounted) setDefaultsSource({ description: row?.description ?? null, organizerLogoUrl: org?.logo_url ?? null });
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [open, eventId]);
+
+  // Fill every content field the organiser hasn't set from the event itself,
+  // once everything it draws on has loaded. Without this the abstract, why
+  // sponsor and pricing pages simply don't exist until each field is typed
+  // in, and a new brochure is a cover and an agenda.
+  const defaultsAppliedRef = useRef(false);
+  useEffect(() => {
+    if (defaultsAppliedRef.current || loading || !event || !defaultsSource || !hydratedRef.current) return;
+    defaultsAppliedRef.current = true;
+    const defaults = defaultPosterContent({
+      title: event.title,
+      description: defaultsSource.description,
+      organizerLogoUrl: defaultsSource.organizerLogoUrl,
+      sessionTitles: sessions.map((s) => s.title),
+      config: eventPageConfig,
+    });
+    setPosterContent((saved) => fillPosterDefaults(saved, defaults));
+  }, [loading, event, defaultsSource, sessions, eventPageConfig]);
+
   // Hydrate the persisted theme/override/section-layout selections from the
   // event's saved brochurePrefs the FIRST time the dialog opens in this
   // component's lifetime — once hydrated, these three stay as whatever the
@@ -405,12 +454,26 @@ export default function BrochureConfiguratorDialog({
     // when picking Poster_Bold is almost always "give me the full poster
     // spread", not "the same layout as a Classic Editorial brochure".
     const fallbackLayout =
-      theme.id === "poster-bold"
+      isPosterFamily(theme)
         ? POSTER_BOLD_SECTION_LAYOUT
         : theme.id === "corporate-bold"
           ? CORPORATE_BOLD_SECTION_LAYOUT
           : DEFAULT_SECTION_LAYOUT;
-    setSectionLayout(prefs?.sectionLayout ?? fallbackLayout);
+    // A layout saved before a section existed doesn't list it, and the
+    // Sections list only shows what the layout lists — so the section could
+    // never be switched on. Append anything the preset has that the saved
+    // layout lacks, switched off, leaving the saved order and choices alone.
+    const savedLayout = prefs?.sectionLayout;
+    setSectionLayout(
+      savedLayout
+        ? [
+            ...savedLayout,
+            ...fallbackLayout
+              .filter((entry) => !savedLayout.some((s) => s.id === entry.id))
+              .map((entry) => ({ ...entry, included: false })),
+          ]
+        : fallbackLayout
+    );
     setPosterContent(prefs?.posterContent ?? {});
     hydratedRef.current = true;
   }, [open, eventPageConfig]);
@@ -424,15 +487,24 @@ export default function BrochureConfiguratorDialog({
   // posterContent copy are preserved across the switch so re-picking a
   // theme doesn't discard anything the organizer already typed in.
   const handleThemeChange = (next: BrochureTheme) => {
+    const previous = selectedTheme;
     setSelectedTheme(next);
+    // Brochure types that share the poster layout share its sections too, so
+    // moving between them keeps the organiser's section choices and order.
+    if (isPosterFamily(next) && isPosterFamily(previous)) return;
     setSectionLayout(
-      next.id === "poster-bold"
+      isPosterFamily(next)
         ? POSTER_BOLD_SECTION_LAYOUT
         : next.id === "corporate-bold"
           ? CORPORATE_BOLD_SECTION_LAYOUT
           : DEFAULT_SECTION_LAYOUT,
     );
   };
+
+  // The first page: the event's portrait poster edge to edge when it has one
+  // (unless the organiser prefers the designed cover).
+  const portraitPosterUrl = event?.banner_portrait_url?.trim() || "";
+  const coverStyle: "poster" | "designed" = portraitPosterUrl && posterContent.coverStyle !== "designed" ? "poster" : "designed";
 
   // Reset purely transient (non-persisted) state whenever the dialog
   // re-opens — mirrors CreativeGeneratorDialog's open-reset effect. The
@@ -462,9 +534,13 @@ export default function BrochureConfiguratorDialog({
 
   const eventTheme: EventThemeInput = useMemo(
     () => ({
-      primaryColor: eventPageConfig.theme?.primaryColor,
-      accentColor: eventPageConfig.theme?.accentColor,
-      fontFamily: eventPageConfig.theme?.fontFamily,
+      // A colour still at the event page's built-in default was never chosen
+      // by anyone, so it isn't the event's branding — the brochure theme's
+      // own colour applies instead. Without this every brochure came out in
+      // the page builder's stock amber rather than the theme's orange.
+      primaryColor: chosen(eventPageConfig.theme?.primaryColor, DEFAULT_THEME.primaryColor),
+      accentColor: chosen(eventPageConfig.theme?.accentColor, DEFAULT_THEME.accentColor),
+      fontFamily: chosen(eventPageConfig.theme?.fontFamily, DEFAULT_THEME.fontFamily),
     }),
     [eventPageConfig.theme?.primaryColor, eventPageConfig.theme?.accentColor, eventPageConfig.theme?.fontFamily]
   );
@@ -503,18 +579,25 @@ export default function BrochureConfiguratorDialog({
       dateText: (() => {
         try {
           const d = new Date(event.date);
-          return `${d.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" })}  |  ${d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })} onwards`;
+          // "12 Aug 2026 | 09:00 AM onwards" — day first, as on the cover pill.
+          return `${d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} | ${d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })} onwards`;
         } catch {
           return event.date;
         }
       })(),
       venueText: event.venue ?? event.location ?? "",
-      // Prefer the mobile / portrait banner (matches the event's mobile-view
-      // hero); fall back through image_url, then the landscape banner so the
-      // cover always has something to render.
+      // An explicit brochure cover image wins. Otherwise use the event's own
+      // artwork, landscape first: the cover's hero slot is a wide band, and a
+      // portrait banner cropped into it shows only a strip of itself.
+      coverPosterUrl: coverStyle === "poster" ? portraitPosterUrl : undefined,
       coverImageUrl:
-        event.banner_portrait_url ?? event.image_url ?? event.banner_landscape_url ?? "",
+        posterContent.coverImageUrl ||
+        event.image_url ||
+        event.banner_landscape_url ||
+        event.banner_portrait_url ||
+        "",
       logoUrl: posterContent.logoUrl,
+      logoOnDarkUrl: posterContent.logoOnDarkUrl,
       organizerLogoUrl: posterContent.organizerLogoUrl,
       socialLinks: posterContent.socialLinks,
       coverTagline: posterContent.coverTagline,
@@ -538,9 +621,13 @@ export default function BrochureConfiguratorDialog({
         title: posterContent.sponsorshipPackagesTitle,
         benefits: posterContent.sponsorshipBenefits,
         tiers: posterContent.sponsorshipTiers,
+        more: posterContent.sponsorshipPackagesMore,
+        additionalTitle: posterContent.additionalPartnershipsTitle,
+        additional: posterContent.additionalPartnerships,
+        footnote: posterContent.sponsorshipFootnote,
       },
     };
-  }, [event, posterContent, selectedTheme.id, resolvedColors, sessions, speakers, sponsors, venueLogistics]);
+  }, [event, posterContent, selectedTheme.id, resolvedColors, sessions, speakers, sponsors, venueLogistics, coverStyle, portraitPosterUrl]);
 
   // The organizer's persisted WYSIWYG document, if any.
   //
@@ -570,6 +657,60 @@ export default function BrochureConfiguratorDialog({
 
   const includedCount = sectionLayout.filter((s) => s.included).length;
 
+  // The inline studio has no "save as default" step: what you set is what the
+  // event keeps. Debounced so typing a paragraph is one write, not hundreds.
+  const latestConfigRef = useRef(eventPageConfig);
+  latestConfigRef.current = eventPageConfig;
+  const saveConfigRef = useRef(onConfigChange);
+  saveConfigRef.current = onConfigChange;
+  useEffect(() => {
+    if (!inline || !hydratedRef.current || !defaultsAppliedRef.current) return;
+    const timer = setTimeout(() => {
+      const current = latestConfigRef.current;
+      const next = { themeId: selectedTheme.id, colorOverride: themeOverride, sectionLayout, posterContent };
+      const saved = current.brochurePrefs;
+      const unchanged =
+        saved?.themeId === next.themeId &&
+        JSON.stringify(saved?.colorOverride ?? {}) === JSON.stringify(next.colorOverride) &&
+        JSON.stringify(saved?.sectionLayout) === JSON.stringify(next.sectionLayout) &&
+        JSON.stringify(saved?.posterContent ?? {}) === JSON.stringify(next.posterContent);
+      if (!unchanged) saveConfigRef.current(saveBrochurePrefs(current, next));
+    }, AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [inline, selectedTheme.id, themeOverride, sectionLayout, posterContent]);
+
+  // ─── Inline editor ─────────────────────────────────────────────────────────
+  //
+  // In the page, the brochure IS the editor: it is what the tab opens on.
+  // The editor keeps its own copy of the document while it is mounted, so it
+  // is remounted (`editorEpoch`) exactly when that copy should be replaced:
+  // the settings changed while nothing has been customised yet, or the
+  // organiser asked to rebuild from the template.
+  const [studioTab, setStudioTab] = useState<"edit" | "content">("edit");
+  const [editorEpoch, setEditorEpoch] = useState(0);
+  const seedSignature = useMemo(
+    () => (editorSeed ? JSON.stringify([selectedTheme.id, resolvedSectionIds, editorSeed]) : ""),
+    [editorSeed, selectedTheme.id, resolvedSectionIds],
+  );
+  const lastSignatureRef = useRef("");
+  useEffect(() => {
+    if (!seedSignature) return;
+    const changed = lastSignatureRef.current !== "" && lastSignatureRef.current !== seedSignature;
+    lastSignatureRef.current = seedSignature;
+    if (changed && !savedDocument) setEditorEpoch((n) => n + 1);
+  }, [seedSignature, savedDocument]);
+
+  /** Throws away the customised layout so the brochure is built from the settings again. */
+  const rebuildFromTemplate = (): void => {
+    if (!window.confirm("Discard the layout you customised in the editor and rebuild the brochure from these settings?")) return;
+    onConfigChange({
+      ...eventPageConfig,
+      brochurePrefs: { ...(eventPageConfig.brochurePrefs ?? {}), editorDocument: undefined },
+    });
+    setEditorEpoch((n) => n + 1);
+    toast.success("Brochure rebuilt from the template");
+  };
+
   const handleGenerate = async () => {
     setIsGenerating(true);
     setProgress({ completed: 0, total: includedCount });
@@ -581,10 +722,10 @@ export default function BrochureConfiguratorDialog({
             themeId: selectedTheme.id,
             colorOverride: themeOverride,
             sectionLayout,
-            posterContent:
-              selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold"
-                ? posterContent
-                : undefined,
+            // Saved for every theme: the partnership packages table lives in
+            // here and is available on all of them, and writing `undefined`
+            // would wipe content entered under another theme.
+            posterContent,
           })
         );
       }
@@ -605,11 +746,12 @@ export default function BrochureConfiguratorDialog({
         return;
       }
 
-      await downloadDocumentAsPdf(
+      const { blockedImages } = await downloadDocumentAsPdf(
         resolvedDocument.document,
         buildBrochureFilename(event?.title ?? ""),
         (completed, total) => setProgress({ completed, total }),
       );
+      if (blockedImages > 0) toast.warning("Some images are missing from the PDF", { description: blockedImagesMessage(blockedImages), duration: 12000 });
 
       toast.success("Brochure ready", {
         description:
@@ -626,18 +768,28 @@ export default function BrochureConfiguratorDialog({
     }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-6xl w-[96vw] p-0 gap-0 max-h-[94vh] flex flex-col overflow-hidden">
-        <DialogHeader className="px-5 pt-5 pb-3 border-b border-border shrink-0 space-y-0.5">
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <FileText className="h-4 w-4" /> Generate brochure
-          </DialogTitle>
-          <DialogDescription className="text-[12px]">
-            Configure a printable, branded PDF brochure for this event
-          </DialogDescription>
-        </DialogHeader>
+  const actions = (
+    <div className="flex flex-wrap items-center gap-2">
+      {!inline && (
+        <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>
+          Cancel
+        </Button>
+      )}
+      {!inline && (
+        <Button size="sm" variant="secondary" onClick={() => setEditorOpen(true)} disabled={loading} className="gap-1.5">
+          <Sparkles className="h-3.5 w-3.5" />
+          Open in Editor
+        </Button>
+      )}
+      <Button size="sm" variant={inline ? "outline" : "default"} onClick={handleGenerate} disabled={loading || isGenerating} className="gap-1.5">
+        {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+        Download PDF
+      </Button>
+    </div>
+  );
 
+  const body = (
+    <>
         {loading ? (
           <div className="flex-1 flex items-center justify-center text-[13px] text-muted-foreground">
             Loading brochure data…
@@ -646,8 +798,8 @@ export default function BrochureConfiguratorDialog({
           <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
             {/* LEFT — settings (scrollable) */}
             <div className="overflow-y-auto px-5 py-4 space-y-5 md:border-r border-border min-h-0">
-              {/* BROCHURE THEME — Classic Editorial and Poster Bold ship
-                  today; picking a theme also seeds the matching section
+              {/* BROCHURE THEME — Poster Bold (the default) and Classic
+                  Editorial ship today; picking a theme also seeds the matching section
                   layout preset (see the theme-change effect below) so an
                   organizer switching to Poster Bold gets its Abstract /
                   Why Sponsor / Pricing pages on by default. Any further
@@ -655,7 +807,7 @@ export default function BrochureConfiguratorDialog({
                   in the editor from either seed. */}
               <section>
                 <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">
-                  Brochure theme
+                  Brochure type
                 </Label>
                 <RadioGroup
                   value={selectedTheme.id}
@@ -673,7 +825,15 @@ export default function BrochureConfiguratorDialog({
                       }`}
                     >
                       <RadioGroupItem value={t.id} className="sr-only" />
-                      <div className="text-[13px] font-medium leading-tight">{t.name}</div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[13px] font-medium leading-tight">{t.name}</div>
+                        {/* The type's page, type and accent colours. */}
+                        <div className="flex shrink-0 -space-x-1" aria-hidden>
+                          {[t.scheme?.paper ?? t.cover.defaultBackgroundColor, t.scheme?.ink ?? t.defaultColors.primaryColor, t.defaultColors.accentColor].map((color, i) => (
+                            <span key={i} className="h-3.5 w-3.5 rounded-full border border-border" style={{ background: color }} />
+                          ))}
+                        </div>
+                      </div>
                       <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
                         {t.description}
                       </div>
@@ -681,8 +841,44 @@ export default function BrochureConfiguratorDialog({
                   ))}
                 </RadioGroup>
                 <div className="text-[10px] text-muted-foreground/80 mt-1.5">
-                  Any custom look — fonts, colors, layout — is also available in the editor.
+                  Every element — text, images, shapes, colours, layout — can be changed in the editor.
                 </div>
+              </section>
+
+              {/* FIRST PAGE */}
+              <section>
+                <Label className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 block">First page</Label>
+                <RadioGroup
+                  value={coverStyle}
+                  onValueChange={(value) => setPosterContent((prev) => ({ ...prev, coverStyle: value === "designed" ? "designed" : "poster" }))}
+                  className="grid grid-cols-2 gap-2"
+                >
+                  {(
+                    [
+                      ["poster", "Event poster", "Your portrait (mobile) poster fills the page edge to edge."],
+                      ["designed", "Designed cover", "Title, date, venue and artwork laid out by the brochure type."],
+                    ] as const
+                  ).map(([value, name, description]) => {
+                    const unavailable = value === "poster" && !portraitPosterUrl;
+                    return (
+                      <label
+                        key={value}
+                        className={`border rounded-lg px-3 py-2 transition-colors ${
+                          unavailable ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+                        } ${coverStyle === value ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"}`}
+                      >
+                        <RadioGroupItem value={value} disabled={unavailable} className="sr-only" />
+                        <div className="text-[13px] font-medium leading-tight">{name}</div>
+                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">{description}</div>
+                      </label>
+                    );
+                  })}
+                </RadioGroup>
+                {!portraitPosterUrl && (
+                  <div className="text-[10px] text-muted-foreground/80 mt-1.5">
+                    This event has no portrait poster yet. Add one under the event's banner images and it becomes the first page.
+                  </div>
+                )}
               </section>
 
               {/* COLOR / FONT OVERRIDES */}
@@ -730,7 +926,7 @@ export default function BrochureConfiguratorDialog({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__default">Use event theme font</SelectItem>
+                        <SelectItem value="__default">Default for this brochure type</SelectItem>
                         {FONT_OPTIONS.map((f) => (
                           <SelectItem key={f} value={f}>
                             {f}
@@ -759,11 +955,12 @@ export default function BrochureConfiguratorDialog({
                   conditionally reveals subsections based on which theme
                   is active so an organizer only fills in what actually
                   renders. */}
-              {(selectedTheme.id === "poster-bold" || selectedTheme.id === "corporate-bold") && (
+              {(isPosterFamily(selectedTheme) || selectedTheme.id === "corporate-bold") && (
                 <PosterBoldContentPanel
                   value={posterContent}
                   onChange={setPosterContent}
-                  themeId={selectedTheme.id}
+                  // Every type on the poster layout fills the same fields.
+                  themeId={isPosterFamily(selectedTheme) ? "poster-bold" : selectedTheme.id}
                 />
               )}
 
@@ -774,7 +971,44 @@ export default function BrochureConfiguratorDialog({
                   in the Sections list, so the editor doesn't clutter the
                   panel for organizers who don't need this page. */}
               {sectionLayout.some((s) => s.id === "sponsorshipPackages" && s.included) && (
-                <SponsorshipPackagesEditor value={posterContent} onChange={setPosterContent} />
+                <>
+                  <SponsorshipPackagesEditor value={posterContent} onChange={setPosterContent} />
+                  {(posterContent.sponsorshipPackagesMore ?? []).map((table, index) => {
+                    const tables = posterContent.sponsorshipPackagesMore ?? [];
+                    const setTables = (next: typeof tables) => setPosterContent((prev) => ({ ...prev, sponsorshipPackagesMore: next }));
+                    return (
+                      <SponsorshipPackagesEditor
+                        // The extra tables reuse the main table's editor by
+                        // presenting each one under the main table's keys.
+                        key={index}
+                        heading={`Packages table ${index + 2}`}
+                        onRemove={() => setTables(tables.filter((_, i) => i !== index))}
+                        value={{ sponsorshipPackagesTitle: table.title, sponsorshipBenefits: table.benefits, sponsorshipTiers: table.tiers }}
+                        onChange={(v) =>
+                          setTables(
+                            tables.map((t, i) =>
+                              i === index ? { title: v.sponsorshipPackagesTitle, benefits: v.sponsorshipBenefits, tiers: v.sponsorshipTiers } : t,
+                            ),
+                          )
+                        }
+                      />
+                    );
+                  })}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-full gap-1.5 text-[12px]"
+                    onClick={() =>
+                      setPosterContent((prev) => ({
+                        ...prev,
+                        sponsorshipPackagesMore: [...(prev.sponsorshipPackagesMore ?? []), { title: "Standard Partnership Packages", benefits: [], tiers: [] }],
+                      }))
+                    }
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add another packages table
+                  </Button>
+                  <PartnershipExtrasEditor value={posterContent} onChange={setPosterContent} />
+                </>
               )}
 
               {/* PROGRESS */}
@@ -790,8 +1024,8 @@ export default function BrochureConfiguratorDialog({
                 </section>
               )}
 
-              {/* SAVE AS DEFAULT */}
-              <section className="border border-border rounded-lg p-3 bg-muted/30">
+              {/* SAVE AS DEFAULT — the inline studio saves as you go. */}
+              {!inline && <section className="border border-border rounded-lg p-3 bg-muted/30">
                 <label className="flex items-start gap-2.5 cursor-pointer">
                   <Checkbox
                     checked={saveAsDefault}
@@ -806,58 +1040,48 @@ export default function BrochureConfiguratorDialog({
                     </div>
                   </div>
                 </label>
-              </section>
+              </section>}
             </div>
 
             {/* RIGHT — live preview */}
             <div className="flex flex-col bg-muted/20 min-h-0 border-t md:border-t-0 border-border">
-              <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-background/60 shrink-0">
+              <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-border bg-background/60 shrink-0">
                 <span className="text-[12px] font-semibold">Live preview</span>
+                {savedDocument && (
+                  <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    Showing the layout you customised — settings on the left no longer change it.
+                    <Button size="sm" variant="outline" className="h-6 gap-1 px-2 text-[11px]" onClick={rebuildFromTemplate}>
+                      <RotateCcw className="h-3 w-3" /> Rebuild from template
+                    </Button>
+                  </span>
+                )}
               </div>
-              <div className="flex-1 min-h-0 p-4 flex items-center justify-center overflow-hidden">
+              <div className="flex-1 min-h-0 p-4 overflow-hidden">
                 {/* Renders the resolved document — the same one the editor
                     edits and the download exports. Previously this rendered
                     the theme-driven jsPDF pipeline while the editor drew from
                     the document, which is exactly why the two never matched. */}
-                <BrochurePreviewFrame document={resolvedDocument?.document ?? null} />
+                <BrochurePagesPreview document={resolvedDocument?.document ?? null} />
               </div>
             </div>
           </div>
         )}
 
-        <DialogFooter className="px-5 py-3 border-t border-border bg-muted/30 shrink-0 sm:justify-between gap-2 flex-wrap">
-          <span className="text-[12px] text-muted-foreground self-center">
-            {includedCount} section{includedCount === 1 ? "" : "s"} included
-          </span>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => setEditorOpen(true)}
-              disabled={loading}
-              className="gap-1.5"
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              Open in Editor
-            </Button>
-            <Button size="sm" onClick={handleGenerate} disabled={loading || isGenerating} className="gap-1.5">
-              {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-              Download brochure
-            </Button>
-          </div>
-        </DialogFooter>
-      </DialogContent>
+    </>
+  );
+
+  const editor = (
+    <>
 
       {/* WYSIWYG editor — opens as a separate dialog with the current
           theme seeded as a live document. Save flows back through
           `onConfigChange` so the parent persists to Supabase via
           `events.page_config.brochurePrefs.editorDocument`. */}
-      {editorOpen && event && editorSeed && (
+      {(inline ? studioTab === "edit" : editorOpen) && event && editorSeed && (
         <BrochureEditorDialog
-          open={editorOpen}
+          key={inline ? editorEpoch : undefined}
+          inline={inline}
+          open={inline || editorOpen}
           onOpenChange={setEditorOpen}
           // Same theme, section list and resolved colors the preview and the
           // download use — all three now consume `editorSeed` /
@@ -896,6 +1120,93 @@ export default function BrochureConfiguratorDialog({
           }}
         />
       )}
+    </>
+  );
+
+  if (inline) {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Brochure</h2>
+            <p className="text-[13px] text-muted-foreground">
+              Built from this event's agenda, speakers, sponsors and venue. Every element on every page can be edited.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-border bg-muted/40 p-0.5" role="tablist" aria-label="Brochure view">
+              {(
+                [
+                  ["edit", "Edit brochure"],
+                  ["content", "Content & type"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={studioTab === value}
+                  onClick={() => setStudioTab(value)}
+                  className={`rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                    studioTab === value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {actions}
+          </div>
+        </div>
+        {studioTab === "edit" ? (
+          loading || !editorSeed ? (
+            <div className="flex h-[60vh] items-center justify-center text-[13px] text-muted-foreground">Loading brochure…</div>
+          ) : (
+            <>
+              <p className="text-[12px] text-muted-foreground">
+                Click anything on a page to change it — text, images, shapes, colours, position and size. Double-click text to
+                type. Changes save automatically.
+                {savedDocument && (
+                  <>
+                    {" "}
+                    This is your customised layout;{" "}
+                    <button type="button" onClick={rebuildFromTemplate} className="underline underline-offset-2 hover:text-foreground">
+                      rebuild it from the template
+                    </button>{" "}
+                    to pick up changes made under Content &amp; type.
+                  </>
+                )}
+              </p>
+              {editor}
+            </>
+          )
+        ) : (
+          <div className="flex h-[78vh] min-h-[560px] flex-col overflow-hidden rounded-xl border border-border">{body}</div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-6xl w-[96vw] p-0 gap-0 max-h-[94vh] flex flex-col overflow-hidden">
+        <DialogHeader className="px-5 pt-5 pb-3 border-b border-border shrink-0 space-y-0.5">
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <FileText className="h-4 w-4" /> Generate brochure
+          </DialogTitle>
+          <DialogDescription className="text-[12px]">
+            Configure a printable, branded PDF brochure for this event
+          </DialogDescription>
+        </DialogHeader>
+        {body}
+        <DialogFooter className="px-5 py-3 border-t border-border bg-muted/30 shrink-0 sm:justify-between gap-2 flex-wrap">
+          <span className="text-[12px] text-muted-foreground self-center">
+            {includedCount} section{includedCount === 1 ? "" : "s"} included
+          </span>
+          {actions}
+        </DialogFooter>
+      </DialogContent>
+      {editor}
     </Dialog>
   );
 }
@@ -1012,12 +1323,30 @@ function PosterBoldContentPanel({
       {/* Logos + social */}
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <Label className="text-[11px]">Header wordmark URL</Label>
+          <Label className="text-[11px]">Event logo / icon URL</Label>
           <Input
             className="h-8 text-[12px]"
             value={value.logoUrl ?? ""}
             placeholder="https://…/logo.png"
             onChange={(e) => set("logoUrl", e.target.value || undefined)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[11px]">Logo for colored pages URL</Label>
+          <Input
+            className="h-8 text-[12px]"
+            value={value.logoOnDarkUrl ?? ""}
+            placeholder="https://…/logo-white.png"
+            onChange={(e) => set("logoOnDarkUrl", e.target.value || undefined)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-[11px]">Cover image URL</Label>
+          <Input
+            className="h-8 text-[12px]"
+            value={value.coverImageUrl ?? ""}
+            placeholder="Defaults to the event image"
+            onChange={(e) => set("coverImageUrl", e.target.value || undefined)}
           />
         </div>
         <div className="space-y-1">
@@ -1072,26 +1401,30 @@ function PosterBoldContentPanel({
       {/* Cover extras — shared by both Poster_Bold and Corporate_Bold. */}
       <div className="space-y-2">
         <div className="space-y-1">
-          <Label className="text-[11px]">Cover tagline pill (optional)</Label>
+          <Label className="text-[11px]">Cover subtitle (optional)</Label>
           <Input
             className="h-8 text-[12px]"
             value={value.coverTagline ?? ""}
-            placeholder="The Next Big Shift"
+            placeholder="Redefining DevOps in the Era of Intelligent Automation"
             onChange={(e) => set("coverTagline", e.target.value || undefined)}
           />
         </div>
-        <div className="space-y-1">
-          <Label className="text-[11px]">Cover chip labels (one per line)</Label>
-          <Textarea
-            className="text-[12px] min-h-[52px]"
-            value={arrayToLines(value.coverPills)}
-            placeholder={"Autonomy\nGovernance\nCapital"}
-            onChange={(e) => {
-              const next = linesToArray(e.target.value);
-              set("coverPills", next.length > 0 ? next : undefined);
-            }}
-          />
-        </div>
+        {/* Chip labels belong to the Corporate Bold cover; the Poster Bold
+            cover has no place for them, so the field isn't offered there. */}
+        {isCorporateBold && (
+          <div className="space-y-1">
+            <Label className="text-[11px]">Cover chip labels (one per line)</Label>
+            <Textarea
+              className="text-[12px] min-h-[52px]"
+              value={arrayToLines(value.coverPills)}
+              placeholder={"Autonomy\nGovernance\nCapital"}
+              onChange={(e) => {
+                const next = linesToArray(e.target.value);
+                set("coverPills", next.length > 0 ? next : undefined);
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Poster_Bold-only sections (Why Sponsor + Pricing) */}
@@ -1390,9 +1723,14 @@ function PricingCardsEditor({
 function SponsorshipPackagesEditor({
   value,
   onChange,
+  heading = "Sponsorship packages",
+  onRemove,
 }: {
   value: NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>;
   onChange: (v: NonNullable<NonNullable<EventPageConfig["brochurePrefs"]>["posterContent"]>) => void;
+  heading?: string;
+  /** Present on the extra tables, which can be deleted whole. */
+  onRemove?: () => void;
 }) {
   const title = value.sponsorshipPackagesTitle ?? "";
   const benefits = value.sponsorshipBenefits ?? [];
@@ -1475,9 +1813,15 @@ function SponsorshipPackagesEditor({
     <section className="space-y-3 border border-dashed border-primary/40 rounded-lg p-3 bg-primary/5">
       <div className="flex items-center justify-between">
         <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
-          Sponsorship packages
+          {heading}
         </Label>
-        <span className="text-[10px] text-muted-foreground">Available on any theme</span>
+        {onRemove ? (
+          <Button size="sm" variant="ghost" className="h-6 gap-1 px-2 text-[11px] text-destructive" onClick={onRemove}>
+            <Trash2 className="h-3 w-3" /> Remove table
+          </Button>
+        ) : (
+          <span className="text-[10px] text-muted-foreground">Available on any theme</span>
+        )}
       </div>
 
       <div className="space-y-1">
@@ -1597,6 +1941,66 @@ function SponsorshipPackagesEditor({
             </div>
           ))
         )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The price list and small print that close the partnership pages: one-line
+ * extras with a price ("Associate Partner — INR 80,000/-") under the last
+ * table, and a footnote under every table.
+ */
+function PartnershipExtrasEditor({ value, onChange }: { value: PosterContent; onChange: (v: PosterContent) => void }) {
+  const rows = value.additionalPartnerships ?? [];
+  const setRows = (next: typeof rows) => onChange({ ...value, additionalPartnerships: next });
+  return (
+    <section className="space-y-3 border border-dashed border-primary/40 rounded-lg p-3 bg-primary/5">
+      <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Additional partnerships</Label>
+      <div className="space-y-1">
+        <Label className="text-[11px]">Heading</Label>
+        <Input
+          className="h-8 text-[12px]"
+          value={value.additionalPartnershipsTitle ?? ""}
+          placeholder="Additional Partnerships"
+          onChange={(e) => onChange({ ...value, additionalPartnershipsTitle: e.target.value || undefined })}
+        />
+      </div>
+      <div className="space-y-1.5">
+        {rows.map((row, index) => (
+          <div key={index} className="flex items-center gap-1.5">
+            <Input
+              className="h-8 flex-1 text-[12px]"
+              value={row.label}
+              placeholder="Associate Partner"
+              aria-label={`Extra ${index + 1} name`}
+              onChange={(e) => setRows(rows.map((r, i) => (i === index ? { ...r, label: e.target.value } : r)))}
+            />
+            <Input
+              className="h-8 w-32 text-[12px]"
+              value={row.price}
+              placeholder="INR 80,000/-"
+              aria-label={`Extra ${index + 1} price`}
+              onChange={(e) => setRows(rows.map((r, i) => (i === index ? { ...r, price: e.target.value } : r)))}
+            />
+            <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" title="Remove" onClick={() => setRows(rows.filter((_, i) => i !== index))}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ))}
+        <Button size="sm" variant="outline" className="h-7 gap-1 text-[11px]" onClick={() => setRows([...rows, { label: "", price: "" }])}>
+          <Plus className="h-3 w-3" /> Add a line
+        </Button>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[11px]">Footnote under each table</Label>
+        <Textarea
+          rows={2}
+          className="text-[12px]"
+          value={value.sponsorshipFootnote ?? ""}
+          placeholder="*The attendee list, along with event photos and videos, will be shared with all partners after the event*"
+          onChange={(e) => onChange({ ...value, sponsorshipFootnote: e.target.value || undefined })}
+        />
       </div>
     </section>
   );

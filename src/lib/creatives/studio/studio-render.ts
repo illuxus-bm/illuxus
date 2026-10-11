@@ -6,7 +6,7 @@
  * `renderStudio` call at different pixel sizes, so what you see is what you
  * export.
  */
-import { ensureCreativeFonts } from "@/lib/creatives/creative-fonts";
+import { ensureWebFont } from "@/lib/webfonts";
 import type { StudioDesign } from "./studio-designs";
 import { shapeOf, type FontPair, type Img, type Scene, type StudioAssets, type StudioContent } from "./studio-draw";
 import type { StudioPalette } from "./studio-palette";
@@ -65,12 +65,13 @@ export function loadStudioImage(url: string | null | undefined): Promise<Img | n
 /** Make sure the pair's fonts are ready before measuring any text. */
 export async function ensureStudioFonts(fonts: FontPair): Promise<void> {
   try {
-    await ensureCreativeFonts([
-      { family: fonts.display, weight: fonts.displayWeight },
-      { family: fonts.body, weight: 500 },
-      { family: fonts.body, weight: 600 },
-      { family: fonts.body, weight: 700 },
-    ]);
+    const body = [500, 600, 700];
+    // One request per family, carrying every weight the designs use.
+    await Promise.all(
+      fonts.display === fonts.body
+        ? [ensureWebFont(fonts.body, [...body, fonts.displayWeight])]
+        : [ensureWebFont(fonts.display, [fonts.displayWeight]), ensureWebFont(fonts.body, body)],
+    );
   } catch {
     /* fall back to system fonts rather than block the render */
   }

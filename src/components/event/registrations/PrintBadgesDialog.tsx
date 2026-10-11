@@ -708,7 +708,7 @@ export default function PrintBadgesDialog({
 
         <DialogHeader className="px-4 sm:px-5 pt-4 sm:pt-5 pb-3 border-b border-border shrink-0 space-y-0.5 text-left">
           <DialogTitle className="flex items-center gap-2 text-base pr-8">
-            <Printer className="h-4 w-4" /> Print badges
+            <Printer className="h-4 w-4" /> Print or download badges
           </DialogTitle>
           <DialogDescription className="text-[12px]">
             {badges.length} attendee{badges.length === 1 ? "" : "s"} selected · {total} label{total === 1 ? "" : "s"}

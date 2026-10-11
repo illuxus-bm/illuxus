@@ -1266,6 +1266,19 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
           <Button size="sm" variant="outline" className="h-7 text-[12px] gap-1.5" onClick={() => setQrOpen(true)}>
             <ScanLine className="h-3 w-3" /> Scan
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-[12px] gap-1.5"
+            title={
+              selected.size > 0
+                ? `Download badges for the ${selected.size} selected`
+                : "Download badges for everyone in the current view"
+            }
+            onClick={() => openPrintAll("badge")}
+          >
+            <Download className="h-3 w-3" /> Download badges
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="outline" className="h-7 text-[12px] gap-1.5" title="More actions">

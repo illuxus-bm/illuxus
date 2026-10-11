@@ -318,10 +318,18 @@ export interface EventPageConfig {
      * without introducing a second persistence key.
      */
     posterContent?: {
-      /** Brand logo shown at the top of every content page (page 2+). Not
-       *  the same as the cover image — the cover image renders as the
-       *  hero, this logo is a small wordmark. */
+      /** Event logo / icon. Sits above the title on the cover and beside
+       *  the event name at the top of every inner page. Not the same as
+       *  the cover image — that renders as the hero. */
       logoUrl?: string;
+      /** Variant of the logo for the accent-colored and black pages (a
+       *  white or black version), where a logo in the accent color would
+       *  disappear into the background. Falls back to `logoUrl`. */
+      logoOnDarkUrl?: string;
+      /** Cover hero image. Falls back to the event's own image / banner.
+       *  A cut-out (transparent PNG) of a landmark gives the reference
+       *  look, with the accent block showing either side of it. */
+      coverImageUrl?: string;
       /** Organizer / production company logo shown in the cover footer
        *  ("Conceptualized & Organized by"). */
       organizerLogoUrl?: string;
@@ -413,6 +421,26 @@ export interface EventPageConfig {
          *  renders as an em-dash. */
         cells?: Array<string | boolean | null>;
       }>;
+      /** Further comparison tables, each on its own page with its own
+       *  title — e.g. "Standard Partnership Packages" after the premium
+       *  one. Same shape as the three fields above. */
+      sponsorshipPackagesMore?: Array<{
+        title?: string;
+        benefits?: string[];
+        tiers?: Array<{ name: string; price?: string; cells?: Array<string | boolean | null> }>;
+      }>;
+      /** Heading of the short price list under the last table. */
+      additionalPartnershipsTitle?: string;
+      /** One-line extras with a price, e.g. "Associate Partner — INR 80,000/-". */
+      additionalPartnerships?: Array<{ label: string; price: string }>;
+      /** Small print under each table. */
+      sponsorshipFootnote?: string;
+      /**
+       * What the first page is: the event's portrait (mobile) poster filling
+       * the page edge to edge, or the cover the brochure type designs.
+       * Unset means the poster whenever the event has one.
+       */
+      coverStyle?: "poster" | "designed";
     };
     /**
      * Serialized WYSIWYG editor document. When present, the editor

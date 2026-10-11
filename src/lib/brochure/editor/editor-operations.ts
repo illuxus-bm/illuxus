@@ -647,3 +647,129 @@ export function selectionBounds(
   const maxY = Math.max(...selected.map((e) => e.y + e.height));
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
+
+// ─── Bulk edits ─────────────────────────────────────────────────────────────
+
+/**
+ * Applies `fn` to every selected element in ONE document update — so restyling
+ * twenty text boxes is a single undo step, not twenty.
+ *
+ * `fn` returns the replacement element, or the same reference to leave one
+ * untouched. When nothing changes the original document is returned, which
+ * keeps a no-op out of the undo history.
+ */
+export function updateElements(
+  doc: BrochureDocument,
+  pageId: string,
+  elementIds: string[],
+  fn: (element: BrochureElement) => BrochureElement,
+): BrochureDocument {
+  if (elementIds.length === 0) return doc;
+  const ids = new Set(elementIds);
+  return mapPageElements(doc, pageId, (elements) => {
+    let changed = false;
+    const next = elements.map((el) => {
+      if (!ids.has(el.id)) return el;
+      const replaced = fn(el);
+      if (replaced !== el) changed = true;
+      return replaced;
+    });
+    return changed ? next : elements;
+  });
+}
+
+/**
+ * A style change expressed once and applied to whatever in the selection it
+ * makes sense for. Every field is optional; an element kind that has no such
+ * property simply ignores it (a font family means nothing to a rectangle).
+ */
+export interface SelectionStyle {
+  /** Text colour: text elements and pill labels. */
+  textColor?: string;
+  /** Fill: shapes and pills. Clears a shape's gradient, which would otherwise
+   *  keep painting over the new colour. */
+  fillColor?: string;
+  /** Text elements and pills. */
+  fontFamily?: string;
+  /** Multiplies every font size, so mixed sizes keep their hierarchy. */
+  fontScale?: number;
+  fontWeight?: "normal" | "bold";
+  opacity?: number;
+  locked?: boolean;
+  hidden?: boolean;
+}
+
+/**
+ * Applies a `SelectionStyle` to the selection. This is what lets a whole card —
+ * or every heading on a page — be recoloured or re-fonted in one go instead of
+ * element by element.
+ */
+export function applySelectionStyle(
+  doc: BrochureDocument,
+  pageId: string,
+  elementIds: string[],
+  style: SelectionStyle,
+): BrochureDocument {
+  return updateElements(doc, pageId, elementIds, (el) => {
+    const patch: Record<string, unknown> = {};
+    if (style.opacity !== undefined) patch.opacity = Math.min(1, Math.max(0, style.opacity));
+    if (style.locked !== undefined) patch.locked = style.locked;
+    if (style.hidden !== undefined) patch.hidden = style.hidden;
+
+    if (el.kind === "text") {
+      if (style.textColor !== undefined) patch.color = style.textColor;
+      if (style.fontFamily !== undefined) patch.fontFamily = style.fontFamily;
+      if (style.fontWeight !== undefined) patch.fontWeight = style.fontWeight;
+      if (style.fontScale !== undefined) patch.fontSize = scaledFontSize(el.fontSize, style.fontScale);
+    } else if (el.kind === "pill") {
+      if (style.textColor !== undefined) patch.textColor = style.textColor;
+      if (style.fillColor !== undefined) patch.fillColor = style.fillColor;
+      if (style.fontFamily !== undefined) patch.fontFamily = style.fontFamily;
+      if (style.fontWeight !== undefined) patch.fontWeight = style.fontWeight;
+      if (style.fontScale !== undefined) patch.fontSize = scaledFontSize(el.fontSize, style.fontScale);
+    } else if (el.kind === "shape") {
+      if (style.fillColor !== undefined) {
+        patch.fill = style.fillColor;
+        patch.fillGradient = undefined;
+      }
+    }
+
+    const keys = Object.keys(patch);
+    const unchanged = keys.every((k) => (el as unknown as Record<string, unknown>)[k] === patch[k]);
+    return keys.length === 0 || unchanged ? el : ({ ...el, ...patch } as BrochureElement);
+  });
+}
+
+/** Font size after scaling, rounded to a half point and kept legible. */
+function scaledFontSize(fontSize: number, scale: number): number {
+  return Math.max(4, Math.round(fontSize * scale * 2) / 2);
+}
+
+// ─── Page insertion ─────────────────────────────────────────────────────────
+
+/**
+ * Inserts pages directly after `afterPageId` (or at the end when that page
+ * isn't found). Used when duplicating a page and when adding a template page,
+ * so the new page appears next to the one being worked on rather than at the
+ * far end of the brochure.
+ */
+export function insertPagesAfter(
+  doc: BrochureDocument,
+  afterPageId: string | null,
+  newPages: BrochurePage[],
+): BrochureDocument {
+  if (newPages.length === 0) return doc;
+  const index = afterPageId ? doc.pages.findIndex((p) => p.id === afterPageId) : -1;
+  const at = index === -1 ? doc.pages.length : index + 1;
+  return {
+    ...doc,
+    pages: [...doc.pages.slice(0, at), ...newPages, ...doc.pages.slice(at)],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/** A copy of `page` with fresh ids for the page, its elements and its groups,
+ *  so the copy shares no identity with the original. */
+export function clonePage(page: BrochurePage): BrochurePage {
+  return { ...page, id: generateId("page"), elements: cloneElements(page.elements, 0) };
+}

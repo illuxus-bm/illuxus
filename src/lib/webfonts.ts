@@ -27,7 +27,7 @@
  * have to *await* font readiness before their first measure/draw rather than
  * firing and forgetting. `ensureWebFont` is designed to be awaited.
  *
- * @see src/lib/creatives/creative-fonts.ts — the creatives catalog + wrapper
+ * @see src/lib/creatives/studio/render.ts — the creative studio's use of it
  */
 
 /**

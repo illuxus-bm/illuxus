@@ -57,6 +57,11 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        highlight: "hsl(var(--highlight))",
+        spot: {
+          DEFAULT: "hsl(var(--spot))",
+          foreground: "hsl(var(--spot-foreground))",
+        },
         chart: {
           "1": "hsl(var(--chart-1))",
           "2": "hsl(var(--chart-2))",
@@ -64,6 +69,17 @@ export default {
           "4": "hsl(var(--chart-4))",
           "5": "hsl(var(--chart-5))",
         },
+      },
+      // As text, the accent uses its "ink" value, tuned per theme for contrast.
+      // Fills (`bg-accent`) keep the base accent.
+      textColor: {
+        accent: {
+          DEFAULT: "hsl(var(--accent-ink))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+      },
+      fontFamily: {
+        poster: ["var(--font-poster)"],
       },
       borderRadius: {
         lg: "var(--radius)",

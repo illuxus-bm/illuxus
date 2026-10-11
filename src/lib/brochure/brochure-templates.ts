@@ -33,7 +33,42 @@
 
 import type { EventPageConfig } from "@/components/event/page-form/types";
 
-export { tierAccentColor } from "@/lib/creatives/creative-templates";
+/**
+ * Platinum/gold/silver/bronze/custom → accent color mapping, sharing the same
+ * palette as SponsorManagement.tsx's `TIERS` constant. That component uses
+ * Tailwind classes referencing CSS custom properties (theme-reactive, for
+ * screen UI); this function returns literal color strings usable directly as
+ * a canvas `fillStyle`, since canvas rendering can't consume CSS variables or
+ * Tailwind classes. Requirement 3.4.
+ *
+ * Falls back to the bronze color for unrecognized tier values, mirroring
+ * SponsorManagement.tsx's `tierColor()` fallback behavior (TIERS[3] = bronze).
+ */
+export function tierAccentColor(tier: string): string {
+  switch (tier) {
+    case "platinum":
+      // --brand-purple (:root, src/index.css)
+      return "hsl(265, 85%, 60%)";
+    case "gold":
+      // --brand-amber (:root, src/index.css)
+      return "hsl(38, 96%, 52%)";
+    case "silver":
+      // SponsorManagement.tsx uses `bg-muted text-muted-foreground` for silver,
+      // which has no brand HSL var of its own — `--muted-foreground` is
+      // theme-dependent, so a fixed neutral gray literal (slate-500) stands in
+      // for canvas rendering.
+      return "#64748b";
+    case "custom":
+      // SponsorManagement.tsx uses `bg-primary/10 text-primary` for custom,
+      // and `--primary` is theme-dependent — use the :root default literal.
+      return "hsl(222, 25%, 10%)";
+    case "bronze":
+    default:
+      // --brand-orange (:root, src/index.css); also the fallback for any
+      // unrecognized tier value.
+      return "hsl(22, 95%, 56%)";
+  }
+}
 
 // ─── Core types ───────────────────────────────────────────────────────────
 
@@ -121,19 +156,110 @@ export interface BrochureTheme {
   /** Built-in defaults used by `resolveBrochureTheme` when the event's
    *  Event_Theme doesn't define a color (Requirement 1.3). */
   defaultColors: { primaryColor: string; accentColor: string; fontFamily: string };
+  /**
+   * Colour scheme for a brochure type built on the poster layout. The poster
+   * pages are laid out in black, white and an off-white paper; a scheme says
+   * what those three become, so one layout yields a dark brochure, a navy and
+   * gold one, and so on. Omitted on the original Poster Bold and on themes
+   * with their own page builders.
+   */
+  scheme?: BrochureScheme;
+}
+
+export interface BrochureScheme {
+  /** Page colour (replaces the off-white paper). */
+  paper: string;
+  /** Card and panel colour (replaces white). */
+  card: string;
+  /** Text and solid-chip colour (replaces black). Must contrast with
+   *  `paper`, `card` and the theme's accent. */
+  ink: string;
+  /** Multiplies every corner radius: 0 squares the cards and chips off. */
+  cornerScale?: number;
+}
+
+/** `true` for every brochure type that uses the poster layout and its content fields. */
+export function isPosterFamily(theme: BrochureTheme): boolean {
+  return theme.cover.style === "poster-bold";
+}
+
+/** A brochure type that is the poster layout in another scheme and face. */
+function posterVariant(
+  id: string,
+  name: string,
+  description: string,
+  colors: BrochureTheme["defaultColors"],
+  scheme: BrochureScheme,
+): BrochureTheme {
+  return {
+    id,
+    name,
+    description,
+    margins: { top: 22, right: 20, bottom: 22, left: 20 },
+    cover: { style: "poster-bold", defaultBackgroundColor: scheme.paper, titleFontSizePt: 44, accentBarHeightMm: 0 },
+    heading: { fontSizePt: 26, fontStyle: "bold", showAccentUnderline: false },
+    table: { theme: "plain", fontSizePt: 10.5, cellPaddingMm: 3, headFillDefault: colors.accentColor },
+    agenda: { layout: "timetable-cards" },
+    defaultColors: colors,
+    scheme,
+  };
 }
 
 // ─── Brochure_Theme registry (Requirement 1.1) ───────────────────────────────
 //
-// Three presets, each pairing a distinct cover style with a distinct
-// autoTable theme so an organizer has a genuinely different visual result
-// to choose between (see design.md's rationale).
+// Two presets ship. Poster Bold is listed first on purpose: the first entry
+// is the default for an event with no saved brochure preferences, and Poster
+// Bold is the house brochure format (the DevOps Connect reference).
 
 export const BROCHURE_THEMES: BrochureTheme[] = [
   {
+    // Poster_Bold theme — the DevOps-Connect-style brochure format
+    // (bright orange + solid-black + white poster pages, pill-chip
+    // date/venue on the cover, rounded card content sections, orange
+    // numbered value props, card-based agenda). Enables three extra
+    // sections (`abstract`, `whySponsor`, `pricing`) that pull their
+    // content from `brochurePrefs.posterContent` on the event's page
+    // config. Every color/font here is still resolved through
+    // `resolveBrochureTheme`'s override precedence — organizers can
+    // fully recolor/refont this theme from the configurator's
+    // color/font override controls, matching the fully-customizable
+    // requirement for the reference DevOps Connect brochure.
+    id: "poster-bold",
+    name: "Poster Bold",
+    description:
+      "Conference brochure: big stacked title cover, orange & black pages, two-column timetable, why-sponsor table, pricing cards and registration form.",
+    margins: { top: 22, right: 20, bottom: 22, left: 20 },
+    cover: {
+      style: "poster-bold",
+      defaultBackgroundColor: "#ffffff",
+      titleFontSizePt: 44,
+      accentBarHeightMm: 0,
+    },
+    heading: {
+      fontSizePt: 26,
+      fontStyle: "bold",
+      showAccentUnderline: false,
+    },
+    table: {
+      theme: "plain",
+      fontSizePt: 10.5,
+      cellPaddingMm: 3,
+      headFillDefault: "#ff4612",
+    },
+    // Two-column session cards (time chip + title + description block +
+    // speaker line) matching the reference DevOps Connect agenda page,
+    // rather than a dense table row per session.
+    agenda: { layout: "timetable-cards" },
+    defaultColors: {
+      primaryColor: "#000000",
+      accentColor: "#ff4612", // the reference brochure's orange
+      fontFamily: "Poppins",
+    },
+  },
+  {
     id: "classic-editorial",
     name: "Classic Editorial",
-    description: "Print-magazine layout: hero image banner up top, editorial title below on a solid page.",
+    description: "Plain editorial layout: serif type, a table agenda and simple speaker, sponsor and venue pages.",
     margins: { top: 22, right: 20, bottom: 22, left: 20 },
     cover: {
       // Image occupies the top ~45% of the page (banner), title/date/accent
@@ -162,50 +288,34 @@ export const BROCHURE_THEMES: BrochureTheme[] = [
       fontFamily: "Playfair Display",
     },
   },
-  {
-    // Poster_Bold theme — the DevOps-Connect-style brochure format
-    // (bright orange + solid-black + white poster pages, pill-chip
-    // date/venue on the cover, rounded card content sections, orange
-    // numbered value props, card-based agenda). Enables three extra
-    // sections (`abstract`, `whySponsor`, `pricing`) that pull their
-    // content from `brochurePrefs.posterContent` on the event's page
-    // config. Every color/font here is still resolved through
-    // `resolveBrochureTheme`'s override precedence — organizers can
-    // fully recolor/refont this theme from the configurator's
-    // color/font override controls, matching the fully-customizable
-    // requirement for the reference DevOps Connect brochure.
-    id: "poster-bold",
-    name: "Poster Bold",
-    description:
-      "Big-format poster: pill-chip cover, orange & black solid-color pages, card-based agenda, numbered value props, pricing cards.",
-    margins: { top: 22, right: 20, bottom: 22, left: 20 },
-    cover: {
-      style: "poster-bold",
-      defaultBackgroundColor: "#ffffff",
-      titleFontSizePt: 44,
-      accentBarHeightMm: 0,
-    },
-    heading: {
-      fontSizePt: 26,
-      fontStyle: "bold",
-      showAccentUnderline: false,
-    },
-    table: {
-      theme: "plain",
-      fontSizePt: 10.5,
-      cellPaddingMm: 3,
-      headFillDefault: "#ff5722",
-    },
-    // Two-column session cards (time chip + title + description block +
-    // speaker line) matching the reference DevOps Connect agenda page,
-    // rather than a dense table row per session.
-    agenda: { layout: "timetable-cards" },
-    defaultColors: {
-      primaryColor: "#000000",
-      accentColor: "#ff5722", // brand-forward orange
-      fontFamily: "Poppins",
-    },
-  },
+  posterVariant(
+    "midnight",
+    "Midnight",
+    "Dark brochure: deep navy pages, white type and an indigo accent.",
+    { primaryColor: "#ffffff", accentColor: "#6366f1", fontFamily: "Space Grotesk" },
+    { paper: "#0b1020", card: "#19213d", ink: "#ffffff" },
+  ),
+  posterVariant(
+    "executive",
+    "Executive",
+    "Formal brochure: navy type on ivory, gold accent pages, square corners.",
+    { primaryColor: "#14213d", accentColor: "#d9a93a", fontFamily: "Montserrat" },
+    { paper: "#faf7f0", card: "#ffffff", ink: "#14213d", cornerScale: 0 },
+  ),
+  posterVariant(
+    "evergreen",
+    "Evergreen",
+    "Fresh brochure: deep green type on a pale mint page with an emerald accent.",
+    { primaryColor: "#0b3d2e", accentColor: "#34d399", fontFamily: "DM Sans" },
+    { paper: "#f0f8f3", card: "#ffffff", ink: "#0b3d2e" },
+  ),
+  posterVariant(
+    "royal",
+    "Royal",
+    "Rich brochure: deep violet type on lavender with a soft purple accent and extra-round cards.",
+    { primaryColor: "#2e1065", accentColor: "#a78bfa", fontFamily: "Work Sans" },
+    { paper: "#f6f1ff", card: "#ffffff", ink: "#2e1065", cornerScale: 1.6 },
+  ),
   // Themes below (Modern Minimal, Bold Conference, Corporate Bold) stay
   // removed — Classic Editorial and Poster Bold are the two shipped
   // themes now. The editor lets an organizer produce any of the removed
@@ -561,6 +671,9 @@ export const POSTER_BOLD_SECTION_LAYOUT: SectionLayout = [
   { id: "speakers", included: true },
   { id: "sponsors", included: true },
   { id: "pricing", included: true },
+  // Off until the organizer fills in the tiers — but listed, so the
+  // partnership packages page can be switched on from this theme too.
+  { id: "sponsorshipPackages", included: false },
   { id: "venueLogistics", included: true },
 ];
 
