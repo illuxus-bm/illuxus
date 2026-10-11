@@ -58,6 +58,10 @@ export default {
           ring: "hsl(var(--sidebar-ring))",
         },
         highlight: "hsl(var(--highlight))",
+        spot: {
+          DEFAULT: "hsl(var(--spot))",
+          foreground: "hsl(var(--spot-foreground))",
+        },
         chart: {
           "1": "hsl(var(--chart-1))",
           "2": "hsl(var(--chart-2))",

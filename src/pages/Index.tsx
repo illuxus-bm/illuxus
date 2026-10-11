@@ -380,6 +380,16 @@ const Index = () => {
     <div data-landing="true" className="relative min-h-screen overflow-x-clip bg-background text-foreground">
       {/* Drafting grid, fixed so the page glides over it. */}
       <div aria-hidden="true" className="blueprint-grid pointer-events-none fixed inset-0 z-0" />
+      {/* Soft violet wash behind the page, dark theme only. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 z-0 hidden dark:block"
+        style={{
+          backgroundImage:
+            "radial-gradient(80% 50% at 50% 0%, rgba(139, 92, 246, 0.18), transparent 70%)," +
+            "radial-gradient(60% 60% at 50% 120%, rgba(168, 85, 247, 0.12), transparent 70%)",
+        }}
+      />
       <SiteHeader landingMode />
       <RouteSeo
         title="illuxus — All-in-one event management platform | Ticketing, Webinars, Communities"

@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import SponsorQuickViewDialog from "./sections/SponsorQuickViewDialog";
 import SpeakerQuickViewDialog from "./sections/SpeakerQuickViewDialog";
+import { AgendaRoadmap } from "./sections/AgendaRoadmap";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatPriceOrFree } from "@/lib/currency";
 import { sanitizeHtml } from "@/lib/sanitize-html";
@@ -584,62 +585,7 @@ function AgendaSec({ data, theme, sessions, speakers }: {
               <p className="text-sm font-semibold mb-3" style={{ color: theme.primaryColor }}>
                 {format(new Date(`${activeDay[0]}T00:00:00`), "EEEE, MMMM d")}
               </p>
-              <ol className="space-y-2">
-                {activeDay[1].map((s) => {
-                  const ids = (s.speaker_ids && s.speaker_ids.length ? s.speaker_ids : (s.speaker_id ? [s.speaker_id] : []));
-                  const sps = ids.map((id) => speakerById[id]).filter(Boolean);
-                  return (
-                     <li key={s.id} className="flex flex-col sm:flex-row gap-1 sm:gap-4 p-4 rounded-xl border" style={{ borderColor: `${theme.primaryColor}15` }}>
-                       <div
-                         className="text-sm font-semibold sm:whitespace-nowrap sm:w-24"
-                         style={{ color: theme.primaryColor }}
-                       >
-                         {format(new Date(`${s.start_time.split("+")[0].split("Z")[0]}`), "h:mm a")}
-                       </div>
-                       <div className="flex-1 min-w-0">
-                         <p
-                           className="font-semibold"
-                           style={{ fontFamily: "var(--ev-title-font, Poppins)" }}
-                         >
-                           {s.title}
-                         </p>
-                         {s.description && (
-                           <p className="text-sm opacity-70 mt-1 line-clamp-2">
-                             {s.description}
-                           </p>
-                         )}
-                         <div className="flex flex-wrap gap-2 mt-2 text-xs opacity-60">
-                           <span className="capitalize">{s.session_type}</span>
-                          {s.location && <><span>·</span><span>{s.location}</span></>}
-                        </div>
-                         {sps.length > 0 && (
-                           <TooltipProvider delayDuration={150}>
-                             <div className="flex items-center gap-1.5 mt-2.5">
-                               {sps.map((sp) => (
-                                 <UITooltip key={sp.id}>
-                                   <TooltipTrigger asChild>
-                                     <span
-                                       title={sp.name}
-                                       aria-label={sp.name}
-                                       className="h-7 w-7 rounded-full overflow-hidden flex items-center justify-center text-[10px] font-bold ring-1 aspect-square shrink-0"
-                                       style={{ backgroundColor: theme.primaryColor, color: "#fff", boxShadow: `0 0 0 1px ${theme.textColor}22 inset` }}
-                                     >
-                                       {sp.photo_url
-                                         ? <img src={sp.photo_url} alt={sp.name} className="h-full w-full object-cover" />
-                                         : sp.name.charAt(0).toUpperCase()}
-                                     </span>
-                                   </TooltipTrigger>
-                                   <TooltipContent side="top" className="text-xs">{sp.name}</TooltipContent>
-                                 </UITooltip>
-                               ))}
-                             </div>
-                           </TooltipProvider>
-                         )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
+              <AgendaRoadmap sessions={activeDay[1]} theme={theme} speakerById={speakerById} />
             </div>
           )}
         </>
@@ -653,14 +599,19 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
   // so the section blends with the surrounding background.
   const cardBorder = `${theme.textColor}1f`;
   const [selected, setSelected] = useState<RendererSpeaker | null>(null);
+  // Long line-ups open on the first two rows; the rest sit behind one button.
+  const [expanded, setExpanded] = useState(false);
+  const isList = data.layout === "list";
+  const preview = isList ? 4 : 6;
+  const shown = expanded ? speakers : speakers.slice(0, preview);
   return (
     <Section theme={theme} id="speakers">
       <SectionHeader title={data.title || "Speakers"} intro={data.intro} theme={theme} />
       {speakers.length === 0 ? (
         <p className="text-sm opacity-50">Speakers will be announced soon.</p>
       ) : (
-        <div className={data.layout === "list" ? "space-y-4" : "grid gap-5 grid-cols-1 sm:grid-cols-2"}>
-          {speakers.map((sp) => {
+        <div className={isList ? "space-y-4" : "grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3"}>
+          {shown.map((sp) => {
             // Initials fallback — first letter of first + last name, uppercase.
             // Keeps the avatar legible when the organiser hasn't uploaded a photo.
             const initials = (() => {
@@ -675,10 +626,10 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
                 key={sp.id}
                 type="button"
                 onClick={() => setSelected(sp)}
-                className="rounded-2xl p-5 border text-left w-full transition-transform hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                className={`rounded-2xl border w-full transition-transform hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${isList ? "p-5 text-left" : "p-4 text-center"}`}
                 style={{ borderColor: cardBorder, backgroundColor: "transparent", color: theme.textColor }}
               >
-                <div className="flex items-center gap-4">
+                <div className={isList ? "flex items-center gap-4" : "flex flex-col items-center gap-3"}>
                   <div
                     className="h-16 w-16 rounded-full overflow-hidden flex items-center justify-center text-white font-bold shrink-0 aspect-square text-lg"
                     style={{ backgroundColor: theme.primaryColor }}
@@ -705,25 +656,36 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
                       initials
                     )}
                   </div>
-                  <div className="min-w-0 flex-1">
+                  <div className={isList ? "min-w-0 flex-1" : "min-w-0 w-full"}>
                     <p
-                      className="font-semibold truncate"
+                      className={isList ? "font-semibold truncate" : "text-sm font-semibold leading-snug line-clamp-2"}
                       style={{ fontFamily: "var(--ev-title-font, Poppins)" }}
                     >
                       {sp.name}
                     </p>
                     {subtitle && (
-                      <p className="text-xs opacity-60 truncate">{subtitle}</p>
+                      <p className={isList ? "text-xs opacity-60 truncate" : "mt-1 text-xs opacity-60 line-clamp-2"}>{subtitle}</p>
                     )}
                   </div>
                 </div>
                 {data.showBio !== false && sp.bio && (
-                  <p className="text-sm opacity-70 mt-3 line-clamp-3">{sp.bio}</p>
+                  <p className={isList ? "text-sm opacity-70 mt-3 line-clamp-3" : "text-xs opacity-70 mt-3 line-clamp-2"}>{sp.bio}</p>
                 )}
               </button>
             );
           })}
         </div>
+      )}
+      {speakers.length > preview && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="mt-5 inline-flex h-10 items-center rounded-full border px-5 text-sm font-semibold transition-opacity hover:opacity-80"
+          style={{ borderColor: `${theme.textColor}33`, color: theme.textColor }}
+        >
+          {expanded ? "Show fewer" : `Show all ${speakers.length} speakers`}
+        </button>
       )}
       <SpeakerQuickViewDialog
         speaker={selected}

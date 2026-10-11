@@ -12,7 +12,7 @@
     <meta name="author" content="illuxus" />
     <meta name="application-name" content="illuxus" />
     <meta name="generator" content="illuxus" />
-    <meta name="theme-color" content="#0b0b1a" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#0f0a19" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <meta name="googlebot" content="index, follow" />
@@ -42,7 +42,7 @@
     <!-- Splash screen styles (inline so it renders without waiting for CSS) -->
     <style>
       :root { color-scheme: dark; }
-      html, body { margin: 0; padding: 0; background: #0b0b1a; }
+      html, body { margin: 0; padding: 0; background: #0f0a19; }
 
       #illuxus-splash {
         position: fixed;
@@ -53,10 +53,10 @@
         align-items: center;
         justify-content: center;
         background:
-          radial-gradient(80% 50% at 50% 0%, rgba(99, 102, 241, 0.22), transparent 70%),
+          radial-gradient(80% 50% at 50% 0%, rgba(139, 92, 246, 0.24), transparent 70%),
           radial-gradient(60% 60% at 50% 100%, rgba(168, 85, 247, 0.18), transparent 70%),
-          radial-gradient(40% 40% at 90% 90%, rgba(34, 211, 238, 0.10), transparent 70%),
-          linear-gradient(180deg, #0b0b1a 0%, #15152a 100%);
+          radial-gradient(40% 40% at 90% 90%, rgba(168, 85, 247, 0.10), transparent 70%),
+          linear-gradient(180deg, #0f0a19 0%, #1a1330 100%);
         color: #fafafa;
         font-family: 'Onest', 'Poppins', system-ui, -apple-system, sans-serif;
         padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
@@ -87,7 +87,7 @@
       #illuxus-splash::before {
         width: 320px; height: 320px;
         top: -80px; left: -80px;
-        background: radial-gradient(circle, #6366f1 0%, transparent 70%);
+        background: radial-gradient(circle, #8b5cf6 0%, transparent 70%);
         animation: orb-drift-a 9s ease-in-out infinite alternate;
       }
       #illuxus-splash::after {
@@ -120,13 +120,13 @@
       .splash-logo {
         position: relative;
         animation: logo-glow 2.6s ease-in-out infinite;
-        filter: drop-shadow(0 0 24px rgba(99, 102, 241, 0.35));
+        filter: drop-shadow(0 0 24px rgba(139, 92, 246, 0.35));
       }
       .splash-logo img { display: block; height: 48px; width: auto; }
       @media (min-width: 768px) { .splash-logo img { height: 60px; } }
 
       @keyframes logo-glow {
-        0%, 100% { filter: drop-shadow(0 0 20px rgba(99, 102, 241, 0.30)); }
+        0%, 100% { filter: drop-shadow(0 0 20px rgba(139, 92, 246, 0.30)); }
         50%      { filter: drop-shadow(0 0 32px rgba(168, 85, 247, 0.45)); }
       }
 
@@ -191,7 +191,7 @@
       /* If the user has overridden to light mode before JS runs, recolour. */
       html:not(.dark) #illuxus-splash {
         background:
-          radial-gradient(80% 50% at 50% 0%, rgba(99, 102, 241, 0.18), transparent 70%),
+          radial-gradient(80% 50% at 50% 0%, rgba(139, 92, 246, 0.18), transparent 70%),
           radial-gradient(60% 60% at 50% 100%, rgba(168, 85, 247, 0.12), transparent 70%),
           linear-gradient(180deg, #ffffff 0%, #f4f3fb 100%);
         color: #15152a;
@@ -209,7 +209,7 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <link rel="mask-icon" href="/icon.svg" color="#0b0b1a" />
+    <link rel="mask-icon" href="/icon.svg" color="#0f0a19" />
     <link rel="manifest" href="/site.webmanifest" crossorigin="use-credentials" />
 
     <!-- iOS / iPadOS launch splash screens. Using the OG image as a static
@@ -238,7 +238,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="illuxus" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="msapplication-TileColor" content="#0b0b1a" />
+    <meta name="msapplication-TileColor" content="#0f0a19" />
     <meta name="msapplication-TileImage" content="/favicon-192.png" />
 
     <!-- Open Graph / Facebook -->
