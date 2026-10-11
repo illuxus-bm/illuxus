@@ -66,8 +66,8 @@ export default {
           "5": "hsl(var(--chart-5))",
         },
       },
-      // As text, the accent uses its darker "ink" value so gold stays readable
-      // on the light paper canvas. Fills (`bg-accent`) keep the bright gold.
+      // As text, the accent uses its "ink" value, tuned per theme for contrast.
+      // Fills (`bg-accent`) keep the base accent.
       textColor: {
         accent: {
           DEFAULT: "hsl(var(--accent-ink))",

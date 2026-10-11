@@ -192,6 +192,7 @@ function Ticket({
     art.paper,
     art.ink,
     art.foil,
+    art.foilInk,
   ]);
   const back = useCanvasTexture(1800, 800, (canvas) => drawTicketBack(canvas, backArt), [
     backArt.paper,
@@ -599,13 +600,13 @@ function Scene({ theme, onReady }: { theme: StageTheme; onReady?: () => void }) 
   });
 
   const hallScale = portrait ? 0.72 : 1;
-  const backArt: TicketArt = { tier: "", serial: "", seat: "", paper: palette.ink, ink: palette.paper, foil: palette.foil };
+  const backArt: TicketArt = { tier: "", serial: "", seat: "", paper: palette.ink, ink: palette.paper, foil: palette.foil, foilInk: palette.foilInk };
 
   return (
     <>
       <fog attach="fog" args={[palette.background, 20, 60]} />
-      <hemisphereLight args={["#F2F6FB", theme === "dark" ? "#5C7797" : "#C9C3B2", theme === "dark" ? 2.3 : 2.5]} />
-      <directionalLight position={[3, 6, 8]} intensity={2.6} color="#FFF4DC" />
+      <hemisphereLight args={["#F2F6FB", theme === "dark" ? "#6B7280" : "#C7CAD1", theme === "dark" ? 2.3 : 2.5]} />
+      <directionalLight position={[3, 6, 8]} intensity={2.6} color="#FFFFFF" />
       <directionalLight position={[-6, 3, -4]} intensity={0.7} color="#8DB8FF" />
 
       <GridFloor palette={palette} theme={theme} />
@@ -625,7 +626,7 @@ function Scene({ theme, onReady }: { theme: StageTheme; onReady?: () => void }) 
           >
             <Ticket
               geometry={geometry}
-              art={{ ...tier, paper: palette.paper, ink: palette.ink, foil: palette.foil }}
+              art={{ ...tier, paper: palette.paper, ink: palette.ink, foil: palette.foil, foilInk: palette.foilInk }}
               backArt={backArt}
             />
             {index === 1 && (

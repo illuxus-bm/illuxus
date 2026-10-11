@@ -49,7 +49,7 @@ export default function SiteHeader({
   /**
    * When true, the header renders the marketing landing variant:
    *  - "Start for free" CTA button as the rightmost action (when signed out)
-   *  - Translucent canvas-coloured bar with a gold top line, plus section links
+   *  - Translucent canvas-coloured bar, plus section links
    * Other surfaces (dashboard, themed event pages) pass nothing and get the
    * compact default.
    */
@@ -122,7 +122,7 @@ export default function SiteHeader({
   const surfaceClass = themed
     ? "border-b"
     : landingMode
-      ? "bg-background/90 backdrop-blur-md shadow-[inset_0_2px_0_hsl(var(--accent))]"
+      ? "bg-background/90 backdrop-blur-md"
       : "";
 
   // Section links for the marketing pages. On the landing page itself they
@@ -299,7 +299,7 @@ export default function SiteHeader({
               </Link>
               <Link
                 to="/login"
-                className="group inline-flex h-8 sm:h-9 items-center gap-1 sm:gap-1.5 rounded-full bg-accent px-3 sm:px-4 text-[12px] sm:text-[13px] font-semibold text-accent-foreground transition-colors duration-150 hover:bg-accent/90 active:scale-[0.98] whitespace-nowrap"
+                className="group inline-flex h-8 sm:h-9 items-center gap-1 sm:gap-1.5 rounded-full bg-primary px-3 sm:px-4 text-[12px] sm:text-[13px] font-semibold text-primary-foreground transition-colors duration-150 hover:bg-primary/90 active:scale-[0.98] whitespace-nowrap"
               >
                 <span className="hidden sm:inline">Start for free</span>
                 <span className="sm:hidden">Sign up</span>

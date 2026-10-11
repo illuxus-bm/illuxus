@@ -40,6 +40,8 @@ export interface StagePalette {
   paper: string;
   ink: string;
   foil: string;
+  /** Text colour on top of the foil. */
+  foilInk: string;
   seatEmpty: string;
   seatTaken: string;
   screen: string;
@@ -50,31 +52,33 @@ export interface StagePalette {
 
 export const STAGE_PALETTES: Record<StageTheme, StagePalette> = {
   dark: {
-    background: "#071D33",
-    gridLine: "#6E8FB3",
-    gridMajor: "#F5B614",
-    paper: "#F3F1DC",
-    ink: "#062038",
-    foil: "#F5B614",
-    seatEmpty: "#17395D",
-    seatTaken: "#F3F6D0",
-    screen: "#04121F",
-    screenText: "#F3F6D0",
-    bars: ["#F5B614", "#F3F6D0", "#6FB3E8", "#7AD3B0"],
-    label: "#E8EEF5",
+    background: "#0F1115",
+    gridLine: "#8A93A6",
+    gridMajor: "#427FFA",
+    paper: "#FAFAFA",
+    ink: "#14171F",
+    foil: "#427FFA",
+    foilInk: "#FFFFFF",
+    seatEmpty: "#262A33",
+    seatTaken: "#FAFAFA",
+    screen: "#08090C",
+    screenText: "#FAFAFA",
+    bars: ["#427FFA", "#2DD46F", "#FBB12E", "#9A6BF5"],
+    label: "#FAFAFA",
   },
   light: {
-    background: "#FAF9F4",
-    gridLine: "#071D33",
-    gridMajor: "#B37A00",
-    paper: "#0B2A4A",
-    ink: "#F3F1DC",
-    foil: "#F5B614",
-    seatEmpty: "#DDD9CB",
-    seatTaken: "#0B2F55",
-    screen: "#071D33",
-    screenText: "#F3F6D0",
-    bars: ["#0B2F55", "#E0A100", "#4F86B5", "#2E9E86"],
-    label: "#071D33",
+    background: "#FFFFFF",
+    gridLine: "#14171F",
+    gridMajor: "#246BF9",
+    paper: "#14171F",
+    ink: "#FAFAFA",
+    foil: "#427FFA",
+    foilInk: "#FFFFFF",
+    seatEmpty: "#E3E5EA",
+    seatTaken: "#14171F",
+    screen: "#14171F",
+    screenText: "#FAFAFA",
+    bars: ["#246BF9", "#1EB85A", "#F5A40F", "#8246EE"],
+    label: "#14171F",
   },
 };

@@ -97,7 +97,7 @@ export function CinemaReel() {
               }}
             />
             {/* Brand tint + a hairline frame so the film sits in the page. */}
-            <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[#071D33]/25 mix-blend-multiply" />
+            <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/20" />
             <div aria-hidden="true" className="pointer-events-none absolute inset-3 rounded-[14px] border border-white/15" />
           </div>
         </div>
