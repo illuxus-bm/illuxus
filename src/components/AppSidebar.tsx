@@ -4,6 +4,7 @@ import {
   ChevronsUpDown, Check,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
+import { ShellSidebarHeader } from "@/components/layout/ShellChrome";
 import { useLocation } from "react-router-dom";
 import { useOrg, PLAN_DETAILS } from "@/contexts/OrgContext";
 
@@ -102,7 +103,8 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon" className="app-chrome !border-r-0 bg-sidebar">
-      <SidebarContent className="pt-3 pb-2 flex flex-col">
+      <ShellSidebarHeader />
+      <SidebarContent className="pt-1 pb-2 flex flex-col">
         {/* Workspace switcher */}
         {!collapsed && org && (
           <div className="mx-3 mb-2">

@@ -1,4 +1,6 @@
 import { AppHeaderBar } from "@/components/layout/AppHeaderBar";
+import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
 import { useNavigate, Link, useLocation } from "react-router-dom";
@@ -174,6 +176,9 @@ export interface DashboardTopBarProps {
   /** @deprecated The sidebar button now shows automatically whenever the
    *  page has a sidebar (see AppHeaderBar); this prop is ignored. */
   showSidebarTrigger?: boolean;
+  /** Render as the first row of the white app panel (search on the left,
+   *  account controls on the right); the logo is then left to the sidebar. */
+  inPanel?: boolean;
 }
 
 /**
@@ -184,7 +189,7 @@ export interface DashboardTopBarProps {
  * The bar itself (size, logo, sidebar button) is the shared AppHeaderBar;
  * this component only supplies the dashboard's actions.
  */
-export function DashboardTopBar(_props: DashboardTopBarProps = {}) {
+export function DashboardTopBar({ inPanel = false }: DashboardTopBarProps = {}) {
   const { user, isAdmin, accountType, signOut } = useAuth();
   const { org, memberships } = useOrg();
   const navigate = useNavigate();
@@ -300,36 +305,39 @@ export function DashboardTopBar(_props: DashboardTopBarProps = {}) {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  return (
-    <>
-      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
-
-      <AppHeaderBar
-        brandName={brandName}
-        // Context badge — only on admin routes so the Super Admin control
-        // tower is never confused with the organiser dashboard.
-        leading={isAdminRoute ? (
+  // Context badge — only on admin routes so the Super Admin control tower is
+  // never confused with the organiser dashboard.
+  const leading = isAdminRoute ? (
           <span className="hidden sm:inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-destructive/10 text-destructive border border-destructive/30">
             <Shield className="h-2.5 w-2.5" /> Super Admin
           </span>
-        ) : null}
-        actions={<>
+        ) : null;
+
+  // Search: a field-shaped button on wider screens, an icon on phones.
+  const searchField = (
+    <button
+      type="button"
+      onClick={() => setSearchOpen(true)}
+      title="Search (⌘K)"
+      className={`hidden md:flex items-center gap-2.5 h-10 px-3.5 rounded-xl text-[13.5px] text-muted-foreground hover:text-foreground transition-colors ${inPanel ? "w-full max-w-sm bg-muted/70" : "w-56 lg:w-72 bg-card border border-border"}`}
+    >
+      <Search className="h-4 w-4 shrink-0" />
+      <span className="flex-1 text-left truncate">Search anything…</span>
+      <kbd className="text-[10px] font-medium text-muted-foreground/70">⌘K</kbd>
+    </button>
+  );
+  const searchIcon = (
+    <button type="button" className="shell-icon-btn md:hidden" onClick={() => setSearchOpen(true)} title="Search" aria-label="Search">
+      <Search className="h-4 w-4" />
+    </button>
+  );
+
+  const actions = (
+    <>
+
           <ThemeToggle size="sm" className="mr-1" />
 
-          {/* Search: a field-shaped button on wider screens, an icon on phones. */}
-          <button
-            type="button"
-            onClick={() => setSearchOpen(true)}
-            title="Search (⌘K)"
-            className="hidden md:flex items-center gap-2 h-9 w-56 lg:w-72 px-3.5 rounded-full bg-card border border-border text-[13px] text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Search className="h-3.5 w-3.5 shrink-0" />
-            <span className="flex-1 text-left truncate">Search anything…</span>
-            <kbd className="text-[10px] font-medium text-muted-foreground/70">⌘K</kbd>
-          </button>
-          <button type="button" className="shell-icon-btn md:hidden" onClick={() => setSearchOpen(true)} title="Search" aria-label="Search">
-            <Search className="h-4 w-4" />
-          </button>
+          {searchIcon}
 
           {/* Notifications belong to the organiser dashboard — they list
               org-scoped recent registrations. On admin routes there's no
@@ -451,8 +459,26 @@ export function DashboardTopBar(_props: DashboardTopBarProps = {}) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </>}
-      />
+    </>
+  );
+
+  return (
+    <>
+      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {inPanel ? (
+        <header className="shell-topbar sticky top-0 z-30 flex h-[4.25rem] items-center gap-2 px-4 lg:px-6">
+          <SidebarTrigger className="shell-icon-btn !h-9 !w-9 md:hidden" aria-label="Open menu" />
+          <a href="https://illuxus.com" className="flex shrink-0 items-center md:hidden" aria-label={`${brandName} home`}>
+            <IlluxusWordmark height={20} ariaLabel="" />
+          </a>
+          {leading}
+          {searchField}
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">{actions}</div>
+        </header>
+      ) : (
+        <AppHeaderBar brandName={brandName} leading={leading} actions={<>{searchField}{actions}</>} />
+      )}
     </>
   );
 }

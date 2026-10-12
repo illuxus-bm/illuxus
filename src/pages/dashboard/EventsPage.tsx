@@ -11,9 +11,10 @@ import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
   Plus, Calendar, Edit, Trash2, X, Search,
-  MapPin, Clock, Link as LinkIcon, ArrowRight, ExternalLink, Settings2, Users2,
+  MapPin, Clock, Link as LinkIcon, ArrowRight, ExternalLink, Settings2, Users2, MoreVertical,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Tables } from "@/integrations/supabase/types";
 import EventCoverPicker from "@/components/event/EventCoverPicker";
@@ -31,10 +32,10 @@ type EventWithCommunity = Event & {
 };
 
 const statusColor: Record<string, string> = {
-  draft: "bg-muted text-muted-foreground",
-  published: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
-  cancelled: "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
-  completed: "bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
+  draft: "text-muted-foreground",
+  published: "text-emerald-600 dark:text-emerald-400",
+  cancelled: "text-red-600 dark:text-red-400",
+  completed: "text-sky-600 dark:text-sky-400",
 };
 
 const EventsPage = () => {
@@ -239,7 +240,7 @@ const EventsPage = () => {
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-[26px] leading-tight font-medium tracking-tight">Events</h1>
+            <h1 className="text-lg font-semibold tracking-tight">Events</h1>
             <p className="text-muted-foreground text-sm">Manage all your events in one place</p>
           </div>
           <Button onClick={() => navigate("/dashboard/events/new")} className="h-10 rounded-xl px-4 font-medium">
@@ -465,9 +466,14 @@ const EventsPage = () => {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
             {filteredEvents.map((event, i) => {
               const eventPath = `/dashboard/events/${event.slug ?? event.id}`;
+              const start = new Date(event.date);
+              const sold = event.tickets_sold ?? 0;
+              const capacity = Number(event.capacity) || 0;
+              const filled = capacity > 0 ? Math.min(100, Math.round((sold / capacity) * 100)) : 0;
+              const cover = event.banner_landscape_url || event.image_url;
               return (
                 <motion.div
                   key={event.id}
@@ -475,92 +481,70 @@ const EventsPage = () => {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 }}
                   onClick={() => navigate(eventPath)}
-                  className="bg-card border border-border rounded-2xl p-2.5 hover:border-foreground/25 hover:shadow-[0_8px_30px_-12px_rgb(0_0_0/0.18)] transition-all cursor-pointer group flex flex-col"
+                  className="bg-card border border-border rounded-2xl p-3 hover:shadow-[0_18px_40px_-24px_rgb(0_0_0/0.28)] hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group flex flex-col"
                 >
-                  {/* Cover image */}
-                  <div className="aspect-video rounded-xl bg-muted flex items-center justify-center relative overflow-hidden">
-                    {(event.banner_landscape_url || event.image_url) ? (
-                      <img src={event.banner_landscape_url || event.image_url!} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                  {/* Cover: the event banner, or its date when it has none */}
+                  <div className="relative aspect-[16/10] rounded-xl bg-muted/70 overflow-hidden flex items-center justify-center">
+                    {cover ? (
+                      <img src={cover} alt="" className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500" />
                     ) : (
-                      <Calendar className="h-10 w-10 text-muted-foreground/50" />
+                      <div className="flex flex-col items-center rounded-2xl bg-card px-6 py-3.5 shadow-[0_10px_30px_-12px_rgb(0_0_0/0.25)] border border-border/70">
+                        <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                          {start.toLocaleDateString("en-US", { month: "short" })}
+                        </span>
+                        <span className="text-[34px] leading-none font-medium tracking-tight mt-1">{start.getDate()}</span>
+                      </div>
                     )}
-                    {/* Manage overlay hint on hover */}
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                      <span className="bg-white/90 text-black text-[12px] font-semibold px-3 py-1 rounded-full flex items-center gap-1.5 shadow">
-                        <ArrowRight className="h-3.5 w-3.5" /> Manage Event
-                      </span>
+                    <span className={`absolute left-2.5 top-2.5 inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-medium capitalize bg-card/95 backdrop-blur shadow-sm ${statusColor[event.status] || ""}`}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                      {event.status}
+                    </span>
+                    <div className="absolute right-2.5 top-2.5" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button type="button" className="h-8 w-8 rounded-full bg-card/95 backdrop-blur shadow-sm flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors" aria-label={`Options for ${event.title}`}>
+                            <MoreVertical className="h-4 w-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem onClick={() => navigate(eventPath)}>
+                            <ArrowRight className="h-3.5 w-3.5 mr-2" /> Manage
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openEditForm(event)}>
+                            <Edit className="h-3.5 w-3.5 mr-2" /> Quick edit
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => deleteEvent(event.id)} className="text-destructive focus:text-destructive">
+                            <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
 
-                  <div className="px-2 pt-3.5 pb-1.5 space-y-3 flex-1 flex flex-col">
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="text-[15px] font-medium tracking-tight line-clamp-1">{event.title}</h3>
-                      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium capitalize shrink-0 ${statusColor[event.status] || ""}`}>
-                        <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                        {event.status}
-                      </span>
-                    </div>
+                  <div className="px-2 pt-4 pb-2 flex-1 flex flex-col">
+                    <h3 className="text-[17px] leading-snug font-medium tracking-tight line-clamp-1">{event.title}</h3>
+                    <p className="mt-1 text-[12.5px] text-muted-foreground line-clamp-1">
+                      {start.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                      {event.venue ? ` · ${event.venue}${event.location ? `, ${event.location}` : ""}` : ""}
+                    </p>
 
-                    {event.description && (
-                      <p className="text-[13px] text-muted-foreground line-clamp-2">{stripRichText(event.description)}</p>
-                    )}
-
-                    <div className="space-y-1 text-xs text-muted-foreground">
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5 shrink-0" />
-                        {new Date(event.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    <div className="mt-auto pt-5">
+                      <div className="flex items-end justify-between gap-3 text-[12.5px]">
+                        <span className="text-muted-foreground">
+                          <span className="text-foreground font-medium">{sold}</span>
+                          {capacity > 0 ? ` of ${capacity} tickets` : " tickets"}
+                          {Number(event.price || 0) > 0 && ` · ${formatMoney(Number(event.price), event.currency || undefined)}`}
+                        </span>
+                        {capacity > 0 && <span className="text-[13px] font-medium tabular-nums">{filled}%</span>}
                       </div>
-                      {event.venue && (
-                        <div className="flex items-center gap-1.5">
-                          <MapPin className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">{event.venue}{event.location ? `, ${event.location}` : ""}</span>
+                      {capacity > 0 && (
+                        <div className="meter mt-2.5" role="img" aria-label={`${filled}% of tickets taken`}>
+                          {filled > 0 && <div className="meter-fill" style={{ width: `${filled}%` }} />}
+                          <div className="meter-mark" />
+                          <div className="meter-rest" />
                         </div>
                       )}
-                    </div>
-
-                    {/* Footer — ticket count + action buttons */}
-                    <div
-                      className="flex items-center justify-between pt-3 mt-auto border-t border-border"
-                      onClick={(e) => e.stopPropagation()} // prevent card navigation when clicking action row
-                    >
-                      <span className="text-[12px] text-muted-foreground">
-                        {event.tickets_sold ?? 0}/{event.capacity || "∞"} tickets
-                        {Number(event.price || 0) > 0 && ` · ${formatMoney(Number(event.price), event.currency || undefined)}`}
-                      </span>
-
-                      <div className="flex items-center gap-1">
-                        {/* Manage button — primary action */}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 rounded-lg text-[12px] px-2.5 gap-1"
-                          onClick={() => navigate(eventPath)}
-                        >
-                          Manage <ArrowRight className="h-3 w-3" />
-                        </Button>
-
-                        {/* Edit icon */}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          title="Quick edit"
-                          onClick={(e) => { e.stopPropagation(); openEditForm(event); }}
-                        >
-                          <Edit className="h-3.5 w-3.5" />
-                        </Button>
-
-                        {/* Delete icon */}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          title="Delete event"
-                          onClick={(e) => { e.stopPropagation(); deleteEvent(event.id); }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                        </Button>
-                      </div>
                     </div>
                   </div>
                 </motion.div>

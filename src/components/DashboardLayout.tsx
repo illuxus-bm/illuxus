@@ -2,6 +2,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import { DashboardTopBar } from "@/components/DashboardTopBar";
+import { useShellChrome } from "@/components/layout/ShellChrome";
 import { useLocation } from "react-router-dom";
 
 /**
@@ -25,22 +26,20 @@ import { useLocation } from "react-router-dom";
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const isAdminRoute = pathname.startsWith("/dashboard/admin");
+  useShellChrome();
 
   return (
     <SidebarProvider>
-      {/* `app-shell` (index.css): grey canvas, neutral palette, and the page
-          on one white rounded panel. */}
-      <div className="app-shell min-h-screen flex flex-col w-full">
-        <DashboardTopBar />
-
-        <div className="flex flex-1 w-full">
-          {isAdminRoute ? <AdminSidebar /> : <AppSidebar />}
-          <main className="app-shell-panel flex-1 overflow-y-auto">
-            <div className="p-4 lg:p-6">
-              {children}
-            </div>
-          </main>
-        </div>
+      {/* `app-shell` (index.css): grey canvas with the sidebar on it, and the
+          page — top bar included — on one white rounded panel. */}
+      <div className="app-shell min-h-screen flex w-full">
+        {isAdminRoute ? <AdminSidebar /> : <AppSidebar />}
+        <main className="app-shell-panel flex-1">
+          <DashboardTopBar inPanel />
+          <div className="p-4 lg:p-6">
+            {children}
+          </div>
+        </main>
       </div>
     </SidebarProvider>
   );

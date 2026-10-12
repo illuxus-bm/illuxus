@@ -10,6 +10,7 @@ import {
   ScrollText, Edit, BarChart3, LogOut,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
+import { ShellSidebarHeader } from "@/components/layout/ShellChrome";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -91,7 +92,8 @@ export function AdminSidebar() {
 
   return (
     <Sidebar collapsible="icon" className="!border-r-0 bg-sidebar">
-      <SidebarContent className="pt-3 pb-2 flex flex-col">
+      <ShellSidebarHeader />
+      <SidebarContent className="pt-1 pb-2 flex flex-col">
 
         {/* Super admin identity badge */}
         {!collapsed && (
