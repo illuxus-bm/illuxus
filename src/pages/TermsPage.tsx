@@ -255,7 +255,7 @@ The affected party must promptly notify the other party of the force-majeure eve
   },
   {
     title: "21. Suspension, termination and effects",
-    body: `You may close your account at any time via Settings → Account → Close account, or by writing to support@illuxus.com.
+    body: `You may close your account at any time by sending a deletion request from Settings → Account, from illuxus.com/data-deletion, or by writing to support@illuxus.com.
 
 Illuxus may suspend or terminate your account or restrict your access immediately if:
 
@@ -463,7 +463,8 @@ export default function TermsPage() {
             Private Limited under Section 10A of the Information Technology Act, 2000, and are
             governed by Indian law. Companion documents:{" "}
             <a href="/privacy" className="text-primary hover:underline">Privacy Policy</a>,{" "}
-            <a href="/cookies" className="text-primary hover:underline">Cookie Policy</a>, and{" "}
+            <a href="/cookies" className="text-primary hover:underline">Cookie Policy</a>,{" "}
+            <a href="/refunds" className="text-primary hover:underline">Refund Policy</a>, and{" "}
             <a href="/gdpr" className="text-primary hover:underline">GDPR Notice</a>.
           </p>
           <p>

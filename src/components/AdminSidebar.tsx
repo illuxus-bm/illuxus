@@ -10,6 +10,7 @@ import {
   ScrollText, Edit, BarChart3, LogOut,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
+import { ShellSidebarHeader } from "@/components/layout/ShellChrome";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -90,8 +91,9 @@ export function AdminSidebar() {
   };
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-border/60 bg-sidebar">
-      <SidebarContent className="pt-3 pb-2 flex flex-col">
+    <Sidebar collapsible="icon" className="!border-r-0 bg-sidebar">
+      <ShellSidebarHeader />
+      <SidebarContent className="pt-1 pb-2 flex flex-col">
 
         {/* Super admin identity badge */}
         {!collapsed && (
@@ -111,7 +113,7 @@ export function AdminSidebar() {
           <div key={group.group}>
             {gi > 0 && <SidebarSeparator className="my-2 mx-3" />}
             <SidebarGroup className="py-0">
-              <SidebarGroupLabel className="h-6 text-[10px] uppercase tracking-widest text-muted-foreground/60 font-bold px-3 mb-1">
+              <SidebarGroupLabel className="h-7 text-[12px] text-muted-foreground/80 font-medium px-4 mb-0.5">
                 {!collapsed && group.group}
               </SidebarGroupLabel>
               <SidebarGroupContent>
@@ -125,8 +127,8 @@ export function AdminSidebar() {
                       >
                         <NavLink
                           to={item.url}
-                          className="h-8 px-2.5 text-[13px] rounded-md transition-colors duration-100 text-muted-foreground hover:text-foreground hover:bg-secondary gap-2 font-medium"
-                          activeClassName="bg-secondary text-foreground font-semibold"
+                          className="h-9 px-3 text-[13px] rounded-xl transition-colors duration-100 text-muted-foreground hover:text-foreground gap-2.5 font-medium"
+                          activeClassName="shell-nav-active font-semibold"
                         >
                           <item.icon className="h-[15px] w-[15px] shrink-0" />
                           {!collapsed && <span>{item.title}</span>}

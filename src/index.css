@@ -452,6 +452,16 @@
   }
 }
 
+/* ===== Keyboard focus =====
+   Every interactive element shows a clear ring when reached with the
+   keyboard. `:focus-visible` keeps it off for mouse clicks. Components that
+   draw their own ring (the shadcn controls set `outline: none` and use
+   `ring-*`) are unaffected: their rule is more specific than this one. */
+:where(a, button, summary, [role="button"], [role="tab"], [role="switch"], [role="menuitem"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
 /* ===== Recharts focus outline suppression =====
    Recharts paints a default browser focus ring around its <svg> surface and
    interactive sectors/bars when clicked, which renders as a stray rectangle
@@ -504,4 +514,215 @@
 .recharts-dot:focus-visible {
   stroke: hsl(var(--ring)) !important;
   stroke-width: 2px !important;
+}
+/* Soft scrolling — used by the Creatives page.
+   The scrollbar is hidden but the area still scrolls by touch, wheel,
+   trackpad and keyboard. Because nothing shows that more content exists,
+   `SoftScroll` fades whichever edges have content beyond them (it sets the
+   data-fade-* attributes) and offers arrow buttons on pointer devices. */
+.scroll-soft {
+  --fade-l: 0px;
+  --fade-r: 0px;
+  --fade-t: 0px;
+  --fade-b: 0px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+  -webkit-mask-image:
+    linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent),
+    linear-gradient(to bottom, transparent, #000 var(--fade-t), #000 calc(100% - var(--fade-b)), transparent);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent),
+    linear-gradient(to bottom, transparent, #000 var(--fade-t), #000 calc(100% - var(--fade-b)), transparent);
+  mask-composite: intersect;
+}
+.scroll-soft::-webkit-scrollbar { display: none; }
+.scroll-soft[data-fade-l] { --fade-l: 28px; }
+.scroll-soft[data-fade-r] { --fade-r: 28px; }
+.scroll-soft[data-fade-t] { --fade-t: 28px; }
+.scroll-soft[data-fade-b] { --fade-b: 28px; }
+
+/* While the Creatives page is open the page itself scrolls the same way. */
+html.page-scroll-soft {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-behavior: smooth;
+}
+html.page-scroll-soft::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-soft,
+  html.page-scroll-soft { scroll-behavior: auto; }
+}
+
+/* ─── Signed-in app shell ──────────────────────────────────────────────────
+   The dashboard look: a soft grey canvas carrying the header and sidebar,
+   with the page itself on one large white rounded panel. Inside the shell
+   the palette is neutral (no violet tint) and corners are rounder, so every
+   dashboard page picks the look up from the tokens it already uses.
+   Dialogs and menus render outside the shell and keep the base tokens. */
+.app-shell {
+  --shell: 60 5% 95%;
+  --background: 0 0% 100%;
+  --foreground: 0 0% 7%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 7%;
+  --primary: 0 0% 7%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 60 5% 96%;
+  --secondary-foreground: 0 0% 7%;
+  --muted: 60 5% 96%;
+  --muted-foreground: 0 0% 42%;
+  --border: 60 5% 92.5%;
+  --input: 60 4% 89%;
+  --ring: 0 0% 25%;
+  --radius: 0.875rem;
+  /* The sidebar runs the full height of the window; the top bar lives inside
+     the panel, and sticky content clears it by this much. */
+  --sidebar-top: 0px;
+  --app-header-h: 4.25rem;
+  --sidebar-background: 60 5% 95%;
+  --sidebar-foreground: 0 0% 40%;
+  --sidebar-accent: 0 0% 100%;
+  --sidebar-accent-foreground: 0 0% 7%;
+  --sidebar-border: 60 4% 89%;
+  --sidebar-ring: 0 0% 25%;
+  background: hsl(var(--shell));
+  color: hsl(var(--foreground));
+}
+.dark .app-shell {
+  --shell: 0 0% 5%;
+  --background: 0 0% 8%;
+  --foreground: 0 0% 98%;
+  --card: 0 0% 10.5%;
+  --card-foreground: 0 0% 98%;
+  --primary: 0 0% 98%;
+  --primary-foreground: 0 0% 7%;
+  --secondary: 0 0% 14%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 0 0% 14%;
+  --muted-foreground: 0 0% 64%;
+  --border: 0 0% 17%;
+  --input: 0 0% 19%;
+  --ring: 0 0% 80%;
+  --sidebar-background: 0 0% 5%;
+  --sidebar-foreground: 0 0% 66%;
+  --sidebar-accent: 0 0% 13%;
+  --sidebar-accent-foreground: 0 0% 98%;
+  --sidebar-border: 0 0% 15%;
+  --sidebar-ring: 0 0% 80%;
+}
+
+/* The header sits on the canvas, not on its own white bar. */
+.app-shell header.app-chrome {
+  background-color: hsl(var(--shell));
+  border-bottom-color: transparent;
+}
+
+/* The white panel every page sits on. `overflow: clip` rounds what is
+   inside it without stopping sticky content from following the page. */
+.app-shell-panel {
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border) / 0.9);
+  border-radius: 1.25rem;
+  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.03), 0 12px 40px -24px hsl(0 0% 0% / 0.12);
+  margin: 0.5rem;
+  min-width: 0;
+  overflow: clip;
+}
+@media (min-width: 768px) {
+  .app-shell-panel {
+    border-radius: 1.75rem;
+    margin: 0.75rem 0.75rem 0.75rem 0;
+  }
+}
+
+/* Top bar: first row of the panel, and stays put while the page scrolls. */
+.shell-topbar {
+  background: hsl(var(--background) / 0.92);
+  backdrop-filter: saturate(1.4) blur(10px);
+}
+
+/* Page titles: large, light and tight, as one consistent voice. */
+.app-shell-panel h1.tracking-tight:is(.text-base, .text-lg, .text-xl) {
+  font-size: 1.75rem;
+  line-height: 1.15;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+.app-shell-panel h1.tracking-tight:is(.text-base, .text-lg, .text-xl) + p {
+  margin-top: 0.3rem;
+  font-size: 0.875rem;
+}
+
+/* Cards: rounder, with a whisper of depth instead of a hard outline. */
+.app-shell-panel .bg-card.border:is(.rounded-lg, .rounded-xl, .rounded-2xl) {
+  border-radius: 1.25rem;
+  border-color: hsl(var(--border) / 0.9);
+  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.025);
+}
+.app-shell-panel .bg-card.border h2.text-sm.font-semibold {
+  font-size: 1.0625rem;
+  line-height: 1.3;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+/* Meter: the filled part is a soft gradient, a marker shows the value, and
+   fine ticks show what is left. */
+.meter { display: flex; align-items: stretch; height: 1.75rem; gap: 3px; }
+.meter-sm { height: 1.125rem; }
+.meter-fill {
+  border-radius: 3px;
+  background: linear-gradient(90deg, hsl(350 90% 90%), hsl(48 90% 88%) 55%, hsl(140 60% 76%));
+  min-width: 2px;
+}
+.dark .meter-fill { background: linear-gradient(90deg, hsl(350 50% 42%), hsl(48 50% 44%) 55%, hsl(140 45% 42%)); }
+.meter-mark { width: 1.5px; background: hsl(var(--foreground)); border-radius: 1px; flex-shrink: 0; }
+.meter-rest {
+  flex: 1;
+  min-width: 0;
+  background: repeating-linear-gradient(90deg, hsl(var(--foreground) / 0.16) 0 1px, transparent 1px 5px);
+}
+
+/* Sidebar: no divider line; the current page is a white pill. */
+.app-shell [data-sidebar="menu-button"][data-active="true"],
+.app-shell .shell-nav-active {
+  background: hsl(var(--sidebar-accent));
+  color: hsl(var(--sidebar-accent-foreground));
+  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.05), 0 0 0 1px hsl(var(--sidebar-border) / 0.7);
+}
+
+/* Round icon buttons in the header (search, notifications). */
+.shell-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.25rem;
+  width: 2.25rem;
+  border-radius: 9999px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  transition: color 0.15s, background-color 0.15s;
+}
+.shell-icon-btn:hover { color: hsl(var(--foreground)); background: hsl(var(--muted)); }
+
+/* Sign-in brand panel: a deep brand tone that opens into soft green and
+   peach light at the foot, where the headline sits. */
+.login-art {
+  background:
+    radial-gradient(80% 55% at 12% 108%, hsl(140 62% 70% / 0.95), transparent 70%),
+    radial-gradient(75% 50% at 96% 104%, hsl(22 95% 76% / 0.9), transparent 68%),
+    radial-gradient(60% 40% at 50% 62%, hsl(262 60% 62% / 0.35), transparent 75%),
+    linear-gradient(170deg, hsl(258 44% 8%) 0%, hsl(258 42% 15%) 48%, hsl(262 38% 26%) 100%);
+}
+.login-art h2, .login-art p { text-shadow: 0 1px 16px hsl(258 41% 7% / 0.4); }
+.login-art-card {
+  background: hsl(0 0% 100% / 0.92);
+  box-shadow: 0 40px 80px -30px hsl(258 60% 4% / 0.7), 0 0 0 1px hsl(0 0% 100% / 0.4);
+  transform: rotate(-3deg);
 }

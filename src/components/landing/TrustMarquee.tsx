@@ -7,18 +7,23 @@ import { useTilt, useViewportProgress } from "@/components/landing/motion";
 import type { TestimonialItem } from "@/lib/site-content";
 
 /**
- * Social proof: two counter-moving rows of names that also slide with the
- * page scroll, followed by the testimonials from site content.
+ * Two counter-moving rows of words that also slide with the page scroll,
+ * followed by any testimonials from site content.
+ *
+ * The rows name what the platform does. They used to list company names as
+ * if those companies were customers; none of that was real, so it is gone.
+ * Customer names and quotes belong here only when they are genuine — add
+ * them as testimonials in the site editor.
  */
 const FALLBACK_LOGOS = [
-  "TechCrunch",
-  "Summit Global",
-  "DevConf",
-  "Forge Labs",
-  "Northwind",
-  "Helios",
-  "Lumen",
-  "Acme",
+  "Ticketing",
+  "QR check-in",
+  "Webinars",
+  "Speakers",
+  "Sponsors",
+  "Badges",
+  "Communities",
+  "Analytics",
 ];
 
 const EDGE_FADE = "linear-gradient(to right, transparent, #000 12%, #000 88%, transparent)";
@@ -97,10 +102,10 @@ export function TrustMarquee() {
     <section
       ref={section}
       id="testimonials"
-      aria-label="Trusted by event teams worldwide"
+      aria-label="What the platform covers"
       className="relative scroll-mt-[var(--app-header-h)] border-y border-border bg-background py-20 sm:py-28"
     >
-      <p className="eyebrow mb-8 text-center text-muted-foreground">Trusted by event teams worldwide</p>
+      <p className="eyebrow mb-8 text-center text-muted-foreground">Everything an event needs</p>
       <div className="space-y-2 overflow-hidden" style={{ maskImage: EDGE_FADE, WebkitMaskImage: EDGE_FADE }}>
         <div ref={rowA}>
           <NameRow />

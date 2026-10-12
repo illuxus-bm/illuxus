@@ -778,7 +778,7 @@ function LandingPagesTab() {
               icon: Layout,
               label: "Edit Landing Page",
               desc: "Customize colors, layout, and content",
-              to: "/dashboard/landing-builder",
+              to: "/dashboard/organization?tab=landing",
               variant: "default" as const,
             },
             {

@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { publicOrigin } from "@/lib/publicUrl";
 import { captureUtm, loadStoredUtm } from "@/lib/utm";
+import { ConsentCheckbox, CONSENT_REQUIRED_MESSAGE, LegalLink } from "@/components/ConsentCheckbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,6 +46,9 @@ const LoginPage = () => {
   // them on the profile via the new-user trigger so users skip the
   // "Complete your profile" page entirely.
   const [signUpStep, setSignUpStep] = useState<1 | 2>(1);
+  // Agreement to the Terms and Privacy Policy, required to create an account.
+  const [agreed, setAgreed] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
   const [person, setPerson] = useState<PersonFields>(emptyPersonFields());
   const [twoFactor, setTwoFactor] = useState<{ open: boolean; email: string; nextRoute: string }>({
     open: false, email: "", nextRoute: "/dashboard",
@@ -255,6 +259,11 @@ const LoginPage = () => {
         setLoading(false);
         return;
       }
+      if (!agreed) {
+        setConsentError(CONSENT_REQUIRED_MESSAGE);
+        setLoading(false);
+        return;
+      }
       // Read First_Touch_UTM from Attribution_Storage and thread it through
       // `options.data` so the `handle_new_user` trigger can stamp the five
       // UTM_Fields onto the new `profiles` row (Requirements 5.1, 5.3). A
@@ -277,6 +286,8 @@ const LoginPage = () => {
           // lost and they land in onboarding instead of the workspace.
           emailRedirectTo: signupRedirectTo(),
           data: {
+            // When the Terms and Privacy Policy were accepted, kept with the account.
+            terms_accepted_at: new Date().toISOString(),
             account_type: accountType,
             title: personCheck.data.title || "",
             first_name: personCheck.data.first_name,
@@ -448,10 +459,42 @@ const LoginPage = () => {
         : "Sign In";
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="absolute top-4 right-4 z-10">
+    <div className="app-shell min-h-screen flex p-2.5 sm:p-4">
+      <div className="absolute top-5 right-5 sm:top-7 sm:right-7 z-10">
         <ThemeToggle size="sm" />
       </div>
+      <div className="flex-1 grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] rounded-3xl border border-border bg-background overflow-hidden">
+        {/* Brand panel — large screens only */}
+        <aside className="login-art hidden lg:flex relative m-3 rounded-[1.75rem] overflow-hidden flex-col justify-between p-10 text-white" aria-hidden="true">
+          <IlluxusWordmark height={26} variant="dark" className="self-start" ariaLabel="" />
+
+          {/* Decorative: the shape of an event card, not real data. */}
+          <div className="login-art-card self-center w-full max-w-[19rem] rounded-3xl p-3">
+            <div className="flex aspect-[16/9] items-center justify-center rounded-2xl bg-white/60">
+              <div className="flex flex-col items-center rounded-2xl bg-white px-5 py-3 shadow-[0_10px_30px_-12px_rgb(0_0_0/0.3)]">
+                <span className="h-2 w-8 rounded-full bg-neutral-200" />
+                <span className="mt-2 h-6 w-9 rounded-md bg-neutral-900" />
+              </div>
+            </div>
+            <div className="px-2 pb-2 pt-4">
+              <span className="block h-3 w-40 rounded-full bg-neutral-900/85" />
+              <span className="mt-2 block h-2 w-28 rounded-full bg-neutral-900/25" />
+              <div className="meter mt-5">
+                <div className="meter-fill" style={{ width: "62%" }} />
+                <div className="meter-mark" style={{ background: "#111" }} />
+                <div className="meter-rest" style={{ background: "repeating-linear-gradient(90deg, rgb(0 0 0 / 0.2) 0 1px, transparent 1px 5px)" }} />
+              </div>
+            </div>
+          </div>
+
+          <div className="max-w-md">
+            <h2 className="text-[34px] leading-[1.12] font-medium tracking-[-0.035em] text-white">Plan, promote &amp; run events with illuxus.</h2>
+            <p className="mt-4 text-[15px] leading-relaxed text-white/85">
+              Your all-in-one platform for events, ticketing, webinars and community.
+            </p>
+          </div>
+        </aside>
+        <div className="flex items-center justify-center px-4 py-16 sm:p-8">
       <div className="w-full max-w-sm">
         <TwoFactorChallengeDialog
           open={twoFactor.open}
@@ -468,11 +511,11 @@ const LoginPage = () => {
           title="Verify it's you"
           description={`Enter the 6-digit code we sent to ${twoFactor.email} to finish signing in.`}
         />
-        <div className="text-center mb-8">
-          <a href="/" className="inline-flex items-center gap-2 mb-4" aria-label={brandName}>
+        <div className="text-center mb-7">
+          <a href="/" className="inline-flex items-center gap-2 mb-6 lg:hidden" aria-label={brandName}>
             <IlluxusWordmark height={26} ariaLabel="" />
           </a>
-          <p className="text-muted-foreground text-sm">{title}</p>
+          <h1 className="text-[28px] leading-tight font-medium tracking-[-0.035em]">{title}</h1>
         </div>
 
         {claimingTicket && !mustChangePassword && (
@@ -484,7 +527,7 @@ const LoginPage = () => {
           </div>
         )}
 
-        <div className="bg-card border border-border rounded-xl p-6">
+        <div className="bg-card border border-border/80 rounded-3xl p-6 sm:p-7 shadow-[0_24px_60px_-40px_rgb(0_0_0/0.35)]">
           {/* ── Sign-up email verification code ─── */}
           {verifyEmail ? (
             <form
@@ -802,6 +845,16 @@ const LoginPage = () => {
                 {isSignUp && signUpStep === 2 && (
                   <PersonFieldsForm value={{ ...person, email }} onChange={(v) => setPerson(v)} hideEmail />
                 )}
+                {isSignUp && signUpStep === 2 && (
+                  <ConsentCheckbox
+                    checked={agreed}
+                    onCheckedChange={(value) => {
+                      setAgreed(value);
+                      if (value) setConsentError(null);
+                    }}
+                    error={consentError}
+                  />
+                )}
                 <Button
                   type="submit"
                   className="w-full h-9 text-sm font-medium"
@@ -847,6 +900,8 @@ const LoginPage = () => {
             <ArrowLeft className="h-3 w-3" />
             Back to home
           </a>
+        </div>
+      </div>
         </div>
       </div>
     </div>

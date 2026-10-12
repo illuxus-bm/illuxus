@@ -162,8 +162,8 @@ const Sidebar = React.forwardRef<
           data-sidebar="sidebar"
           data-mobile="true"
           // Open below the app header so it stays visible (and tappable to close).
-          className="top-[var(--app-header-h)] h-[calc(100dvh-var(--app-header-h))] w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground shadow-xl [&>button]:hidden"
-          overlayClassName="top-[var(--app-header-h)] bg-black/40"
+          className="top-[var(--sidebar-top,var(--app-header-h))] h-[calc(100dvh-var(--sidebar-top,var(--app-header-h)))] w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground shadow-xl [&>button]:hidden"
+          overlayClassName="top-[var(--sidebar-top,var(--app-header-h))] bg-black/40"
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
@@ -200,7 +200,7 @@ const Sidebar = React.forwardRef<
       <div
         className={cn(
           // Sits directly under the sticky app header instead of behind it.
-          "fixed top-[var(--app-header-h)] bottom-0 z-10 hidden h-[calc(100svh-var(--app-header-h))] w-[--sidebar-width] transition-[left,right,width] duration-200 ease-linear md:flex",
+          "fixed top-[var(--sidebar-top,var(--app-header-h))] bottom-0 z-10 hidden h-[calc(100svh-var(--sidebar-top,var(--app-header-h)))] w-[--sidebar-width] transition-[left,right,width] duration-200 ease-linear md:flex",
           side === "left"
             ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
             : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { Cookie, ChevronDown, ChevronUp, Shield } from "lucide-react";
@@ -38,24 +38,58 @@ function saveDecision(d: ConsentDecision) {
   }
 }
 
+/** Fired to reopen the banner so a choice can be reviewed or changed. */
+const OPEN_EVENT = "illuxus:open-cookie-settings";
+
+/** Reopens the cookie banner — wired to the "Cookie settings" footer link. */
+export function openCookieSettings(): void {
+  window.dispatchEvent(new Event(OPEN_EVENT));
+}
+
 /**
- * GDPR-compliant cookie consent banner.
- * Renders at the bottom-right on desktop, full-width on mobile.
- * Animates in with a slide-up; respects prefers-reduced-motion.
- * Stores the decision under `illuxus:cookie-consent` in localStorage.
+ * Cookie consent banner.
+ *
+ * Non-essential cookies are OFF until the visitor turns them on: nothing is
+ * pre-selected, rejecting is as prominent and as quick as accepting, and
+ * "Accept all" means all. The choice can be changed at any time from the
+ * "Cookie settings" link in the footer, which reopens this banner showing
+ * what was chosen.
+ *
+ * Renders bottom-right on desktop, full-width on mobile; respects
+ * prefers-reduced-motion. The decision is stored under
+ * `illuxus:cookie-consent` in localStorage and read by `useCookieConsent`.
  */
 export function CookieConsent() {
   const [visible, setVisible] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [analyticsOn, setAnalyticsOn] = useState(true);
+  const [analyticsOn, setAnalyticsOn] = useState(false);
   const [marketingOn, setMarketingOn] = useState(false);
+  // Whether a choice already exists — only then may the banner be dismissed
+  // without making one.
+  const [decided, setDecided] = useState(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   // Only show after mount so SSR / hydration is stable
   useEffect(() => {
     const decision = readDecision();
-    if (!decision) {
+    if (!decision) setVisible(true);
+    else setDecided(true);
+  }, []);
+
+  // Reopened from the footer: show the stored choice, expanded, and move
+  // keyboard focus to the banner since the user asked for it.
+  useEffect(() => {
+    const reopen = () => {
+      const decision = readDecision();
+      setAnalyticsOn(decision?.analytics ?? false);
+      setMarketingOn(decision?.marketing ?? false);
+      setDecided(decision !== null);
+      setExpanded(true);
       setVisible(true);
-    }
+      requestAnimationFrame(() => headingRef.current?.focus());
+    };
+    window.addEventListener(OPEN_EVENT, reopen);
+    return () => window.removeEventListener(OPEN_EVENT, reopen);
   }, []);
 
   const prefersReducedMotion =
@@ -68,27 +102,17 @@ export function CookieConsent() {
     exit: { y: prefersReducedMotion ? 0 : 16, opacity: 0 },
   };
 
-  const handleAccept = () => {
-    const d: ConsentDecision = {
-      consent: "accepted",
-      analytics: analyticsOn,
-      marketing: marketingOn,
+  const decide = (analytics: boolean, marketing: boolean) => {
+    saveDecision({
+      consent: analytics || marketing ? "accepted" : "declined",
+      analytics,
+      marketing,
       timestamp: Date.now(),
-    };
-    saveDecision(d);
-    logger.info("cookie-consent accepted", { analytics: analyticsOn, marketing: marketingOn });
-    setVisible(false);
-  };
-
-  const handleDecline = () => {
-    const d: ConsentDecision = {
-      consent: "declined",
-      analytics: false,
-      marketing: false,
-      timestamp: Date.now(),
-    };
-    saveDecision(d);
-    logger.info("cookie-consent declined");
+    });
+    logger.info("cookie-consent saved", { analytics, marketing });
+    setAnalyticsOn(analytics);
+    setMarketingOn(marketing);
+    setDecided(true);
     setVisible(false);
   };
 
@@ -104,7 +128,12 @@ export function CookieConsent() {
           transition={{ duration: prefersReducedMotion ? 0 : 0.28, ease: "easeOut" }}
           role="dialog"
           aria-modal="false"
-          aria-label="Cookie consent"
+          aria-labelledby="cookie-banner-title"
+          aria-describedby="cookie-banner-text"
+          onKeyDown={(event) => {
+            // Escape closes a reopened banner; a first-time banner needs an answer.
+            if (event.key === "Escape" && decided) setVisible(false);
+          }}
           className={[
             "fixed z-50 bottom-4 right-4 left-4",
             "sm:left-auto sm:w-[480px]",
@@ -116,13 +145,17 @@ export function CookieConsent() {
           {/* Header row */}
           <div className="flex items-start gap-3 mb-3">
             <div className="mt-0.5 h-8 w-8 shrink-0 rounded-lg bg-accent/15 flex items-center justify-center">
-              <Cookie className="h-4 w-4 text-accent" />
+              <Cookie className="h-4 w-4 text-accent" aria-hidden="true" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-foreground leading-snug">
-                We use cookies to improve your experience and collect analytics.{" "}
-                <Link to="/privacy" className="underline underline-offset-2 text-accent hover:text-foreground">
-                  Learn more
+              <h2 id="cookie-banner-title" ref={headingRef} tabIndex={-1} className="text-sm font-semibold text-foreground outline-none">
+                Cookies on this site
+              </h2>
+              <p id="cookie-banner-text" className="mt-1 text-[13px] text-muted-foreground leading-snug">
+                We use essential cookies to keep you signed in. With your permission we also use analytics and marketing
+                cookies. You can change this at any time.{" "}
+                <Link to="/cookies" className="underline underline-offset-2 text-foreground hover:text-accent">
+                  Cookie policy
                 </Link>
               </p>
             </div>
@@ -130,12 +163,14 @@ export function CookieConsent() {
 
           {/* Manage preferences toggle */}
           <button
+            type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mb-3"
+            className="flex items-center gap-1 rounded text-xs text-muted-foreground hover:text-foreground transition-colors mb-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-expanded={expanded}
+            aria-controls="cookie-banner-preferences"
           >
-            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            Manage preferences
+            {expanded ? <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />}
+            Choose which cookies
           </button>
 
           {/* Expanded preferences */}
@@ -143,6 +178,7 @@ export function CookieConsent() {
             {expanded && (
               <motion.div
                 key="prefs"
+                id="cookie-banner-preferences"
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: "auto", opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
@@ -152,7 +188,7 @@ export function CookieConsent() {
                 <div className="space-y-2 mb-4 border border-border rounded-xl p-3 bg-muted/40">
                   {/* Essential */}
                   <CookieCategory
-                    icon={<Shield className="h-3.5 w-3.5 text-green-500" />}
+                    icon={<Shield className="h-3.5 w-3.5 text-green-500" aria-hidden="true" />}
                     label="Essential cookies"
                     description="Required for authentication and security. Cannot be disabled."
                     enabled={true}
@@ -177,22 +213,18 @@ export function CookieConsent() {
             )}
           </AnimatePresence>
 
-          {/* Action buttons */}
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              className="flex-1 text-xs h-8"
-              onClick={handleAccept}
-            >
-              Accept all
+          {/* Action buttons — rejecting is as easy as accepting. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" variant="outline" className="flex-1 text-xs h-8" onClick={() => decide(false, false)}>
+              Reject non-essential
             </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="flex-1 text-xs h-8"
-              onClick={handleDecline}
-            >
-              Decline
+            {expanded && (
+              <Button type="button" size="sm" variant="outline" className="flex-1 text-xs h-8" onClick={() => decide(analyticsOn, marketingOn)}>
+                Save my choices
+              </Button>
+            )}
+            <Button type="button" size="sm" className="flex-1 text-xs h-8" onClick={() => decide(true, true)}>
+              Accept all
             </Button>
           </div>
         </motion.div>
@@ -231,8 +263,10 @@ function CookieCategory({ icon, label, description, enabled, locked, onChange }:
           </span>
         ) : (
           <button
+            type="button"
             role="switch"
             aria-checked={enabled}
+            aria-label={label}
             onClick={() => onChange?.(!enabled)}
             className={[
               "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",

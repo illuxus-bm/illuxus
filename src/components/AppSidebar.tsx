@@ -1,9 +1,10 @@
 import {
   Calendar, Settings, Ticket,
-  Megaphone, FileText, HelpCircle, CreditCard, Layout, Users,
-  ChevronsUpDown, Check, type LucideIcon,
+  Megaphone, FileText, HelpCircle, CreditCard, Building2, Users,
+  ChevronsUpDown, Check,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
+import { ShellSidebarHeader } from "@/components/layout/ShellChrome";
 import { useLocation } from "react-router-dom";
 import { useOrg, PLAN_DETAILS } from "@/contexts/OrgContext";
 
@@ -16,7 +17,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar";
 import {
@@ -24,38 +24,32 @@ import {
   DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 
-type NavItem = { title: string; hint: string; url: string; icon: LucideIcon };
-
-// Grouped by the job the organiser is doing, in the order an event runs:
-// plan it, fill it, promote it, then measure it.
-const planItems: NavItem[] = [
-  { title: "Events", hint: "Create and manage events", url: "/dashboard/events", icon: Calendar },
+const mainItems = [
+  { title: "Events",    url: "/dashboard/events",    icon: Calendar   },
+  { title: "Community", url: "/community",           icon: Users      },
+  { title: "Reports",   url: "/dashboard/reports",   icon: FileText   },
 ];
 
-const peopleItems: NavItem[] = [
-  { title: "Tickets",   hint: "Sales and attendees",    url: "/dashboard/tickets", icon: Ticket },
-  { title: "Community", hint: "Talk to your audience",  url: "/community",         icon: Users  },
+const attendeeItems = [
+  { title: "Tickets",   url: "/dashboard/tickets",   icon: Ticket  },
 ];
 
-const promoteItems: NavItem[] = [
-  { title: "Marketing",    hint: "Campaigns and emails",  url: "/dashboard/marketing",       icon: Megaphone },
-  { title: "Landing Page", hint: "Design your public page", url: "/dashboard/landing-builder", icon: Layout    },
+const manageItems = [
+  { title: "Marketing",    url: "/dashboard/marketing",      icon: Megaphone },
+  { title: "Organization", url: "/dashboard/organization",   icon: Building2 },
 ];
 
-const measureItems: NavItem[] = [
-  { title: "Reports", hint: "Numbers and exports", url: "/dashboard/reports", icon: FileText },
-];
 
-const accountItems: NavItem[] = [
-  { title: "Billing",  hint: "Plan and invoices",   url: "/dashboard/billing",  icon: CreditCard },
-  { title: "Settings", hint: "Workspace and team",  url: "/dashboard/settings", icon: Settings   },
-  { title: "Help",     hint: "Guides and support",  url: "/dashboard/help",     icon: HelpCircle },
+
+const bottomItems = [
+  { title: "Billing",  url: "/dashboard/billing",  icon: CreditCard },
+  { title: "Settings", url: "/dashboard/settings", icon: Settings   },
+  { title: "Help",     url: "/dashboard/help",     icon: HelpCircle },
 ];
 
 export function AppSidebar() {
-  const { state, isMobile } = useSidebar();
-  // The mobile sheet is always full width, whatever the desktop rail is set to.
-  const collapsed = state === "collapsed" && !isMobile;
+  const { state } = useSidebar();
+  const collapsed = state === "collapsed";
   const location = useLocation();
   const { org, memberships, setActiveOrg, myRole } = useOrg();
   const planName = PLAN_DETAILS[org?.plan || "free"]?.name || "Free";
@@ -70,8 +64,9 @@ export function AppSidebar() {
   const isViewer = role === "viewer";
   const isOwnerOrAdmin = role === "owner" || role === "admin";
 
-  const visiblePromoteItems = isViewer ? [] : promoteItems;
-  const visibleAccountItems = accountItems.filter((item) => {
+  // Viewers keep Organization: it is where they read the details and brand kit.
+  const visibleManageItems = isViewer ? manageItems.filter((item) => item.title === "Organization") : manageItems;
+  const visibleBottomItems = bottomItems.filter((item) => {
     if (item.title === "Billing") return isOwnerOrAdmin;
     return true;
   });
@@ -89,54 +84,30 @@ export function AppSidebar() {
     return location.pathname.startsWith(path);
   };
 
-  const renderItems = (items: NavItem[]) =>
+  const renderItems = (items: typeof mainItems) =>
     items.map((item) => (
       <SidebarMenuItem key={item.title}>
-        <SidebarMenuButton
-          asChild
-          isActive={isActive(item.url)}
-          tooltip={item.title}
-          className="group/nav h-auto gap-2.5 rounded-xl px-2 py-1.5 text-muted-foreground transition-colors duration-150 hover:bg-secondary hover:text-foreground data-[active=true]:bg-secondary data-[active=true]:text-foreground"
-        >
-          <NavLink to={item.url} end={item.url === "/dashboard"}>
-            {collapsed ? (
-              <item.icon className="h-4 w-4 shrink-0" />
-            ) : (
-              <>
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-border bg-background transition-colors group-data-[active=true]/nav:border-accent/45 group-data-[active=true]/nav:bg-accent/10 group-data-[active=true]/nav:text-accent">
-                  <item.icon className="h-4 w-4" strokeWidth={1.9} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-semibold leading-tight text-foreground">{item.title}</p>
-                  <p className="truncate text-[11px] leading-tight text-muted-foreground">{item.hint}</p>
-                </div>
-              </>
-            )}
+        <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
+          <NavLink
+            to={item.url}
+            end={item.url === "/dashboard"}
+            className="h-9 px-3 text-[13px] rounded-xl transition-colors duration-100 text-muted-foreground hover:text-foreground gap-2.5 font-medium"
+            activeClassName="shell-nav-active font-semibold"
+          >
+            <item.icon className="h-[15px] w-[15px] shrink-0" />
+            {!collapsed && <span>{item.title}</span>}
           </NavLink>
         </SidebarMenuButton>
       </SidebarMenuItem>
     ));
 
-  const renderGroup = (label: string, items: NavItem[]) =>
-    items.length > 0 && (
-      <SidebarGroup className="py-0">
-        {!collapsed && (
-          <SidebarGroupLabel className="eyebrow mb-0.5 mt-3 h-6 px-3 !text-[10px] text-muted-foreground/70">
-            {label}
-          </SidebarGroupLabel>
-        )}
-        <SidebarGroupContent>
-          <SidebarMenu className="gap-0.5 px-1">{renderItems(items)}</SidebarMenu>
-        </SidebarGroupContent>
-      </SidebarGroup>
-    );
-
   return (
-    <Sidebar collapsible="icon" className="app-chrome border-r border-border/60 bg-sidebar">
-      <SidebarContent className="pt-3 pb-2 flex flex-col">
+    <Sidebar collapsible="icon" className="app-chrome !border-r-0 bg-sidebar">
+      <ShellSidebarHeader />
+      <SidebarContent className="pt-1 pb-2 flex flex-col">
         {/* Workspace switcher */}
         {!collapsed && org && (
-          <div className="mx-3 mb-1 rounded-xl border border-border bg-background p-1">
+          <div className="mx-3 mb-2">
             {memberships.length <= 1 ? (
               // Single workspace — render a static label, no dropdown clutter.
               <div className="flex items-center gap-2.5 px-2 py-1.5">
@@ -200,7 +171,7 @@ export function AppSidebar() {
                   ))}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild className="text-[12px]">
-                    <NavLink to="/dashboard/settings">Manage workspaces</NavLink>
+                    <NavLink to="/dashboard/organization">Manage organization</NavLink>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -208,16 +179,50 @@ export function AppSidebar() {
           </div>
         )}
 
-        {renderGroup("Plan", planItems)}
-        {renderGroup("People", peopleItems)}
-        {renderGroup("Promote", visiblePromoteItems)}
-        {renderGroup("Measure", measureItems)}
+        <SidebarGroup className="py-0">
+          <SidebarGroupLabel className="h-7 text-[12px] text-muted-foreground/80 font-medium px-4 mb-0.5">
+            {!collapsed && "Main"}
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-1 px-2">{renderItems(mainItems)}</SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <div className="h-3" />
+
+        <SidebarGroup className="py-0">
+          <SidebarGroupLabel className="h-7 text-[12px] text-muted-foreground/80 font-medium px-4 mb-0.5">
+            {!collapsed && "People"}
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-1 px-2">{renderItems(attendeeItems)}</SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <div className="h-3" />
+
+        {visibleManageItems.length > 0 && (
+          <SidebarGroup className="py-0">
+            <SidebarGroupLabel className="h-7 text-[12px] text-muted-foreground/80 font-medium px-4 mb-0.5">
+              {!collapsed && "Manage"}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu className="gap-1 px-2">{renderItems(visibleManageItems)}</SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+
 
         <div className="mt-auto" />
 
-        <SidebarSeparator className="mx-3 mt-3" />
+        <div className="h-3" />
 
-        <div className="pb-1">{renderGroup("Account", visibleAccountItems)}</div>
+        <SidebarGroup className="py-0 pb-1">
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-1 px-2">{renderItems(visibleBottomItems)}</SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
     </Sidebar>
   );

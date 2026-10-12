@@ -85,13 +85,6 @@ const HOME_JSON_LD = {
         "AI matchmaking",
         "White-label and SSO",
       ],
-      aggregateRating: {
-        "@type": "AggregateRating",
-        ratingValue: "4.9",
-        reviewCount: "187",
-        bestRating: "5",
-        worstRating: "1",
-      },
     },
     {
       "@type": "Product",
@@ -111,47 +104,6 @@ const HOME_JSON_LD = {
         availability: "https://schema.org/InStock",
         url: "https://illuxus.com/pricing",
       },
-      aggregateRating: {
-        "@type": "AggregateRating",
-        ratingValue: "4.9",
-        reviewCount: "187",
-        bestRating: "5",
-        worstRating: "1",
-      },
-      review: [
-        {
-          "@type": "Review",
-          author: { "@type": "Person", name: "Conference organizer (Bangalore)" },
-          reviewRating: { "@type": "Rating", ratingValue: "5", bestRating: "5" },
-          reviewBody:
-            "We migrated a 5,000-attendee summit from Eventbrite + Zoom to illuxus in three weeks. UPI checkout was the deciding factor — conversion went up the moment we switched.",
-          datePublished: "2026-02-14",
-        },
-        {
-          "@type": "Review",
-          author: { "@type": "Person", name: "Workshop founder (Mumbai)" },
-          reviewRating: { "@type": "Rating", ratingValue: "5", bestRating: "5" },
-          reviewBody:
-            "GST invoicing is automatic, refunds are one click, and the WhatsApp reminders drove our show-up rate from 62% to 84%. Worth the platform fee on day one.",
-          datePublished: "2026-03-09",
-        },
-        {
-          "@type": "Review",
-          author: { "@type": "Person", name: "Community manager (Delhi)" },
-          reviewRating: { "@type": "Rating", ratingValue: "5", bestRating: "5" },
-          reviewBody:
-            "The post-event community keeps our attendees engaged for months after the conference. We retired Slack for our event communities and never looked back.",
-          datePublished: "2026-04-22",
-        },
-        {
-          "@type": "Review",
-          author: { "@type": "Person", name: "Marketing lead (SaaS company)" },
-          reviewRating: { "@type": "Rating", ratingValue: "5", bestRating: "5" },
-          reviewBody:
-            "Built-in webinars on LiveKit are noticeably crisper than Zoom Webinars, and the recordings are searchable. The lead capture form pushed 1,800 SQLs into HubSpot from a single webinar.",
-          datePublished: "2026-05-18",
-        },
-      ],
     },
     {
       "@type": "ItemList",

@@ -4,13 +4,14 @@ import { useOrg } from "@/contexts/OrgContext";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import SiteHeader from "@/components/SiteHeader";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import {
-  User, Shield, Bell, Building2, Users, Mail, Trash2, UserPlus, Crown, ShieldCheck, Eye, UserCog, Upload, X, Loader2
+  User, Shield, Bell, Users, Mail, Trash2, UserPlus, Crown, ShieldCheck, Eye, UserCog, Upload, X, Loader2
 } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -58,7 +59,7 @@ const roleBadgeColor = (role: string) => {
 
 const SettingsPage = () => {
   const { user, isAdmin, accountType } = useAuth();
-  const { org, refreshOrg } = useOrg();
+  const { org } = useOrg();
   const { toast } = useToast();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [person, setPerson] = useState<PersonFields>(emptyPersonFields());
@@ -67,11 +68,6 @@ const SettingsPage = () => {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState("profile");
-
-  // Org details
-  const [orgName, setOrgName] = useState("");
-  const [orgBillingEmail, setOrgBillingEmail] = useState("");
-  const [savingOrg, setSavingOrg] = useState(false);
 
   // Team
   const [members, setMembers] = useState<any[]>([]);
@@ -109,13 +105,6 @@ const SettingsPage = () => {
         }
       });
   }, [user]);
-
-  useEffect(() => {
-    if (org) {
-      setOrgName(org.name);
-      setOrgBillingEmail(org.billing_email || "");
-    }
-  }, [org]);
 
   useEffect(() => {
     if (activeTab === "team" && org) fetchTeam();
@@ -210,24 +199,6 @@ const SettingsPage = () => {
     setAvatarUrl("");
     await supabase.from("profiles").update({ avatar_url: null }).eq("user_id", user.id);
     toast({ title: "Photo removed" });
-  };
-
-  const handleSaveOrg = async () => {
-    if (!org) return;
-    setSavingOrg(true);
-    const { error } = await supabase
-      .from("organizations")
-      .update({
-        name: orgName.trim(),
-        billing_email: orgBillingEmail || null,
-      })
-      .eq("id", org.id);
-    setSavingOrg(false);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-    else {
-      toast({ title: "Organization updated" });
-      await refreshOrg();
-    }
   };
 
   const handleInvite = async () => {
@@ -562,7 +533,6 @@ const SettingsPage = () => {
   const tabs = [
     { id: "profile", label: "Profile", icon: User },
     ...(org ? [
-      { id: "organization", label: "Organization", icon: Building2 },
       { id: "team", label: "Team", icon: Users },
     ] : []),
     { id: "account", label: "Account", icon: Shield },
@@ -577,7 +547,7 @@ const SettingsPage = () => {
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Settings</h1>
           <p className="text-[13px] text-muted-foreground">
-            {isAttendee ? "Manage your profile and account" : "Manage your account, organization, and team"}
+            {isAttendee ? "Manage your profile and account" : "Manage your profile, team and account"}
           </p>
         </div>
 
@@ -660,47 +630,6 @@ const SettingsPage = () => {
                 <Button onClick={handleSaveProfile} disabled={saving} size="sm" className="h-8 text-[13px]">
                   {saving ? "Saving..." : "Save Changes"}
                 </Button>
-              </div>
-            )}
-
-            {/* Organization Tab */}
-            {activeTab === "organization" && org && (
-              <div className="space-y-4">
-                <div className="bg-card border border-border rounded-lg p-5 space-y-5">
-                  <div>
-                    <h2 className="text-sm font-semibold">Organization Details</h2>
-                    <p className="text-[12px] text-muted-foreground mt-0.5">Manage your workspace information</p>
-                  </div>
-                  <div className="space-y-3">
-                    <div>
-                      <Label className="text-[13px]">Organization Name</Label>
-                      <Input value={orgName} onChange={(e) => setOrgName(e.target.value)} className="mt-1 h-8 text-sm" disabled={!canManageOrg} />
-                    </div>
-                    <div>
-                      <Label className="text-[13px]">Billing Email</Label>
-                      <Input value={orgBillingEmail} onChange={(e) => setOrgBillingEmail(e.target.value)} className="mt-1 h-8 text-sm" disabled={!canManageOrg} placeholder="billing@example.com" />
-                    </div>
-                  </div>
-                  {canManageOrg && (
-                    <Button onClick={handleSaveOrg} disabled={savingOrg} size="sm" className="h-8 text-[13px]">
-                      {savingOrg ? "Saving..." : "Save Changes"}
-                    </Button>
-                  )}
-                </div>
-
-                <div className="bg-card border border-border rounded-lg p-5 space-y-3">
-                  <h2 className="text-sm font-semibold">Plan & Usage</h2>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3 rounded-md bg-muted/30 border border-border">
-                      <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">Current Plan</p>
-                      <p className="text-sm font-semibold mt-0.5 capitalize">{org.plan}</p>
-                    </div>
-                    <div className="p-3 rounded-md bg-muted/30 border border-border">
-                      <p className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium">Owner</p>
-                      <p className="text-sm font-semibold mt-0.5 truncate">{user?.email}</p>
-                    </div>
-                  </div>
-                </div>
               </div>
             )}
 
@@ -858,6 +787,16 @@ const SettingsPage = () => {
                     <Label className="text-[13px]">Role</Label>
                     <Input value={isAdmin ? "Admin" : "User"} disabled className="mt-1 h-8 text-sm bg-muted/30" />
                   </div>
+                </div>
+                <div className="border-t border-border pt-4">
+                  <h3 className="text-[13px] font-semibold">Delete my data</h3>
+                  <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
+                    Ask us to permanently delete your account and personal data. Our privacy team confirms the request
+                    and writes back to you; you can track it with the reference you are given.
+                  </p>
+                  <Button asChild variant="outline" size="sm" className="mt-3 h-8 text-[12px] text-destructive hover:text-destructive">
+                    <Link to="/data-deletion">Request deletion of my data</Link>
+                  </Button>
                 </div>
               </div>
             )}

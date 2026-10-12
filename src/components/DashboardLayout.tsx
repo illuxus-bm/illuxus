@@ -2,9 +2,8 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import { DashboardTopBar } from "@/components/DashboardTopBar";
+import { useShellChrome } from "@/components/layout/ShellChrome";
 import { useLocation } from "react-router-dom";
-// Shares the landing page canvas (drafting grid, poster headlines).
-import "@/components/landing/landing.css";
 
 /**
  * Standard dashboard chrome.
@@ -27,22 +26,20 @@ import "@/components/landing/landing.css";
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const isAdminRoute = pathname.startsWith("/dashboard/admin");
+  useShellChrome();
 
   return (
     <SidebarProvider>
-      <div className="relative min-h-screen flex flex-col w-full playful-app-bg">
-        {/* Drafting grid from the landing page, fixed so content glides over it. */}
-        <div aria-hidden="true" className="blueprint-grid pointer-events-none fixed inset-0 z-0" />
-        <DashboardTopBar />
-
-        <div className="relative flex flex-1 w-full">
-          {isAdminRoute ? <AdminSidebar /> : <AppSidebar />}
-          <main className="relative z-[1] flex-1 min-w-0 overflow-y-auto">
-            <div className="p-4 sm:p-6 lg:p-8">
-              {children}
-            </div>
-          </main>
-        </div>
+      {/* `app-shell` (index.css): grey canvas with the sidebar on it, and the
+          page — top bar included — on one white rounded panel. */}
+      <div className="app-shell min-h-screen flex w-full">
+        {isAdminRoute ? <AdminSidebar /> : <AppSidebar />}
+        <main className="app-shell-panel flex-1">
+          <DashboardTopBar inPanel />
+          <div className="p-4 lg:p-6">
+            {children}
+          </div>
+        </main>
       </div>
     </SidebarProvider>
   );

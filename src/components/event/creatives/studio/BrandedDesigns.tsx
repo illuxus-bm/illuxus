@@ -39,6 +39,7 @@ import {
   STUDIO_SIZES, exportStudioPng, formatStudioDate, loadStudioImage, sizeById, studioFilename,
   type StudioSpec,
 } from "@/lib/creatives/studio/studio-render";
+import { SoftScroll } from "./SoftScroll";
 import { StudioPreview, StudioThumb } from "./StudioCanvas";
 
 interface EventInfo {
@@ -316,51 +317,66 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
     </>
   );
 
+  const chip = (active: boolean) =>
+    `shrink-0 snap-start inline-flex items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-medium transition-colors ${active ? "bg-foreground text-background border-foreground" : "bg-card border-border text-muted-foreground hover:text-foreground"}`;
+  const tile = (active: boolean) =>
+    `rounded-lg border text-left transition-colors ${active ? "border-foreground ring-1 ring-foreground" : "border-border hover:border-foreground/40"}`;
+
   return (
-    <div className="pb-20 lg:pb-0">
+    <div className="pb-24 lg:pb-0">
       {/* What is this graphic about */}
-      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" role="tablist" aria-label="What to create">
+      <SoftScroll arrows activeKey={kind} role="tablist" aria-label="What to create" className="flex gap-2 overflow-x-auto snap-x p-0.5">
         {KINDS.map((k) => (
           <button
             key={k.id}
             role="tab"
             aria-selected={kind === k.id}
             onClick={() => switchKind(k.id)}
-            className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3.5 h-10 sm:h-9 text-[13px] font-medium transition-colors ${kind === k.id ? "bg-foreground text-background border-foreground" : "bg-card border-border text-muted-foreground hover:text-foreground"}`}
+            className={`${chip(kind === k.id)} h-10 sm:h-9`}
           >
             <k.icon className="h-3.5 w-3.5" /> {k.label}
           </button>
         ))}
-      </div>
+      </SoftScroll>
 
-      <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)] lg:items-start">
+      <div className="mt-4 grid gap-4 lg:gap-6 lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,440px)_minmax(0,1fr)] lg:items-start">
         {/* Preview — first on phones, right-hand and sticky on large screens */}
-        <div className="lg:order-2 lg:sticky lg:top-[calc(var(--app-header-h,4rem)+1rem)] space-y-3 min-w-0">
-          {blocker ? (
-            <div className="rounded-xl border border-dashed border-border py-14 px-4 text-center text-[13px] text-muted-foreground">{blocker}</div>
-          ) : (
-            <StudioPreview spec={spec} size={size} />
-          )}
-          <div className="flex gap-1.5 overflow-x-auto pb-1 justify-start sm:justify-center" role="radiogroup" aria-label="Size">
-            {STUDIO_SIZES.map((s) => (
-              <button
-                key={s.id}
-                role="radio"
-                aria-checked={sizeId === s.id}
-                onClick={() => setSizeId(s.id)}
-                title={s.hint}
-                className={`shrink-0 rounded-lg border px-3 py-1.5 text-left transition-colors ${sizeId === s.id ? "border-foreground bg-foreground/5" : "border-border hover:border-foreground/40"}`}
-              >
-                <span className="block text-[12px] font-medium leading-tight">{s.name}</span>
-                <span className="block text-[10px] text-muted-foreground leading-tight">{s.width}×{s.height}</span>
-              </button>
-            ))}
+        <section aria-label="Preview" className="lg:order-2 lg:sticky lg:top-[calc(var(--app-header-h,4rem)+1rem)] min-w-0 overflow-hidden rounded-2xl border border-border bg-card">
+          <div className="border-b border-border px-4 py-3">
+            <p className="truncate text-[13px] font-medium text-foreground">{design.layout.name} <span className="font-normal text-muted-foreground">· {design.kit.name}</span></p>
+            <p className="truncate text-[11px] text-muted-foreground">{size.name} · {size.width}×{size.height} px</p>
           </div>
-          <div className="hidden lg:flex justify-center gap-2">{actions}</div>
-        </div>
+          <div className="flex items-center justify-center bg-muted/40 p-4 sm:p-6">
+            {blocker ? (
+              <p className="max-w-xs py-14 text-center text-[13px] text-muted-foreground">{blocker}</p>
+            ) : (
+              <StudioPreview spec={spec} size={size} maxHeightVh={54} />
+            )}
+          </div>
+          <div className="border-t border-border px-3 py-2.5">
+            <SoftScroll arrows activeKey={sizeId} role="radiogroup" aria-label="Size" className="overflow-x-auto snap-x p-0.5">
+              <div className="mx-auto flex w-max gap-1.5">
+                {STUDIO_SIZES.map((s) => (
+                  <button
+                    key={s.id}
+                    role="radio"
+                    aria-checked={sizeId === s.id}
+                    onClick={() => setSizeId(s.id)}
+                    title={s.hint}
+                    className={`shrink-0 snap-start rounded-lg border px-3 py-1.5 text-left transition-colors ${sizeId === s.id ? "border-foreground bg-foreground/5" : "border-border hover:border-foreground/40"}`}
+                  >
+                    <span className="block text-[12px] font-medium leading-tight">{s.name}</span>
+                    <span className="block text-[10px] text-muted-foreground leading-tight">{s.width}×{s.height}</span>
+                  </button>
+                ))}
+              </div>
+            </SoftScroll>
+          </div>
+          <div className="hidden flex-wrap justify-center gap-2 border-t border-border px-3 py-3 lg:flex">{actions}</div>
+        </section>
 
         {/* Controls */}
-        <div className="lg:order-1 min-w-0">
+        <section aria-label="Options" className="lg:order-1 min-w-0 rounded-2xl border border-border bg-card p-3 sm:p-4">
           <Tabs defaultValue="design">
             <TabsList className="grid grid-cols-3 w-full">
               <TabsTrigger value="design">Design</TabsTrigger>
@@ -368,7 +384,7 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
               <TabsTrigger value="text">Text</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="design" className="space-y-4 mt-4">
+            <TabsContent value="design" className="space-y-5 mt-4">
               {kind === "speaker" && people.length > 0 && (
                 <div className="space-y-1.5">
                   <Label className={LABEL}>Speaker</Label>
@@ -390,11 +406,11 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
               {kind === "lineup" && people.length > 0 && (
                 <fieldset className="space-y-1.5">
                   <legend className={LABEL}>Speakers to include ({lineup.length} of {MAX_LINEUP} max)</legend>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 max-h-48 overflow-y-auto rounded-lg border border-border p-2">
+                  <SoftScroll wrapperClassName="rounded-lg border border-border" className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 max-h-48 overflow-y-auto px-2.5 py-1.5">
                     {people.map((p) => {
                       const checked = lineupIds.includes(p.id);
                       return (
-                        <label key={p.id} className="flex items-center gap-2 py-1.5 text-[13px] cursor-pointer min-w-0">
+                        <label key={p.id} className="flex items-center gap-2 py-2 sm:py-1.5 text-[13px] cursor-pointer min-w-0">
                           <Checkbox
                             checked={checked}
                             disabled={!checked && lineupIds.length >= MAX_LINEUP}
@@ -404,7 +420,7 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
                         </label>
                       );
                     })}
-                  </div>
+                  </SoftScroll>
                 </fieldset>
               )}
 
@@ -413,27 +429,35 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
                   <p className={LABEL}>Design</p>
                   <p className="text-[11px] text-muted-foreground">{shownDesigns.length} of {designs.length} designs</p>
                 </div>
-                <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1" role="radiogroup" aria-label="Style">
+                <SoftScroll arrows activeKey={styleId} role="radiogroup" aria-label="Style" className="flex gap-1.5 overflow-x-auto snap-x p-0.5">
                   {[{ id: "all", name: "All styles" }, ...STUDIO_KITS].map((k) => (
                     <button
                       key={k.id}
                       role="radio"
                       aria-checked={styleId === k.id}
                       onClick={() => setStyleId(k.id)}
-                      className={`shrink-0 rounded-full border px-3 h-9 sm:h-8 text-[12px] font-medium transition-colors ${styleId === k.id ? "bg-foreground text-background border-foreground" : "border-border text-muted-foreground hover:text-foreground"}`}
+                      className={`${chip(styleId === k.id)} h-9 sm:h-8 !px-3 !text-[12px]`}
                     >
                       {k.name}
                     </button>
                   ))}
-                </div>
-                <div className="grid grid-cols-3 gap-2 max-h-[26rem] lg:max-h-[30rem] overflow-y-auto overscroll-contain rounded-lg border border-border p-2" role="radiogroup" aria-label="Design">
+                </SoftScroll>
+                {/* Phones and tablets swipe sideways through two rows of designs;
+                    beside the preview on large screens the list scrolls down. */}
+                <SoftScroll
+                  arrows
+                  activeKey={`${kind}:${styleId}:${design.id}`}
+                  role="radiogroup"
+                  aria-label="Design"
+                  className="grid grid-flow-col grid-rows-2 auto-cols-[calc((100%-1rem)/3.3)] sm:auto-cols-[calc((100%-2.5rem)/5.3)] gap-2 overflow-x-auto snap-x p-0.5 lg:grid-flow-row lg:grid-rows-none lg:auto-cols-auto lg:grid-cols-3 lg:overflow-x-hidden lg:overflow-y-auto lg:max-h-[30rem]"
+                >
                   {shownDesigns.map((d) => (
                     <button
                       key={d.id}
                       role="radio"
                       aria-checked={design.id === d.id}
                       onClick={() => setDesignId(d.id)}
-                      className={`relative rounded-lg border p-1.5 text-left transition-colors ${design.id === d.id ? "border-foreground ring-1 ring-foreground" : "border-border hover:border-foreground/40"}`}
+                      className={`relative snap-start p-1.5 min-w-0 ${tile(design.id === d.id)}`}
                     >
                       <StudioThumb spec={{ ...spec, design: d }} size={STUDIO_SIZES[0]} />
                       <span className="block mt-1.5 text-[11px] font-medium leading-tight truncate">{d.layout.name}</span>
@@ -441,19 +465,19 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
                       {design.id === d.id && <span className="absolute top-2.5 right-2.5 h-4 w-4 rounded-full bg-foreground text-background flex items-center justify-center"><Check className="h-3 w-3" /></span>}
                     </button>
                   ))}
-                </div>
+                </SoftScroll>
               </div>
 
               <div className="space-y-1.5">
                 <p className={LABEL}>Type style</p>
-                <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Type style">
+                <div className="grid grid-cols-2 min-[360px]:grid-cols-4 gap-2" role="radiogroup" aria-label="Type style">
                   {FONT_PAIRS.map((f) => (
                     <button
                       key={f.id}
                       role="radio"
                       aria-checked={fontId === f.id}
                       onClick={() => setFontId(f.id)}
-                      className={`rounded-lg border h-11 sm:h-10 text-[13px] transition-colors ${fontId === f.id ? "border-foreground bg-foreground/5 font-semibold" : "border-border hover:border-foreground/40"}`}
+                      className={`rounded-lg border h-11 sm:h-10 px-1 text-[13px] truncate transition-colors ${fontId === f.id ? "border-foreground bg-foreground/5 font-semibold" : "border-border hover:border-foreground/40"}`}
                       style={{ fontFamily: `"${f.display}", sans-serif` }}
                     >
                       {f.name}
@@ -473,7 +497,7 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
                       role="radio"
                       aria-checked={active}
                       onClick={() => setPaletteId(p.id)}
-                      className={`rounded-lg border p-1.5 text-left transition-colors ${active ? "border-foreground ring-1 ring-foreground" : "border-border hover:border-foreground/40"}`}
+                      className={`p-1.5 min-w-0 ${tile(active)}`}
                     >
                       <span className="relative block h-10 rounded-md overflow-hidden ring-1 ring-black/10" style={{ background: `linear-gradient(135deg, ${p.bg}, ${p.bg2})` }}>
                         <span className="absolute right-1.5 bottom-1.5 h-4 w-4 rounded-full ring-2 ring-white/70" style={{ background: p.accent }} />
@@ -506,31 +530,33 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
               </div>
             </TabsContent>
 
-            <TabsContent value="text" className="space-y-3 mt-4">
-              {([
-                ["eyebrow", "Label", "e.g. Keynote speaker"],
-                ["eventTitle", "Event name", ""],
-                ["tagline", kind === "sponsor" ? "Headline" : "Tagline", kind === "sponsor" ? "e.g. Proud to partner with" : "A short line about the event"],
-                ["dateLabel", "Date", "e.g. 16 Oct 2026"],
-                ["venueLabel", "Venue", "e.g. JW Marriott, Pune"],
-                ...(kind === "event" || kind === "lineup" ? [["cta", "Button text", "Leave empty to hide the button"] as const] : []),
-              ] as const).map(([key, label, placeholder]) => (
-                <div key={key} className="space-y-1.5">
-                  <Label htmlFor={`studio-${key}`} className={LABEL}>{label}</Label>
-                  <Input id={`studio-${key}`} value={content[key] as string} onChange={(e) => setField(key, e.target.value)} placeholder={placeholder} className={FIELD} maxLength={140} />
-                </div>
-              ))}
-              <p className="text-[12px] text-muted-foreground">
+            <TabsContent value="text" className="mt-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                {([
+                  ["eyebrow", "Label", "e.g. Keynote speaker"],
+                  ["eventTitle", "Event name", ""],
+                  ["tagline", kind === "sponsor" ? "Headline" : "Tagline", kind === "sponsor" ? "e.g. Proud to partner with" : "A short line about the event"],
+                  ["dateLabel", "Date", "e.g. 16 Oct 2026"],
+                  ["venueLabel", "Venue", "e.g. JW Marriott, Pune"],
+                  ...(kind === "event" || kind === "lineup" ? [["cta", "Button text", "Leave empty to hide the button"] as const] : []),
+                ] as const).map(([key, label, placeholder]) => (
+                  <div key={key} className="space-y-1.5 min-w-0">
+                    <Label htmlFor={`studio-${key}`} className={LABEL}>{label}</Label>
+                    <Input id={`studio-${key}`} value={content[key] as string} onChange={(e) => setField(key, e.target.value)} placeholder={placeholder} className={FIELD} maxLength={140} />
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-[12px] text-muted-foreground">
                 Empty fields are left out of the design. {kind === "speaker" ? "Speaker name, role and company come from the speaker's profile." : ""}
               </p>
             </TabsContent>
           </Tabs>
-        </div>
+        </section>
       </div>
 
       {/* Phone: actions always within reach */}
-      <div className="lg:hidden fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 backdrop-blur px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] flex gap-2">
-        {actions}
+      <div className="lg:hidden fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 backdrop-blur px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <div className="mx-auto flex max-w-xl gap-2">{actions}</div>
       </div>
     </div>
   );

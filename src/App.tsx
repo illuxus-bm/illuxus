@@ -19,6 +19,7 @@ import { logger } from "@/lib/observability";
 import { PWAUpdatePrompt } from "@/components/pwa/PWAUpdatePrompt";
 import { PWAInstallPrompt } from "@/components/pwa/PWAInstallPrompt";
 import { CookieConsent } from "@/components/CookieConsent";
+import { SkipToContent } from "@/components/SkipToContent";
 // Eagerly-loaded landing & auth pages (small + needed for first paint / SEO)
 import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
@@ -55,6 +56,8 @@ const ContactPage = lazyWithLog("ContactPage", () => import("./pages/ContactPage
 const PrivacyPage = lazyWithLog("PrivacyPage", () => import("./pages/PrivacyPage.tsx"));
 const TermsPage = lazyWithLog("TermsPage", () => import("./pages/TermsPage.tsx"));
 const CookiePolicyPage = lazyWithLog("CookiePolicyPage", () => import("./pages/CookiePolicyPage.tsx"));
+const RefundPolicyPage = lazyWithLog("RefundPolicyPage", () => import("./pages/RefundPolicyPage.tsx"));
+const DataDeletionPage = lazyWithLog("DataDeletionPage", () => import("./pages/DataDeletionPage.tsx"));
 const GdprPage = lazyWithLog("GdprPage", () => import("./pages/GdprPage.tsx"));
 const DocumentationPage = lazyWithLog("DocumentationPage", () => import("./pages/DocumentationPage.tsx"));
 const FaqsPage = lazyWithLog("FaqsPage", () => import("./pages/FaqsPage.tsx"));
@@ -83,7 +86,7 @@ const CommunityModerationPage = lazyWithLog("CommunityModerationPage", () => imp
 const CommunitySettingsPage = lazyWithLog("CommunitySettingsPage", () => import("./pages/dashboard/community/CommunitySettingsPage.tsx"));
 const CommunityCommunicationsPage = lazyWithLog("CommunityCommunicationsPage", () => import("./pages/dashboard/community/CommunityCommunicationsPage.tsx"));
 const PublicOrgPage = lazyWithLog("PublicOrgPage", () => import("./pages/PublicOrgPage.tsx"));
-const LandingBuilderPage = lazyWithLog("LandingBuilderPage", () => import("./pages/dashboard/LandingBuilderPage.tsx"));
+const OrganizationPage = lazyWithLog("OrganizationPage", () => import("./pages/dashboard/OrganizationPage.tsx"));
 const DiscoverFeed = lazyWithLog("DiscoverFeed", () => import("./pages/DiscoverFeed.tsx"));
 const ProfilePage = lazyWithLog("ProfilePage", () => import("./pages/u/ProfilePage.tsx"));
 const MyEventsPage = lazyWithLog("MyEventsPage", () => import("./pages/u/MyEventsPage.tsx"));
@@ -298,6 +301,7 @@ const App = () => (
               <OrgProvider>
                 <SiteContentProvider>
                 <SiteHead />
+                <SkipToContent />
                 <LazyRouteBoundary>
                 <Suspense fallback={<FullPageLoader />}>
                 <Routes>
@@ -330,6 +334,9 @@ const App = () => (
                 <Route path="/privacy" element={<RouteErrorBoundary><PrivacyPage /></RouteErrorBoundary>} />
                 <Route path="/terms" element={<RouteErrorBoundary><TermsPage /></RouteErrorBoundary>} />
                 <Route path="/cookies" element={<RouteErrorBoundary><CookiePolicyPage /></RouteErrorBoundary>} />
+                <Route path="/refunds" element={<RouteErrorBoundary><RefundPolicyPage /></RouteErrorBoundary>} />
+                <Route path="/refund-policy" element={<Navigate to="/refunds" replace />} />
+                <Route path="/data-deletion" element={<RouteErrorBoundary><DataDeletionPage /></RouteErrorBoundary>} />
                 <Route path="/gdpr" element={<RouteErrorBoundary><GdprPage /></RouteErrorBoundary>} />
                 <Route path="/docs" element={<RouteErrorBoundary><DocumentationPage /></RouteErrorBoundary>} />
                 <Route path="/faqs" element={<RouteErrorBoundary><FaqsPage /></RouteErrorBoundary>} />
@@ -379,7 +386,9 @@ const App = () => (
                 <Route path="/dashboard/analytics" element={<RouteErrorBoundary><Navigate to="/dashboard/reports" replace /></RouteErrorBoundary>} />
                 <Route path="/dashboard/settings" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><SettingsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/marketing" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><MarketingPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/landing-builder" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><LandingBuilderPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/organization" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><OrganizationPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                {/* The landing page editor now lives under Organization. */}
+                <Route path="/dashboard/landing-builder" element={<RouteErrorBoundary><Navigate to="/dashboard/organization?tab=landing" replace /></RouteErrorBoundary>} />
                 <Route path="/dashboard/reports" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><ReportsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/help" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><HelpPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/billing" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><PricingPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />

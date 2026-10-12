@@ -51,7 +51,15 @@ const ATTENDEE_FILES = [
     // (see the `first_touch_utm attribution` block in the submit
     // handler). The edit is display-only and does not touch any UTM
     // code path.
-    hash: "b6dd2208a5de70ae4f645021a7f543f3b76a0aba4800cee5642da7b2dd0b51dc",
+    //
+    // Bumped again after adding the Terms / Refund / Privacy consent
+    // checkbox above the Register button. Re-audited against 6.1–6.3:
+    // the only change to the submit handler is an early return when the
+    // box is unticked, placed before any registration is created; once
+    // ticked, the handler runs exactly as before — `loadStoredUtm()`,
+    // the five utm_* columns on the insert, and `clearStoredUtm()` on
+    // success are untouched.
+    hash: "01e076c4e99d2afb814560e35a165c8060fb66dfe4aaab440f4b074551f051d3",
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",

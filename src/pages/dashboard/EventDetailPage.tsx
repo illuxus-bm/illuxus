@@ -46,6 +46,7 @@ import { useFxRates, formatConverted } from "@/lib/fx";
 import { CurrencySwitcher, getStoredDisplayCurrency } from "@/components/CurrencySwitcher";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { DashboardTopBar } from "@/components/DashboardTopBar";
+import { ShellSidebarHeader, useShellChrome } from "@/components/layout/ShellChrome";
 
 const BroadcastPageLazy = lazy(() => import("./event/BroadcastPage"));
 const ApplicationsSectionLazy = lazy(() => import("@/components/event/ApplicationsSection").then((m) => ({ default: m.ApplicationsSection })));
@@ -90,9 +91,10 @@ function EventSidebar({ active, onSelect, eventTitle, eventFormat, canAccessCrea
   );
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-border bg-card">
-      <SidebarContent className="pt-3">
-        <SidebarGroup>
+    <Sidebar collapsible="icon" className="!border-r-0 bg-sidebar">
+      <ShellSidebarHeader />
+      <SidebarContent className="pt-1">
+        <SidebarGroup className="px-3">
           <SidebarGroupContent>
             <SidebarMenu>
               {nav.map((item) => (
@@ -101,7 +103,7 @@ function EventSidebar({ active, onSelect, eventTitle, eventFormat, canAccessCrea
                     isActive={active === item.key}
                     tooltip={item.label}
                     onClick={() => onSelect(item.key)}
-                    className="cursor-pointer h-8 text-[13px]"
+                    className="cursor-pointer h-9 px-3 rounded-xl text-[13px]"
                   >
                     <item.icon className="h-4 w-4" />
                     {!collapsed && <span>{item.label}</span>}
@@ -119,6 +121,7 @@ function EventSidebar({ active, onSelect, eventTitle, eventFormat, canAccessCrea
 type Registration = Tables<"registrations">;
 
 const EventDetailPage = () => {
+  useShellChrome();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const goBack = useAppBack("/dashboard/events");
@@ -433,8 +436,7 @@ const EventDetailPage = () => {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex flex-col w-full bg-background">
-        <DashboardTopBar />
+      <div className="app-shell min-h-screen flex w-full">
         <div className="flex flex-1 w-full min-w-0">
           <EventSidebar active={activeSection} onSelect={async (k) => {
           if (k === "broadcast") { setActiveSection("broadcast"); return; }
@@ -453,9 +455,10 @@ const EventDetailPage = () => {
           setActiveSection(k);
         }} eventTitle={event.title} eventFormat={(event as any).event_format} canAccessCreatives={canAccessCreatives} canAccessBrochure={canAccessBrochure} />
 
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="app-shell-panel flex-1 flex flex-col">
+          <DashboardTopBar inPanel />
           {/* Header */}
-          <header className="border-b border-border bg-card/80 glass px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 min-w-0">
+          <header className="border-b border-border px-3 sm:px-5 py-3 flex items-center justify-between gap-2 min-w-0">
             <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
               <button
                 // Return to whichever in-app page navigated us here (Events
@@ -645,7 +648,7 @@ const EventDetailPage = () => {
                   <CurrencySwitcher value={displayCcy} onChange={setDisplayCcy} extra={[eventCurrency]} />
                 </div>
                 {/* Metric cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <MetricCard
                     label="Revenue"
                     value={
@@ -670,10 +673,10 @@ const EventDetailPage = () => {
                 </div>
 
                 {/* Charts row */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 select-none recharts-focus-safe">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 select-none recharts-focus-safe">
                   {/* Trend */}
-                  <div className="bg-card border border-border rounded-lg p-4">
-                    <h3 className="text-[13px] font-medium mb-3">Registration Trend</h3>
+                  <div className="bg-card border border-border rounded-lg p-5">
+                    <h3 className="text-[15px] font-medium tracking-tight mb-4">Registration Trend</h3>
                     <ResponsiveContainer width="100%" height={180}>
                       <AreaChart data={finalTrendData}>
                         <defs>
@@ -692,8 +695,8 @@ const EventDetailPage = () => {
                   </div>
 
                   {/* Donut */}
-                  <div className="bg-card border border-border rounded-lg p-4">
-                    <h3 className="text-[13px] font-medium mb-3">Ticket Distribution</h3>
+                  <div className="bg-card border border-border rounded-lg p-5">
+                    <h3 className="text-[15px] font-medium tracking-tight mb-4">Ticket Distribution</h3>
                     <div className="flex items-center gap-6">
                       <ResponsiveContainer width={130} height={130}>
                         <PieChart>
@@ -733,8 +736,8 @@ const EventDetailPage = () => {
                 </div>
 
                 {/* Quick actions */}
-                <div className="bg-card border border-border rounded-lg p-4">
-                  <h3 className="text-[13px] font-medium mb-1">Quick Actions</h3>
+                <div className="bg-card border border-border rounded-lg p-5">
+                  <h3 className="text-[15px] font-medium tracking-tight mb-1">Quick Actions</h3>
                   <p className="text-[12px] text-muted-foreground mb-3">Navigate to core event sections</p>
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
                     {[
@@ -844,10 +847,10 @@ const EventDetailPage = () => {
 
 function MetricCard({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
   return (
-    <div className="bg-card border border-border rounded-lg p-4">
-      <p className="text-[12px] text-muted-foreground">{label}</p>
-      <p className={`text-2xl font-semibold tracking-tight mt-1 ${color}`}>{value}</p>
-      <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>
+    <div className="bg-card border border-border rounded-lg p-5">
+      <p className="flex items-center gap-2 text-[13px] text-muted-foreground"><span className={`h-1.5 w-1.5 rounded-full bg-current ${color}`} />{label}</p>
+      <p className="text-[30px] leading-none font-medium tracking-tight mt-4 tabular-nums">{value}</p>
+      <p className="text-[12px] text-muted-foreground mt-2">{sub}</p>
     </div>
   );
 }

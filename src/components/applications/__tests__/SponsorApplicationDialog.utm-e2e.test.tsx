@@ -132,6 +132,8 @@ describe("SponsorApplicationDialog — UTM attribution end-to-end", () => {
     clickButton(/next/i);
 
     // Step 3 — Marketing assets. All optional; go straight to submit.
+    // The application can't be sent without agreeing to the terms.
+    fireEvent.click(screen.getByRole("checkbox"));
     clickButton(/submit application/i);
 
     await waitFor(() => {
