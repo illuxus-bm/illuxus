@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   LogOut, Bell, ChevronDown, ClipboardList, Handshake, Search, Ticket,
-  CalendarDays, Settings as SettingsIcon, Shield, X, Users2,
+  CalendarDays, Settings as SettingsIcon, Shield, X, Users2, Plus,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -307,20 +307,48 @@ export function DashboardTopBar(_props: DashboardTopBarProps = {}) {
 
       <AppHeaderBar
         brandName={brandName}
-        // Context badge — only on admin routes so the Super Admin control
-        // tower is never confused with the organiser dashboard.
-        leading={isAdminRoute ? (
-          <span className="hidden sm:inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-destructive/10 text-destructive border border-destructive/30">
-            <Shield className="h-2.5 w-2.5" /> Super Admin
-          </span>
-        ) : null}
+        // Same translucent bar as the landing page header.
+        className="bg-background/90 backdrop-blur-md"
+        leading={<>
+          {/* Context badge — only on admin routes so the Super Admin control
+              tower is never confused with the organiser dashboard. */}
+          {isAdminRoute && (
+            <span className="hidden sm:inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-destructive/10 text-destructive border border-destructive/30">
+              <Shield className="h-2.5 w-2.5" /> Super Admin
+            </span>
+          )}
+          {/* Search sits in the bar as a field from tablet up; phones keep
+              the icon button in the actions. Both open the same palette. */}
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="ml-3 hidden h-9 w-56 items-center gap-2 rounded-full border border-border bg-secondary/60 px-3.5 text-[13px] text-muted-foreground transition-colors hover:border-foreground/25 hover:text-foreground md:flex lg:w-80"
+            aria-label="Search events and attendees"
+          >
+            <Search className="h-3.5 w-3.5 shrink-0" />
+            <span className="flex-1 truncate text-left">Search events, attendees…</span>
+            <kbd className="rounded-md border border-border bg-background px-1.5 text-[10px] font-semibold">⌘K</kbd>
+          </button>
+        </>}
         actions={<>
+          {/* Primary action, like "Start for free" on the landing header. */}
+          {!isAdminRoute && (
+            <Link
+              to="/dashboard/events/new"
+              className="group mr-1 inline-flex h-8 w-8 items-center justify-center gap-1.5 rounded-full bg-primary text-[13px] font-semibold text-primary-foreground transition-colors duration-150 hover:bg-primary/90 active:scale-[0.98] sm:h-9 sm:w-auto sm:px-4"
+              aria-label="Create event"
+            >
+              <Plus className="h-4 w-4 shrink-0" />
+              <span className="hidden whitespace-nowrap sm:inline">Create event</span>
+            </Link>
+          )}
+
           <ThemeToggle size="sm" className="mr-1" />
 
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground md:hidden"
             onClick={() => setSearchOpen(true)}
             title="Search (⌘K)"
           >
@@ -338,7 +366,7 @@ export function DashboardTopBar(_props: DashboardTopBarProps = {}) {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground relative"
+                className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground relative"
                 title="Notifications"
               >
                 <Bell className="h-3.5 w-3.5" />
@@ -389,7 +417,7 @@ export function DashboardTopBar(_props: DashboardTopBarProps = {}) {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-1.5 h-8 pl-1 pr-2 rounded-md hover:bg-secondary transition-colors">
+              <button className="flex items-center gap-1.5 h-8 pl-1 pr-2 rounded-full hover:bg-secondary transition-colors">
                 {avatarUrl ? (
                   <img src={avatarUrl} alt={displayName} className="h-6 w-6 rounded-full object-cover" />
                 ) : (
