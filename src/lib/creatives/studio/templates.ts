@@ -31,7 +31,7 @@ import {
   type SceneNode,
   type TextNode,
 } from "./scene";
-import { DIRECTION_TEMPLATES, type StudioCategory } from "./directions";
+import { expandPosters, type StudioCategory } from "./variants";
 
 // ─── Formats ─────────────────────────────────────────────────────────────────
 
@@ -1965,16 +1965,19 @@ const POSTER_TEMPLATES: StudioTemplate[] = [
 ];
 
 /**
- * Every design: the art-directed directions first, then the reference
- * posters (filed under the kind of graphic they make).
+ * Every design the studio offers: each poster in its colourways, for each
+ * kind of graphic it suits (see `variants.ts`).
  */
-export const STUDIO_TEMPLATES: StudioTemplate[] = [
-  ...DIRECTION_TEMPLATES,
-  ...POSTER_TEMPLATES.map((t): StudioTemplate => ({ ...t, category: t.maxSpeakers === 1 ? "speaker" : "lineup", family: "Posters" })),
-];
+export const STUDIO_TEMPLATES: StudioTemplate[] = expandPosters(POSTER_TEMPLATES);
 
 export function findStudioTemplate(id: string): StudioTemplate {
-  return STUDIO_TEMPLATES.find((t) => t.id === id) ?? STUDIO_TEMPLATES[0];
+  // A bare poster id (saved before the designs had colourways) means that
+  // poster as it was: its original colours, for speakers.
+  return (
+    STUDIO_TEMPLATES.find((t) => t.id === id) ??
+    STUDIO_TEMPLATES.find((t) => t.id.startsWith(`${id}-speaker-`) || t.id.startsWith(`${id}-lineup-`)) ??
+    STUDIO_TEMPLATES[0]
+  );
 }
 
 export function findStudioFormat(id: string): StudioFormat {
@@ -1994,5 +1997,5 @@ export function studioFilename(subject: string, template: StudioTemplate, format
       .replace(/[^a-z0-9-]/g, "")
       .replace(/-+/g, "-")
       .replace(/^-+|-+$/g, "");
-  return `${slug(subject) || "creative"}-${slug(template.name)}-${slug(format.label)}.png`;
+  return `${slug(subject) || "creative"}-${slug(template.family ?? template.name)}-${slug(format.label)}.png`;
 }

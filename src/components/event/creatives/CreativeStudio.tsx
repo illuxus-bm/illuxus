@@ -2,8 +2,8 @@
  * CreativeStudio — pick what the graphic announces (the event, a speaker,
  * the line-up, a partner), pick a design, adjust anything, download.
  *
- * Designs are grouped by kind and by design direction (see
- * `lib/creatives/studio/directions.ts`). Every design is a scene of
+ * Designs are the poster layouts in several colourways, grouped by kind (see
+ * `lib/creatives/studio/variants.ts`). Every design is a scene of
  * individual elements, so each line, photo and shape can be selected on the
  * canvas and edited, moved, restyled or removed.
  *
@@ -46,7 +46,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { buildCreativeAssetRecord, insertCreativeAssetRecord, uploadCreativeAsset } from "@/lib/creatives/creative-storage";
 import { loadStudioData, type StudioData } from "@/lib/creatives/studio/data";
-import { STUDIO_CATEGORIES, type StudioCategory } from "@/lib/creatives/studio/directions";
+import { STUDIO_CATEGORIES, type StudioCategory } from "@/lib/creatives/studio/variants";
 import {
   addNode,
   applyEdits,
@@ -208,7 +208,7 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   /** The partner a partner graphic features; defaults to the event's first sponsor. */
   const [sponsorId, setSponsorId] = useState<string | null>(null);
-  /** Design direction shown in the picker ("all" for every direction). */
+  /** Layout shown in the picker ("all" for every layout). */
   const [family, setFamily] = useState("all");
   const [busy, setBusy] = useState<"download" | "save" | "batch" | null>(null);
   const [panel, setPanel] = useState("design");
@@ -309,7 +309,7 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
   }, [inputFor, template, featured, palette]);
   const scene = useMemo(() => (baseScene ? applyEdits(baseScene, edits) : null), [baseScene, edits]);
 
-  /** The designs offered for the current kind of graphic, and their directions. */
+  /** The designs offered for the current kind of graphic, and their layouts. */
   const options = useMemo(() => STUDIO_TEMPLATES.filter((t) => t.category === category), [category]);
   const families = useMemo(() => [...new Set(options.map((t) => t.family ?? "Other"))], [options]);
   const shown = useMemo(
@@ -626,7 +626,7 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
               {shown.length} of {options.length} designs
             </span>
           </div>
-          <div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-1" role="radiogroup" aria-label="Design direction">
+          <div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-1" role="radiogroup" aria-label="Layout">
             {["all", ...families].map((name) => (
               <button
                 key={name}
