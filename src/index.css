@@ -505,3 +505,45 @@
   stroke: hsl(var(--ring)) !important;
   stroke-width: 2px !important;
 }
+/* Soft scrolling — used by the Creatives page.
+   The scrollbar is hidden but the area still scrolls by touch, wheel,
+   trackpad and keyboard. Because nothing shows that more content exists,
+   `SoftScroll` fades whichever edges have content beyond them (it sets the
+   data-fade-* attributes) and offers arrow buttons on pointer devices. */
+.scroll-soft {
+  --fade-l: 0px;
+  --fade-r: 0px;
+  --fade-t: 0px;
+  --fade-b: 0px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+  -webkit-mask-image:
+    linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent),
+    linear-gradient(to bottom, transparent, #000 var(--fade-t), #000 calc(100% - var(--fade-b)), transparent);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent),
+    linear-gradient(to bottom, transparent, #000 var(--fade-t), #000 calc(100% - var(--fade-b)), transparent);
+  mask-composite: intersect;
+}
+.scroll-soft::-webkit-scrollbar { display: none; }
+.scroll-soft[data-fade-l] { --fade-l: 28px; }
+.scroll-soft[data-fade-r] { --fade-r: 28px; }
+.scroll-soft[data-fade-t] { --fade-t: 28px; }
+.scroll-soft[data-fade-b] { --fade-b: 28px; }
+
+/* While the Creatives page is open the page itself scrolls the same way. */
+html.page-scroll-soft {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-behavior: smooth;
+}
+html.page-scroll-soft::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-soft,
+  html.page-scroll-soft { scroll-behavior: auto; }
+}

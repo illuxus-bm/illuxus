@@ -86,7 +86,7 @@ export default function CreativeLibrary({ eventId, onCreate }: { eventId: string
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
         {rows.map((row) => (
           <figure key={row.id} className="overflow-hidden rounded-lg border border-border bg-card">
             <div className="flex aspect-square items-center justify-center bg-muted/50 p-2">

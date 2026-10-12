@@ -6,7 +6,7 @@
  * logos and colours (palettes are read from the banner). Pick, tweak,
  * download; works on a phone.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import CreativeLibrary from "@/components/event/creatives/CreativeLibrary";
 import BrandedDesigns from "@/components/event/creatives/studio/BrandedDesigns";
@@ -17,16 +17,24 @@ export default function CreativesSection({ eventId }: { eventId: string }) {
   // Bumped on every save so the library refetches the next time it is shown.
   const [libraryKey, setLibraryKey] = useState(0);
 
+  // While this page is open the document scrolls smoothly with no scrollbar,
+  // matching the scroll areas inside it (see `.page-scroll-soft` in index.css).
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.add("page-scroll-soft");
+    return () => root.classList.remove("page-scroll-soft");
+  }, []);
+
   return (
-    <Tabs value={tab} onValueChange={setTab} className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">Creatives</h2>
-          <p className="text-[13px] text-muted-foreground">
+    <Tabs value={tab} onValueChange={setTab} className="mx-auto w-full max-w-[1400px] space-y-4 sm:space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold leading-tight text-foreground">Creatives</h2>
+          <p className="mt-1 max-w-2xl text-[13px] text-muted-foreground">
             Graphics built from this event's banner, speakers, sponsors, date and venue. Pick a design, then adjust anything you like.
           </p>
         </div>
-        <TabsList className="w-full sm:w-auto grid grid-cols-2 sm:inline-flex">
+        <TabsList className="grid w-full shrink-0 grid-cols-2 sm:w-56">
           <TabsTrigger value="designs">Create</TabsTrigger>
           <TabsTrigger value="library">Saved</TabsTrigger>
         </TabsList>
