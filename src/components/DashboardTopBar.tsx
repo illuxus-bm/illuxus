@@ -2,7 +2,6 @@ import { AppHeaderBar } from "@/components/layout/AppHeaderBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
 import { useNavigate, Link, useLocation } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   LogOut, Bell, ChevronDown, ClipboardList, Handshake, Search, Ticket,
@@ -317,15 +316,20 @@ export function DashboardTopBar(_props: DashboardTopBarProps = {}) {
         actions={<>
           <ThemeToggle size="sm" className="mr-1" />
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+          {/* Search: a field-shaped button on wider screens, an icon on phones. */}
+          <button
+            type="button"
             onClick={() => setSearchOpen(true)}
             title="Search (⌘K)"
+            className="hidden md:flex items-center gap-2 h-9 w-56 lg:w-72 px-3.5 rounded-full bg-card border border-border text-[13px] text-muted-foreground hover:text-foreground transition-colors"
           >
-            <Search className="h-3.5 w-3.5" />
-          </Button>
+            <Search className="h-3.5 w-3.5 shrink-0" />
+            <span className="flex-1 text-left truncate">Search anything…</span>
+            <kbd className="text-[10px] font-medium text-muted-foreground/70">⌘K</kbd>
+          </button>
+          <button type="button" className="shell-icon-btn md:hidden" onClick={() => setSearchOpen(true)} title="Search" aria-label="Search">
+            <Search className="h-4 w-4" />
+          </button>
 
           {/* Notifications belong to the organiser dashboard — they list
               org-scoped recent registrations. On admin routes there's no
@@ -335,17 +339,12 @@ export function DashboardTopBar(_props: DashboardTopBarProps = {}) {
           {!isAdminRoute && (
           <Popover open={notifOpen} onOpenChange={setNotifOpen}>
             <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground relative"
-                title="Notifications"
-              >
-                <Bell className="h-3.5 w-3.5" />
+              <button type="button" className="shell-icon-btn relative" title="Notifications" aria-label="Notifications">
+                <Bell className="h-4 w-4" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
+                  <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive ring-2 ring-card" />
                 )}
-              </Button>
+              </button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-80 p-0">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
@@ -389,11 +388,11 @@ export function DashboardTopBar(_props: DashboardTopBarProps = {}) {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-1.5 h-8 pl-1 pr-2 rounded-md hover:bg-secondary transition-colors">
+              <button className="flex items-center gap-1.5 h-9 pl-1 pr-2 rounded-full bg-card border border-border hover:bg-muted transition-colors" aria-label="Account menu">
                 {avatarUrl ? (
-                  <img src={avatarUrl} alt={displayName} className="h-6 w-6 rounded-full object-cover" />
+                  <img src={avatarUrl} alt={displayName} className="h-7 w-7 rounded-full object-cover" />
                 ) : (
-                  <div className="h-6 w-6 rounded-full bg-foreground flex items-center justify-center text-[10px] font-semibold text-background">
+                  <div className="h-7 w-7 rounded-full bg-foreground flex items-center justify-center text-[10px] font-semibold text-background">
                     {initials}
                   </div>
                 )}

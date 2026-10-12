@@ -90,7 +90,7 @@ function EventSidebar({ active, onSelect, eventTitle, eventFormat, canAccessCrea
   );
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-border bg-card">
+    <Sidebar collapsible="icon" className="!border-r-0 bg-sidebar">
       <SidebarContent className="pt-3">
         <SidebarGroup>
           <SidebarGroupContent>
@@ -101,7 +101,7 @@ function EventSidebar({ active, onSelect, eventTitle, eventFormat, canAccessCrea
                     isActive={active === item.key}
                     tooltip={item.label}
                     onClick={() => onSelect(item.key)}
-                    className="cursor-pointer h-8 text-[13px]"
+                    className="cursor-pointer h-9 px-3 rounded-xl text-[13px]"
                   >
                     <item.icon className="h-4 w-4" />
                     {!collapsed && <span>{item.label}</span>}
@@ -433,7 +433,7 @@ const EventDetailPage = () => {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex flex-col w-full bg-background">
+      <div className="app-shell min-h-screen flex flex-col w-full">
         <DashboardTopBar />
         <div className="flex flex-1 w-full min-w-0">
           <EventSidebar active={activeSection} onSelect={async (k) => {
@@ -453,9 +453,9 @@ const EventDetailPage = () => {
           setActiveSection(k);
         }} eventTitle={event.title} eventFormat={(event as any).event_format} canAccessCreatives={canAccessCreatives} canAccessBrochure={canAccessBrochure} />
 
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="app-shell-panel flex-1 flex flex-col overflow-clip">
           {/* Header */}
-          <header className="border-b border-border bg-card/80 glass px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 min-w-0">
+          <header className="border-b border-border px-3 sm:px-5 py-3 flex items-center justify-between gap-2 min-w-0">
             <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
               <button
                 // Return to whichever in-app page navigated us here (Events

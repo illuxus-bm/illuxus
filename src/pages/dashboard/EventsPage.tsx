@@ -32,9 +32,9 @@ type EventWithCommunity = Event & {
 
 const statusColor: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
-  published: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  cancelled: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-  completed: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  published: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  cancelled: "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+  completed: "bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
 };
 
 const EventsPage = () => {
@@ -239,44 +239,44 @@ const EventsPage = () => {
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">Events</h1>
+            <h1 className="text-[26px] leading-tight font-medium tracking-tight">Events</h1>
             <p className="text-muted-foreground text-sm">Manage all your events in one place</p>
           </div>
-          <Button onClick={() => navigate("/dashboard/events/new")} className="hero-gradient text-primary-foreground font-semibold">
-            <Plus className="h-4 w-4 mr-1" /> Create Event
+          <Button onClick={() => navigate("/dashboard/events/new")} className="h-10 rounded-xl px-4 font-medium">
+            <Plus className="h-4 w-4 mr-1.5" /> New Event
           </Button>
         </div>
 
         {/* Search and Filter */}
         <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
+          <div className="relative flex-1 sm:max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search events..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
+              className="pl-9 h-10 rounded-xl bg-muted/60 border-transparent focus-visible:bg-background"
             />
           </div>
         </div>
 
         {/* Tabs Above Grid */}
-        <div className="flex bg-muted/40 p-1 rounded-full w-full sm:w-fit max-w-full border border-border/50 shadow-sm">
+        <div className="flex bg-muted p-1 rounded-xl w-full sm:w-fit max-w-full">
           <button 
             onClick={() => setTimeFilter("upcoming")} 
-            className={`flex-1 sm:flex-none px-3 sm:px-5 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 ${timeFilter === 'upcoming' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
+            className={`flex-1 sm:flex-none px-3 sm:px-4 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-200 ${timeFilter === 'upcoming' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
           >
             Upcoming
           </button>
           <button 
             onClick={() => setTimeFilter("pending")} 
-            className={`flex-1 sm:flex-none px-3 sm:px-5 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 ${timeFilter === 'pending' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
+            className={`flex-1 sm:flex-none px-3 sm:px-4 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-200 ${timeFilter === 'pending' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
           >
             Pending
           </button>
           <button 
             onClick={() => setTimeFilter("past")} 
-            className={`flex-1 sm:flex-none px-3 sm:px-5 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 ${timeFilter === 'past' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
+            className={`flex-1 sm:flex-none px-3 sm:px-4 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-200 ${timeFilter === 'past' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
           >
             Past
           </button>
@@ -442,7 +442,7 @@ const EventsPage = () => {
                 </div>
               </div>
               <div className="md:col-span-2 flex gap-3">
-                <Button type="submit" disabled={submitting} className="hero-gradient text-primary-foreground font-semibold">
+                <Button type="submit" disabled={submitting} className="font-medium">
                   {submitting
                     ? (editingEvent ? "Updating…" : "Creating…")
                     : (editingEvent ? "Update Event" : "Create Event")}
@@ -457,7 +457,7 @@ const EventsPage = () => {
         {loading ? (
           <div className="text-center py-12 text-muted-foreground">Loading events...</div>
         ) : filteredEvents.length === 0 ? (
-          <div className="text-center py-16 bg-card border border-border rounded-xl card-shadow">
+          <div className="text-center py-16 bg-card border border-border rounded-2xl">
             <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">No events found</h3>
             <p className="text-muted-foreground mb-4">
@@ -465,7 +465,7 @@ const EventsPage = () => {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
             {filteredEvents.map((event, i) => {
               const eventPath = `/dashboard/events/${event.slug ?? event.id}`;
               return (
@@ -475,10 +475,10 @@ const EventsPage = () => {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 }}
                   onClick={() => navigate(eventPath)}
-                  className="bg-card border border-border rounded-xl overflow-hidden card-shadow hover:shadow-lg hover:border-primary/30 transition-all cursor-pointer group"
+                  className="bg-card border border-border rounded-2xl p-2.5 hover:border-foreground/25 hover:shadow-[0_8px_30px_-12px_rgb(0_0_0/0.18)] transition-all cursor-pointer group flex flex-col"
                 >
                   {/* Cover image */}
-                  <div className="aspect-video bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center relative overflow-hidden">
+                  <div className="aspect-video rounded-xl bg-muted flex items-center justify-center relative overflow-hidden">
                     {(event.banner_landscape_url || event.image_url) ? (
                       <img src={event.banner_landscape_url || event.image_url!} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                     ) : (
@@ -492,16 +492,17 @@ const EventsPage = () => {
                     </div>
                   </div>
 
-                  <div className="p-4 space-y-3">
+                  <div className="px-2 pt-3.5 pb-1.5 space-y-3 flex-1 flex flex-col">
                     <div className="flex items-start justify-between gap-2">
-                      <h3 className="font-semibold line-clamp-1 group-hover:text-primary transition-colors">{event.title}</h3>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${statusColor[event.status] || ""}`}>
+                      <h3 className="text-[15px] font-medium tracking-tight line-clamp-1">{event.title}</h3>
+                      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium capitalize shrink-0 ${statusColor[event.status] || ""}`}>
+                        <span className="h-1.5 w-1.5 rounded-full bg-current" />
                         {event.status}
                       </span>
                     </div>
 
                     {event.description && (
-                      <p className="text-sm text-muted-foreground line-clamp-2">{stripRichText(event.description)}</p>
+                      <p className="text-[13px] text-muted-foreground line-clamp-2">{stripRichText(event.description)}</p>
                     )}
 
                     <div className="space-y-1 text-xs text-muted-foreground">
@@ -519,7 +520,7 @@ const EventsPage = () => {
 
                     {/* Footer — ticket count + action buttons */}
                     <div
-                      className="flex items-center justify-between pt-2 border-t border-border"
+                      className="flex items-center justify-between pt-3 mt-auto border-t border-border"
                       onClick={(e) => e.stopPropagation()} // prevent card navigation when clicking action row
                     >
                       <span className="text-[12px] text-muted-foreground">
@@ -532,7 +533,7 @@ const EventsPage = () => {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-7 text-[11px] px-2 gap-1"
+                          className="h-8 rounded-lg text-[12px] px-2.5 gap-1"
                           onClick={() => navigate(eventPath)}
                         >
                           Manage <ArrowRight className="h-3 w-3" />

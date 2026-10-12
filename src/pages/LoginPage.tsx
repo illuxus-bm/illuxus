@@ -448,10 +448,22 @@ const LoginPage = () => {
         : "Sign In";
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="absolute top-4 right-4 z-10">
+    <div className="app-shell min-h-screen flex p-2.5 sm:p-4">
+      <div className="absolute top-5 right-5 sm:top-7 sm:right-7 z-10">
         <ThemeToggle size="sm" />
       </div>
+      <div className="flex-1 grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] rounded-3xl border border-border bg-background overflow-hidden">
+        {/* Brand panel — large screens only */}
+        <aside className="login-art hidden lg:flex relative m-3 rounded-2xl overflow-hidden flex-col justify-between p-10 text-white">
+          <IlluxusWordmark height={26} variant="dark" className="self-start" />
+          <div className="max-w-md">
+            <h2 className="text-[34px] leading-[1.15] font-medium tracking-tight text-white">Plan, promote &amp; run events with illuxus.</h2>
+            <p className="mt-4 text-[15px] leading-relaxed text-white/85">
+              Your all-in-one platform for events, ticketing, webinars and community.
+            </p>
+          </div>
+        </aside>
+        <div className="flex items-center justify-center px-4 py-16 sm:p-8">
       <div className="w-full max-w-sm">
         <TwoFactorChallengeDialog
           open={twoFactor.open}
@@ -847,6 +859,8 @@ const LoginPage = () => {
             <ArrowLeft className="h-3 w-3" />
             Back to home
           </a>
+        </div>
+      </div>
         </div>
       </div>
     </div>

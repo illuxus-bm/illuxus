@@ -16,7 +16,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar";
 import {
@@ -91,8 +90,8 @@ export function AppSidebar() {
           <NavLink
             to={item.url}
             end={item.url === "/dashboard"}
-            className="h-8 px-2.5 text-[13px] rounded-md transition-colors duration-100 text-muted-foreground hover:text-foreground hover:bg-secondary gap-2 font-medium"
-            activeClassName="bg-secondary text-foreground font-semibold"
+            className="h-9 px-3 text-[13px] rounded-xl transition-colors duration-100 text-muted-foreground hover:text-foreground gap-2.5 font-medium"
+            activeClassName="shell-nav-active font-semibold"
           >
             <item.icon className="h-[15px] w-[15px] shrink-0" />
             {!collapsed && <span>{item.title}</span>}
@@ -102,7 +101,7 @@ export function AppSidebar() {
     ));
 
   return (
-    <Sidebar collapsible="icon" className="app-chrome border-r border-border/60 bg-sidebar">
+    <Sidebar collapsible="icon" className="app-chrome !border-r-0 bg-sidebar">
       <SidebarContent className="pt-3 pb-2 flex flex-col">
         {/* Workspace switcher */}
         {!collapsed && org && (
@@ -179,34 +178,34 @@ export function AppSidebar() {
         )}
 
         <SidebarGroup className="py-0">
-          <SidebarGroupLabel className="h-6 text-[10px] uppercase tracking-widest text-muted-foreground/60 font-bold px-3 mb-1">
+          <SidebarGroupLabel className="h-7 text-[12px] text-muted-foreground/80 font-medium px-4 mb-0.5">
             {!collapsed && "Main"}
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu className="gap-1 px-1">{renderItems(mainItems)}</SidebarMenu>
+            <SidebarMenu className="gap-1 px-2">{renderItems(mainItems)}</SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarSeparator className="my-2 mx-3" />
+        <div className="h-3" />
 
         <SidebarGroup className="py-0">
-          <SidebarGroupLabel className="h-6 text-[10px] uppercase tracking-widest text-muted-foreground/60 font-bold px-3 mb-1">
+          <SidebarGroupLabel className="h-7 text-[12px] text-muted-foreground/80 font-medium px-4 mb-0.5">
             {!collapsed && "People"}
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu className="gap-1 px-1">{renderItems(attendeeItems)}</SidebarMenu>
+            <SidebarMenu className="gap-1 px-2">{renderItems(attendeeItems)}</SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarSeparator className="my-2 mx-3" />
+        <div className="h-3" />
 
         {visibleManageItems.length > 0 && (
           <SidebarGroup className="py-0">
-            <SidebarGroupLabel className="h-6 text-[10px] uppercase tracking-widest text-muted-foreground/60 font-bold px-3 mb-1">
+            <SidebarGroupLabel className="h-7 text-[12px] text-muted-foreground/80 font-medium px-4 mb-0.5">
               {!collapsed && "Manage"}
             </SidebarGroupLabel>
             <SidebarGroupContent>
-              <SidebarMenu className="gap-1 px-1">{renderItems(visibleManageItems)}</SidebarMenu>
+              <SidebarMenu className="gap-1 px-2">{renderItems(visibleManageItems)}</SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
         )}
@@ -215,11 +214,11 @@ export function AppSidebar() {
 
         <div className="mt-auto" />
 
-        <SidebarSeparator className="my-2 mx-3" />
+        <div className="h-3" />
 
         <SidebarGroup className="py-0 pb-1">
           <SidebarGroupContent>
-            <SidebarMenu className="gap-1 px-1">{renderItems(visibleBottomItems)}</SidebarMenu>
+            <SidebarMenu className="gap-1 px-2">{renderItems(visibleBottomItems)}</SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>

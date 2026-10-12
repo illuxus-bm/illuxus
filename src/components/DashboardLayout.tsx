@@ -28,12 +28,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex flex-col w-full playful-app-bg">
+      {/* `app-shell` (index.css): grey canvas, neutral palette, and the page
+          on one white rounded panel. */}
+      <div className="app-shell min-h-screen flex flex-col w-full">
         <DashboardTopBar />
 
         <div className="flex flex-1 w-full">
           {isAdminRoute ? <AdminSidebar /> : <AppSidebar />}
-          <main className="flex-1 min-w-0 overflow-y-auto">
+          <main className="app-shell-panel flex-1 overflow-y-auto">
             <div className="p-4 lg:p-6">
               {children}
             </div>
