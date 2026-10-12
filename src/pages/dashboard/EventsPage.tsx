@@ -248,39 +248,30 @@ const EventsPage = () => {
           </Button>
         </div>
 
-        {/* Search and Filter */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1 sm:max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        {/* Filter and search on one row */}
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex bg-muted p-1 rounded-xl w-full sm:w-fit" role="tablist" aria-label="Which events to show">
+            {([["upcoming", "Upcoming"], ["pending", "Pending"], ["past", "Past"]] as const).map(([value, label]) => (
+              <button
+                key={value}
+                role="tab"
+                aria-selected={timeFilter === value}
+                onClick={() => setTimeFilter(value)}
+                className={`flex-1 sm:flex-none px-4 h-8 rounded-lg text-[13px] font-medium transition-colors ${timeFilter === value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search events..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 h-10 rounded-xl bg-muted/60 border-transparent focus-visible:bg-background"
+              className="pl-10 h-10 rounded-xl bg-muted/60 border-transparent focus-visible:bg-background"
             />
           </div>
-        </div>
-
-        {/* Tabs Above Grid */}
-        <div className="flex bg-muted p-1 rounded-xl w-full sm:w-fit max-w-full">
-          <button 
-            onClick={() => setTimeFilter("upcoming")} 
-            className={`flex-1 sm:flex-none px-3 sm:px-4 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-200 ${timeFilter === 'upcoming' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
-          >
-            Upcoming
-          </button>
-          <button 
-            onClick={() => setTimeFilter("pending")} 
-            className={`flex-1 sm:flex-none px-3 sm:px-4 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-200 ${timeFilter === 'pending' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
-          >
-            Pending
-          </button>
-          <button 
-            onClick={() => setTimeFilter("past")} 
-            className={`flex-1 sm:flex-none px-3 sm:px-4 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-200 ${timeFilter === 'past' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-background/50'}`}
-          >
-            Past
-          </button>
         </div>
 
         {/* Event Form */}
@@ -466,7 +457,7 @@ const EventsPage = () => {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {filteredEvents.map((event, i) => {
               const eventPath = `/dashboard/events/${event.slug ?? event.id}`;
               const start = new Date(event.date);
@@ -477,16 +468,17 @@ const EventsPage = () => {
               return (
                 <motion.div
                   key={event.id}
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 }}
                   onClick={() => navigate(eventPath)}
                   className="bg-card border border-border rounded-2xl p-3 hover:shadow-[0_18px_40px_-24px_rgb(0_0_0/0.28)] hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group flex flex-col"
                 >
-                  {/* Cover: the event banner, or its date when it has none */}
-                  <div className="relative aspect-[16/10] rounded-xl bg-muted/70 overflow-hidden flex items-center justify-center">
+                  {/* Cover: the banner, shown whole at its own 16:9 shape with
+                      nothing laid over it; or the date when there is no banner. */}
+                  <div className="aspect-video rounded-xl bg-muted/70 overflow-hidden flex items-center justify-center">
                     {cover ? (
-                      <img src={cover} alt="" className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500" />
+                      <img src={cover} alt="" loading="lazy" className="w-full h-full object-cover" />
                     ) : (
                       <div className="flex flex-col items-center rounded-2xl bg-card px-6 py-3.5 shadow-[0_10px_30px_-12px_rgb(0_0_0/0.25)] border border-border/70">
                         <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
@@ -495,51 +487,62 @@ const EventsPage = () => {
                         <span className="text-[34px] leading-none font-medium tracking-tight mt-1">{start.getDate()}</span>
                       </div>
                     )}
-                    <span className={`absolute left-2.5 top-2.5 inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-medium capitalize bg-card/95 backdrop-blur shadow-sm ${statusColor[event.status] || ""}`}>
-                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      {event.status}
-                    </span>
-                    <div className="absolute right-2.5 top-2.5" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button type="button" className="h-8 w-8 rounded-full bg-card/95 backdrop-blur shadow-sm flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors" aria-label={`Options for ${event.title}`}>
-                            <MoreVertical className="h-4 w-4" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
-                          <DropdownMenuItem onClick={() => navigate(eventPath)}>
-                            <ArrowRight className="h-3.5 w-3.5 mr-2" /> Manage
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openEditForm(event)}>
-                            <Edit className="h-3.5 w-3.5 mr-2" /> Quick edit
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => deleteEvent(event.id)} className="text-destructive focus:text-destructive">
-                            <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
                   </div>
 
                   <div className="px-2 pt-4 pb-2 flex-1 flex flex-col">
-                    <h3 className="text-[17px] leading-snug font-medium tracking-tight line-clamp-1">{event.title}</h3>
-                    <p className="mt-1 text-[12.5px] text-muted-foreground line-clamp-1">
-                      {start.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
-                      {event.venue ? ` · ${event.venue}${event.location ? `, ${event.location}` : ""}` : ""}
-                    </p>
+                    <div className="flex items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <span className={`inline-flex items-center gap-1.5 text-[11.5px] font-medium capitalize ${statusColor[event.status] || ""}`}>
+                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                          {event.status}
+                        </span>
+                        <h3 className="mt-1.5 text-[17px] leading-snug font-medium tracking-tight line-clamp-1" title={event.title}>{event.title}</h3>
+                      </div>
+                      <div className="-mr-1 -mt-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button type="button" className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" aria-label={`Options for ${event.title}`}>
+                              <MoreVertical className="h-4 w-4" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-40">
+                            <DropdownMenuItem onClick={() => navigate(eventPath)}>
+                              <ArrowRight className="h-3.5 w-3.5 mr-2" /> Manage
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => openEditForm(event)}>
+                              <Edit className="h-3.5 w-3.5 mr-2" /> Quick edit
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => deleteEvent(event.id)} className="text-destructive focus:text-destructive">
+                              <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
 
-                    <div className="mt-auto pt-5">
-                      <div className="flex items-end justify-between gap-3 text-[12.5px]">
-                        <span className="text-muted-foreground">
+                    <div className="mt-2.5 space-y-1.5 text-[13px] text-muted-foreground">
+                      <p className="flex items-center gap-2">
+                        <Calendar className="h-3.5 w-3.5 shrink-0" />
+                        {start.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                      </p>
+                      <p className="flex items-center gap-2 min-w-0">
+                        <MapPin className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{event.venue ? `${event.venue}${event.location ? `, ${event.location}` : ""}` : event.location || "Venue not set"}</span>
+                      </p>
+                    </div>
+
+                    <div className="mt-auto pt-4">
+                      <div className="border-t border-border pt-3.5 flex items-baseline justify-between gap-3 text-[13px]">
+                        <span className="text-muted-foreground truncate">
                           <span className="text-foreground font-medium">{sold}</span>
                           {capacity > 0 ? ` of ${capacity} tickets` : " tickets"}
                           {Number(event.price || 0) > 0 && ` · ${formatMoney(Number(event.price), event.currency || undefined)}`}
                         </span>
-                        {capacity > 0 && <span className="text-[13px] font-medium tabular-nums">{filled}%</span>}
+                        {capacity > 0 && <span className="font-medium tabular-nums shrink-0">{filled}%</span>}
                       </div>
                       {capacity > 0 && (
-                        <div className="meter mt-2.5" role="img" aria-label={`${filled}% of tickets taken`}>
+                        <div className="meter meter-sm mt-2.5" role="img" aria-label={`${filled}% of tickets taken`}>
                           {filled > 0 && <div className="meter-fill" style={{ width: `${filled}%` }} />}
                           <div className="meter-mark" />
                           <div className="meter-rest" />
