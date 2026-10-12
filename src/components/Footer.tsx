@@ -1,3 +1,4 @@
+import { openCookieSettings } from "@/components/CookieConsent";
 import { Link } from "react-router-dom";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { SiteContainer } from "@/components/layout/SiteContainer";
@@ -28,6 +29,17 @@ function FooterLink({ href, label }: { href: string; label: string }) {
   // Internal SPA route — use Link to avoid full-page reload
   return <Link to={href} className={className}>{label}</Link>;
 }
+
+const LEGAL_LINKS = [
+  { label: "Privacy", href: "/privacy" },
+  { label: "Terms", href: "/terms" },
+  { label: "Refunds", href: "/refunds" },
+  { label: "Cookies", href: "/cookies" },
+  { label: "Delete my data", href: "/data-deletion" },
+];
+
+const LEGAL_LINK_CLASS =
+  "rounded text-[12px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 const Footer = () => {
   const { content } = useSiteContent();
@@ -63,6 +75,18 @@ const Footer = () => {
 
         <div className="border-t border-border mt-10 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-[12px] text-muted-foreground">{f.copyright}</p>
+          {/* Fixed here rather than left to the editable footer columns, so the
+              legal pages are reachable from every page whatever the columns say. */}
+          <nav aria-label="Legal" className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+            {LEGAL_LINKS.map((link) => (
+              <Link key={link.href} to={link.href} className={LEGAL_LINK_CLASS}>
+                {link.label}
+              </Link>
+            ))}
+            <button type="button" onClick={openCookieSettings} className={LEGAL_LINK_CLASS}>
+              Cookie settings
+            </button>
+          </nav>
         </div>
       </SiteContainer>
     </footer>

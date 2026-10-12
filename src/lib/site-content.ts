@@ -152,7 +152,6 @@ export const DEFAULT_SITE_CONTENT: SiteContentMap = {
     links: [
       { label: "Features", href: "#features" },
       { label: "Pricing", href: "#pricing" },
-      { label: "Testimonials", href: "#testimonials" },
     ],
     signInLabel: "Sign in",
     ctaLabel: "Get Started",
@@ -203,11 +202,9 @@ export const DEFAULT_SITE_CONTENT: SiteContentMap = {
   testimonials: {
     eyebrow: "Testimonials",
     title: "Trusted by event organizers",
-    items: [
-      { quote: "Illuxus transformed how we manage our annual conference. The analytics alone saved us thousands of hours.", author: "Sarah Chen", role: "Head of Events, TechCrunch", avatarUrl: "" },
-      { quote: "The speaker management and scheduling tools are phenomenal. We went from chaos to complete control overnight.", author: "Marcus Rivera", role: "Event Director, Summit Global", avatarUrl: "" },
-      { quote: "We switched from three different tools to just Illuxus. The all-in-one approach is a game-changer.", author: "Anja Müller", role: "Community Lead, DevConf", avatarUrl: "" },
-    ],
+    // Empty until there are real, attributable quotes to show. The section
+    // renders nothing without items; add genuine ones from the site editor.
+    items: [],
   },
   cta: {
     title: "Ready to create your next event?",

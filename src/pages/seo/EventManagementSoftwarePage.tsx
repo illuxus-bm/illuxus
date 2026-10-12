@@ -116,13 +116,6 @@ const SOFTWARE_JSON_LD = {
         "Real-time analytics and exports",
         "DPDPA 2023 and GDPR compliant",
       ],
-      aggregateRating: {
-        "@type": "AggregateRating",
-        ratingValue: "4.9",
-        reviewCount: "187",
-        bestRating: "5",
-        worstRating: "1",
-      },
     },
     {
       "@type": "FAQPage",

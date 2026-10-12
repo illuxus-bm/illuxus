@@ -149,6 +149,8 @@ describe("SpeakerApplicationDialog — UTM attribution end-to-end", () => {
     setField("Proposed session title *", "How UTM travels through a signup");
     setField("Session description *", "A ten-minute overview of first-touch attribution.");
 
+    // The application can't be sent without agreeing to the terms.
+    fireEvent.click(screen.getByRole("checkbox"));
     clickButton(/submit application/i);
 
     await waitFor(() => {

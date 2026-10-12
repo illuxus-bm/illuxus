@@ -6,6 +6,7 @@ import { useMyProfile, profileFullName } from "@/hooks/useMyProfile";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import { ConsentCheckbox, CONSENT_REQUIRED_MESSAGE, LegalLink } from "@/components/ConsentCheckbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,6 +65,8 @@ export function SpeakerApplicationDialog({ eventId, open, onOpenChange, onSubmit
   const { data: profile } = useMyProfile();
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
   const [form, setForm] = useState<FormData>(() =>
     initialForm({
       full_name: user?.user_metadata?.display_name ?? "",
@@ -117,6 +120,7 @@ export function SpeakerApplicationDialog({ eventId, open, onOpenChange, onSubmit
     }
     const err = validateStep1() || validateStep3();
     if (err) { toast.error(err); return; }
+    if (!agreed) { setConsentError(CONSENT_REQUIRED_MESSAGE); return; }
 
     setSubmitting(true);
 
@@ -271,6 +275,21 @@ export function SpeakerApplicationDialog({ eventId, open, onOpenChange, onSubmit
             <Field label="Resume / CV URL" value={form.resume_url} onChange={(v) => update("resume_url", v)} placeholder="Link to a public PDF" />
             <TextField label="Additional notes" value={form.notes} onChange={(v) => update("notes", v)} rows={2} />
           </div>
+        )}
+
+        {step === 3 && (
+          <ConsentCheckbox
+            checked={agreed}
+            onCheckedChange={(value) => {
+              setAgreed(value);
+              if (value) setConsentError(null);
+            }}
+            error={consentError}
+          >
+            I agree to the <LegalLink to="/terms">Terms of Service</LegalLink> and{" "}
+            <LegalLink to="/privacy">Privacy Policy</LegalLink>, and to my application being shared with the organiser of
+            this event.
+          </ConsentCheckbox>
         )}
 
         <DialogFooter className="gap-2">

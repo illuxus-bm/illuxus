@@ -4,6 +4,7 @@ import { useOrg } from "@/contexts/OrgContext";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import SiteHeader from "@/components/SiteHeader";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -786,6 +787,16 @@ const SettingsPage = () => {
                     <Label className="text-[13px]">Role</Label>
                     <Input value={isAdmin ? "Admin" : "User"} disabled className="mt-1 h-8 text-sm bg-muted/30" />
                   </div>
+                </div>
+                <div className="border-t border-border pt-4">
+                  <h3 className="text-[13px] font-semibold">Delete my data</h3>
+                  <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
+                    Ask us to permanently delete your account and personal data. Our privacy team confirms the request
+                    and writes back to you; you can track it with the reference you are given.
+                  </p>
+                  <Button asChild variant="outline" size="sm" className="mt-3 h-8 text-[12px] text-destructive hover:text-destructive">
+                    <Link to="/data-deletion">Request deletion of my data</Link>
+                  </Button>
                 </div>
               </div>
             )}

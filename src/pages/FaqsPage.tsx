@@ -390,7 +390,7 @@ const categories: FaqCategory[] = [
       },
       {
         q: "How do I delete my account permanently?",
-        a: "Settings → Security → Delete account. Soft-deleted for 30 days so we can help if you change your mind, then hard-deleted. Workspaces with active paid subscriptions must be cancelled first.",
+        a: "Send a deletion request from Settings → Account → Delete my data, or from the Delete my data link at the foot of any page (no sign-in needed). Our privacy team confirms it is you, deletes your data, and writes back. Workspaces with active paid subscriptions must be cancelled first.",
       },
     ],
   },

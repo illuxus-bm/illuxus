@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { publicOrigin } from "@/lib/publicUrl";
 import { captureUtm, loadStoredUtm } from "@/lib/utm";
+import { ConsentCheckbox, CONSENT_REQUIRED_MESSAGE, LegalLink } from "@/components/ConsentCheckbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,6 +46,9 @@ const LoginPage = () => {
   // them on the profile via the new-user trigger so users skip the
   // "Complete your profile" page entirely.
   const [signUpStep, setSignUpStep] = useState<1 | 2>(1);
+  // Agreement to the Terms and Privacy Policy, required to create an account.
+  const [agreed, setAgreed] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
   const [person, setPerson] = useState<PersonFields>(emptyPersonFields());
   const [twoFactor, setTwoFactor] = useState<{ open: boolean; email: string; nextRoute: string }>({
     open: false, email: "", nextRoute: "/dashboard",
@@ -255,6 +259,11 @@ const LoginPage = () => {
         setLoading(false);
         return;
       }
+      if (!agreed) {
+        setConsentError(CONSENT_REQUIRED_MESSAGE);
+        setLoading(false);
+        return;
+      }
       // Read First_Touch_UTM from Attribution_Storage and thread it through
       // `options.data` so the `handle_new_user` trigger can stamp the five
       // UTM_Fields onto the new `profiles` row (Requirements 5.1, 5.3). A
@@ -277,6 +286,8 @@ const LoginPage = () => {
           // lost and they land in onboarding instead of the workspace.
           emailRedirectTo: signupRedirectTo(),
           data: {
+            // When the Terms and Privacy Policy were accepted, kept with the account.
+            terms_accepted_at: new Date().toISOString(),
             account_type: accountType,
             title: personCheck.data.title || "",
             first_name: personCheck.data.first_name,
@@ -833,6 +844,16 @@ const LoginPage = () => {
                 )}
                 {isSignUp && signUpStep === 2 && (
                   <PersonFieldsForm value={{ ...person, email }} onChange={(v) => setPerson(v)} hideEmail />
+                )}
+                {isSignUp && signUpStep === 2 && (
+                  <ConsentCheckbox
+                    checked={agreed}
+                    onCheckedChange={(value) => {
+                      setAgreed(value);
+                      if (value) setConsentError(null);
+                    }}
+                    error={consentError}
+                  />
                 )}
                 <Button
                   type="submit"

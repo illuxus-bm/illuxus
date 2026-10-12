@@ -104,13 +104,6 @@ const WEBINAR_JSON_LD = {
         "Lead capture forms on registration",
         "Post-webinar drip emails",
       ],
-      aggregateRating: {
-        "@type": "AggregateRating",
-        ratingValue: "4.9",
-        reviewCount: "187",
-        bestRating: "5",
-        worstRating: "1",
-      },
     },
     {
       "@type": "VideoObject",
