@@ -452,6 +452,16 @@
   }
 }
 
+/* ===== Keyboard focus =====
+   Every interactive element shows a clear ring when reached with the
+   keyboard. `:focus-visible` keeps it off for mouse clicks. Components that
+   draw their own ring (the shadcn controls set `outline: none` and use
+   `ring-*`) are unaffected: their rule is more specific than this one. */
+:where(a, button, summary, [role="button"], [role="tab"], [role="switch"], [role="menuitem"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
 /* ===== Recharts focus outline suppression =====
    Recharts paints a default browser focus ring around its <svg> surface and
    interactive sectors/bars when clicked, which renders as a stray rectangle

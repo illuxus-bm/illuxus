@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ConsentCheckbox, CONSENT_REQUIRED_MESSAGE, LegalLink } from "@/components/ConsentCheckbox";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
@@ -58,6 +59,9 @@ export default function EventRsvpCard({
   const [hasWebinar, setHasWebinar] = useState(false);
   const [communitySlug, setCommunitySlug] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Agreement to the Terms and Privacy Policy, asked for before registering.
+  const [agreed, setAgreed] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
   /**
    * Live count of non-cancelled registrations for this event. The
    * `events.tickets_sold` column is not maintained by any trigger, so we
@@ -181,6 +185,10 @@ export default function EventRsvpCard({
         description: "Open the link we sent to your inbox, then try again.",
         variant: "destructive",
       });
+      return;
+    }
+    if (!agreed) {
+      setConsentError(CONSENT_REQUIRED_MESSAGE);
       return;
     }
     // Defense-in-depth: if the live count says we're at capacity, refuse the
@@ -520,6 +528,24 @@ export default function EventRsvpCard({
             Registration closed
           </Button>
         ) : (
+          <>
+          {/* Only once signed in and able to register — before that the
+              button just leads to sign-in. */}
+          {user && !isFull && (
+            <ConsentCheckbox
+              className="mb-3"
+              checked={agreed}
+              onCheckedChange={(value) => {
+                setAgreed(value);
+                if (value) setConsentError(null);
+              }}
+              error={consentError}
+            >
+              I agree to the <LegalLink to="/terms">Terms</LegalLink>, <LegalLink to="/refunds">Refund Policy</LegalLink>{" "}
+              and <LegalLink to="/privacy">Privacy Policy</LegalLink>, and to my registration details being shared with
+              the event organiser.
+            </ConsentCheckbox>
+          )}
           <Button
             onClick={handleRsvp}
             disabled={submitting || isFull}
@@ -534,6 +560,7 @@ export default function EventRsvpCard({
                   ? `Register · ${formatMoney(event.price, event.currency || undefined)}`
                   : "One-Click Register"}
           </Button>
+          </>
         )}
       </div>
     </aside>

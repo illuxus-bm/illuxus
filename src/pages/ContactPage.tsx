@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import PublicPageShell from "@/components/layout/PublicPageShell";
 import RouteSeo from "@/components/RouteSeo";
+import { ConsentCheckbox, CONSENT_REQUIRED_MESSAGE, LegalLink } from "@/components/ConsentCheckbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -157,6 +158,8 @@ interface SubmissionResult {
 export default function ContactPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [sending, setSending] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
   const [result, setResult] = useState<SubmissionResult | null>(null);
 
   const handleOptionClick = (e: React.MouseEvent, opt: ContactOption) => {
@@ -176,6 +179,10 @@ export default function ContactPage() {
     if (sending) return;
     if (!form.name.trim() || !form.email.trim() || !form.message.trim()) {
       toast.error("Name, email and message are required.");
+      return;
+    }
+    if (!agreed) {
+      setConsentError(CONSENT_REQUIRED_MESSAGE);
       return;
     }
     setSending(true);
@@ -473,14 +480,22 @@ export default function ContactPage() {
                   required
                 />
               </div>
+              <ConsentCheckbox
+                checked={agreed}
+                onCheckedChange={(value) => {
+                  setAgreed(value);
+                  if (value) setConsentError(null);
+                }}
+                error={consentError}
+              >
+                I agree to my details being used to answer this message, as described in the{" "}
+                <LegalLink to="/privacy">Privacy Policy</LegalLink>.
+              </ConsentCheckbox>
               <Button type="submit" className="w-full" disabled={sending}>
                 {sending ? "Sending…" : "Send message"}
               </Button>
               <p className="text-[11px] text-muted-foreground leading-relaxed">
-                By submitting this form you agree to the processing of your personal data as
-                described in our{" "}
-                <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link>. A
-                copy of your message will be emailed to you with a ticket number for tracking.
+                A copy of your message will be emailed to you with a ticket number for tracking.
               </p>
             </form>
           )}

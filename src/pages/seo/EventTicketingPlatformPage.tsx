@@ -126,13 +126,6 @@ const TICKETING_JSON_LD = {
         availability: "https://schema.org/InStock",
         url: "https://illuxus.com/event-ticketing-platform",
       },
-      aggregateRating: {
-        "@type": "AggregateRating",
-        ratingValue: "4.9",
-        reviewCount: "187",
-        bestRating: "5",
-        worstRating: "1",
-      },
     },
     {
       "@type": "FAQPage",

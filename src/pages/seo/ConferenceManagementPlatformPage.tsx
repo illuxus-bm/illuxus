@@ -104,13 +104,6 @@ const CONFERENCE_JSON_LD = {
         "DPDPA 2023 + GDPR compliant",
         "SSO + SCIM on Enterprise",
       ],
-      aggregateRating: {
-        "@type": "AggregateRating",
-        ratingValue: "4.9",
-        reviewCount: "187",
-        bestRating: "5",
-        worstRating: "1",
-      },
     },
     {
       "@type": "FAQPage",

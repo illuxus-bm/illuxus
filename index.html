@@ -290,7 +290,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=Bebas+Neue&family=Poppins:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&family=Comfortaa:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
     <!-- Structured data: Organization (LocalBusiness) + WebSite + SoftwareApplication +
-         BreadcrumbList + AggregateRating. The runtime SiteHead component injects
+         BreadcrumbList. The runtime SiteHead component injects
          a second `data-global-seo` graph after hydration so the two coexist
          (Google de-duplicates by @id). -->
     <script type="application/ld+json">
@@ -413,27 +413,6 @@
       }
     </script>
 
-    <!-- AggregateRating PLACEHOLDER.
-         Google's structured-data guidelines require that AggregateRating reflect
-         genuine first-party reviews collected on this domain. Remove this block
-         before going live if you do not actually have public reviews — fake
-         ratings risk a manual-action penalty in Search Console. -->
-    <!--
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "Product",
-        "name": "illuxus",
-        "aggregateRating": {
-          "@type": "AggregateRating",
-          "ratingValue": "4.8",
-          "reviewCount": "247",
-          "bestRating": "5",
-          "worstRating": "1"
-        }
-      }
-    </script>
-    -->
   </head>
   <body>
     <!-- Apply saved theme class before React hydrates to avoid flash of wrong theme. -->
