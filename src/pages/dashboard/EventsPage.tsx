@@ -8,10 +8,12 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Plus, Calendar, Edit, Trash2, X, Search,
   MapPin, Clock, Link as LinkIcon, ArrowRight, ExternalLink, Settings2, Users2, MoreVertical,
+  CalendarDays, Ticket, Megaphone, Building2, FileText, Users, PencilLine, Radio,
+  type LucideIcon,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -38,9 +40,44 @@ const statusColor: Record<string, string> = {
   completed: "text-sky-600 dark:text-sky-400",
 };
 
+/** Headline number on the overview row. */
+function StatTile({ icon: Icon, label, value, hint }: { icon: LucideIcon; label: string; value: string; hint: string }) {
+  return (
+    <div className="bg-card border border-border rounded-2xl p-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[12px] font-medium text-muted-foreground">{label}</span>
+        <span className="h-8 w-8 shrink-0 rounded-xl bg-muted flex items-center justify-center text-muted-foreground">
+          <Icon className="h-4 w-4" />
+        </span>
+      </div>
+      <p className="mt-2 text-[28px] leading-none font-medium tracking-tight tabular-nums">{value}</p>
+      <p className="mt-1.5 text-[12px] text-muted-foreground truncate">{hint}</p>
+    </div>
+  );
+}
+
+/** One job the organiser can start from the dashboard. */
+function TaskTile({ icon: Icon, title, hint, to }: { icon: LucideIcon; title: string; hint: string; to: string }) {
+  return (
+    <Link
+      to={to}
+      className="group bg-card border border-border rounded-2xl p-4 flex items-start gap-3 hover:shadow-[0_18px_40px_-24px_rgb(0_0_0/0.28)] hover:-translate-y-0.5 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span className="h-9 w-9 shrink-0 rounded-xl bg-muted flex items-center justify-center text-foreground">
+        <Icon className="h-4 w-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[14px] font-medium tracking-tight">{title}</span>
+        <span className="block text-[12px] text-muted-foreground mt-0.5">{hint}</span>
+      </span>
+      <ArrowRight className="h-3.5 w-3.5 mt-1 shrink-0 text-muted-foreground group-hover:translate-x-0.5 group-hover:text-foreground transition-all" />
+    </Link>
+  );
+}
+
 const EventsPage = () => {
   const { user } = useAuth();
-  const { org } = useOrg();
+  const { org, myRole } = useOrg();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [events, setEvents] = useState<Event[]>([]);
@@ -235,6 +272,32 @@ const EventsPage = () => {
       return timeFilter === "past" ? tb - ta : ta - tb;
     });
 
+  // Overview, all derived from the events already loaded.
+  const now = new Date();
+  const notEnded = (e: Event) => new Date(e.end_date || e.date) >= now;
+  const liveCount = events.filter((e) => e.status === "published" && notEnded(e)).length;
+  const pendingCount = events.filter((e) => e.status === "draft" || e.status === "pending").length;
+  const ticketsSold = events.reduce((sum, e) => sum + (e.tickets_sold ?? 0), 0);
+
+  // The soonest event still to come; `events` is already date-ascending.
+  const comingUp = events.filter((e) => e.status !== "cancelled" && notEnded(e));
+  const nextEvent = comingUp.find((e) => e.status === "published") ?? comingUp[0];
+  const daysToNext = nextEvent
+    ? Math.max(0, Math.ceil((new Date(nextEvent.date).getTime() - now.getTime()) / 86_400_000))
+    : 0;
+
+  // Same scoping as the sidebar: viewers don't get Marketing.
+  const tasks = [
+    { icon: Plus, title: "Create an event", hint: "Name, date and venue", to: "/dashboard/events/new" },
+    { icon: Ticket, title: "Sell tickets", hint: "Sales and who is coming", to: "/dashboard/tickets" },
+    ...(myRole === "viewer" ? [] : [
+      { icon: Megaphone, title: "Promote it", hint: "Campaigns and emails", to: "/dashboard/marketing" },
+    ]),
+    { icon: Building2, title: "Set up your brand", hint: "Details, brand kit, landing page", to: "/dashboard/organization" },
+    { icon: Users, title: "Grow community", hint: "Keep attendees talking", to: "/community" },
+    { icon: FileText, title: "Check reports", hint: "Numbers and exports", to: "/dashboard/reports" },
+  ];
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -246,6 +309,71 @@ const EventsPage = () => {
           <Button onClick={() => navigate("/dashboard/events/new")} className="h-10 rounded-xl px-4 font-medium">
             <Plus className="h-4 w-4 mr-1.5" /> New Event
           </Button>
+        </div>
+
+        {/* Overview */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
+          <StatTile icon={CalendarDays} label="Total events" value={String(events.length)} hint="In this workspace" />
+          <StatTile icon={Radio} label="Live now" value={String(liveCount)} hint="Published, not yet ended" />
+          <StatTile icon={PencilLine} label="Pending" value={String(pendingCount)} hint="Drafts waiting to publish" />
+          <StatTile icon={Ticket} label="Tickets sold" value={ticketsSold.toLocaleString("en-US")} hint="Across all events" />
+        </div>
+
+        {/* Tasks, with the next event beside them */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+          <section aria-labelledby="tasks-heading" className="xl:col-span-2 min-w-0">
+            <h2 id="tasks-heading" className="text-[13px] font-medium text-muted-foreground mb-3">What do you want to do?</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {tasks.map((task) => (
+                <TaskTile key={task.title} {...task} />
+              ))}
+            </div>
+          </section>
+
+          <section aria-labelledby="next-heading" className="min-w-0 flex flex-col">
+            <h2 id="next-heading" className="text-[13px] font-medium text-muted-foreground mb-3">Next up</h2>
+            <div className="bg-card border border-border rounded-2xl p-5 flex-1 flex flex-col">
+              {nextEvent ? (
+                <>
+                  <div className="flex items-start gap-3.5">
+                    <div className="flex flex-col items-center rounded-xl bg-muted px-3.5 py-2 shrink-0">
+                      <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                        {new Date(nextEvent.date).toLocaleDateString("en-US", { month: "short" })}
+                      </span>
+                      <span className="text-[22px] leading-none font-medium tracking-tight mt-0.5">{new Date(nextEvent.date).getDate()}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-[16px] leading-snug font-medium tracking-tight line-clamp-2" title={nextEvent.title}>{nextEvent.title}</h3>
+                      <p className="text-[13px] text-muted-foreground mt-0.5">
+                        {daysToNext === 0 ? "Happening now or today" : `In ${daysToNext} day${daysToNext === 1 ? "" : "s"}`}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="mt-4 text-[13px] text-muted-foreground">
+                    <span className="text-foreground font-medium">{nextEvent.tickets_sold ?? 0}</span>
+                    {Number(nextEvent.capacity) > 0 ? ` of ${nextEvent.capacity} tickets` : " tickets"}
+                  </p>
+                  <div className="mt-auto pt-4 grid grid-cols-2 gap-2">
+                    <Button asChild className="col-span-2 h-10 rounded-xl font-medium">
+                      <Link to={eventDashboardPath(nextEvent)}>Manage event <ArrowRight className="h-3.5 w-3.5 ml-1.5" /></Link>
+                    </Button>
+                    <Button asChild variant="outline" className="h-10 rounded-xl font-medium">
+                      <Link to={`/dashboard/events/${nextEvent.id}/guests`}><Users2 className="h-3.5 w-3.5 mr-1.5" /> Guests</Link>
+                    </Button>
+                    <Button asChild variant="outline" className="h-10 rounded-xl font-medium">
+                      <Link to={eventPublicPath(nextEvent, org?.slug)} target="_blank" rel="noreferrer">
+                        <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Public page
+                      </Link>
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-[13px] text-muted-foreground">
+                  Nothing scheduled yet. Create an event and it will show up here.
+                </p>
+              )}
+            </div>
+          </section>
         </div>
 
         {/* Filter and search on one row */}
