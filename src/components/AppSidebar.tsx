@@ -1,6 +1,6 @@
 import {
   Calendar, Settings, Ticket,
-  Megaphone, FileText, HelpCircle, CreditCard, Layout, Users,
+  Megaphone, FileText, HelpCircle, CreditCard, Building2, Users,
   ChevronsUpDown, Check,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
@@ -35,8 +35,8 @@ const attendeeItems = [
 ];
 
 const manageItems = [
-  { title: "Marketing",    url: "/dashboard/marketing",       icon: Megaphone },
-  { title: "Landing Page", url: "/dashboard/landing-builder", icon: Layout    },
+  { title: "Marketing",    url: "/dashboard/marketing",      icon: Megaphone },
+  { title: "Organization", url: "/dashboard/organization",   icon: Building2 },
 ];
 
 
@@ -64,7 +64,8 @@ export function AppSidebar() {
   const isViewer = role === "viewer";
   const isOwnerOrAdmin = role === "owner" || role === "admin";
 
-  const visibleManageItems = isViewer ? [] : manageItems;
+  // Viewers keep Organization: it is where they read the details and brand kit.
+  const visibleManageItems = isViewer ? manageItems.filter((item) => item.title === "Organization") : manageItems;
   const visibleBottomItems = bottomItems.filter((item) => {
     if (item.title === "Billing") return isOwnerOrAdmin;
     return true;
@@ -169,7 +170,7 @@ export function AppSidebar() {
                   ))}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild className="text-[12px]">
-                    <NavLink to="/dashboard/settings">Manage workspaces</NavLink>
+                    <NavLink to="/dashboard/organization">Manage organization</NavLink>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

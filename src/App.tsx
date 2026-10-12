@@ -83,7 +83,7 @@ const CommunityModerationPage = lazyWithLog("CommunityModerationPage", () => imp
 const CommunitySettingsPage = lazyWithLog("CommunitySettingsPage", () => import("./pages/dashboard/community/CommunitySettingsPage.tsx"));
 const CommunityCommunicationsPage = lazyWithLog("CommunityCommunicationsPage", () => import("./pages/dashboard/community/CommunityCommunicationsPage.tsx"));
 const PublicOrgPage = lazyWithLog("PublicOrgPage", () => import("./pages/PublicOrgPage.tsx"));
-const LandingBuilderPage = lazyWithLog("LandingBuilderPage", () => import("./pages/dashboard/LandingBuilderPage.tsx"));
+const OrganizationPage = lazyWithLog("OrganizationPage", () => import("./pages/dashboard/OrganizationPage.tsx"));
 const DiscoverFeed = lazyWithLog("DiscoverFeed", () => import("./pages/DiscoverFeed.tsx"));
 const ProfilePage = lazyWithLog("ProfilePage", () => import("./pages/u/ProfilePage.tsx"));
 const MyEventsPage = lazyWithLog("MyEventsPage", () => import("./pages/u/MyEventsPage.tsx"));
@@ -379,7 +379,9 @@ const App = () => (
                 <Route path="/dashboard/analytics" element={<RouteErrorBoundary><Navigate to="/dashboard/reports" replace /></RouteErrorBoundary>} />
                 <Route path="/dashboard/settings" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><SettingsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/marketing" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><MarketingPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
-                <Route path="/dashboard/landing-builder" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><LandingBuilderPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/organization" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><OrganizationPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
+                {/* The landing page editor now lives under Organization. */}
+                <Route path="/dashboard/landing-builder" element={<RouteErrorBoundary><Navigate to="/dashboard/organization?tab=landing" replace /></RouteErrorBoundary>} />
                 <Route path="/dashboard/reports" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><ReportsPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/help" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><HelpPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/billing" element={<RouteErrorBoundary><ProtectedRoute><OnboardingGuard><PricingPage /></OnboardingGuard></ProtectedRoute></RouteErrorBoundary>} />
