@@ -31,7 +31,6 @@ import {
   type SceneNode,
   type TextNode,
 } from "./scene";
-import { expandPosters, type StudioCategory } from "./variants";
 
 // ─── Formats ─────────────────────────────────────────────────────────────────
 
@@ -97,8 +96,6 @@ export interface StudioContent {
   scriptLine: string;
   /** The script headline on the Introducing design ("Meet our speaker"). */
   introLine: string;
-  /** The headline of a partner announcement ("Proud to partner with"). */
-  partnerLine: string;
 }
 
 export type StudioContentKey = keyof StudioContent;
@@ -133,10 +130,6 @@ export interface StudioTemplate {
   id: string;
   name: string;
   description: string;
-  /** What the design announces; the picker groups designs by it. */
-  category?: StudioCategory;
-  /** The design direction (visual family) it belongs to. */
-  family?: string;
   /** How many speakers the design features. */
   maxSpeakers: number;
   palette: StudioPalette;
@@ -1641,8 +1634,7 @@ function buildTalkshow(input: BuildInput): Scene {
 
 // ─── Catalogue ───────────────────────────────────────────────────────────────
 
-/** The reference-poster designs. */
-const POSTER_TEMPLATES: StudioTemplate[] = [
+export const STUDIO_TEMPLATES: StudioTemplate[] = [
   {
     id: "studio-spotlight",
     name: "Spotlight",
@@ -1964,20 +1956,8 @@ const POSTER_TEMPLATES: StudioTemplate[] = [
   },
 ];
 
-/**
- * Every design the studio offers: each poster in its colourways, for each
- * kind of graphic it suits (see `variants.ts`).
- */
-export const STUDIO_TEMPLATES: StudioTemplate[] = expandPosters(POSTER_TEMPLATES);
-
 export function findStudioTemplate(id: string): StudioTemplate {
-  // A bare poster id (saved before the designs had colourways) means that
-  // poster as it was: its original colours, for speakers.
-  return (
-    STUDIO_TEMPLATES.find((t) => t.id === id) ??
-    STUDIO_TEMPLATES.find((t) => t.id.startsWith(`${id}-speaker-`) || t.id.startsWith(`${id}-lineup-`)) ??
-    STUDIO_TEMPLATES[0]
-  );
+  return STUDIO_TEMPLATES.find((t) => t.id === id) ?? STUDIO_TEMPLATES[0];
 }
 
 export function findStudioFormat(id: string): StudioFormat {
@@ -1997,5 +1977,5 @@ export function studioFilename(subject: string, template: StudioTemplate, format
       .replace(/[^a-z0-9-]/g, "")
       .replace(/-+/g, "-")
       .replace(/^-+|-+$/g, "");
-  return `${slug(subject) || "creative"}-${slug(template.family ?? template.name)}-${slug(format.label)}.png`;
+  return `${slug(subject) || "creative"}-${slug(template.name)}-${slug(format.label)}.png`;
 }

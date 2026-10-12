@@ -46,7 +46,6 @@ const CONTENT: StudioContent = {
   sideLabel: "Speaker",
   scriptLine: "A Session",
   introLine: "Meet our speaker",
-  partnerLine: "Proud to partner with",
 };
 
 const SPEAKERS: StudioSpeaker[] = ["Maela Agatha", "John Levis", "Dave Light", "Mary Ann", "Heart Joy", "Sixth Person"].map(

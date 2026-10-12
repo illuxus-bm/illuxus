@@ -43,7 +43,6 @@ const CONTENT: StudioContent = {
   sideLabel: "Speaker #1",
   scriptLine: "A Session",
   introLine: "Meet our speaker",
-  partnerLine: "Proud to partner with",
 };
 
 const NAMES: Array<[string, string]> = [

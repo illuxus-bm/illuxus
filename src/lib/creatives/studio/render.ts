@@ -426,13 +426,6 @@ export const FAMILY_WEIGHTS: Record<string, number[]> = {
   "Playfair Display": [400, 500, 600, 700, 800, 900],
   "Great Vibes": [400],
   "Dancing Script": [400, 500, 600, 700],
-  "Space Grotesk": [400, 500, 600, 700],
-  "DM Serif Display": [400],
-  "DM Sans": [400, 500, 700],
-  Fraunces: [400, 600, 700],
-  "JetBrains Mono": [400, 500, 700],
-  Righteous: [400],
-  Caveat: [400, 700],
 };
 
 /** Loads `family` so the editor can measure and draw with it. */
