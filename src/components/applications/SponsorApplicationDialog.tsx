@@ -10,6 +10,7 @@ import { ConsentCheckbox, CONSENT_REQUIRED_MESSAGE, LegalLink } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CountryCodePicker } from "@/components/people/CountryCodePicker";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
@@ -34,6 +35,7 @@ interface FormData {
   contact_name: string;
   contact_email: string;
   contact_mobile_number: string;
+  contact_mobile_country_code: string;
   contact_designation: string;
   sponsorship_tier: string;
   budget_range: string;
@@ -50,7 +52,7 @@ const BUDGETS = ["< $1,000", "$1,000 - $5,000", "$5,000 - $10,000", "$10,000 - $
 
 const initialForm = (defaults: Partial<FormData> = {}): FormData => ({
   company_name: "", company_website: "", industry: "", company_description: "", logo_url: "",
-  contact_name: "", contact_email: "", contact_mobile_number: "", contact_designation: "",
+  contact_name: "", contact_email: "", contact_mobile_number: "", contact_mobile_country_code: "", contact_designation: "",
   sponsorship_tier: "", budget_range: "", objectives: "", expected_outcomes: "",
   brochure_url: "", deck_url: "", promotional_url: "", notes: "",
   ...defaults,
@@ -76,15 +78,12 @@ export function SponsorApplicationDialog({ eventId, open, onOpenChange, onSubmit
   // are never clobbered.
   useEffect(() => {
     if (!open || !profile) return;
-    const composedMobile = [profile.mobile_country_code, profile.mobile_number]
-      .filter(Boolean)
-      .join(" ")
-      .trim();
     setForm((prev) => ({
       ...prev,
       contact_name: prev.contact_name || profileFullName(profile),
       contact_email: prev.contact_email || user?.email || "",
-      contact_mobile_number: prev.contact_mobile_number || composedMobile,
+      contact_mobile_number: prev.contact_mobile_number || profile.mobile_number || "",
+      contact_mobile_country_code: prev.contact_mobile_number ? prev.contact_mobile_country_code : (profile.mobile_country_code || prev.contact_mobile_country_code),
       contact_designation: prev.contact_designation || profile.designation || "",
       company_name: prev.company_name || profile.company || "",
       company_website: prev.company_website || profile.company_website || "",
@@ -140,6 +139,7 @@ export function SponsorApplicationDialog({ eventId, open, onOpenChange, onSubmit
       contact_name: form.contact_name.trim(),
       contact_email: form.contact_email.trim().toLowerCase(),
       contact_mobile_number: form.contact_mobile_number.trim() || null,
+      contact_mobile_country_code: form.contact_mobile_number.trim() ? form.contact_mobile_country_code || null : null,
       contact_designation: form.contact_designation.trim() || null,
       sponsorship_tier: form.sponsorship_tier || null,
       budget_range: form.budget_range || null,
@@ -234,7 +234,13 @@ export function SponsorApplicationDialog({ eventId, open, onOpenChange, onSubmit
             <div className="grid sm:grid-cols-2 gap-3">
               <Field label="Name *" value={form.contact_name} onChange={(v) => update("contact_name", v)} />
               <Field label="Email *" type="email" value={form.contact_email} onChange={(v) => update("contact_email", v)} />
-              <Field label="Mobile" value={form.contact_mobile_number} onChange={(v) => update("contact_mobile_number", v)} />
+              <div className="space-y-1">
+                <Label className="text-[12px]">Mobile</Label>
+                <div className="flex gap-2">
+                  <CountryCodePicker value={form.contact_mobile_country_code} onChange={(dial) => update("contact_mobile_country_code", dial)} className="h-9 w-[104px] shrink-0 text-[13px]" />
+                  <Input type="tel" inputMode="tel" value={form.contact_mobile_number} onChange={(e) => update("contact_mobile_number", e.target.value.replace(/[^\d\s-]/g, ""))} placeholder="9876543210" className="h-9 min-w-0 flex-1 text-[13px]" />
+                </div>
+              </div>
               <Field label="Designation" value={form.contact_designation} onChange={(v) => update("contact_designation", v)} />
             </div>
 

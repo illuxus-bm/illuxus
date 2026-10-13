@@ -16,10 +16,8 @@ import {
   callGuestRegistration, registerGuest, validateGuestFields,
   type GuestConfirmation, type GuestFieldErrors, type GuestFields,
 } from "@/lib/guest-registration";
-import { COUNTRIES, detectDefaultDial } from "@/lib/phone-country";
+import { CountryCodePicker } from "@/components/people/CountryCodePicker";
 import type { UtmParams } from "@/lib/utm";
-
-const DIAL_CODES = [...new Set(COUNTRIES.map((c) => c.dial))].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
 
 function Field({ id, label, error, children }: { id: string; label: string; error?: string; children: React.ReactNode }) {
   return (
@@ -45,7 +43,7 @@ export function GuestRegistrationForm({
 }) {
   const [open, setOpen] = useState(false);
   const [fields, setFields] = useState<GuestFields>(() => ({
-    first_name: "", last_name: "", email: "", mobile_country_code: detectDefaultDial(), mobile_number: "", company: "", designation: "",
+    first_name: "", last_name: "", email: "", mobile_country_code: "", mobile_number: "", company: "", designation: "",
   }));
   const [agreed, setAgreed] = useState(false);
   const [website, setWebsite] = useState("");
@@ -114,14 +112,7 @@ export function GuestRegistrationForm({
       </Field>
       <Field id="guest-mobile" label="Mobile number" error={errors.mobile_number || errors.mobile_country_code}>
         <div className="flex gap-2">
-          <select
-            aria-label="Country code"
-            value={fields.mobile_country_code}
-            onChange={(e) => set("mobile_country_code", e.target.value)}
-            className="h-10 w-[84px] shrink-0 rounded-md border border-input bg-background px-2 text-[13.5px] focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            {DIAL_CODES.map((dial) => <option key={dial} value={dial}>{dial}</option>)}
-          </select>
+          <CountryCodePicker value={fields.mobile_country_code} onChange={(dial) => set("mobile_country_code", dial)} invalid={!!errors.mobile_country_code} className="w-[104px] shrink-0" />
           <Input id="guest-mobile" type="tel" inputMode="tel" autoComplete="tel-national" value={fields.mobile_number} onChange={(e) => set("mobile_number", e.target.value)} maxLength={20} aria-invalid={!!errors.mobile_number} className={`${input} min-w-0 flex-1`} />
         </div>
       </Field>

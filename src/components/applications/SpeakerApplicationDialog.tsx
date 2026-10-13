@@ -10,6 +10,7 @@ import { ConsentCheckbox, CONSENT_REQUIRED_MESSAGE, LegalLink } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CountryCodePicker } from "@/components/people/CountryCodePicker";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Mic, Loader2 } from "lucide-react";
@@ -28,6 +29,7 @@ interface FormData {
   full_name: string;
   email: string;
   mobile_number: string;
+  mobile_country_code: string;
   linkedin_url: string;
   portfolio_url: string;
   job_title: string;
@@ -50,7 +52,7 @@ interface FormData {
 }
 
 const initialForm = (defaults: Partial<FormData> = {}): FormData => ({
-  full_name: "", email: "", mobile_number: "", linkedin_url: "", portfolio_url: "",
+  full_name: "", email: "", mobile_number: "", mobile_country_code: "", linkedin_url: "", portfolio_url: "",
   job_title: "", company: "", years_experience: "", industry: "",
   bio: "", expertise: "", topics: "", past_experience: "",
   session_title: "", session_description: "", key_takeaways: "", target_audience: "",
@@ -79,15 +81,12 @@ export function SpeakerApplicationDialog({ eventId, open, onOpenChange, onSubmit
   // not already typed into so we never clobber in-progress edits.
   useEffect(() => {
     if (!open || !profile) return;
-    const composedMobile = [profile.mobile_country_code, profile.mobile_number]
-      .filter(Boolean)
-      .join(" ")
-      .trim();
     setForm((prev) => ({
       ...prev,
       full_name: prev.full_name || profileFullName(profile),
       email: prev.email || user?.email || "",
-      mobile_number: prev.mobile_number || composedMobile,
+      mobile_number: prev.mobile_number || profile.mobile_number || "",
+      mobile_country_code: prev.mobile_number ? prev.mobile_country_code : (profile.mobile_country_code || prev.mobile_country_code),
       linkedin_url: prev.linkedin_url || profile.linkedin_url || "",
       portfolio_url: prev.portfolio_url || profile.company_website || "",
       job_title: prev.job_title || profile.designation || "",
@@ -144,6 +143,7 @@ export function SpeakerApplicationDialog({ eventId, open, onOpenChange, onSubmit
       full_name: form.full_name.trim(),
       email: form.email.trim().toLowerCase(),
       mobile_number: form.mobile_number.trim() || null,
+      mobile_country_code: form.mobile_number.trim() ? form.mobile_country_code || null : null,
       linkedin_url: form.linkedin_url.trim() || null,
       portfolio_url: form.portfolio_url.trim() || null,
       job_title: form.job_title.trim() || null,
@@ -237,7 +237,13 @@ export function SpeakerApplicationDialog({ eventId, open, onOpenChange, onSubmit
             <div className="grid sm:grid-cols-2 gap-3">
               <Field label="Full name *" value={form.full_name} onChange={(v) => update("full_name", v)} />
               <Field label="Email *" type="email" value={form.email} onChange={(v) => update("email", v)} />
-              <Field label="Mobile number" value={form.mobile_number} onChange={(v) => update("mobile_number", v)} />
+              <div className="space-y-1">
+                <Label className="text-[12px]">Mobile number</Label>
+                <div className="flex gap-2">
+                  <CountryCodePicker value={form.mobile_country_code} onChange={(dial) => update("mobile_country_code", dial)} className="h-9 w-[104px] shrink-0 text-[13px]" />
+                  <Input type="tel" inputMode="tel" value={form.mobile_number} onChange={(e) => update("mobile_number", e.target.value.replace(/[^\d\s-]/g, ""))} placeholder="9876543210" className="h-9 min-w-0 flex-1 text-[13px]" />
+                </div>
+              </div>
               <Field label="LinkedIn URL" value={form.linkedin_url} onChange={(v) => update("linkedin_url", v)} placeholder="https://linkedin.com/in/..." />
               <Field label="Portfolio website" value={form.portfolio_url} onChange={(v) => update("portfolio_url", v)} placeholder="https://..." />
               <Field label="Industry" value={form.industry} onChange={(v) => update("industry", v)} />

@@ -1,13 +1,8 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Check, ChevronsUpDown } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { COUNTRIES, EMPLOYEE_COUNT_OPTIONS, INDUSTRY_OPTIONS, TITLE_OPTIONS, detectDefaultDial } from "@/lib/phone-country";
-import { useEffect, useState } from "react";
+import { EMPLOYEE_COUNT_OPTIONS, INDUSTRY_OPTIONS, TITLE_OPTIONS } from "@/lib/phone-country";
+import { CountryCodePicker } from "@/components/people/CountryCodePicker";
 import { z } from "zod";
 
 export type PersonFields = {
@@ -32,7 +27,7 @@ export const emptyPersonFields = (): PersonFields => ({
   designation: "",
   company: "",
   email: "",
-  mobile_country_code: detectDefaultDial(),
+  mobile_country_code: "",
   mobile_number: "",
   linkedin_url: "",
   company_website: "",
@@ -75,15 +70,7 @@ interface Props {
 }
 
 export default function PersonFieldsForm({ value, onChange, hideEmail }: Props) {
-  // Initialise dial code on mount if missing.
-  useEffect(() => {
-    if (!value.mobile_country_code) onChange({ ...value, mobile_country_code: detectDefaultDial() });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const set = <K extends keyof PersonFields>(k: K, v2: PersonFields[K]) => onChange({ ...value, [k]: v2 });
-  const [codeOpen, setCodeOpen] = useState(false);
-  const selectedCountry = COUNTRIES.find((c) => c.dial === value.mobile_country_code);
 
   return (
     <div className="space-y-3">
@@ -118,52 +105,10 @@ export default function PersonFieldsForm({ value, onChange, hideEmail }: Props) 
         </div>
       </div>
 
-      <div className="grid grid-cols-[140px_1fr] gap-2">
+      <div className="grid grid-cols-[120px_1fr] gap-2">
         <div>
           <Label className="text-[12px]">Code *</Label>
-          <Popover open={codeOpen} onOpenChange={setCodeOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                role="combobox"
-                aria-expanded={codeOpen}
-                className="w-full justify-between font-normal h-10 px-3"
-              >
-                <span className="truncate">{selectedCountry ? selectedCountry.dial : "Select"}</span>
-                <ChevronsUpDown className="ml-2 h-3.5 w-3.5 opacity-50 shrink-0" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[320px] p-0" align="start">
-              <Command
-                filter={(itemValue, search) => {
-                  // itemValue carries "<dial>|<name>|<code>" for robust matching
-                  return itemValue.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
-                }}
-              >
-                <CommandInput placeholder="Search country or code…" />
-                <CommandList className="max-h-[300px]">
-                  <CommandEmpty>No country found.</CommandEmpty>
-                  <CommandGroup>
-                    {COUNTRIES.map((c) => (
-                      <CommandItem
-                        key={c.code}
-                        value={`${c.dial} ${c.name} ${c.code}`}
-                        onSelect={() => {
-                          set("mobile_country_code", c.dial);
-                          setCodeOpen(false);
-                        }}
-                      >
-                        <Check className={cn("mr-2 h-4 w-4", value.mobile_country_code === c.dial ? "opacity-100" : "opacity-0")} />
-                        <span className="font-mono text-xs mr-2 w-12 shrink-0">{c.dial}</span>
-                        <span className="truncate">{c.name}</span>
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
+          <CountryCodePicker value={value.mobile_country_code} onChange={(dial) => set("mobile_country_code", dial)} />
         </div>
         <div>
           <Label className="text-[12px]">Mobile number *</Label>

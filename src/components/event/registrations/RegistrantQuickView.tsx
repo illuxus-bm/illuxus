@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CountryCodePicker } from "@/components/people/CountryCodePicker";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Pencil, X, Mail, Phone, Linkedin, Globe, Building2, CheckCircle, Trash2, Lock } from "lucide-react";
@@ -440,14 +441,16 @@ export default function RegistrantQuickView({
             <EditField label="Email" value={draft.email} onChange={(v) => update({ email: v })} type="email" error={errors.email} />
             <EditField label="Designation" value={draft.designation} onChange={(v) => update({ designation: v })} error={errors.designation} />
             <EditField label="Company" value={draft.company} onChange={(v) => update({ company: v })} error={errors.company} />
-            <div className="grid grid-cols-[80px_1fr] gap-2">
+            <div className="grid grid-cols-[104px_1fr] gap-2">
               <div>
                 <Label className="text-[11px]">Code</Label>
-                <Input
+                {/* Editing someone else's record: never guess their country. */}
+                <CountryCodePicker
                   className="h-8 text-[13px]"
                   value={draft.mobile_country_code || ""}
-                  onChange={(e) => update({ mobile_country_code: e.target.value })}
-                  placeholder="+1"
+                  onChange={(dial) => update({ mobile_country_code: dial })}
+                  invalid={!!errors.mobile_country_code}
+                  autoDetect={false}
                 />
                 {errors.mobile_country_code && <p className="text-[11px] text-destructive mt-0.5">{errors.mobile_country_code}</p>}
               </div>

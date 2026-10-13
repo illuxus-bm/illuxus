@@ -69,6 +69,48 @@ export function detectDefaultDial(): string {
   return match?.dial || "+91";
 }
 
+/** The dial code for an ISO country code, or null if it isn't in the list. */
+export function dialForCountry(code: string | null | undefined): string | null {
+  if (!code) return null;
+  return COUNTRIES.find((c) => c.code === code.toUpperCase())?.dial ?? null;
+}
+
+const GEO_CACHE_KEY = "illuxus:geo-country";
+let geoRequest: Promise<string | null> | null = null;
+
+/**
+ * The visitor's country from their IP address (via `/api/geo`, which reads
+ * the country Vercel's edge already attaches to the request). Asked once per
+ * tab and shared by every form; null when it can't be told, e.g. locally.
+ */
+export function detectCountryFromIp(): Promise<string | null> {
+  if (geoRequest) return geoRequest;
+  geoRequest = (async () => {
+    try {
+      const cached = window.sessionStorage.getItem(GEO_CACHE_KEY);
+      if (cached !== null) return cached || null;
+    } catch { /* storage unavailable */ }
+    try {
+      const res = await fetch("/api/geo", { signal: AbortSignal.timeout(3000), headers: { Accept: "application/json" } });
+      const body = res.ok ? ((await res.json()) as { country?: unknown }) : null;
+      const country = typeof body?.country === "string" && /^[A-Z]{2}$/.test(body.country) ? body.country : null;
+      try { window.sessionStorage.setItem(GEO_CACHE_KEY, country ?? ""); } catch { /* ignore */ }
+      return country;
+    } catch {
+      return null;
+    }
+  })();
+  return geoRequest;
+}
+
+/**
+ * Best default dial code: the visitor's country from their IP, then their
+ * browser language, then +91.
+ */
+export async function detectCountryDial(): Promise<string> {
+  return dialForCountry(await detectCountryFromIp()) ?? detectDefaultDial();
+}
+
 export const TITLE_OPTIONS = ["Mr", "Ms", "Mrs", "Prefer not to say"] as const;
 export type TitleOption = (typeof TITLE_OPTIONS)[number];
 
