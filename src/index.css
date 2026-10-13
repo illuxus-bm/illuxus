@@ -689,8 +689,12 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
      ring, which is a box-shadow too. */
   box-shadow: var(--float-shadow);
 }
-/* The destination you are on, and the one call to action. */
+/* The destination you are on, and the one call to action. The current
+   destination looks the same under the pointer: without the `:hover`
+   selector a chip's own hover colour, a utility emitted after this file,
+   would win and turn the label the colour of its background. */
 .float-chip[data-active="true"],
+.float-chip[data-active="true"]:hover,
 .float-chip-solid {
   background: hsl(var(--foreground));
   border-color: hsl(var(--foreground));
