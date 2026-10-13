@@ -11,6 +11,7 @@ import jsPDF from "jspdf";
 import { zipSync } from "fflate";
 import { buildPrintHtml, type BadgeData, type PrintOptions } from "./print-badges";
 import { badgeSizeMm } from "./badge-design";
+import { cacheBustedUrl } from "./image-loader";
 
 export type BadgeExportFormat = "pdf" | "jpg";
 
@@ -29,16 +30,31 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-/** Fetch a URL as a data URL (cached). Null when it can't be read, e.g. a
- *  host without CORS headers — the caller drops that resource. */
+function corsFetchAsDataUrl(url: string): Promise<string> {
+  return fetch(url, { mode: "cors" })
+    .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    .then(blobToDataUrl);
+}
+
+/**
+ * Fetch a URL as a data URL (cached). Null when it can't be read, e.g. a
+ * host without CORS headers — the caller drops that resource.
+ *
+ * The banner has usually been shown in a plain `<img>` first (the print
+ * preview, the event page), and the service worker keeps that no-CORS
+ * response — which a CORS fetch is then answered with, and fails on. So a
+ * failed fetch is retried under a URL that is a different cache entry.
+ */
 function fetchAsDataUrl(url: string): Promise<string | null> {
   if (url.startsWith("data:")) return Promise.resolve(url);
   let p = dataUrlCache.get(url);
   if (!p) {
-    p = fetch(url, { mode: "cors" })
-      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(blobToDataUrl)
-      .catch(() => null);
+    p = corsFetchAsDataUrl(url)
+      .catch(() => corsFetchAsDataUrl(cacheBustedUrl(url)))
+      .catch(() => {
+        dataUrlCache.delete(url); // let a later export try again
+        return null;
+      });
     dataUrlCache.set(url, p);
   }
   return p;
