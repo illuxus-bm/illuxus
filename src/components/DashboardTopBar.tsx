@@ -1,4 +1,5 @@
 import { AppHeaderBar } from "@/components/layout/AppHeaderBar";
+import { OrganiserNotch, WorkspaceChip } from "@/components/layout/ShellNotch";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useAuth } from "@/contexts/AuthContext";
@@ -179,6 +180,9 @@ export interface DashboardTopBarProps {
   /** Render as the first row of the white app panel (search on the left,
    *  account controls on the right); the logo is then left to the sidebar. */
   inPanel?: boolean;
+  /** Organiser shell: logo left, the main navigation as a centred pill, and
+   *  the actions right, all on the canvas above the page panel. */
+  notch?: boolean;
 }
 
 /**
@@ -189,7 +193,7 @@ export interface DashboardTopBarProps {
  * The bar itself (size, logo, sidebar button) is the shared AppHeaderBar;
  * this component only supplies the dashboard's actions.
  */
-export function DashboardTopBar({ inPanel = false }: DashboardTopBarProps = {}) {
+export function DashboardTopBar({ inPanel = false, notch = false }: DashboardTopBarProps = {}) {
   const { user, isAdmin, accountType, signOut } = useAuth();
   const { org, memberships } = useOrg();
   const navigate = useNavigate();
@@ -327,7 +331,7 @@ export function DashboardTopBar({ inPanel = false }: DashboardTopBarProps = {}) 
     </button>
   );
   const searchIcon = (
-    <button type="button" className="shell-icon-btn md:hidden" onClick={() => setSearchOpen(true)} title="Search" aria-label="Search">
+    <button type="button" className={`shell-icon-btn ${notch ? "" : "md:hidden"}`} onClick={() => setSearchOpen(true)} title="Search" aria-label="Search">
       <Search className="h-4 w-4" />
     </button>
   );
@@ -466,7 +470,22 @@ export function DashboardTopBar({ inPanel = false }: DashboardTopBarProps = {}) 
     <>
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
-      {inPanel ? (
+      {notch ? (
+        // Phones: logo and actions on one row, the navigation pill on the next.
+        <header className="shell-notch-header app-chrome sticky top-0 z-30 flex flex-wrap items-center gap-x-3 gap-y-2.5 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] lg:px-6">
+          <div className="flex min-w-0 items-center gap-3 md:flex-1">
+            <a href="https://illuxus.com" className="flex shrink-0 items-center" aria-label={`${brandName} home`}>
+              <IlluxusWordmark height={22} ariaLabel="" />
+            </a>
+            <WorkspaceChip />
+            {leading}
+          </div>
+          <div className="order-last flex w-full min-w-0 justify-center md:order-none md:w-auto">
+            <OrganiserNotch />
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 md:flex-1 md:justify-end">{actions}</div>
+        </header>
+      ) : inPanel ? (
         <header className="shell-topbar sticky top-0 z-30 flex h-[4.25rem] items-center gap-2 px-4 lg:px-6">
           <SidebarTrigger className="shell-icon-btn !h-9 !w-9 md:hidden" aria-label="Open menu" />
           <a href="https://illuxus.com" className="flex shrink-0 items-center md:hidden" aria-label={`${brandName} home`}>

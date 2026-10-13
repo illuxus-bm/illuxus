@@ -640,6 +640,20 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
   }
 }
 
+/* Organiser shell: no sidebar. The header stays on the canvas, carrying the
+   navigation pill, and the panel takes the full width below it. On phones
+   the pill drops to a second row, so the header is taller there. */
+.app-shell.shell-notch { --app-header-h: 7.5rem; }
+.shell-notch .app-shell-panel { margin: 0 0.5rem 0.5rem; }
+@media (min-width: 768px) {
+  .app-shell.shell-notch { --app-header-h: 4.5rem; }
+  .shell-notch .app-shell-panel { margin: 0 0.75rem 0.75rem; }
+}
+.shell-notch-header {
+  background: hsl(var(--shell) / 0.88);
+  backdrop-filter: saturate(1.4) blur(10px);
+}
+
 /* Top bar: first row of the panel, and stays put while the page scrolls. */
 .shell-topbar {
   background: hsl(var(--background) / 0.92);

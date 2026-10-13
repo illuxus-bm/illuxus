@@ -14,11 +14,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import {
-  Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent,
-  SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar
-} from "@/components/ui/sidebar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -46,7 +41,7 @@ import { useFxRates, formatConverted } from "@/lib/fx";
 import { CurrencySwitcher, getStoredDisplayCurrency } from "@/components/CurrencySwitcher";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { DashboardTopBar } from "@/components/DashboardTopBar";
-import { ShellSidebarHeader, useShellChrome } from "@/components/layout/ShellChrome";
+import { SectionPills } from "@/components/layout/ShellNotch";
 
 const BroadcastPageLazy = lazy(() => import("./event/BroadcastPage"));
 const ApplicationsSectionLazy = lazy(() => import("@/components/event/ApplicationsSection").then((m) => ({ default: m.ApplicationsSection })));
@@ -81,47 +76,9 @@ const CHART_COLORS = {
   available: "hsl(240 5% 85%)",
 };
 
-function EventSidebar({ active, onSelect, eventTitle, eventFormat, canAccessCreatives, canAccessBrochure }: { active: string; onSelect: (k: string) => void; eventTitle: string; eventFormat?: string | null; canAccessCreatives: boolean; canAccessBrochure: boolean }) {
-  const { state } = useSidebar();
-  const collapsed = state === "collapsed";
-  const nav = sidebarNav.filter((i) =>
-    !(i.key === "broadcast" && eventFormat === "physical") &&
-    !(i.key === "creatives" && !canAccessCreatives) &&
-    !(i.key === "brochure" && !canAccessBrochure)
-  );
-
-  return (
-    <Sidebar collapsible="icon" className="!border-r-0 bg-sidebar">
-      <ShellSidebarHeader />
-      <SidebarContent className="pt-1">
-        <SidebarGroup className="px-3">
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {nav.map((item) => (
-                <SidebarMenuItem key={item.key}>
-                  <SidebarMenuButton
-                    isActive={active === item.key}
-                    tooltip={item.label}
-                    onClick={() => onSelect(item.key)}
-                    className="cursor-pointer h-9 px-3 rounded-xl text-[13px]"
-                  >
-                    <item.icon className="h-4 w-4" />
-                    {!collapsed && <span>{item.label}</span>}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-    </Sidebar>
-  );
-}
-
 type Registration = Tables<"registrations">;
 
 const EventDetailPage = () => {
-  useShellChrome();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const goBack = useAppBack("/dashboard/events");
@@ -434,29 +391,33 @@ const EventDetailPage = () => {
     completed: "bg-chart-2/15 text-chart-2",
   };
 
-  return (
-    <SidebarProvider>
-      <div className="app-shell min-h-screen flex w-full">
-        <div className="flex flex-1 w-full min-w-0">
-          <EventSidebar active={activeSection} onSelect={async (k) => {
-          if (k === "broadcast") { setActiveSection("broadcast"); return; }
-          if (k === "community") {
-            // Resolve this event's community and jump to its feed.
-            const { data: cid } = await supabaseRpc("community_resolve_event" as never, { _event_id: event.id } as never);
-            if (cid) {
-              const { data: comm } = await supabase.from("communities" as never).select("slug").eq("id", cid as string).maybeSingle();
-              const slug = (comm as { slug?: string } | null)?.slug;
-              if (slug) { navigate(`/community/${slug}/feed`); return; }
-            }
-            // If the community hasn't been created yet, stay on the dashboard and show the fallback UI
-            setActiveSection("community");
-            return;
-          }
-          setActiveSection(k);
-        }} eventTitle={event.title} eventFormat={(event as any).event_format} canAccessCreatives={canAccessCreatives} canAccessBrochure={canAccessBrochure} />
+  const sectionPills = sidebarNav.filter((i) =>
+    !(i.key === "broadcast" && (event as any).event_format === "physical") &&
+    !(i.key === "creatives" && !canAccessCreatives) &&
+    !(i.key === "brochure" && !canAccessBrochure)
+  );
+  const selectSection = async (k: string) => {
+    if (k === "broadcast") { setActiveSection("broadcast"); return; }
+    if (k === "community") {
+      // Resolve this event's community and jump to its feed.
+      const { data: cid } = await supabaseRpc("community_resolve_event" as never, { _event_id: event.id } as never);
+      if (cid) {
+        const { data: comm } = await supabase.from("communities" as never).select("slug").eq("id", cid as string).maybeSingle();
+        const slug = (comm as { slug?: string } | null)?.slug;
+        if (slug) { navigate(`/community/${slug}/feed`); return; }
+      }
+      // If the community hasn't been created yet, stay on the dashboard and show the fallback UI
+      setActiveSection("community");
+      return;
+    }
+    setActiveSection(k);
+  };
 
+  return (
+    <>
+      <div className="app-shell shell-notch min-h-screen flex flex-col w-full">
+        <DashboardTopBar notch />
         <div className="app-shell-panel flex-1 flex flex-col">
-          <DashboardTopBar inPanel />
           {/* Header */}
           <header className="border-b border-border px-3 sm:px-5 py-3 flex items-center justify-between gap-2 min-w-0">
             <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
@@ -466,14 +427,14 @@ const EventDetailPage = () => {
                 // the events list when the previous entry is the login page,
                 // another site, or missing (a link opened in a new tab).
                 onClick={goBack}
-                className="h-7 w-7 shrink-0 flex items-center justify-center rounded-md hover:bg-muted transition-colors"
+                className="shell-icon-btn shrink-0"
                 aria-label="Back"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
               </button>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <h1 className="text-sm font-semibold truncate">{event.title}</h1>
+                  <h1 className="text-[17px] font-semibold tracking-tight truncate">{event.title}</h1>
                   <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${statusStyle[event.status] || ""}`}>
                     {event.status}
                   </span>
@@ -636,6 +597,15 @@ const EventDetailPage = () => {
               )}
             </div>
           </header>
+
+          {/* This event's sections */}
+          <SectionPills
+            label="Event sections"
+            items={sectionPills}
+            activeKey={activeSection}
+            onSelect={selectSection}
+            className="border-b border-border px-3 sm:px-5 py-3"
+          />
 
           {/* Content */}
           <main className="flex-1 p-4 lg:p-6 overflow-y-auto">
@@ -839,9 +809,8 @@ const EventDetailPage = () => {
             )}
           </main>
         </div>
-        </div>
       </div>
-    </SidebarProvider>
+    </>
   );
 };
 
