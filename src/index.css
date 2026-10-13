@@ -746,6 +746,19 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
   background: repeating-linear-gradient(90deg, hsl(var(--foreground) / 0.16) 0 1px, transparent 1px 5px);
 }
 
+/* Report charts: the colours after the first (`--chart-1`), in a fixed order and in both themes. Neighbours were checked for colour-blind separation; green beside amber fails it. */
+.report-viz {
+  --viz-2: #eda100;
+  --viz-3: #2a78d6;
+  --viz-4: #e34948;
+  --viz-rest: hsl(var(--muted-foreground) / 0.45);
+}
+.dark .report-viz {
+  --viz-2: #c98500;
+  --viz-3: #3987e5;
+  --viz-4: #e66767;
+}
+
 /* One prompt at a time where they would share the foot of the screen: the
    install prompt waits while the cookie banner is asking. From `xl` up there
    is room for both side by side. */

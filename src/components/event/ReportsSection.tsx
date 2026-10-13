@@ -8,17 +8,16 @@ import {
 } from "recharts";
 import type { Tables } from "@/integrations/supabase/types";
 import { formatMoney } from "@/lib/currency";
+import { buildReport, registrationState, type ReportEvent } from "@/lib/reports/analytics";
+import { fetchAllRows } from "@/lib/reports/fetch";
 import ExportReportDialog, { type ExportField } from "./reports/ExportReportDialog";
 
 type Registration = Tables<"registrations">;
 type Speaker = Tables<"speakers">;
 
-const COLORS = [
-  "hsl(var(--brand-green))",
-  "hsl(var(--brand-amber))",
-  "hsl(var(--brand-red))",
-  "hsl(var(--muted-foreground))",
-];
+// Same colours, in the same order, as the organisation's Reports page (index.css, `.report-viz`).
+const SERIES = "hsl(var(--chart-1))";
+const COLORS = [SERIES, "var(--viz-2)", "var(--viz-3)", "var(--viz-4)", "var(--viz-rest)"];
 
 interface SpeakerRow {
   id: string;
@@ -44,23 +43,28 @@ interface SpeakerRow {
 export default function ReportsSection({ eventId }: { eventId: string }) {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [speakers, setSpeakers] = useState<SpeakerRow[]>([]);
-  const [currency, setCurrency] = useState<string>("INR");
-  const [targetPct, setTargetPct] = useState<number | null>(null);
+  const [eventRow, setEventRow] = useState<(ReportEvent & { attendance_target_pct: number | null }) | null>(null);
+  const [loadedAt, setLoadedAt] = useState<Date>(() => new Date());
   const [loading, setLoading] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [regRes, evRes, esRes] = await Promise.all([
-        supabase
-          .from("registrations")
-          .select("*")
-          .eq("event_id", eventId)
-          .order("created_at", { ascending: true }),
+      const [regs, evRes, esRes] = await Promise.all([
+        // Page by page: one request stops at 1000 rows, which a large event passes.
+        fetchAllRows<Registration>((from, to) =>
+          supabase
+            .from("registrations")
+            .select("*")
+            .eq("event_id", eventId)
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to),
+        ).catch(() => [] as Registration[]),
         supabase
           .from("events")
-          .select("currency, attendance_target_pct")
+          .select("id, title, date, status, currency, capacity, attendance_target_pct")
           .eq("id", eventId)
           .maybeSingle(),
         supabase
@@ -70,12 +74,9 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
       ]);
       if (cancelled) return;
 
-      const regs = (regRes.data as Registration[] | null) ?? [];
       setRegistrations(regs);
-
-      const ev = evRes.data as { currency?: string | null; attendance_target_pct?: number | null } | null;
-      setCurrency(ev?.currency || "INR");
-      setTargetPct(ev?.attendance_target_pct ?? null);
+      setEventRow((evRes.data as (ReportEvent & { attendance_target_pct: number | null }) | null) ?? null);
+      setLoadedAt(new Date());
 
       // Build speaker attendance by matching email against speaker-typed registrations
       type ESRow = {
@@ -124,13 +125,23 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
     return () => { cancelled = true; };
   }, [eventId]);
 
-  const totalRevenue = registrations.reduce((s, r) => s + Number(r.amount_paid || 0), 0);
-  const confirmedCount = registrations.filter((r) => r.status === "confirmed").length;
-  const avgTicketPrice = registrations.length > 0 ? totalRevenue / registrations.length : 0;
+  const currency = eventRow?.currency || "INR";
+  const targetPct = eventRow?.attendance_target_pct ?? null;
 
-  // Delegate = approved registration that's not a speaker
+  // The same figures, worked out the same way, as the organisation's Reports page.
+  const report = useMemo(() => buildReport({
+    events: eventRow ? [eventRow] : [],
+    registrations,
+    range: "all",
+    state: "all",
+    now: loadedAt,
+    toDisplay: (amount) => amount,
+  }), [eventRow, registrations, loadedAt]);
+  const { totals } = report;
+
+  // Delegate = confirmed registration that's not a speaker (a cancelled one is no longer expected)
   const delegates = registrations.filter(
-    (r) => r.ticket_type !== "speaker" && r.approval_status === "approved"
+    (r) => r.ticket_type !== "speaker" && registrationState(r) === "confirmed"
   );
   const delegatesAttended = delegates.filter((r) => r.checked_in).length;
   const delegatesTotal = delegates.length;
@@ -151,23 +162,16 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
   }, {} as Record<string, number>);
   const ticketPieData = Object.entries(ticketBreakdown).map(([name, value]) => ({ name, value }));
 
-  // Status breakdown
-  const statusBreakdown = registrations.reduce((acc, r) => {
-    acc[r.status] = (acc[r.status] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-  const statusBarData = Object.entries(statusBreakdown).map(([name, value]) => ({ name, value }));
+  const statusBarData = report.states.map((s) => ({ name: s.label, value: s.count }));
 
-  // Daily registrations trend
-  const dailyMap = registrations.reduce((acc, r) => {
-    const day = new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    acc[day] = (acc[day] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-  const dailyTrend = Object.entries(dailyMap).map(([date, count]) => ({ date, count }));
+  // Every day (or week, or month) since the first registration, empty ones included
+  const dailyTrend = totals.registrations > 0
+    ? report.trend.map((p) => ({ date: p.label, when: p.longLabel, count: p.registrations }))
+    : [];
 
-  // Revenue by ticket type
+  // Revenue by ticket type; what a cancelled registration paid is not revenue
   const revenueByType = registrations.reduce((acc, r) => {
+    if (registrationState(r) === "cancelled") return acc;
     acc[r.ticket_type] = (acc[r.ticket_type] || 0) + Number(r.amount_paid || 0);
     return acc;
   }, {} as Record<string, number>);
@@ -404,7 +408,7 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
   if (loading) return <div className="text-center py-12 text-sm text-muted-foreground">Loading report data...</div>;
 
   return (
-    <div className="space-y-4">
+    <div className="report-viz space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold">Reports & Analytics</h2>
@@ -418,10 +422,10 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { icon: Users, label: "Total Registrations", value: String(registrations.length), color: "text-foreground" },
-          { icon: DollarSign, label: "Total Revenue", value: formatMoney(totalRevenue, currency), color: "text-accent" },
-          { icon: Ticket, label: "Avg. Ticket Price", value: formatMoney(avgTicketPrice, currency), color: "text-primary" },
-          { icon: TrendingUp, label: "Conversion Rate", value: registrations.length ? `${Math.round((confirmedCount / registrations.length) * 100)}%` : "0%", color: "text-green-600" },
+          { icon: Users, label: "Total Registrations", value: totals.registrations.toLocaleString(), hint: `${totals.tickets.toLocaleString()} tickets sold`, color: "text-foreground" },
+          { icon: DollarSign, label: "Total Revenue", value: formatMoney(totals.revenue, currency), hint: "Cancelled registrations excluded", color: "text-accent" },
+          { icon: Ticket, label: "Avg. per Ticket", value: formatMoney(totals.avgTicket, currency), hint: "Revenue ÷ tickets sold", color: "text-primary" },
+          { icon: TrendingUp, label: "Confirmation Rate", value: totals.confirmationRate === null ? "—" : `${Math.round(totals.confirmationRate)}%`, hint: `${totals.confirmed.toLocaleString()} of ${totals.registrations.toLocaleString()} confirmed`, color: "text-green-600" },
         ].map((s) => (
           <div key={s.label} className="bg-card border border-border rounded-lg p-3">
             <div className="flex items-center gap-1.5 mb-1">
@@ -429,6 +433,7 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
               <span className="text-[11px] text-muted-foreground">{s.label}</span>
             </div>
             <p className={`text-lg font-semibold ${s.color}`}>{s.value}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{s.hint}</p>
           </div>
         ))}
       </div>
@@ -512,11 +517,15 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
           {dailyTrend.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={dailyTrend}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))", background: "hsl(var(--popover))", color: "hsl(var(--popover-foreground))" }} />
-                <Line type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
+                <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={24} />
+                <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))", background: "hsl(var(--popover))", color: "hsl(var(--popover-foreground))" }}
+                  labelFormatter={(_, payload) => (payload?.[0]?.payload as { when?: string } | undefined)?.when ?? ""}
+                  formatter={(v: number) => [v, "Registrations"]}
+                />
+                <Line type="monotone" dataKey="count" stroke={SERIES} strokeWidth={2} dot={dailyTrend.length === 1 ? { r: 3 } : false} activeDot={{ r: 4 }} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           ) : (
@@ -559,11 +568,11 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
           {statusBarData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={statusBarData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))", background: "hsl(var(--popover))", color: "hsl(var(--popover-foreground))" }} />
-                <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="value" fill={SERIES} radius={[4, 4, 0, 0]} maxBarSize={28} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -577,11 +586,11 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
           {revenueBarData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={revenueBarData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} tickFormatter={(v) => formatMoney(v, currency)} />
                 <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))", background: "hsl(var(--popover))", color: "hsl(var(--popover-foreground))" }} formatter={(v: number) => [formatMoney(v, currency), "Revenue"]} />
-                <Bar dataKey="revenue" fill="hsl(var(--brand-green))" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="revenue" fill={SERIES} radius={[4, 4, 0, 0]} maxBarSize={28} />
               </BarChart>
             </ResponsiveContainer>
           ) : (

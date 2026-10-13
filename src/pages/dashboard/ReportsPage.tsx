@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { useOrg } from "@/contexts/OrgContext";
@@ -11,26 +10,37 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line,
-  AreaChart, Area, Legend,
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
 import {
   Download, FileText, Users, DollarSign, Ticket, TrendingUp,
   CheckCircle2, Loader2, Calendar, BarChart3, Target,
   Percent, RefreshCw, ArrowUpRight, ArrowDownRight, CalendarClock,
-  FileSpreadsheet, FileDown, Award,
+  FileSpreadsheet, FileDown, Award, AlertTriangle, Trophy,
 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
 import { downloadReportPdf } from "@/lib/reports/pdf";
+import { fetchAllRows } from "@/lib/reports/fetch";
+import {
+  buildReport, pctChange, registrationState, REG_STATES, REG_STATE_LABEL,
+  type RangeKey, type RegState, type TrendPoint,
+} from "@/lib/reports/analytics";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Data ─────────────────────────────────────────────────────────────────────
 
-type EventRow = Tables<"events">;
-type RegRow   = Tables<"registrations">;
+const EVENT_COLS = "id, title, date, status, currency, capacity";
+const REG_COLS = "id, event_id, name, email, ticket_type, status, approval_status, amount_paid, checked_in, checked_in_at, created_at";
+
+type EventRow = Pick<Tables<"events">, "id" | "title" | "date" | "status" | "currency" | "capacity">;
+type RegRow = Pick<
+  Tables<"registrations">,
+  "id" | "event_id" | "name" | "email" | "ticket_type" | "status" | "approval_status" | "amount_paid" | "checked_in" | "checked_in_at" | "created_at"
+>;
 
 interface SpeakerAttendee {
+  event_id: string;
   name: string;
   email: string | null;
   company: string | null;
@@ -40,50 +50,109 @@ interface SpeakerAttendee {
 }
 
 interface SponsorRow {
+  event_id: string;
   name: string;
   email: string | null;
-  company: string | null;
   tier: string | null;
   website: string | null;
   event_title: string;
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+interface ReportData {
+  events: EventRow[];
+  registrations: RegRow[];
+  speakers: SpeakerAttendee[];
+  sponsors: SponsorRow[];
+  loadedAt: Date;
+}
 
-const CHART_COLORS = [
-  "hsl(var(--primary))",
-  "hsl(var(--accent))",
-  "#10b981",
-  "#f59e0b",
-  "#ef4444",
-  "#8b5cf6",
-  "#06b6d4",
-];
+// A long `in (…)` list overflows the URL, so events are asked for in batches.
+const ID_CHUNK = 80;
 
-// Statuses that represent a completed/paying registration
-const ACTIVE_STATUSES = new Set(["confirmed", "approved", "registered", "paid", "checked_in"]);
+type PageQuery = (ids: string[], from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>;
 
-type RangeKey = "7d" | "30d" | "90d" | "ytd" | "all";
+async function fetchForEvents<T>(eventIds: string[], query: PageQuery): Promise<T[]> {
+  const rows: T[] = [];
+  for (let i = 0; i < eventIds.length; i += ID_CHUNK) {
+    const ids = eventIds.slice(i, i + ID_CHUNK);
+    rows.push(...await fetchAllRows<T>((from, to) => query(ids, from, to)));
+  }
+  return rows;
+}
+
+async function loadReportData(orgId: string): Promise<ReportData> {
+  const { data: evs, error } = await supabase
+    .from("events").select(EVENT_COLS).eq("org_id", orgId).order("date", { ascending: false });
+  if (error) throw new Error(error.message);
+  const events = (evs ?? []) as EventRow[];
+  const loadedAt = new Date();
+  if (events.length === 0) return { events, registrations: [], speakers: [], sponsors: [], loadedAt };
+
+  const eventIds = events.map((e) => e.id);
+  const titleOf = new Map(events.map((e) => [e.id, e.title]));
+
+  type ESRow = { event_id: string; speakers: { name: string; email: string | null; company: string | null } | null };
+  type SpsRow = { event_id: string; sponsors: { name: string; email: string | null; tier: string | null; website: string | null } | null };
+
+  const [registrations, speakerLinks, sponsorLinks] = await Promise.all([
+    fetchForEvents<RegRow>(eventIds, (ids, from, to) =>
+      supabase.from("registrations").select(REG_COLS).in("event_id", ids)
+        .order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to)),
+    fetchForEvents<ESRow>(eventIds, (ids, from, to) =>
+      supabase.from("event_speakers").select("event_id, speakers(name, email, company)").in("event_id", ids)
+        .order("event_id").order("speaker_id").range(from, to)),
+    fetchForEvents<SpsRow>(eventIds, (ids, from, to) =>
+      supabase.from("event_sponsors").select("event_id, sponsors(name, email, tier, website)").in("event_id", ids)
+        .order("event_id").order("sponsor_id").range(from, to)),
+  ]);
+
+  const regByEmail = new Map<string, RegRow>();
+  for (const r of registrations) {
+    if (r.email) regByEmail.set(`${r.event_id}:${r.email.toLowerCase()}`, r);
+  }
+
+  const speakers: SpeakerAttendee[] = speakerLinks.filter((r) => r.speakers).map((r) => {
+    const sp = r.speakers!;
+    const reg = sp.email ? regByEmail.get(`${r.event_id}:${sp.email.toLowerCase()}`) : undefined;
+    return {
+      event_id: r.event_id,
+      name: sp.name,
+      email: sp.email,
+      company: sp.company,
+      checked_in: !!reg?.checked_in,
+      checked_in_at: reg?.checked_in_at ?? null,
+      event_title: titleOf.get(r.event_id) ?? "Unknown",
+    };
+  });
+
+  const sponsors: SponsorRow[] = sponsorLinks.filter((r) => r.sponsors).map((r) => ({
+    event_id: r.event_id,
+    name: r.sponsors!.name,
+    email: r.sponsors!.email,
+    tier: r.sponsors!.tier,
+    website: r.sponsors!.website,
+    event_title: titleOf.get(r.event_id) ?? "Unknown",
+  }));
+
+  return { events, registrations, speakers, sponsors, loadedAt };
+}
+
+// ─── Formatting ───────────────────────────────────────────────────────────────
+
 const RANGE_LABELS: Record<RangeKey, string> = {
-  "7d": "7d", "30d": "30d", "90d": "90d", ytd: "YTD", all: "All",
+  "7d": "7 days", "30d": "30 days", "90d": "90 days", ytd: "This year", all: "All time",
 };
 
-function rangeStart(range: RangeKey): Date | null {
-  const now = new Date();
-  if (range === "all") return null;
-  if (range === "ytd") return new Date(now.getFullYear(), 0, 1);
-  const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-  const d = new Date(now);
-  d.setDate(d.getDate() - days);
-  return d;
-}
+const EMPTY_DATA: ReportData = { events: [], registrations: [], speakers: [], sponsors: [], loadedAt: new Date(0) };
 
-function pctChange(curr: number, prev: number): number | null {
-  if (!prev) return curr > 0 ? 100 : null;
-  return ((curr - prev) / prev) * 100;
-}
+const fmtPct = (v: number) => `${Math.round(v * 10) / 10}%`;
 
-// ─── CSV helper ───────────────────────────────────────────────────────────────
+function periodLabel(start: Date | null, now: Date): string {
+  if (!start) return "All time";
+  const f = (d: Date, year: boolean) =>
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(year ? { year: "numeric" as const } : {}) });
+  return `${f(start, start.getFullYear() !== now.getFullYear())} – ${f(now, true)}`;
+}
 
 function downloadCsv(filename: string, header: string[], rows: (string | number | null | undefined)[][]) {
   const esc = (v: string | number | null | undefined) => {
@@ -91,7 +160,7 @@ function downloadCsv(filename: string, header: string[], rows: (string | number 
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const csv = [header, ...rows].map((r) => r.map(esc).join(",")).join("\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
   a.href     = url;
@@ -100,88 +169,162 @@ function downloadCsv(filename: string, header: string[], rows: (string | number 
   URL.revokeObjectURL(url);
 }
 
-// ─── UI atoms ─────────────────────────────────────────────────────────────────
+// ─── Chart pieces ─────────────────────────────────────────────────────────────
 
-function DeltaChip({ value }: { value: number | null }) {
-  if (value === null || !Number.isFinite(value)) {
-    return <span className="text-[10px] text-muted-foreground font-mono">—</span>;
-  }
-  const positive = value >= 0;
-  const Icon = positive ? ArrowUpRight : ArrowDownRight;
+// Every single-measure chart on the page wears this one colour; a state keeps its own whatever its share (index.css).
+const SERIES = "hsl(var(--chart-1))";
+const STATE_COLOR: Record<RegState, string> = {
+  confirmed: SERIES, pending: "var(--viz-2)", waitlisted: "var(--viz-3)", declined: "var(--viz-4)", cancelled: "var(--viz-rest)",
+};
+const AXIS_TICK = { fontSize: 11, fill: "hsl(var(--muted-foreground))" };
+const GRID = "hsl(var(--border))";
+const CHART_H = "h-[240px]";
+const CHART_MIN_H = "lg:min-h-[240px]";
+const EMPTY_H = "min-h-[120px] lg:min-h-[240px]";
+
+function DeltaChip({ value, versus }: { value: number | null; versus: string | null }) {
+  if (value === null || !Number.isFinite(value) || !versus) return null;
+  const up = value >= 0;
+  const Icon = up ? ArrowUpRight : ArrowDownRight;
   return (
-    <span className={cn(
-      "inline-flex items-center gap-0.5 text-[10px] font-mono px-1.5 py-0.5 rounded-md",
-      positive ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-red-500/10 text-red-600 dark:text-red-400"
-    )}>
-      <Icon className="h-2.5 w-2.5" />
-      {Math.abs(value).toFixed(1)}%
+    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
+      <span className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 font-medium tabular-nums",
+        up ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-red-500/10 text-red-700 dark:text-red-400",
+      )}>
+        <Icon className="h-3 w-3" />
+        {up ? "+" : "−"}{fmtPct(Math.abs(value))}
+      </span>
+      <span>vs {versus}</span>
     </span>
   );
 }
 
-interface KpiCardProps {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  sub?: string;
-  delta?: number | null;
-  spark?: { i: number; v: number }[];
-  color?: string;
-  index?: number;
-}
-
-function KpiCard({ icon: Icon, label, value, sub, delta, spark, color = "text-foreground", index = 0 }: KpiCardProps) {
+function Sparkline({ values }: { values: number[] }) {
+  if (values.length < 2) return <div className="h-9" />;
+  const max = Math.max(...values, 0);
+  const points = values
+    .map((v, i) => `${(i / (values.length - 1)) * 100},${max > 0 ? 28 - (v / max) * 26 : 28}`)
+    .join(" ");
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.03 }}
-      className="bg-card border border-border rounded-xl p-4 select-none"
-    >
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">{label}</span>
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-      </div>
-      <div className="flex items-end justify-between gap-2">
-        <p className={`text-xl font-semibold font-mono tabular-nums ${color}`}>{value}</p>
-        {delta !== undefined && <DeltaChip value={delta ?? null} />}
-      </div>
-      {sub && <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>}
-      {spark && spark.some((p) => p.v > 0) && (
-        <div className="h-7 mt-2 -mx-1">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={spark}>
-              <Line type="monotone" dataKey="v" stroke="hsl(var(--primary))" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </motion.div>
+    <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="h-9 w-full" aria-hidden="true">
+      <polyline points={points} fill="none" stroke={SERIES} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+    </svg>
   );
 }
 
-function Section({
-  title, icon: Icon, action, children, full,
+function StatTile({
+  icon: Icon, label, value, hint, delta, versus, spark,
 }: {
-  title: string;
   icon: React.ElementType;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-  full?: boolean;
+  label: string;
+  value: string;
+  hint?: string;
+  delta?: number | null;
+  versus?: string | null;
+  spark?: number[];
 }) {
   return (
-    <div className={cn("bg-card border border-border rounded-xl p-4 sm:p-5", full && "lg:col-span-2")}>
-      <div className="flex items-center justify-between gap-2 mb-4">
-        <h3 className="text-sm font-semibold flex items-center gap-2 min-w-0">
-          <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
-          <span className="truncate">{title}</span>
-        </h3>
+    <div className="flex min-w-0 flex-col rounded-2xl border border-border bg-card p-4">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="truncate text-[12px] font-medium text-muted-foreground">{label}</span>
+        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+      </div>
+      <p className="truncate text-2xl font-semibold tracking-tight">{value}</p>
+      <div className="mt-1 flex min-h-[1.375rem] min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+        {delta !== undefined && <DeltaChip value={delta} versus={versus ?? null} />}
+        {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
+      </div>
+      {spark && <div className="mt-auto pt-2"><Sparkline values={spark} /></div>}
+    </div>
+  );
+}
+
+function Card({
+  title, subtitle, icon: Icon, action, stackAction = false, className, children,
+}: {
+  title: string;
+  subtitle?: string;
+  icon: React.ElementType;
+  action?: React.ReactNode;
+  /** Put the action under the title on phones, for one too wide to sit beside it. */
+  stackAction?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={cn("flex min-w-0 flex-col rounded-2xl border border-border bg-card p-4 sm:p-5", className)}>
+      <div className={cn("mb-4 flex justify-between gap-3", stackAction ? "flex-col items-start sm:flex-row" : "items-start")}>
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span>{title}</span>
+          </h2>
+          {subtitle && <p className="mt-0.5 text-[12px] text-muted-foreground">{subtitle}</p>}
+        </div>
         {action}
       </div>
+      {children}
+    </section>
+  );
+}
+
+function Empty({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cn("flex flex-1 items-center justify-center px-4 text-center text-[13px] text-muted-foreground", className)}>
       {children}
     </div>
   );
 }
+
+function TooltipCard({ title, rows }: { title: string; rows: { label: string; value: string; color?: string }[] }) {
+  return (
+    <div className="rounded-xl border border-border bg-popover px-3 py-2 text-popover-foreground shadow-pop">
+      <p className="mb-1 text-[11px] text-muted-foreground">{title}</p>
+      {rows.map((r) => (
+        <p key={r.label} className="flex items-center gap-2 text-[12px] leading-5">
+          {r.color && <span className="h-0.5 w-3 shrink-0 rounded-full" style={{ background: r.color }} />}
+          <span className="font-semibold tabular-nums">{r.value}</span>
+          <span className="text-muted-foreground">{r.label}</span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** Ranked horizontal bars. With `track`, each bar is a share of 100% rather than of the longest bar. */
+function BarList({
+  rows, track = false,
+}: {
+  rows: { id: string; name: string; value: string; detail?: string; fraction: number }[];
+  track?: boolean;
+}) {
+  return (
+    <ul className="flex flex-col gap-3.5">
+      {rows.map((row) => (
+        <li key={row.id} title={`${row.name}: ${row.value}${row.detail ? ` (${row.detail})` : ""}`}>
+          <div className="mb-1.5 flex items-baseline justify-between gap-3 text-[13px]">
+            <span className="min-w-0 truncate">{row.name}</span>
+            <span className="shrink-0 tabular-nums">
+              {row.detail && <span className="mr-2 text-[12px] text-muted-foreground">{row.detail}</span>}
+              <span className="font-semibold">{row.value}</span>
+            </span>
+          </div>
+          <div className="h-2 rounded-r-full" style={track ? { background: "hsl(var(--chart-1) / 0.14)" } : undefined}>
+            <div
+              className="h-full rounded-r-full"
+              style={{ width: `${Math.max(0, Math.min(1, row.fraction)) * 100}%`, minWidth: row.fraction > 0 ? 2 : 0, background: SERIES }}
+            />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const GRANULARITY_WORD = { day: "day", week: "week", month: "month" } as const;
+const BAR_ROWS = 6;
+const TABLE_ROWS = 10;
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -192,120 +335,42 @@ const ReportsPage = () => {
     getStoredDisplayCurrency(DEFAULT_EVENT_CURRENCY),
   );
 
-  // Data
-  const [events,        setEvents]        = useState<EventRow[]>([]);
-  const [registrations, setRegistrations] = useState<RegRow[]>([]);
-  const [speakers,      setSpeakers]      = useState<SpeakerAttendee[]>([]);
-  const [sponsors,      setSponsors]      = useState<SponsorRow[]>([]);
-  const [loading,       setLoading]       = useState(true);
-  const [exporting,     setExporting]     = useState<"none" | "xlsx" | "pdf">("none");
+  const [data,      setData]      = useState<ReportData | null>(null);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState<string | null>(null);
+  const [exporting, setExporting] = useState<"none" | "xlsx" | "pdf">("none");
 
-  // Filters
   const [eventFilter, setEventFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [stateFilter, setStateFilter] = useState<RegState | "all">("all");
   const [range, setRange] = useState<RangeKey>("30d");
+  const [trendMetric, setTrendMetric] = useState<"registrations" | "revenue">("registrations");
 
   // ── Fetch ────────────────────────────────────────────────────────────────
 
+  const requestId = useRef(0);
   const fetchAll = useCallback(async () => {
     if (!org?.id) return;
+    const id = ++requestId.current;
     setLoading(true);
-
-    const { data: evs } = await supabase
-      .from("events")
-      .select("*")
-      .eq("org_id", org.id)
-      .order("date", { ascending: false });
-
-    const eventList = (evs ?? []) as EventRow[];
-    setEvents(eventList);
-
-    if (eventList.length === 0) { setLoading(false); return; }
-
-    const eventIds = eventList.map((e) => e.id);
-
-    const { data: regs } = await supabase
-      .from("registrations")
-      .select("*")
-      .in("event_id", eventIds)
-      .order("created_at", { ascending: true });
-
-    setRegistrations((regs ?? []) as RegRow[]);
-
-    const { data: esRows } = await supabase
-      .from("event_speakers")
-      .select("speaker_id, event_id, speakers(name, email, company)")
-      .in("event_id", eventIds);
-
-    const regByEmail = new Map<string, RegRow>();
-    for (const r of (regs ?? []) as RegRow[]) {
-      if (r.email) regByEmail.set(`${r.event_id}:${r.email.toLowerCase()}`, r);
+    try {
+      const next = await loadReportData(org.id);
+      if (id !== requestId.current) return;
+      setData(next);
+      setError(null);
+    } catch (e) {
+      if (id !== requestId.current) return;
+      setError(e instanceof Error ? e.message : "Something went wrong.");
+    } finally {
+      if (id === requestId.current) setLoading(false);
     }
-    const eventTitleMap = new Map(eventList.map((e) => [e.id, e.title]));
-
-    type ESRow = {
-      speaker_id: string;
-      event_id: string;
-      speakers: { name: string; email: string | null; company: string | null } | null;
-    };
-
-    const spkRows: SpeakerAttendee[] = ((esRows ?? []) as ESRow[])
-      .filter((r) => r.speakers)
-      .map((r) => {
-        const sp  = r.speakers!;
-        const reg = sp.email
-          ? regByEmail.get(`${r.event_id}:${sp.email.toLowerCase()}`)
-          : undefined;
-        return {
-          name:          sp.name,
-          email:         sp.email,
-          company:       sp.company,
-          checked_in:    !!reg?.checked_in,
-          checked_in_at: reg?.checked_in_at ?? null,
-          event_title:   eventTitleMap.get(r.event_id) ?? "Unknown",
-        };
-      });
-
-    setSpeakers(spkRows);
-
-    // Sponsors — join event_sponsors → sponsors
-    const { data: spRows } = await supabase
-      .from("event_sponsors")
-      .select("sponsor_id, event_id, sponsors(name, email, tier, website)")
-      .in("event_id", eventIds);
-
-    type SpsRow = {
-      sponsor_id: string;
-      event_id: string;
-      sponsors: {
-        name: string;
-        email: string | null;
-        tier: string | null;
-        website: string | null;
-      } | null;
-    };
-
-    const sponsorRows: SponsorRow[] = ((spRows ?? []) as SpsRow[])
-      .filter((r) => r.sponsors)
-      .map((r) => {
-        const sp = r.sponsors!;
-        return {
-          name:        sp.name,
-          email:       sp.email,
-          company:     sp.name, // sponsor name = company name
-          tier:        sp.tier,
-          website:     sp.website,
-          event_title: eventTitleMap.get(r.event_id) ?? "Unknown",
-        };
-      });
-    setSponsors(sponsorRows);
-
-    setLoading(false);
   }, [org?.id]);
 
   useEffect(() => {
+    setData(null);
     fetchAll();
   }, [fetchAll]);
+
+  const { events, registrations, speakers, sponsors, loadedAt } = data ?? EMPTY_DATA;
 
   // ── Derived data ─────────────────────────────────────────────────────────
 
@@ -313,184 +378,82 @@ const ReportsPage = () => {
     () => Array.from(new Set(events.map((e) => (e.currency || DEFAULT_EVENT_CURRENCY).toUpperCase()))),
     [events],
   );
-
-  // Reports filters narrow down both pools. The time range narrows the
-  // _registrations_ pool but never the events list (which is for selection
-  // dropdown + speaker join).
-  const eventScopedRegs = useMemo(
-    () => (eventFilter === "all" ? registrations : registrations.filter((r) => r.event_id === eventFilter)),
-    [registrations, eventFilter],
+  // Without a rate an amount cannot be converted, and adding it up as if it could would be wrong silently.
+  const unconverted = useMemo(
+    () => uniqueCurrencies.filter((c) => c !== displayCcy.toUpperCase() && convert(1, c, displayCcy, rates) === null),
+    [uniqueCurrencies, displayCcy, rates],
   );
 
-  const filteredRegs = useMemo(() => {
-    let r = eventScopedRegs;
-    if (statusFilter !== "all") r = r.filter((x) => x.status === statusFilter);
-    const start = rangeStart(range);
-    if (start) r = r.filter((x) => new Date(x.created_at) >= start);
-    return r;
-  }, [eventScopedRegs, statusFilter, range]);
-
-  const filteredEvents = useMemo(
+  const scopedEvents = useMemo(
     () => (eventFilter === "all" ? events : events.filter((e) => e.id === eventFilter)),
     [events, eventFilter],
   );
-
   const eventById = useMemo(() => new Map(events.map((e) => [e.id, e])), [events]);
 
-  // ── KPIs (current period) + period-over-period deltas ────────────────────
+  const report = useMemo(() => buildReport({
+    events: scopedEvents,
+    registrations,
+    range,
+    state: stateFilter,
+    now: loadedAt,
+    toDisplay: (amount, ccy) => {
+      const from = (ccy || DEFAULT_EVENT_CURRENCY).toUpperCase();
+      return convert(amount, from, displayCcy, rates) ?? amount;
+    },
+  }), [scopedEvents, registrations, range, stateFilter, loadedAt, displayCcy, rates]);
 
-  const analytics = useMemo(() => {
-    const toDisplay = (amount: number, ccy: string) =>
-      convert(amount, ccy, displayCcy, rates) ?? amount;
+  // The rows behind the headline count, for the exports.
+  const filteredRegs = useMemo(() => {
+    const ids = new Set(scopedEvents.map((e) => e.id));
+    const start = report.window.start ? report.window.start.getTime() : -Infinity;
+    return registrations.filter((r) =>
+      ids.has(r.event_id)
+      && (stateFilter === "all" || registrationState(r) === stateFilter)
+      && new Date(r.created_at).getTime() >= start);
+  }, [registrations, scopedEvents, stateFilter, report.window.start]);
 
-    const start = rangeStart(range);
-    const now = new Date();
-    const periodMs = start ? now.getTime() - start.getTime() : 0;
-    const prevStart = start ? new Date(start.getTime() - periodMs) : null;
+  const statesPresent = useMemo(() => {
+    const ids = new Set(scopedEvents.map((e) => e.id));
+    const seen = new Set<RegState>();
+    for (const r of registrations) if (ids.has(r.event_id)) seen.add(registrationState(r));
+    return REG_STATES.filter((s) => seen.has(s));
+  }, [registrations, scopedEvents]);
 
-    let currRevenue = 0, currTickets = 0;
-    let prevRevenue = 0, prevTickets = 0;
-    let totalRegs = 0, activeRegs = 0, checkedIn = 0;
+  const scopedSpeakers = useMemo(
+    () => (eventFilter === "all" ? speakers : speakers.filter((s) => s.event_id === eventFilter)),
+    [speakers, eventFilter],
+  );
+  const scopedSponsors = useMemo(
+    () => (eventFilter === "all" ? sponsors : sponsors.filter((s) => s.event_id === eventFilter)),
+    [sponsors, eventFilter],
+  );
 
-    const dayOfWeek = [0, 0, 0, 0, 0, 0, 0];
-    const dailyMap = new Map<string, { revenue: number; tickets: number; date: Date; label: string }>();
-    const statusCounts = new Map<string, number>();
-    const perEvent = new Map<string, {
-      title: string;
-      tickets: number;
-      revenue: number;
-      checkedIn: number;
-      capacity: number | null;
-    }>();
-
-    for (const r of eventScopedRegs) {
-      const d = new Date(r.created_at);
-      const inCurr = !start || d >= start;
-      const inPrev = prevStart && d >= prevStart && start && d < start;
-      const ev = eventById.get(r.event_id);
-      const ccy = (ev?.currency || DEFAULT_EVENT_CURRENCY).toUpperCase();
-      const display = toDisplay(Number(r.amount_paid || 0), ccy);
-
-      // Status filter (narrows to user-picked status; KPIs respect it)
-      if (statusFilter !== "all" && r.status !== statusFilter) continue;
-
-      statusCounts.set(r.status, (statusCounts.get(r.status) || 0) + 1);
-
-      if (inCurr) {
-        totalRegs++;
-        if (ACTIVE_STATUSES.has(r.status)) {
-          activeRegs++;
-          currRevenue += display;
-          currTickets++;
-          dayOfWeek[d.getDay()]++;
-          const key = d.toISOString().slice(0, 10);
-          const existing = dailyMap.get(key);
-          const label = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-          if (existing) {
-            existing.revenue += display;
-            existing.tickets++;
-          } else {
-            dailyMap.set(key, { revenue: display, tickets: 1, date: new Date(d.getFullYear(), d.getMonth(), d.getDate()), label });
-          }
-          if (r.checked_in) checkedIn++;
-        }
-      }
-      if (inPrev && ACTIVE_STATUSES.has(r.status)) {
-        prevRevenue += display;
-        prevTickets++;
-      }
-
-      if (ACTIVE_STATUSES.has(r.status) && ev) {
-        const agg = perEvent.get(ev.id) || {
-          title: ev.title,
-          tickets: 0,
-          revenue: 0,
-          checkedIn: 0,
-          capacity: ev.capacity ?? null,
-        };
-        agg.tickets++;
-        agg.revenue += display;
-        if (r.checked_in) agg.checkedIn++;
-        perEvent.set(ev.id, agg);
-      }
-    }
-
-    const totalEvents = filteredEvents.length;
-    const publishedCount = filteredEvents.filter((e) => e.status === "published").length;
-    const upcomingCount = filteredEvents.filter((e) => new Date(e.date) > now && e.status !== "cancelled").length;
-    const checkInRate = activeRegs > 0 ? (checkedIn / activeRegs) * 100 : 0;
-    const conversionRate = totalRegs > 0 ? (activeRegs / totalRegs) * 100 : 0;
-    const avgTicket = currTickets > 0 ? currRevenue / currTickets : 0;
-
-    // Daily trend (sorted)
-    const dailyData = Array.from(dailyMap.values())
-      .sort((a, b) => a.date.getTime() - b.date.getTime())
-      .map((d) => ({ label: d.label, date: d.date.getTime(), revenue: d.revenue, tickets: d.tickets }));
-
-    let cum = 0;
-    const cumulativeData = dailyData.map((d) => {
-      cum += d.revenue;
-      return { label: d.label, cumulative: cum };
-    });
-
-    // Day of week
-    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const dowData = dayOfWeek.map((v, i) => ({ name: dayNames[i], tickets: v }));
-
-    // Sparklines per KPI (12 buckets across the visible range)
-    const sparkBuckets = 12;
-    const sparkStart = start ?? (dailyData[0] ? new Date(dailyData[0].date) : new Date(now.getTime() - 30 * 86400000));
-    const bucketSize = Math.max(1, (now.getTime() - sparkStart.getTime()) / sparkBuckets);
-    const revSpark = Array.from({ length: sparkBuckets }, (_, i) => ({ i, v: 0 }));
-    const ticketSpark = Array.from({ length: sparkBuckets }, (_, i) => ({ i, v: 0 }));
-    dailyData.forEach((d) => {
-      const idx = Math.min(sparkBuckets - 1, Math.max(0, Math.floor((d.date - sparkStart.getTime()) / bucketSize)));
-      revSpark[idx].v += d.revenue;
-      ticketSpark[idx].v += d.tickets;
-    });
-
-    // Status pie (within selection)
-    const statusPie = Array.from(statusCounts.entries())
-      .map(([name, value]) => ({ name: name.charAt(0).toUpperCase() + name.slice(1), value }))
-      .sort((a, b) => b.value - a.value);
-
-    // Revenue by event
-    const revenueByEvent = Array.from(perEvent.values())
-      .sort((a, b) => b.revenue - a.revenue)
-      .map((d) => ({
-        ...d,
-        name: d.title.length > 18 ? d.title.slice(0, 18) + "…" : d.title,
-        fillRate: d.capacity && d.capacity > 0 ? Math.min(100, (d.tickets / d.capacity) * 100) : null,
-        checkInRate: d.tickets > 0 ? (d.checkedIn / d.tickets) * 100 : 0,
-      }));
-
-    const checkInByEvent = revenueByEvent
-      .filter((d) => d.tickets > 0)
-      .map((d) => ({ name: d.name, rate: Math.round(d.checkInRate), checkedIn: d.checkedIn, total: d.tickets }));
-
-    const topEvents = revenueByEvent.slice(0, 5);
-
-    return {
-      totalRegs, activeRegs, checkedIn, currRevenue, currTickets,
-      prevRevenue, prevTickets, avgTicket, conversionRate, checkInRate,
-      totalEvents, publishedCount, upcomingCount,
-      dailyData, cumulativeData, dowData,
-      revSpark, ticketSpark,
-      statusPie, revenueByEvent, checkInByEvent, topEvents,
-    };
-  }, [eventScopedRegs, statusFilter, range, eventById, filteredEvents, displayCcy, rates]);
+  const { totals, previous, checkIn, window: period } = report;
+  const periodText = periodLabel(period.start, loadedAt);
+  const money = (v: number) => formatMoney(v, displayCcy);
+  const compactMoney = (v: number) =>
+    formatMoney(v, displayCcy, { notation: "compact", maximumFractionDigits: 1 } as Intl.NumberFormatOptions);
+  const per = GRANULARITY_WORD[report.granularity];
+  const hasRevenue = totals.revenue > 0;
+  const checkInRows = report.byEvent.filter((e) => e.checkInRate !== null);
+  const filterContext = `${eventFilter === "all" ? "All events" : eventById.get(eventFilter)?.title ?? "Event"} · ${periodText} · ${stateFilter === "all" ? "All states" : REG_STATE_LABEL[stateFilter]}`;
+  const checkInText = checkIn.rate === null ? "—" : fmtPct(checkIn.rate);
+  const fillText = (e: { fillRate: number | null }) => (e.fillRate !== null ? `${Math.round(e.fillRate)}%` : "—");
+  const rateText = (v: number | null) => (v !== null ? `${Math.round(v)}%` : "—");
 
   // ── Export handlers ───────────────────────────────────────────────────────
 
+  const today = () => new Date().toISOString().slice(0, 10);
+
   const exportRegistrations = () => {
     downloadCsv(
-      `registrations-${new Date().toISOString().slice(0, 10)}.csv`,
-      ["Name", "Email", "Event", "Ticket Type", "Status", "Approval", "Amount Paid", "Checked In", "Checked In At", "Registered At"],
+      `registrations-${today()}.csv`,
+      ["Name", "Email", "Event", "Ticket Type", "State", "Status", "Approval", "Amount Paid", "Checked In", "Checked In At", "Registered At"],
       filteredRegs.map((r) => {
         const ev = eventById.get(r.event_id);
         return [
           r.name, r.email, ev?.title ?? r.event_id, r.ticket_type,
-          r.status, r.approval_status,
+          REG_STATE_LABEL[registrationState(r)], r.status, r.approval_status,
           formatMoney(Number(r.amount_paid || 0), ev?.currency || DEFAULT_EVENT_CURRENCY),
           r.checked_in ? "Yes" : "No", r.checked_in_at ?? "",
           new Date(r.created_at).toLocaleString(),
@@ -500,93 +463,68 @@ const ReportsPage = () => {
   };
 
   const exportSpeakers = () => {
-    const rows = eventFilter === "all"
-      ? speakers
-      : speakers.filter((s) => {
-          const ev = eventById.get(eventFilter);
-          return ev ? s.event_title === ev.title : true;
-        });
     downloadCsv(
-      `speakers-${new Date().toISOString().slice(0, 10)}.csv`,
+      `speakers-${today()}.csv`,
       ["Name", "Email", "Company", "Event", "Attended", "Checked In At"],
-      rows.map((s) => [s.name, s.email ?? "", s.company ?? "", s.event_title, s.checked_in ? "Yes" : "No", s.checked_in_at ?? ""]),
+      scopedSpeakers.map((s) => [s.name, s.email ?? "", s.company ?? "", s.event_title, s.checked_in ? "Yes" : "No", s.checked_in_at ?? ""]),
     );
   };
 
+  const performanceHead = ["Event", "Registrations", "Tickets sold", `Revenue (${displayCcy})`, "Avg per ticket", "Capacity filled", "Check-in rate"];
+  const performanceRows = () => report.byEvent.map((row) => [
+    row.title,
+    row.registrations,
+    row.tickets,
+    money(row.revenue),
+    money(row.tickets ? row.revenue / row.tickets : 0),
+    fillText(row),
+    rateText(row.checkInRate),
+  ]);
+
   const exportFinancial = () => {
-    downloadCsv(
-      `financial-summary-${new Date().toISOString().slice(0, 10)}.csv`,
-      ["Event", "Tickets Sold", `Revenue (${displayCcy})`, "Avg Ticket", "Fill Rate", "Check-in Rate"],
-      analytics.revenueByEvent.map((row) => [
-        row.title,
-        row.tickets,
-        formatMoney(row.revenue, displayCcy),
-        formatMoney(row.tickets ? row.revenue / row.tickets : 0, displayCcy),
-        row.fillRate !== null ? `${Math.round(row.fillRate)}%` : "—",
-        `${Math.round(row.checkInRate)}%`,
-      ]),
-    );
+    downloadCsv(`event-performance-${today()}.csv`, performanceHead, performanceRows());
   };
 
   const exportSponsors = () => {
-    const rows = eventFilter === "all"
-      ? sponsors
-      : sponsors.filter((s) => {
-          const ev = eventById.get(eventFilter);
-          return ev ? s.event_title === ev.title : true;
-        });
     downloadCsv(
-      `sponsors-${new Date().toISOString().slice(0, 10)}.csv`,
+      `sponsors-${today()}.csv`,
       ["Name", "Tier", "Email", "Website", "Event"],
-      rows.map((s) => [s.name, s.tier ?? "", s.email ?? "", s.website ?? "", s.event_title]),
+      scopedSponsors.map((s) => [s.name, s.tier ?? "", s.email ?? "", s.website ?? "", s.event_title]),
     );
   };
 
-  // ── Workbook (XLSX) export ───────────────────────────────────────────────
+  const summaryRows = (): [string, string | number][] => [
+    ["Registrations", totals.registrations],
+    ["Tickets sold", totals.tickets],
+    ["Awaiting approval", totals.pending],
+    ["Revenue", money(totals.revenue)],
+    ["Avg per ticket", money(totals.avgTicket)],
+    ["Confirmation rate", totals.confirmationRate === null ? "—" : fmtPct(totals.confirmationRate)],
+    ["Check-in rate", checkIn.rate === null ? "—" : `${fmtPct(checkIn.rate)} (${checkIn.checkedIn} of ${checkIn.of})`],
+    ["Events", report.events.total],
+    ["Published events", report.events.published],
+    ["Upcoming events", report.events.upcoming],
+  ];
+
   // Loads exceljs lazily so the main bundle stays light.
   const exportWorkbook = async () => {
     if (events.length === 0) return;
     setExporting("xlsx");
     try {
       const { downloadWorkbook } = await import("@/lib/reports/excel");
-
-      const now = new Date().toISOString().slice(0, 10);
-      const filterContext = `${eventFilter === "all" ? "All events" : eventById.get(eventFilter)?.title ?? "Event"} · ${RANGE_LABELS[range]} · ${statusFilter === "all" ? "All statuses" : statusFilter}`;
-
-      const sponsorRowsForCurrentScope = eventFilter === "all"
-        ? sponsors
-        : sponsors.filter((s) => {
-            const ev = eventById.get(eventFilter);
-            return ev ? s.event_title === ev.title : true;
-          });
-      const speakerRowsForCurrentScope = eventFilter === "all"
-        ? speakers
-        : speakers.filter((s) => {
-            const ev = eventById.get(eventFilter);
-            return ev ? s.event_title === ev.title : true;
-          });
-
-      await downloadWorkbook(`illuxus-report-${now}.xlsx`, [
+      await downloadWorkbook(`illuxus-report-${today()}.xlsx`, [
         {
           name: "Summary",
           columns: [
             { header: "Metric", key: "metric", width: 30 },
-            { header: "Value", key: "value", width: 30 },
+            { header: "Value", key: "value", width: 40 },
           ],
           rows: [
             { metric: "Organization", value: org?.name ?? "—" },
             { metric: "Generated", value: new Date().toLocaleString() },
             { metric: "Display currency", value: displayCcy },
             { metric: "Filters", value: filterContext },
-            { metric: "Total registrations", value: analytics.totalRegs },
-            { metric: "Active registrations", value: analytics.activeRegs },
-            { metric: "Total revenue", value: formatMoney(analytics.currRevenue, displayCcy) },
-            { metric: "Avg. ticket", value: formatMoney(analytics.avgTicket, displayCcy) },
-            { metric: "Conversion rate", value: `${analytics.conversionRate.toFixed(1)}%` },
-            { metric: "Check-in rate", value: `${analytics.checkInRate.toFixed(1)}%` },
-            { metric: "Total events", value: analytics.totalEvents },
-            { metric: "Published events", value: analytics.publishedCount },
-            { metric: "Upcoming events", value: analytics.upcomingCount },
+            ...summaryRows().map(([metric, value]) => ({ metric, value })),
           ],
         },
         {
@@ -596,6 +534,7 @@ const ReportsPage = () => {
             { header: "Email", key: "email", width: 30 },
             { header: "Event", key: "event", width: 28 },
             { header: "Ticket type", key: "ticket_type", width: 16 },
+            { header: "State", key: "state", width: 18 },
             { header: "Status", key: "status", width: 14 },
             { header: "Approval", key: "approval", width: 14 },
             { header: "Amount paid", key: "amount", width: 16 },
@@ -611,6 +550,7 @@ const ReportsPage = () => {
               email: r.email,
               event: ev?.title ?? r.event_id,
               ticket_type: r.ticket_type,
+              state: REG_STATE_LABEL[registrationState(r)],
               status: r.status,
               approval: r.approval_status,
               amount: Number(r.amount_paid || 0),
@@ -631,7 +571,7 @@ const ReportsPage = () => {
             { header: "Attended", key: "attended", width: 12 },
             { header: "Checked in at", key: "checked_in_at", width: 22 },
           ],
-          rows: speakerRowsForCurrentScope.map((s) => ({
+          rows: scopedSpeakers.map((s) => ({
             name: s.name,
             email: s.email ?? "",
             company: s.company ?? "",
@@ -649,7 +589,7 @@ const ReportsPage = () => {
             { header: "Website", key: "website", width: 32 },
             { header: "Event", key: "event_title", width: 28 },
           ],
-          rows: sponsorRowsForCurrentScope.map((s) => ({
+          rows: scopedSponsors.map((s) => ({
             name: s.name,
             tier: s.tier ?? "",
             email: s.email ?? "",
@@ -658,22 +598,24 @@ const ReportsPage = () => {
           })),
         },
         {
-          name: "Financial summary",
+          name: "Event performance",
           columns: [
             { header: "Event", key: "title", width: 28 },
+            { header: "Registrations", key: "registrations", width: 14 },
             { header: "Tickets sold", key: "tickets", width: 14 },
             { header: `Revenue (${displayCcy})`, key: "revenue", width: 20 },
-            { header: "Avg ticket", key: "avg", width: 14 },
-            { header: "Fill rate", key: "fill", width: 12 },
+            { header: "Avg per ticket", key: "avg", width: 16 },
+            { header: "Capacity filled", key: "fill", width: 16 },
             { header: "Check-in rate", key: "checkin", width: 14 },
           ],
-          rows: analytics.revenueByEvent.map((row) => ({
+          rows: report.byEvent.map((row) => ({
             title: row.title,
+            registrations: row.registrations,
             tickets: row.tickets,
-            revenue: formatMoney(row.revenue, displayCcy),
-            avg: formatMoney(row.tickets ? row.revenue / row.tickets : 0, displayCcy),
-            fill: row.fillRate !== null ? `${Math.round(row.fillRate)}%` : "—",
-            checkin: `${Math.round(row.checkInRate)}%`,
+            revenue: money(row.revenue),
+            avg: money(row.tickets ? row.revenue / row.tickets : 0),
+            fill: fillText(row),
+            checkin: rateText(row.checkInRate),
           })),
         },
       ]);
@@ -682,26 +624,10 @@ const ReportsPage = () => {
     }
   };
 
-  // ── PDF report ───────────────────────────────────────────────────────────
   const exportPdf = () => {
     if (events.length === 0) return;
     setExporting("pdf");
     try {
-      const filterContext = `${eventFilter === "all" ? "All events" : eventById.get(eventFilter)?.title ?? "Event"} · ${RANGE_LABELS[range]} · ${statusFilter === "all" ? "All statuses" : statusFilter}`;
-
-      const sponsorRowsForCurrentScope = eventFilter === "all"
-        ? sponsors
-        : sponsors.filter((s) => {
-            const ev = eventById.get(eventFilter);
-            return ev ? s.event_title === ev.title : true;
-          });
-      const speakerRowsForCurrentScope = eventFilter === "all"
-        ? speakers
-        : speakers.filter((s) => {
-            const ev = eventById.get(eventFilter);
-            return ev ? s.event_title === ev.title : true;
-          });
-
       downloadReportPdf({
         title: "illuxus — Event report",
         subtitle: org?.name ?? undefined,
@@ -710,124 +636,51 @@ const ReportsPage = () => {
           `Filters: ${filterContext}`,
           `Display currency: ${displayCcy}`,
         ],
-        kpis: [
-          { label: "Total registrations", value: analytics.totalRegs.toLocaleString() },
-          { label: "Active (confirmed)", value: analytics.activeRegs.toLocaleString() },
-          { label: "Total revenue", value: formatMoney(analytics.currRevenue, displayCcy) },
-          { label: "Avg. ticket", value: formatMoney(analytics.avgTicket, displayCcy) },
-          { label: "Conversion rate", value: `${analytics.conversionRate.toFixed(1)}%` },
-          { label: "Check-in rate", value: `${analytics.checkInRate.toFixed(1)}%` },
-          { label: "Total events", value: analytics.totalEvents.toLocaleString() },
-          { label: "Upcoming events", value: analytics.upcomingCount.toLocaleString() },
-        ],
+        kpis: summaryRows().map(([label, value]) => ({ label, value: String(value) })),
         tables: [
-          {
-            title: "Revenue by event",
-            head: ["Event", "Tickets", `Revenue (${displayCcy})`, "Avg ticket", "Fill rate", "Check-in"],
-            body: analytics.revenueByEvent.map((row) => [
-              row.title,
-              row.tickets,
-              formatMoney(row.revenue, displayCcy),
-              formatMoney(row.tickets ? row.revenue / row.tickets : 0, displayCcy),
-              row.fillRate !== null ? `${Math.round(row.fillRate)}%` : "—",
-              `${Math.round(row.checkInRate)}%`,
-            ]),
-          },
+          { title: "Event performance", head: performanceHead, body: performanceRows() },
           {
             title: "Registration status",
-            head: ["Status", "Count"],
-            body: analytics.statusPie.map((s) => [s.name, s.value]),
+            head: ["State", "Count", "Share"],
+            body: report.states.map((s) => [s.label, s.count, fmtPct(s.share)]),
           },
           {
             title: "Speakers",
             head: ["Name", "Company", "Event", "Attended"],
-            body: speakerRowsForCurrentScope.map((s) => [
-              s.name,
-              s.company ?? "—",
-              s.event_title,
-              s.checked_in ? "Yes" : "No",
-            ]),
+            body: scopedSpeakers.map((s) => [s.name, s.company ?? "—", s.event_title, s.checked_in ? "Yes" : "No"]),
           },
           {
             title: "Sponsors",
             head: ["Name", "Tier", "Email", "Event"],
-            body: sponsorRowsForCurrentScope.map((s) => [
-              s.name,
-              s.tier ?? "—",
-              s.email ?? "—",
-              s.event_title,
-            ]),
+            body: scopedSponsors.map((s) => [s.name, s.tier ?? "—", s.email ?? "—", s.event_title]),
           },
         ],
-        filename: `illuxus-report-${new Date().toISOString().slice(0, 10)}.pdf`,
+        filename: `illuxus-report-${today()}.pdf`,
       });
     } finally {
       setExporting("none");
     }
   };
 
-  const allStatuses = useMemo(
-    () => Array.from(new Set(registrations.map((r) => r.status))).sort(),
-    [registrations],
-  );
+  // ── Chart data ────────────────────────────────────────────────────────────
 
-  // ── KPI list ──────────────────────────────────────────────────────────────
-
-  const kpis: KpiCardProps[] = [
-    {
-      icon: DollarSign, label: "Revenue",
-      value: formatMoney(analytics.currRevenue, displayCcy),
-      delta: pctChange(analytics.currRevenue, analytics.prevRevenue),
-      spark: analytics.revSpark,
-      color: "text-primary",
-    },
-    {
-      icon: Ticket, label: "Tickets Sold",
-      value: analytics.currTickets.toLocaleString(),
-      delta: pctChange(analytics.currTickets, analytics.prevTickets),
-      spark: analytics.ticketSpark,
-    },
-    {
-      icon: TrendingUp, label: "Avg. Ticket",
-      value: formatMoney(analytics.avgTicket, displayCcy),
-      delta: null,
-    },
-    {
-      icon: Users, label: "Total Regs",
-      value: analytics.totalRegs.toLocaleString(),
-      delta: null,
-    },
-    {
-      icon: Percent, label: "Conversion",
-      value: `${analytics.conversionRate.toFixed(1)}%`,
-      delta: null,
-      color: analytics.conversionRate >= 70 ? "text-emerald-600" : analytics.conversionRate >= 40 ? "text-amber-600" : "text-red-500",
-    },
-    {
-      icon: CheckCircle2, label: "Check-in Rate",
-      value: `${analytics.checkInRate.toFixed(1)}%`,
-      sub: `${analytics.checkedIn} checked in`,
-      delta: null,
-      color: analytics.checkInRate >= 70 ? "text-emerald-600" : "text-foreground",
-    },
-    {
-      icon: Calendar, label: "Total Events",
-      value: analytics.totalEvents.toLocaleString(),
-      delta: null,
-    },
-    {
-      icon: CalendarClock, label: "Upcoming",
-      value: analytics.upcomingCount.toLocaleString(),
-      sub: `${analytics.publishedCount} published`,
-      delta: null,
-    },
+  const trendRows = (p: TrendPoint) => [
+    { label: p.registrations === 1 ? "registration" : "registrations", value: p.registrations.toLocaleString(), color: trendMetric === "registrations" ? SERIES : undefined },
+    { label: p.tickets === 1 ? "ticket sold" : "tickets sold", value: p.tickets.toLocaleString() },
+    { label: "revenue", value: money(p.revenue), color: trendMetric === "revenue" ? SERIES : undefined },
   ];
+
+  const revenueBars = report.byEvent.filter((e) => e.revenue > 0);
+  const eventBars = hasRevenue ? revenueBars : report.byEvent.filter((e) => e.tickets > 0);
+  const eventBarMax = Math.max(1, ...eventBars.map((e) => (hasRevenue ? e.revenue : e.tickets)));
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  const firstLoad = loading && !data;
+
   return (
     <DashboardLayout>
-      <div className="space-y-5 w-full">
+      <div className="report-viz w-full space-y-5">
 
         {/* ── Header ── */}
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -836,63 +689,53 @@ const ReportsPage = () => {
             <p className="text-[13px] text-muted-foreground">
               Performance, attendance, and exportable data for your organization
               {uniqueCurrencies.length > 1 && (
-                <span className="ml-2 font-mono text-[11px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
+                <span className="ml-2 rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">
                   mixed: {uniqueCurrencies.join(" · ")}
                 </span>
               )}
             </p>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 text-[13px] gap-1.5"
-              onClick={fetchAll}
-              disabled={loading}
-            >
-              {loading
-                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                : <RefreshCw className="h-3.5 w-3.5" />}
+          <div className="flex flex-wrap items-center gap-2">
+            {data && !loading && (
+              <span className="text-[12px] text-muted-foreground">
+                Updated {loadedAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+              </span>
+            )}
+            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-[13px]" onClick={fetchAll} disabled={loading}>
+              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               Refresh
             </Button>
             <Button
               size="sm"
               variant="outline"
-              className="h-8 text-[13px] gap-1.5"
+              className="h-8 gap-1.5 text-[13px]"
               onClick={exportWorkbook}
               disabled={events.length === 0 || exporting !== "none"}
-              title="Workbook covering registrations, speakers, sponsors, and financial summary"
+              title="Workbook covering registrations, speakers, sponsors, and event performance"
             >
-              {exporting === "xlsx"
-                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                : <FileSpreadsheet className="h-3.5 w-3.5" />}
+              {exporting === "xlsx" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />}
               Workbook (.xlsx)
             </Button>
-            <Button
-              size="sm"
-              className="h-8 text-[13px] gap-1.5"
-              onClick={exportPdf}
-              disabled={events.length === 0 || exporting !== "none"}
-            >
-              {exporting === "pdf"
-                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                : <FileDown className="h-3.5 w-3.5" />}
+            <Button size="sm" className="h-8 gap-1.5 text-[13px]" onClick={exportPdf} disabled={events.length === 0 || exporting !== "none"}>
+              {exporting === "pdf" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
               Full Report (.pdf)
             </Button>
           </div>
         </div>
 
-        {/* ── Filters ── */}
+        {/* ── Filters: one row, and everything below answers to it ── */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center rounded-md border border-border bg-card p-0.5">
+          <div className="flex w-full max-w-full overflow-x-auto rounded-xl bg-muted p-1 sm:w-auto" role="group" aria-label="Period">
             {(Object.keys(RANGE_LABELS) as RangeKey[]).map((k) => (
               <button
                 key={k}
+                type="button"
+                aria-pressed={range === k}
                 onClick={() => setRange(k)}
                 className={cn(
-                  "px-2.5 py-1 text-[11px] font-mono rounded transition-colors",
-                  range === k ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground"
+                  "flex-1 whitespace-nowrap rounded-lg px-1.5 py-1 text-[12px] font-medium transition-colors sm:flex-none sm:px-2.5",
+                  range === k ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 {RANGE_LABELS[k]}
@@ -901,11 +744,11 @@ const ReportsPage = () => {
           </div>
 
           <Select value={eventFilter} onValueChange={setEventFilter}>
-            <SelectTrigger className="h-8 w-full sm:w-[200px] text-[13px]">
+            <SelectTrigger className="h-8 w-full text-[13px] sm:w-[200px]">
               <SelectValue placeholder="All events" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Events</SelectItem>
+              <SelectItem value="all">All events</SelectItem>
               {events.map((e) => (
                 <SelectItem key={e.id} value={e.id} className="text-[13px]">
                   <span className="truncate">{e.title}</span>
@@ -914,245 +757,389 @@ const ReportsPage = () => {
             </SelectContent>
           </Select>
 
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-8 w-full sm:w-[160px] text-[13px]">
-              <SelectValue placeholder="All statuses" />
+          <Select value={stateFilter} onValueChange={(v) => setStateFilter(v as RegState | "all")}>
+            <SelectTrigger className="h-8 w-full text-[13px] sm:w-[170px]">
+              <SelectValue placeholder="All states" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              {allStatuses.map((s) => (
-                <SelectItem key={s} value={s} className="text-[13px] capitalize">{s}</SelectItem>
+              <SelectItem value="all">All states</SelectItem>
+              {statesPresent.map((s) => (
+                <SelectItem key={s} value={s} className="text-[13px]">{REG_STATE_LABEL[s]}</SelectItem>
               ))}
             </SelectContent>
           </Select>
 
           <CurrencySwitcher value={displayCcy} onChange={setDisplayCcy} extra={uniqueCurrencies} />
 
-          {(eventFilter !== "all" || statusFilter !== "all" || range !== "30d") && (
+          {(eventFilter !== "all" || stateFilter !== "all" || range !== "30d") && (
             <Button
               size="sm"
               variant="ghost"
               className="h-8 text-[13px] text-muted-foreground"
-              onClick={() => { setEventFilter("all"); setStatusFilter("all"); setRange("30d"); }}
+              onClick={() => { setEventFilter("all"); setStateFilter("all"); setRange("30d"); }}
             >
               Clear filters
             </Button>
           )}
+
         </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
+        {error && (
+          <div role="alert" className="flex flex-wrap items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-[13px]">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
+            <span className="min-w-0 flex-1">
+              {data ? "Couldn't refresh the report; the figures below are from the last successful load." : "Couldn't load the report."}
+              <span className="ml-1 text-muted-foreground">{error}</span>
+            </span>
+            <Button size="sm" variant="outline" className="h-8 text-[13px]" onClick={fetchAll} disabled={loading}>Try again</Button>
+          </div>
+        )}
+
+        {firstLoad ? (
+          <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
             <span className="text-sm">Loading report data…</span>
           </div>
-        ) : events.length === 0 ? (
-          <div className="text-center py-16 border border-dashed border-border rounded-xl">
-            <FileText className="h-10 w-10 text-muted-foreground/40 mx-auto mb-4" />
-            <p className="text-sm font-semibold mb-1">No events yet</p>
+        ) : !data ? null : events.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border py-16 text-center">
+            <FileText className="mx-auto mb-4 h-10 w-10 text-muted-foreground/40" />
+            <p className="mb-1 text-sm font-semibold">No events yet</p>
             <p className="text-[13px] text-muted-foreground">
               Create your first event to start seeing reports here.
             </p>
           </div>
         ) : (
-          <>
-            {/* ── KPI grid ── */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 select-none">
-              {kpis.map((k, i) => <KpiCard key={k.label} {...k} index={i} />)}
+          <div className={cn("space-y-4 transition-opacity", loading && "opacity-60")}>
+            <p className="text-[12px] text-muted-foreground">
+              <span className="font-medium text-foreground">{periodText}</span>
+              {" · "}counted by the day each person registered, in your local time
+            </p>
+            {unconverted.length > 0 && hasRevenue && (
+              <p className="flex items-center gap-2 text-[12px] text-muted-foreground">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                Exchange rates are unavailable, so amounts in {unconverted.join(", ")} are added without converting to {displayCcy}.
+              </p>
+            )}
+
+            {/* ── Headline figures ── */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+              <StatTile
+                icon={Users} label="Registrations"
+                value={totals.registrations.toLocaleString()}
+                delta={previous ? pctChange(totals.registrations, previous.registrations) : null}
+                versus={period.compareLabel}
+                spark={report.trend.map((p) => p.registrations)}
+              />
+              <StatTile
+                icon={Ticket} label="Tickets sold"
+                value={totals.tickets.toLocaleString()}
+                delta={previous ? pctChange(totals.tickets, previous.tickets) : null}
+                versus={period.compareLabel}
+                hint={totals.pending > 0 ? `${totals.pending.toLocaleString()} awaiting approval` : undefined}
+                spark={report.trend.map((p) => p.tickets)}
+              />
+              <div className="col-span-2 grid sm:col-span-1">
+                <StatTile
+                  icon={DollarSign} label="Revenue"
+                  value={money(totals.revenue)}
+                  delta={previous ? pctChange(totals.revenue, previous.revenue) : null}
+                  versus={period.compareLabel}
+                  hint={totals.paidTickets > 0 ? `${totals.paidTickets.toLocaleString()} paid` : undefined}
+                  spark={report.trend.map((p) => p.revenue)}
+                />
+              </div>
             </div>
 
-            {/* ── Charts grid ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 select-none">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+              <StatTile
+                icon={TrendingUp} label="Avg. per ticket"
+                value={money(totals.avgTicket)}
+                hint="Revenue ÷ tickets sold"
+              />
+              <StatTile
+                icon={Percent} label="Confirmation rate"
+                value={totals.confirmationRate === null ? "—" : fmtPct(totals.confirmationRate)}
+                hint={`${totals.confirmed.toLocaleString()} of ${totals.registrations.toLocaleString()} confirmed`}
+              />
+              <StatTile
+                icon={CheckCircle2} label="Check-in rate"
+                value={checkInText}
+                hint={checkIn.rate === null
+                  ? "No event in this view has started"
+                  : `${checkIn.checkedIn.toLocaleString()} of ${checkIn.of.toLocaleString()} · ${checkIn.eventsHeld} ${checkIn.eventsHeld === 1 ? "event" : "events"} held`}
+              />
+              <StatTile
+                icon={CalendarClock} label="Events"
+                value={report.events.total.toLocaleString()}
+                hint={`${report.events.upcoming} upcoming · ${report.events.published} published`}
+              />
+            </div>
 
-              <Section title="Revenue & Tickets Trend" icon={TrendingUp} full
+            {/* ── Charts ── */}
+            <div className="grid select-none grid-cols-1 gap-4 lg:grid-cols-6">
+
+              <Card
+                className="lg:col-span-4"
+                stackAction
+                icon={TrendingUp}
+                title={trendMetric === "registrations" ? `Registrations by ${per}` : `Revenue by ${per}`}
+                subtitle={periodText}
                 action={
-                  <span className="text-[11px] text-muted-foreground font-mono">{RANGE_LABELS[range]}</span>
+                  <div className="flex shrink-0 rounded-lg bg-muted p-0.5" role="group" aria-label="Measure">
+                    {(["registrations", "revenue"] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        aria-pressed={trendMetric === m}
+                        onClick={() => setTrendMetric(m)}
+                        className={cn(
+                          "rounded-md px-2.5 py-1 text-[12px] font-medium capitalize transition-colors",
+                          trendMetric === m ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
                 }
               >
-                {analytics.dailyData.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground text-center py-10">No data in the selected range.</p>
+                {totals.registrations === 0 ? (
+                  <Empty className="min-h-[120px] lg:min-h-[260px]">No registrations in this period.</Empty>
                 ) : (
-                  <ResponsiveContainer width="100%" height={260}>
-                    <AreaChart data={analytics.dailyData}>
-                      <defs>
-                        <linearGradient id="revFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%"   stopColor="hsl(var(--primary))" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0}    />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                      <YAxis yAxisId="rev" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))"
-                        tickFormatter={(v) => formatMoney(v, displayCcy, { notation: "compact", maximumFractionDigits: 1 } as Intl.NumberFormatOptions)} />
-                      <YAxis yAxisId="tix" orientation="right" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                      <Tooltip
-                        contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }}
-                        formatter={(v: any, name: any) => {
-                          if (name === "revenue") return [formatMoney(Number(v), displayCcy), "Revenue"];
-                          if (name === "tickets") return [v, "Tickets"];
-                          return [v, name];
-                        }}
-                      />
-                      <Legend wrapperStyle={{ fontSize: 11 }} />
-                      <Area yAxisId="rev" type="monotone" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#revFill)" name="revenue" />
-                      <Line yAxisId="tix" type="monotone" dataKey="tickets" stroke="hsl(var(--accent))" strokeWidth={2} dot={false} name="tickets" />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                  <div
+                    className="relative min-h-[260px] flex-1"
+                    role="img"
+                    aria-label={trendMetric === "registrations"
+                      ? `${totals.registrations} registrations, ${periodText}, by ${per}`
+                      : `${money(totals.revenue)} revenue, ${periodText}, by ${per}`}
+                  >
+                    {/* Out of flow, so the chart takes the card's height instead of setting it. */}
+                    <div className="absolute inset-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={report.trend} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                        <CartesianGrid stroke={GRID} vertical={false} />
+                        <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={{ stroke: GRID }} interval="preserveStartEnd" minTickGap={28} />
+                        <YAxis
+                          tick={AXIS_TICK} tickLine={false} axisLine={false}
+                          width={trendMetric === "revenue" ? 56 : 32}
+                          allowDecimals={trendMetric === "revenue"}
+                          tickFormatter={(v) => (trendMetric === "revenue" ? compactMoney(Number(v)) : Number(v).toLocaleString())}
+                        />
+                        <Tooltip
+                          cursor={{ stroke: "hsl(var(--muted-foreground))", strokeOpacity: 0.4 }}
+                          content={({ active, payload }) => {
+                            const p = active ? (payload?.[0]?.payload as TrendPoint | undefined) : undefined;
+                            return p ? <TooltipCard title={p.longLabel} rows={trendRows(p)} /> : null;
+                          }}
+                        />
+                        <Area
+                          type="monotone" dataKey={trendMetric}
+                          stroke={SERIES} strokeWidth={2} fill={SERIES} fillOpacity={0.1}
+                          dot={report.trend.length === 1 ? { r: 4, fill: SERIES, strokeWidth: 0 } : false}
+                          activeDot={{ r: 4, fill: SERIES, stroke: "hsl(var(--card))", strokeWidth: 2 }}
+                          isAnimationActive={false}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                    </div>
+                  </div>
                 )}
-              </Section>
+              </Card>
 
-              <Section title="Revenue by Event" icon={DollarSign}
+              <Card className="lg:col-span-2" icon={BarChart3} title="Registration status" subtitle="Share of registrations in this period">
+                {report.states.length === 0 ? (
+                  <Empty className="min-h-[120px] lg:min-h-[260px]">No registrations in this period.</Empty>
+                ) : (
+                  <div className="flex flex-1 flex-col items-center justify-center gap-5 sm:flex-row lg:flex-col">
+                    <div className="relative h-[156px] w-[156px] shrink-0">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={report.states} dataKey="count" nameKey="label"
+                            cx="50%" cy="50%" innerRadius={52} outerRadius={76}
+                            startAngle={90} endAngle={-270}
+                            stroke="hsl(var(--card))" strokeWidth={report.states.length > 1 ? 2 : 0}
+                            isAnimationActive={false}
+                          >
+                            {report.states.map((s) => (
+                              <Cell key={s.state} fill={STATE_COLOR[s.state]} style={{ outline: "none" }} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            content={({ active, payload }) => {
+                              const s = active ? (payload?.[0]?.payload as (typeof report.states)[number] | undefined) : undefined;
+                              return s ? <TooltipCard title={s.label} rows={[{ label: `registrations · ${fmtPct(s.share)}`, value: s.count.toLocaleString(), color: STATE_COLOR[s.state] }]} /> : null;
+                            }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-xl font-semibold tracking-tight">{totals.registrations.toLocaleString()}</span>
+                        <span className="text-[11px] text-muted-foreground">total</span>
+                      </div>
+                    </div>
+                    <ul className="w-full min-w-0 flex-1 space-y-2">
+                      {report.states.map((s) => (
+                        <li key={s.state} className="flex items-center gap-2 text-[13px]">
+                          <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: STATE_COLOR[s.state] }} />
+                          <span className="min-w-0 truncate text-muted-foreground">{s.label}</span>
+                          <span className="ml-auto shrink-0 font-semibold tabular-nums">{s.count.toLocaleString()}</span>
+                          <span className="w-11 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">{fmtPct(s.share)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </Card>
+
+              {hasRevenue && (
+                <Card className="lg:col-span-3" icon={DollarSign} title="Cumulative revenue" subtitle={`Running total, ${periodText}`}>
+                  <div className={CHART_H} role="img" aria-label={`Revenue adding up to ${money(totals.revenue)}, ${periodText}`}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={report.trend} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                        <CartesianGrid stroke={GRID} vertical={false} />
+                        <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={{ stroke: GRID }} interval="preserveStartEnd" minTickGap={28} />
+                        <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} width={56} tickFormatter={(v) => compactMoney(Number(v))} />
+                        <Tooltip
+                          cursor={{ stroke: "hsl(var(--muted-foreground))", strokeOpacity: 0.4 }}
+                          content={({ active, payload }) => {
+                            const p = active ? (payload?.[0]?.payload as TrendPoint | undefined) : undefined;
+                            return p ? (
+                              <TooltipCard title={p.longLabel} rows={[
+                                { label: "so far", value: money(p.cumulativeRevenue), color: SERIES },
+                                { label: `this ${per}`, value: money(p.revenue) },
+                              ]} />
+                            ) : null;
+                          }}
+                        />
+                        <Area
+                          type="monotone" dataKey="cumulativeRevenue"
+                          stroke={SERIES} strokeWidth={2} fill={SERIES} fillOpacity={0.1}
+                          dot={report.trend.length === 1 ? { r: 4, fill: SERIES, strokeWidth: 0 } : false}
+                          activeDot={{ r: 4, fill: SERIES, stroke: "hsl(var(--card))", strokeWidth: 2 }}
+                          isAnimationActive={false}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </Card>
+              )}
+
+              <Card
+                className={hasRevenue ? "lg:col-span-3" : "lg:col-span-2"}
+                icon={hasRevenue ? DollarSign : Ticket}
+                title={hasRevenue ? "Revenue by event" : "Tickets sold by event"}
+                subtitle={eventBars.length > BAR_ROWS ? `Top ${BAR_ROWS} of ${eventBars.length}` : "In this period"}
+              >
+                {eventBars.length === 0 ? (
+                  <Empty className={EMPTY_H}>No tickets sold in this period.</Empty>
+                ) : (
+                  <div className={cn("flex flex-col", CHART_MIN_H)}>
+                    <BarList rows={eventBars.slice(0, BAR_ROWS).map((e) => ({
+                      id: e.id,
+                      name: e.title,
+                      value: hasRevenue ? money(e.revenue) : e.tickets.toLocaleString(),
+                      detail: hasRevenue ? `${e.tickets.toLocaleString()} ${e.tickets === 1 ? "ticket" : "tickets"}` : undefined,
+                      fraction: (hasRevenue ? e.revenue : e.tickets) / eventBarMax,
+                    }))} />
+                  </div>
+                )}
+              </Card>
+
+              <Card
+                className={hasRevenue ? "lg:col-span-3" : "lg:col-span-2"}
+                icon={CheckCircle2}
+                title="Check-in rate by event"
+                subtitle={checkInRows.length > BAR_ROWS ? `Top ${BAR_ROWS} of ${checkInRows.length} events held` : "Events that have started"}
+              >
+                {checkInRows.length === 0 ? (
+                  <Empty className={EMPTY_H}>No event in this view has started yet.</Empty>
+                ) : (
+                  <div className={cn("flex flex-col", CHART_MIN_H)}>
+                    <BarList track rows={checkInRows.slice(0, BAR_ROWS).map((e) => ({
+                      id: e.id,
+                      name: e.title,
+                      value: rateText(e.checkInRate),
+                      detail: `${e.checkedIn.toLocaleString()} of ${e.checkInOf.toLocaleString()}`,
+                      fraction: (e.checkInRate ?? 0) / 100,
+                    }))} />
+                  </div>
+                )}
+              </Card>
+
+              <Card
+                className={hasRevenue ? "lg:col-span-3" : "lg:col-span-2"}
+                icon={Calendar}
+                title="Registrations by day of week"
+                subtitle="When people sign up"
+              >
+                {totals.registrations === 0 ? (
+                  <Empty className={EMPTY_H}>No registrations in this period.</Empty>
+                ) : (
+                  <div className={CHART_H} role="img" aria-label="Registrations by day of week">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={report.weekdays} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                        <CartesianGrid stroke={GRID} vertical={false} />
+                        <XAxis dataKey="name" tick={AXIS_TICK} tickLine={false} axisLine={{ stroke: GRID }} />
+                        <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} width={32} allowDecimals={false} />
+                        <Tooltip
+                          cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.6 }}
+                          content={({ active, payload }) => {
+                            const d = active ? (payload?.[0]?.payload as (typeof report.weekdays)[number] | undefined) : undefined;
+                            return d ? <TooltipCard title={d.name} rows={[{ label: d.registrations === 1 ? "registration" : "registrations", value: d.registrations.toLocaleString(), color: SERIES }]} /> : null;
+                          }}
+                        />
+                        <Bar dataKey="registrations" fill={SERIES} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </Card>
+
+              <Card
+                className="lg:col-span-6"
+                icon={Trophy}
+                title="Event performance"
+                subtitle={report.byEvent.length > TABLE_ROWS
+                  ? `Top ${TABLE_ROWS} of ${report.byEvent.length} events with registrations in this period; the CSV has them all`
+                  : "Events with registrations in this period"}
                 action={
-                  <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={exportFinancial} disabled={analytics.revenueByEvent.length === 0}>
+                  <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-[11px]" onClick={exportFinancial} disabled={report.byEvent.length === 0}>
                     <Download className="h-3 w-3" /> Export CSV
                   </Button>
                 }
               >
-                {analytics.revenueByEvent.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground text-center py-10">No revenue yet.</p>
-                ) : (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={analytics.revenueByEvent.slice(0, 10)} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-                      <XAxis type="number" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))"
-                        tickFormatter={(v) => formatMoney(v, displayCcy, { notation: "compact", maximumFractionDigits: 0 } as Intl.NumberFormatOptions)} />
-                      <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" width={90} />
-                      <Tooltip
-                        contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }}
-                        formatter={(v: unknown) => [formatMoney(Number(v), displayCcy), "Revenue"]}
-                      />
-                      <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </Section>
-
-              <Section title="Registration Status" icon={BarChart3}>
-                {analytics.statusPie.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground text-center py-10">No data.</p>
-                ) : (
-                  <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
-                    <ResponsiveContainer width={160} height={160}>
-                      <PieChart>
-                        <Pie
-                          data={analytics.statusPie} cx="50%" cy="50%"
-                          innerRadius={45} outerRadius={70}
-                          dataKey="value" paddingAngle={2}
-                          style={{ outline: "none" }}
-                        >
-                          {analytics.statusPie.map((_, i) => (
-                            <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} style={{ outline: "none" }} />
-                          ))}
-                        </Pie>
-                        <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div className="space-y-2 flex-1 w-full">
-                      {analytics.statusPie.map((d, i) => (
-                        <div key={d.name} className="flex items-center gap-2 text-[13px]">
-                          <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
-                          <span className="text-muted-foreground capitalize">{d.name}</span>
-                          <span className="font-semibold font-mono ml-auto">{d.value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </Section>
-
-              <Section title="Registrations by Day of Week" icon={Calendar}>
-                {analytics.dowData.every((d) => d.tickets === 0) ? (
-                  <p className="text-[13px] text-muted-foreground text-center py-10">No data in the selected range.</p>
-                ) : (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={analytics.dowData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                      <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                      <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
-                      <Bar dataKey="tickets" fill="hsl(var(--accent))" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </Section>
-
-              <Section title="Cumulative Revenue" icon={TrendingUp}>
-                {analytics.cumulativeData.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground text-center py-10">No revenue in the selected range.</p>
-                ) : (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <AreaChart data={analytics.cumulativeData}>
-                      <defs>
-                        <linearGradient id="cumFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%"   stopColor="hsl(var(--primary))" stopOpacity={0.4} />
-                          <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0}    />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                      <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))"
-                        tickFormatter={(v) => formatMoney(v, displayCcy, { notation: "compact", maximumFractionDigits: 1 } as Intl.NumberFormatOptions)} />
-                      <Tooltip
-                        contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }}
-                        formatter={(v: unknown) => [formatMoney(Number(v), displayCcy), "Total"]}
-                      />
-                      <Area type="monotone" dataKey="cumulative" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#cumFill)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </Section>
-
-              <Section title="Check-in Rate by Event" icon={CheckCircle2}>
-                {analytics.checkInByEvent.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground text-center py-10">No check-in data yet.</p>
-                ) : (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={analytics.checkInByEvent}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis dataKey="name"  tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-                      <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" tickFormatter={(v) => `${v}%`} />
-                      <Tooltip
-                        contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }}
-                        formatter={(v: unknown, _: unknown, item: Record<string, unknown>) => {
-                          const p = item.payload as { checkedIn: number; total: number } | undefined;
-                          return [`${v}% (${p?.checkedIn ?? 0}/${p?.total ?? 0})`, "Check-in Rate"];
-                        }}
-                      />
-                      <Bar dataKey="rate" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </Section>
-
-              <Section title="Top Events" icon={Users} full>
-                {analytics.topEvents.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground text-center py-8">No paid registrations in scope.</p>
+                {report.byEvent.length === 0 ? (
+                  <Empty className="py-8">No registrations in this period.</Empty>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full whitespace-nowrap text-sm">
                       <thead>
-                        <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border">
-                          <th className="py-2 font-medium">Event</th>
-                          <th className="py-2 font-medium text-right">Tickets</th>
-                          <th className="py-2 font-medium text-right">Revenue</th>
-                          <th className="py-2 font-medium text-right">Avg ticket</th>
-                          <th className="py-2 font-medium text-right">Fill rate</th>
-                          <th className="py-2 font-medium text-right">Check-in</th>
+                        <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                          <th className="py-2 pr-4 font-medium">Event</th>
+                          <th className="py-2 pl-4 text-right font-medium">Registrations</th>
+                          <th className="py-2 pl-4 text-right font-medium">Tickets</th>
+                          <th className="py-2 pl-4 text-right font-medium">Revenue</th>
+                          <th className="py-2 pl-4 text-right font-medium">Avg per ticket</th>
+                          <th className="py-2 pl-4 text-right font-medium" title="Seats taken to date ÷ capacity, whatever the period">Capacity filled</th>
+                          <th className="py-2 pl-4 text-right font-medium" title="Checked in ÷ tickets, once the event has started">Check-in</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {analytics.topEvents.map((e) => (
-                          <tr key={e.title} className="border-b border-border last:border-0">
-                            <td className="py-2.5 font-medium">{e.title}</td>
-                            <td className="py-2.5 text-right font-mono tabular-nums">{e.tickets}</td>
-                            <td className="py-2.5 text-right font-mono tabular-nums">{formatMoney(e.revenue, displayCcy)}</td>
-                            <td className="py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                              {e.tickets > 0 ? formatMoney(e.revenue / e.tickets, displayCcy) : "—"}
+                        {report.byEvent.slice(0, TABLE_ROWS).map((e) => (
+                          <tr key={e.id} className="border-b border-border last:border-0">
+                            <td className="max-w-[18rem] truncate py-2.5 pr-4 font-medium" title={e.title}>{e.title}</td>
+                            <td className="whitespace-nowrap py-2.5 pl-4 text-right tabular-nums">{e.registrations.toLocaleString()}</td>
+                            <td className="whitespace-nowrap py-2.5 pl-4 text-right tabular-nums">{e.tickets.toLocaleString()}</td>
+                            <td className="whitespace-nowrap py-2.5 pl-4 text-right tabular-nums">{money(e.revenue)}</td>
+                            <td className="whitespace-nowrap py-2.5 pl-4 text-right tabular-nums text-muted-foreground">
+                              {e.tickets > 0 ? money(e.revenue / e.tickets) : "—"}
                             </td>
-                            <td className="py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                              {e.fillRate !== null ? `${Math.round(e.fillRate)}%` : "—"}
+                            <td className="whitespace-nowrap py-2.5 pl-4 text-right tabular-nums text-muted-foreground">
+                              {e.fillRate !== null ? `${Math.round(e.fillRate)}% (${e.seatsTaken.toLocaleString()}/${e.capacity?.toLocaleString()})` : "—"}
                             </td>
-                            <td className="py-2.5 text-right font-mono tabular-nums text-muted-foreground">
-                              {Math.round(e.checkInRate)}%
+                            <td className="whitespace-nowrap py-2.5 pl-4 text-right tabular-nums text-muted-foreground">
+                              {e.checkInRate !== null ? `${Math.round(e.checkInRate)}%` : <span title="The event has not started">—</span>}
                             </td>
                           </tr>
                         ))}
@@ -1160,24 +1147,22 @@ const ReportsPage = () => {
                     </table>
                   </div>
                 )}
-              </Section>
+              </Card>
 
-              <Section title="Speaker Attendance" icon={Target} full
+              <Card className="lg:col-span-6" icon={Target} title="Speaker attendance"
                 action={
-                  <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={exportSpeakers} disabled={speakers.length === 0}>
+                  <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-[11px]" onClick={exportSpeakers} disabled={scopedSpeakers.length === 0}>
                     <Download className="h-3 w-3" /> Export CSV
                   </Button>
                 }
               >
-                {speakers.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground text-center py-8">
-                    No speakers assigned to any event yet.
-                  </p>
+                {scopedSpeakers.length === 0 ? (
+                  <Empty className="py-8">No speakers assigned {eventFilter === "all" ? "to any event" : "to this event"} yet.</Empty>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full whitespace-nowrap text-sm">
                       <thead>
-                        <tr className="text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border text-left">
+                        <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                           <th className="py-2 pr-4 font-medium">Speaker</th>
                           <th className="py-2 pr-4 font-medium">Company</th>
                           <th className="py-2 pr-4 font-medium">Event</th>
@@ -1185,20 +1170,14 @@ const ReportsPage = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {(eventFilter === "all"
-                          ? speakers
-                          : speakers.filter((s) => {
-                              const ev = eventById.get(eventFilter);
-                              return ev ? s.event_title === ev.title : true;
-                            })
-                        ).map((s, i) => (
-                          <tr key={`${s.email ?? s.name}-${i}`}>
+                        {scopedSpeakers.map((s, i) => (
+                          <tr key={`${s.event_id}-${s.email ?? s.name}-${i}`}>
                             <td className="py-2.5 pr-4 font-medium">{s.name}</td>
                             <td className="py-2.5 pr-4 text-muted-foreground">{s.company ?? "—"}</td>
                             <td className="py-2.5 pr-4 text-muted-foreground">{s.event_title}</td>
                             <td className="py-2.5">
                               {s.checked_in ? (
-                                <span className="inline-flex items-center gap-1 text-[12px] font-medium text-emerald-600">
+                                <span className="inline-flex items-center gap-1 text-[12px] font-medium text-emerald-700 dark:text-emerald-400">
                                   <CheckCircle2 className="h-3 w-3" /> Checked in
                                 </span>
                               ) : (
@@ -1211,24 +1190,22 @@ const ReportsPage = () => {
                     </table>
                   </div>
                 )}
-              </Section>
+              </Card>
 
-              <Section title="Sponsors" icon={Award} full
+              <Card className="lg:col-span-6" icon={Award} title="Sponsors"
                 action={
-                  <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={exportSponsors} disabled={sponsors.length === 0}>
+                  <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-[11px]" onClick={exportSponsors} disabled={scopedSponsors.length === 0}>
                     <Download className="h-3 w-3" /> Export CSV
                   </Button>
                 }
               >
-                {sponsors.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground text-center py-8">
-                    No sponsors attached to any event yet.
-                  </p>
+                {scopedSponsors.length === 0 ? (
+                  <Empty className="py-8">No sponsors attached {eventFilter === "all" ? "to any event" : "to this event"} yet.</Empty>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full whitespace-nowrap text-sm">
                       <thead>
-                        <tr className="text-[11px] uppercase tracking-wide text-muted-foreground border-b border-border text-left">
+                        <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                           <th className="py-2 pr-4 font-medium">Sponsor</th>
                           <th className="py-2 pr-4 font-medium">Tier</th>
                           <th className="py-2 pr-4 font-medium">Email</th>
@@ -1237,18 +1214,12 @@ const ReportsPage = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {(eventFilter === "all"
-                          ? sponsors
-                          : sponsors.filter((s) => {
-                              const ev = eventById.get(eventFilter);
-                              return ev ? s.event_title === ev.title : true;
-                            })
-                        ).map((s, i) => (
-                          <tr key={`${s.email ?? s.name}-${i}`}>
+                        {scopedSponsors.map((s, i) => (
+                          <tr key={`${s.event_id}-${s.email ?? s.name}-${i}`}>
                             <td className="py-2.5 pr-4 font-medium">{s.name}</td>
                             <td className="py-2.5 pr-4">
                               {s.tier ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-secondary text-[11px] font-medium capitalize">
+                                <span className="inline-flex items-center rounded-md bg-secondary px-2 py-0.5 text-[11px] font-medium capitalize">
                                   {s.tier}
                                 </span>
                               ) : (
@@ -1256,7 +1227,7 @@ const ReportsPage = () => {
                               )}
                             </td>
                             <td className="py-2.5 pr-4 text-muted-foreground">{s.email ?? "—"}</td>
-                            <td className="py-2.5 pr-4 text-muted-foreground truncate max-w-[200px]">
+                            <td className="max-w-[200px] truncate py-2.5 pr-4 text-muted-foreground">
                               {s.website ? (
                                 <a href={s.website} target="_blank" rel="noreferrer" className="text-primary hover:underline">
                                   {s.website.replace(/^https?:\/\//, "")}
@@ -1270,11 +1241,11 @@ const ReportsPage = () => {
                     </table>
                   </div>
                 )}
-              </Section>
+              </Card>
 
-              <Section title="Registrations" icon={FileText} full
+              <Card className="lg:col-span-6" icon={FileText} title="Registrations"
                 action={
-                  <Button size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={exportRegistrations} disabled={filteredRegs.length === 0}>
+                  <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-[11px]" onClick={exportRegistrations} disabled={filteredRegs.length === 0}>
                     <Download className="h-3 w-3" /> Export CSV
                   </Button>
                 }
@@ -1282,9 +1253,9 @@ const ReportsPage = () => {
                 <p className="text-[13px] text-muted-foreground">
                   {filteredRegs.length.toLocaleString()} registration{filteredRegs.length === 1 ? "" : "s"} match the current filters.
                 </p>
-              </Section>
+              </Card>
             </div>
-          </>
+          </div>
         )}
       </div>
     </DashboardLayout>
