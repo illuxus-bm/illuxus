@@ -307,7 +307,7 @@ export function AgendaRoadmap({
                                       style={{ backgroundColor: theme.primaryColor, color: "#fff", boxShadow: `0 0 0 1px ${theme.textColor}22 inset` }}
                                     >
                                       {person.photo_url ? (
-                                        <img src={person.photo_url} alt={person.name} className="h-full w-full object-cover" />
+                                        <img loading="lazy" decoding="async" src={person.photo_url} alt={person.name} className="h-full w-full object-cover" />
                                       ) : (
                                         person.name.charAt(0).toUpperCase()
                                       )}

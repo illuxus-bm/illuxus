@@ -39,7 +39,7 @@ export function PostCard({ post, canModerate = false }: { post: PostWithAuthor; 
       <header className="flex items-start gap-3">
         <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[12px] font-semibold shrink-0 overflow-hidden">
           {post.author?.avatar_url ? (
-            <img src={post.author.avatar_url} alt="" className="h-full w-full object-cover" />
+            <img loading="lazy" decoding="async" src={post.author.avatar_url} alt="" className="h-full w-full object-cover" />
           ) : (
             initials
           )}

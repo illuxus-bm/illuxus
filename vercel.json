@@ -4,47 +4,193 @@
   "buildCommand": "bun run build",
   "outputDirectory": "dist",
   "trailingSlash": false,
+  "redirects": [
+    {
+      "source": "/o/:orgSlug/:eventSlug",
+      "destination": "/org/:orgSlug/events/:eventSlug",
+      "permanent": true
+    },
+    {
+      "source": "/o/:slug",
+      "destination": "/org/:slug",
+      "permanent": true
+    },
+    {
+      "source": "/home",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/refund-policy",
+      "destination": "/refunds",
+      "permanent": true
+    },
+    {
+      "source": "/refund",
+      "destination": "/refunds",
+      "permanent": true
+    },
+    {
+      "source": "/privacy-policy",
+      "destination": "/privacy",
+      "permanent": true
+    },
+    {
+      "source": "/terms-of-service",
+      "destination": "/terms",
+      "permanent": true
+    },
+    {
+      "source": "/terms-and-conditions",
+      "destination": "/terms",
+      "permanent": true
+    },
+    {
+      "source": "/tos",
+      "destination": "/terms",
+      "permanent": true
+    },
+    {
+      "source": "/cookie-policy",
+      "destination": "/cookies",
+      "permanent": true
+    },
+    {
+      "source": "/faq",
+      "destination": "/faqs",
+      "permanent": true
+    },
+    {
+      "source": "/documentation",
+      "destination": "/docs",
+      "permanent": true
+    },
+    {
+      "source": "/contact-us",
+      "destination": "/contact",
+      "permanent": true
+    },
+    {
+      "source": "/about-us",
+      "destination": "/about",
+      "permanent": true
+    },
+    {
+      "source": "/delete-my-data",
+      "destination": "/data-deletion",
+      "permanent": true
+    },
+    {
+      "source": "/signup",
+      "destination": "/login",
+      "permanent": true
+    },
+    {
+      "source": "/sign-up",
+      "destination": "/login",
+      "permanent": true
+    },
+    {
+      "source": "/signin",
+      "destination": "/login",
+      "permanent": true
+    },
+    {
+      "source": "/register",
+      "destination": "/login",
+      "permanent": true
+    }
+  ],
   "rewrites": [
-    { "source": "/org/:orgSlug/events/:eventSlug", "destination": "/api/event-og?orgSlug=:orgSlug&eventSlug=:eventSlug" },
-    { "source": "/events/:eventId", "destination": "/api/event-og?eventId=:eventId" },
-    { "source": "/org/:orgSlug", "destination": "/api/org-og?orgSlug=:orgSlug" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/sitemap-events.xml",
+      "destination": "/api/sitemap-events"
+    },
+    {
+      "source": "/org/:orgSlug/events/:eventSlug",
+      "destination": "/api/event-og?orgSlug=:orgSlug&eventSlug=:eventSlug"
+    },
+    {
+      "source": "/events/:eventId",
+      "destination": "/api/event-og?eventId=:eventId"
+    },
+    {
+      "source": "/org/:orgSlug",
+      "destination": "/api/org-og?orgSlug=:orgSlug"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     {
       "source": "/assets/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
       ]
     },
     {
       "source": "/embed.js",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=300, must-revalidate" },
-        { "key": "Access-Control-Allow-Origin", "value": "*" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=300, must-revalidate"
+        },
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
       ]
     },
     {
       "source": "/(.*)\\.map",
       "headers": [
-        { "key": "Cache-Control", "value": "no-store" },
-        { "key": "X-Robots-Tag", "value": "noindex" }
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
       ]
     },
     {
       "source": "/index.html",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=0, s-maxage=60, stale-while-revalidate=600" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, s-maxage=60, stale-while-revalidate=600"
+        }
       ]
     },
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Permissions-Policy", "value": "camera=(self), microphone=(self), geolocation=()" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(self), microphone=(self), geolocation=()"
+        }
       ]
     }
   ]

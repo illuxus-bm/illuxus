@@ -100,7 +100,7 @@ export default function SpeakerEventDetailPage() {
               <section className="border border-border rounded-lg overflow-hidden bg-card">
                 {(event.banner_landscape_url || event.image_url) && (
                   <div className="aspect-video bg-muted">
-                    <img
+                    <img loading="lazy" decoding="async"
                       src={event.banner_landscape_url || event.image_url || ""}
                       alt={event.title}
                       className="w-full h-full object-cover"
@@ -248,7 +248,7 @@ export default function SpeakerEventDetailPage() {
                   <section className="border border-border rounded-lg bg-card sticky top-20">
                     <div className="p-5 text-center border-b border-border">
                       {speaker.photo_url ? (
-                        <img
+                        <img loading="lazy" decoding="async"
                           src={speaker.photo_url}
                           alt={speaker.name}
                           className="h-20 w-20 rounded-full object-cover mx-auto ring-2 ring-border"

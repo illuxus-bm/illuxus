@@ -739,7 +739,7 @@ function WaitingBanner({
     <div className="absolute inset-0 z-0">
       {eventBannerUrl ? (
         <>
-          <img
+          <img loading="lazy" decoding="async"
             src={eventBannerUrl}
             alt={eventTitle ?? ""}
             className="absolute inset-0 h-full w-full object-cover"

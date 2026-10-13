@@ -83,7 +83,7 @@ export default function SpeakerPhotoUploader({
     <div className="flex items-center gap-3">
       <div className="h-20 w-20 rounded-full border border-border bg-muted/30 flex items-center justify-center overflow-hidden shrink-0 aspect-square">
         {value ? (
-          <img src={value} alt="Speaker" className="h-full w-full object-cover" />
+          <img loading="lazy" decoding="async" src={value} alt="Speaker" className="h-full w-full object-cover" />
         ) : (
           <User className="h-8 w-8 text-muted-foreground" />
         )}

@@ -92,7 +92,7 @@ const MyTicketsPage = () => {
               return (
                 <div key={r.id} className="bg-card border border-border rounded-xl overflow-hidden flex flex-col sm:flex-row">
                   {(ev?.banner_landscape_url || ev?.image_url) && (
-                    <img
+                    <img loading="lazy" decoding="async"
                       src={ev.banner_landscape_url || ev.image_url!}
                       alt={ev.title}
                       className="sm:w-40 h-32 sm:h-auto object-cover aspect-video"

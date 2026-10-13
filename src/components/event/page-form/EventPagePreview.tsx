@@ -155,7 +155,7 @@ export default function EventPagePreview({
           const inner = (
             <div className={`inline-flex items-center gap-2 mt-3 ${orgHref ? "cursor-pointer group" : ""}`}>
               {org.logo_url ? (
-                <img
+                <img loading="lazy" decoding="async"
                   src={org.logo_url}
                   alt={org.name}
                   className="h-6 w-6 rounded-full object-cover shrink-0"
@@ -342,7 +342,7 @@ export default function EventPagePreview({
                 <div className="flex -space-x-2 mb-3">
                   {going.sample.slice(0, 6).map((a, i) =>
                     a.avatar_url ? (
-                      <img
+                      <img loading="lazy" decoding="async"
                         key={i}
                         src={a.avatar_url}
                         alt={a.name ?? ""}
@@ -439,7 +439,7 @@ function HostChip({ org, interactive = false }: { org: { name: string; logo_url:
       style={{ borderColor: "rgba(255,255,255,0.18)", backgroundColor: "rgba(0,0,0,0.35)", color: "#fff" }}
     >
       {org.logo_url ? (
-        <img src={org.logo_url} alt="" className="size-4 rounded-full object-cover" />
+        <img loading="lazy" decoding="async" src={org.logo_url} alt="" className="size-4 rounded-full object-cover" />
       ) : (
         <span className="size-4 rounded-full bg-white/20 flex items-center justify-center text-[9px] font-bold">
           {initial(org.name)}
@@ -453,7 +453,7 @@ function HostChip({ org, interactive = false }: { org: { name: string; logo_url:
 
 function OrgAvatar({ org }: { org: { name: string; logo_url: string | null } }) {
   if (org.logo_url) {
-    return <img src={org.logo_url} alt={org.name} className="size-9 rounded-full object-cover" />;
+    return <img loading="lazy" decoding="async" src={org.logo_url} alt={org.name} className="size-9 rounded-full object-cover" />;
   }
   return (
     <div className="size-9 rounded-full bg-secondary flex items-center justify-center text-[13px] font-semibold">

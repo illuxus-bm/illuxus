@@ -776,7 +776,7 @@ function AssignSponsorPopover({
                     className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/50 transition-colors text-left"
                   >
                     {s.logo_url ? (
-                      <img src={s.logo_url} alt={s.name} className="h-6 w-6 rounded object-contain bg-white shrink-0 border border-border" />
+                      <img loading="lazy" decoding="async" src={s.logo_url} alt={s.name} className="h-6 w-6 rounded object-contain bg-white shrink-0 border border-border" />
                     ) : (
                       <div className="h-6 w-6 rounded bg-muted flex items-center justify-center text-[10px] font-semibold text-muted-foreground shrink-0">
                         {s.name.charAt(0).toUpperCase()}
@@ -927,7 +927,7 @@ function SponsorCardBody({
     <>
       <div className="h-10 w-20 rounded-md bg-accent/30 flex items-center justify-center shrink-0 overflow-hidden">
         {s.logo_url ? (
-          <img src={s.logo_url} alt={s.name} className="h-full w-full object-contain" />
+          <img loading="lazy" decoding="async" src={s.logo_url} alt={s.name} className="h-full w-full object-contain" />
         ) : (
           <Award className="h-5 w-5 text-muted-foreground" />
         )}
@@ -958,7 +958,7 @@ function SponsorCardView({ sponsor: s, dragging = false }: { sponsor: Sponsor; d
         </div>
         <div className="h-10 w-20 rounded-md bg-accent/30 flex items-center justify-center shrink-0 overflow-hidden">
           {s.logo_url ? (
-            <img src={s.logo_url} alt="" className="h-full w-full object-contain" />
+            <img loading="lazy" decoding="async" src={s.logo_url} alt="" className="h-full w-full object-contain" />
           ) : (
             <Award className="h-5 w-5 text-muted-foreground" />
           )}

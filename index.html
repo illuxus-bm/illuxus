@@ -27,13 +27,9 @@
     <link rel="alternate" hreflang="en-IN" href="https://illuxus.com/" />
     <link rel="alternate" hreflang="x-default" href="https://illuxus.com/" />
 
-    <!-- Search Console + Bing Webmaster verification (PLACEHOLDERS).
-         Paste your real tokens here before going live. Leaving the value as
-         "REPLACE_WITH_…" is intentional — it lets search consoles report
-         "tag found but not matching" so we know the deploy went through. -->
-    <!-- <meta name="google-site-verification" content="REPLACE_WITH_GSC_TOKEN" /> -->
-    <!-- <meta name="msvalidate.01" content="REPLACE_WITH_BING_TOKEN" /> -->
-    <!-- <meta name="yandex-verification" content="REPLACE_WITH_YANDEX_TOKEN" /> -->
+    <!-- Search Console and Bing verification tags are added at build time
+         when VITE_GSC_VERIFICATION / VITE_BING_VERIFICATION are set (see the
+         seoPrerender plugin in vite.config.ts). -->
 
     <!-- Native app advertising stubs (uncomment + paste real ids once apps ship). -->
     <!-- <meta name="apple-itunes-app" content="app-id=REPLACE_WITH_APP_STORE_ID" /> -->

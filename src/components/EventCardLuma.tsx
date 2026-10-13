@@ -85,7 +85,7 @@ export default function EventCardLuma({ event, compact = false }: { event: LumaE
       </div>
       <div className={`shrink-0 aspect-video rounded-lg overflow-hidden bg-secondary ${compact ? "w-full sm:w-40" : "w-full sm:w-40 md:w-56"}`}>
         {(event.banner_landscape_url || event.image_url) ? (
-          <img src={event.banner_landscape_url || event.image_url!} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+          <img loading="lazy" decoding="async" src={event.banner_landscape_url || event.image_url!} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <CalendarDays className="h-7 w-7 text-muted-foreground/30" />

@@ -100,7 +100,7 @@ export default function ProfilePage() {
           <form onSubmit={save} className="bg-card border border-border rounded-2xl p-5 space-y-5">
             <div className="flex items-center gap-4">
               {avatarUrl ? (
-                <img src={avatarUrl} alt="Avatar" className="h-16 w-16 rounded-full object-cover" />
+                <img loading="lazy" decoding="async" src={avatarUrl} alt="Avatar" className="h-16 w-16 rounded-full object-cover" />
               ) : (
                 <div className="h-16 w-16 rounded-full bg-foreground text-background flex items-center justify-center text-lg font-semibold">
                   {initials}
@@ -165,7 +165,7 @@ export default function ProfilePage() {
                       className="flex items-center gap-3 bg-card border border-border rounded-xl p-3 hover:border-foreground/20 transition-colors"
                     >
                       {o.logo_url ? (
-                        <img src={o.logo_url} alt={o.name} className="h-10 w-10 rounded-lg object-cover" />
+                        <img loading="lazy" decoding="async" src={o.logo_url} alt={o.name} className="h-10 w-10 rounded-lg object-cover" />
                       ) : (
                         <div className="h-10 w-10 rounded-lg bg-secondary flex items-center justify-center text-sm font-semibold">
                           {o.name[0]}

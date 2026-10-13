@@ -219,7 +219,7 @@ function SpeakingEventCard({
       {/* Banner */}
       {event.image_url ? (
         <div className="aspect-[16/9] overflow-hidden bg-muted relative">
-          <img
+          <img loading="lazy" decoding="async"
             src={event.image_url}
             alt={event.event_title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"

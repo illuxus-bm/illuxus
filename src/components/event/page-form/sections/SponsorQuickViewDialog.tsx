@@ -20,7 +20,7 @@ export default function SponsorQuickViewDialog({
       media={
         <div className="h-28 w-56 rounded-xl border border-border bg-muted flex items-center justify-center overflow-hidden">
           {sponsor.logo_url ? (
-            <img src={sponsor.logo_url} alt={sponsor.name} className="h-full w-full object-contain p-3" />
+            <img loading="lazy" decoding="async" src={sponsor.logo_url} alt={sponsor.name} className="h-full w-full object-contain p-3" />
           ) : (
             <Award className="h-10 w-10 text-muted-foreground" />
           )}

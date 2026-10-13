@@ -81,7 +81,7 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
           <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-end gap-3 -mt-8">
             <div className="h-16 w-16 rounded-2xl border-4 border-card bg-muted flex items-center justify-center shrink-0 overflow-hidden">
               {community.logo_url ? (
-                <img src={community.logo_url} alt="" className="h-full w-full object-cover" />
+                <img loading="lazy" decoding="async" src={community.logo_url} alt="" className="h-full w-full object-cover" />
               ) : (
                 <span className="text-xl font-bold">{community.name[0]?.toUpperCase()}</span>
               )}

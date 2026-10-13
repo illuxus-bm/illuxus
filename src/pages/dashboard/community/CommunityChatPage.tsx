@@ -89,7 +89,7 @@ export default function CommunityChatPage() {
                   <div key={m.id} className="flex gap-2">
                     <div className="h-7 w-7 rounded-full bg-muted text-foreground flex items-center justify-center text-[10px] font-semibold shrink-0 overflow-hidden">
                       {m.author?.avatar_url ? (
-                        <img src={m.author.avatar_url} alt="" className="h-full w-full object-cover" />
+                        <img loading="lazy" decoding="async" src={m.author.avatar_url} alt="" className="h-full w-full object-cover" />
                       ) : (
                         initials
                       )}

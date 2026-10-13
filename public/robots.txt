@@ -145,6 +145,7 @@ Disallow: /support/ticket/
 # index pointer. Multiple Sitemap: directives are valid per the spec.
 Sitemap: https://illuxus.com/sitemap.xml
 Sitemap: https://illuxus.com/sitemap-index.xml
+Sitemap: https://illuxus.com/sitemap-events.xml
 
 # AI / LLM discovery files
 # Crawlers that respect llms.txt, llms-full.txt, and ai.txt can find them here.

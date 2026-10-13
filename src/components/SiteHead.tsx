@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
+import { ROUTE_SEO_ACTIVE_ATTR } from "@/components/RouteSeo";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useCookieConsent } from "@/hooks/useCookieConsent";
 
@@ -240,28 +242,24 @@ const removeAnalytics = () => {
 };
 
 // ---------------------------------------------------------------------------
-// Search Console + Bing Webmaster verification meta scaffolding. These
-// values are placeholders — the operator pastes their real token before
-// publishing. Empty content tags do not claim ownership, so it is safe to
-// leave them in until the operator fills them in.
+// Search Console + Bing Webmaster verification.
+//
+// The tokens come from the build environment (`VITE_GSC_VERIFICATION`,
+// `VITE_BING_VERIFICATION`) and are written into the HTML of every static
+// page at build time (see `seoPrerender` in vite.config.ts) — that is the
+// copy the verifiers read. This adds the same tag after load on pages that
+// were not prerendered. With no token configured nothing is added: this
+// used to inject a literal "REPLACE_WITH_GSC_TOKEN" tag on every page.
 // ---------------------------------------------------------------------------
-const ensureVerificationStubs = () => {
-  // Google Search Console — replace content with the token from GSC's HTML
-  // tag method (Search Console → Settings → Verification Methods).
-  if (!document.head.querySelector('meta[name="google-site-verification"]')) {
-    upsertMeta('meta[name="google-site-verification"]', {
-      name: "google-site-verification",
-      // REPLACE_WITH_GSC_TOKEN — paste the token from Google Search Console.
-      content: "REPLACE_WITH_GSC_TOKEN",
-    });
-  }
-  // Bing Webmaster Tools — replace content with the token from Bing.
-  if (!document.head.querySelector('meta[name="msvalidate.01"]')) {
-    upsertMeta('meta[name="msvalidate.01"]', {
-      name: "msvalidate.01",
-      // REPLACE_WITH_BING_TOKEN — paste the token from Bing Webmaster Tools.
-      content: "REPLACE_WITH_BING_TOKEN",
-    });
+const ensureVerificationTags = () => {
+  const tokens: Array<[string, string | undefined]> = [
+    ["google-site-verification", import.meta.env.VITE_GSC_VERIFICATION as string | undefined],
+    ["msvalidate.01", import.meta.env.VITE_BING_VERIFICATION as string | undefined],
+  ];
+  for (const [name, token] of tokens) {
+    const content = token?.trim();
+    if (!content || document.head.querySelector(`meta[name="${name}"]`)) continue;
+    upsertMeta(`meta[name="${name}"]`, { name, content });
   }
 };
 
@@ -269,6 +267,9 @@ export const SiteHead = () => {
   const { content, hydrated } = useSiteContent();
   const id = content.identity;
   const consent = useCookieConsent();
+  // Re-applied on every navigation, so a page without tags of its own gets
+  // the site defaults back after leaving one that had them.
+  const { pathname } = useLocation();
 
   // ---- Identity sync (existing behaviour). ----
   useEffect(() => {
@@ -276,21 +277,25 @@ export const SiteHead = () => {
     // document head. Otherwise the stale defaults overwrite index.html's
     // configured title/favicon for a split second on first paint.
     if (!hydrated || !id) return;
-    if (id.siteTitle) document.title = id.siteTitle;
+    // The site-wide values are defaults: a page that declares its own tags
+    // through `RouteSeo` keeps them. Only the favicon, author and theme
+    // colour below are applied regardless.
+    const pageOwnsHead = document.documentElement.hasAttribute(ROUTE_SEO_ACTIVE_ATTR);
+    if (id.siteTitle && !pageOwnsHead) document.title = id.siteTitle;
 
-    if (id.metaDescription) {
+    if (id.metaDescription && !pageOwnsHead) {
       upsertMeta('meta[name="description"]', { name: "description", content: id.metaDescription });
       upsertMeta('meta[property="og:description"]', { property: "og:description", content: id.metaDescription });
       upsertMeta('meta[name="twitter:description"]', { name: "twitter:description", content: id.metaDescription });
     }
-    if (id.siteTitle) {
+    if (id.siteTitle && !pageOwnsHead) {
       upsertMeta('meta[property="og:title"]', { property: "og:title", content: id.siteTitle });
       upsertMeta('meta[name="twitter:title"]', { name: "twitter:title", content: id.siteTitle });
     }
     if (id.author) {
       upsertMeta('meta[name="author"]', { name: "author", content: id.author });
     }
-    if (id.ogImageUrl) {
+    if (id.ogImageUrl && !pageOwnsHead) {
       upsertMeta('meta[property="og:image"]', { property: "og:image", content: id.ogImageUrl });
       upsertMeta('meta[name="twitter:image"]', { name: "twitter:image", content: id.ogImageUrl });
       upsertMeta('meta[name="twitter:card"]', { name: "twitter:card", content: "summary_large_image" });
@@ -298,7 +303,7 @@ export const SiteHead = () => {
     if (id.themeColor) {
       upsertMeta('meta[name="theme-color"]', { name: "theme-color", content: id.themeColor });
     }
-    if (id.siteUrl) {
+    if (id.siteUrl && !pageOwnsHead) {
       upsertLink("canonical", id.siteUrl);
       upsertMeta('meta[property="og:url"]', { property: "og:url", content: id.siteUrl });
     }
@@ -308,6 +313,7 @@ export const SiteHead = () => {
       upsertLink("shortcut icon", id.faviconUrl, type);
     }
   }, [
+    pathname,
     hydrated,
     id?.siteTitle,
     id?.metaDescription,
@@ -326,7 +332,7 @@ export const SiteHead = () => {
     upsertHreflang("en-US", "https://illuxus.com/");
     upsertHreflang("en-IN", "https://illuxus.com/");
     upsertHreflang("x-default", "https://illuxus.com/");
-    ensureVerificationStubs();
+    ensureVerificationTags();
   }, [id?.siteUrl, id?.ogImageUrl]);
 
   // ---- GA4 + Microsoft Clarity, gated on analytics consent + env vars. ----

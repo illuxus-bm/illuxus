@@ -38,7 +38,7 @@ export function BrandingPanel({ sessionId, initial }: { sessionId: string; initi
         <div>
           <Label className="text-[12px]">Logo</Label>
           <div className="flex items-center gap-2 mt-1">
-            {b.logo_url && <img src={b.logo_url} alt="" className="h-10 w-auto rounded border" />}
+            {b.logo_url && <img loading="lazy" decoding="async" src={b.logo_url} alt="" className="h-10 w-auto rounded border" />}
             <label className="inline-flex items-center gap-1 px-3 py-2 text-sm border rounded-md cursor-pointer hover:bg-muted">
               <Upload className="h-3 w-3" /> Upload
               <input type="file" accept="image/*" className="hidden"

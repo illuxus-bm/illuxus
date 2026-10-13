@@ -553,7 +553,7 @@ function ProfilePreview({
         }}
       >
         {state.cover && (
-          <img
+          <img loading="lazy" decoding="async"
             src={state.cover}
             alt={`${org.name} cover`}
             className="h-full w-full object-contain"
@@ -563,7 +563,7 @@ function ProfilePreview({
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
         <div className="-mt-12 flex flex-col sm:flex-row sm:items-end gap-4 sm:gap-6 pb-6 border-b" style={{ borderColor: `${theme.textColor}12` }}>
           {org.logo_url ? (
-            <img
+            <img loading="lazy" decoding="async"
               src={org.logo_url}
               alt={org.name}
               className="h-24 w-24 sm:h-28 sm:w-28 rounded-2xl object-cover shrink-0"
@@ -797,7 +797,7 @@ function ImageUploadField({
         >
           {value ? (
             <>
-              <img src={value} alt={label} className="absolute inset-0 h-full w-full object-contain" />
+              <img loading="lazy" decoding="async" src={value} alt={label} className="absolute inset-0 h-full w-full object-contain" />
               <button
                 type="button"
                 onClick={() => onChange("")}

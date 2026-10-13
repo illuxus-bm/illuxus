@@ -459,7 +459,7 @@ const SettingsPage = () => {
               <div className="bg-card border border-border rounded-lg p-5 space-y-5">
                 <div className="flex items-center gap-4">
                   {avatarUrl ? (
-                    <img src={avatarUrl} alt="Avatar" className="h-16 w-16 rounded-full object-cover border border-border" />
+                    <img loading="lazy" decoding="async" src={avatarUrl} alt="Avatar" className="h-16 w-16 rounded-full object-cover border border-border" />
                   ) : (
                     <div className="h-16 w-16 rounded-full bg-foreground/10 flex items-center justify-center text-lg font-semibold shrink-0">
                       {(person.first_name || user?.email || "U")[0]?.toUpperCase()}

@@ -407,7 +407,7 @@ function SelectionCard({
         <div className="flex gap-4 p-4">
           <div className="w-24 h-24 rounded-lg bg-muted overflow-hidden shrink-0">
             {vendor?.cover_url || vendor?.logo_url ? (
-              <img
+              <img loading="lazy" decoding="async"
                 src={vendor.cover_url ?? vendor.logo_url ?? ""}
                 alt=""
                 className="w-full h-full object-cover"

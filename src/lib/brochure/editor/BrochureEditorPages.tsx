@@ -228,7 +228,7 @@ function PageThumbnail({
         className="rounded-sm shadow-sm border border-black/10 overflow-hidden"
         style={{ width, height, backgroundColor: placeholder }}
       >
-        {src && <img src={src} alt="" width={width} height={height} className="block w-full h-full" draggable={false} />}
+        {src && <img loading="lazy" decoding="async" src={src} alt="" width={width} height={height} className="block w-full h-full" draggable={false} />}
       </div>
       <span className="text-muted-foreground tabular-nums">{index + 1}</span>
     </button>

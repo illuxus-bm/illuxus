@@ -81,7 +81,7 @@ const OrganizationPage = () => {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             {org.logo_url ? (
-              <img src={org.logo_url} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-border object-cover" />
+              <img loading="lazy" decoding="async" src={org.logo_url} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-border object-cover" />
             ) : (
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-foreground/10 text-sm font-semibold">
                 {org.name.charAt(0).toUpperCase()}

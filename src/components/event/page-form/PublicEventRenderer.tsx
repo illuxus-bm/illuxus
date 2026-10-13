@@ -746,7 +746,7 @@ function SponsorsSec({ data, theme, sponsors }: { data: SponsorsData; theme: The
                      className="aspect-[2/1] rounded-xl border flex items-center justify-center p-4 hover:scale-[1.02] transition-transform text-left"
                      style={{ borderColor: `${theme.textColor}1f`, backgroundColor: "transparent" }}>
                     {sp.logo_url
-                      ? <img src={sp.logo_url} alt={sp.name} className="max-h-full max-w-full object-contain" />
+                      ? <img loading="lazy" decoding="async" src={sp.logo_url} alt={sp.name} className="max-h-full max-w-full object-contain" />
                       : <span className="text-sm font-semibold text-center">{sp.name}</span>}
                   </button>
                 ))}
@@ -806,7 +806,7 @@ function ExhibitorsSec({ data, theme }: { data: ExhibitorsData; theme: ThemeConf
           <div key={e.id} className="rounded-xl border p-4" style={{ borderColor: `${theme.primaryColor}15`, backgroundColor: "transparent" }}>
             <div className="flex items-center gap-3">
               {e.logoUrl
-                ? <img src={e.logoUrl} alt={e.name} className="h-10 w-10 object-contain" />
+                ? <img loading="lazy" decoding="async" src={e.logoUrl} alt={e.name} className="h-10 w-10 object-contain" />
                 : <div className="h-10 w-10 rounded-lg flex items-center justify-center font-bold text-white" style={{ backgroundColor: theme.primaryColor }}>{e.name.charAt(0)}</div>}
               <div>
                 <p className="font-semibold text-sm">{e.name}</p>
@@ -950,7 +950,7 @@ function PartnersSec({ data, theme }: { data: PartnersData; theme: ThemeConfig }
              className="aspect-[3/2] rounded-xl border flex items-center justify-center p-4"
              style={{ borderColor: `${theme.textColor}1f`, backgroundColor: "transparent" }}>
             {p.logoUrl
-              ? <img src={p.logoUrl} alt={p.name} className="max-h-full max-w-full object-contain" />
+              ? <img loading="lazy" decoding="async" src={p.logoUrl} alt={p.name} className="max-h-full max-w-full object-contain" />
               : <span className="text-sm font-semibold text-center">{p.name}</span>}
           </a>
         ))}

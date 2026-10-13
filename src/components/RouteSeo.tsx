@@ -42,6 +42,9 @@ export type RouteSeoProps = {
   noindex?: boolean;
 };
 
+/** Set on `<html>` while a page's own `RouteSeo` tags are in the head. */
+export const ROUTE_SEO_ACTIVE_ATTR = "data-route-seo-active";
+
 const ROUTE_LD_SELECTOR = "script[type=\"application/ld+json\"][data-route-seo]";
 
 // ---------------------------------------------------------------------------
@@ -162,6 +165,11 @@ export const RouteSeo = (props: RouteSeoProps) => {
     };
 
     // ---- Apply route values. ----
+    // Tell the site-wide head sync (`SiteHead`) that this page has set its
+    // own title, description and canonical. Without the flag, that sync —
+    // which runs later, once the site settings have loaded — overwrote every
+    // page's tags with the site defaults, so all pages ended up identical.
+    document.documentElement.setAttribute(ROUTE_SEO_ACTIVE_ATTR, "");
     document.title = title;
     upsertMeta("description", description);
     if (keywords) upsertMeta("keywords", keywords);
@@ -192,6 +200,7 @@ export const RouteSeo = (props: RouteSeoProps) => {
     setLdJson(jsonLd);
 
     return () => {
+      document.documentElement.removeAttribute(ROUTE_SEO_ACTIVE_ATTR);
       // ---- Restore the snapshot so back-navigation reapplies globals. ----
       document.title = prev.title;
       restoreMeta("description", prev.description);

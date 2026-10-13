@@ -267,7 +267,7 @@ export default function EventModerationPage() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
                           {ev.image_url ? (
-                            <img src={ev.image_url} alt="" className="h-9 w-9 rounded object-cover bg-muted shrink-0" />
+                            <img loading="lazy" decoding="async" src={ev.image_url} alt="" className="h-9 w-9 rounded object-cover bg-muted shrink-0" />
                           ) : (
                             <div className="h-9 w-9 rounded bg-muted shrink-0 flex items-center justify-center">
                               <Calendar className="h-3.5 w-3.5 text-muted-foreground" />

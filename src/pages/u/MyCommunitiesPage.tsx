@@ -82,7 +82,7 @@ function CommunityCard({
     >
       <div className="flex items-start gap-3">
         {community.logo_url ? (
-          <img
+          <img loading="lazy" decoding="async"
             src={community.logo_url}
             alt=""
             className="h-10 w-10 rounded-lg object-cover bg-muted shrink-0"

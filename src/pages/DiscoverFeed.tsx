@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { format, isFuture, isToday, isTomorrow } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import SiteHeader from "@/components/SiteHeader";
+import RouteSeo from "@/components/RouteSeo";
 import { LumaEvent } from "@/components/EventCardLuma";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowRight, CalendarDays, MapPin, Search, X, Users } from "lucide-react";
@@ -107,6 +108,11 @@ export default function DiscoverFeed() {
 
   return (
     <div className="min-h-screen bg-background">
+      <RouteSeo
+        title="Discover events near you and online | illuxus"
+        description="Find events worth your time on illuxus — search conferences, workshops, meetups and webinars by name, city or organiser."
+        canonical="https://illuxus.com/discover"
+      />
       <SiteHeader />
       <main className="max-w-5xl mx-auto px-4 py-10 sm:py-14">
         {/* Header */}
@@ -268,7 +274,7 @@ function PopularRow({ event }: { event: LumaEvent }) {
       </div>
       <div className="shrink-0 w-full sm:w-40 md:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
         {(event.banner_landscape_url || event.image_url) ? (
-          <img src={event.banner_landscape_url || event.image_url!} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+          <img loading="lazy" decoding="async" src={event.banner_landscape_url || event.image_url!} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <CalendarDays className="h-7 w-7 text-muted-foreground/30" />
@@ -313,7 +319,7 @@ function PastRow({ event }: { event: LumaEvent }) {
       </div>
       <div className="shrink-0 w-full sm:w-40 md:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
         {(event.banner_landscape_url || event.image_url) ? (
-          <img
+          <img loading="lazy" decoding="async"
             src={event.banner_landscape_url || event.image_url!}
             alt={event.title}
             className="w-full h-full object-cover grayscale group-hover:grayscale-0 group-hover:scale-105 transition-all duration-500"

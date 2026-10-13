@@ -35,7 +35,7 @@ function StageOverlaysImpl({ branding, screenSharing }: { branding?: Branding; s
   return (
     <div className="pointer-events-none absolute inset-0 z-10">
       {branding.logo_url && (
-        <img src={branding.logo_url} alt="" className="absolute top-3 left-3 h-9 w-auto rounded shadow-lg" />
+        <img loading="lazy" decoding="async" src={branding.logo_url} alt="" className="absolute top-3 left-3 h-9 w-auto rounded shadow-lg" />
       )}
       {screenSharing && (
         <div className="absolute top-3 right-3 bg-black/70 text-white text-[11px] px-2 py-1 rounded backdrop-blur">

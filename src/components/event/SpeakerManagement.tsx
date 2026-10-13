@@ -492,7 +492,7 @@ function AssignSpeakerPopover({
                     className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/50 transition-colors text-left"
                   >
                     {s.photo_url ? (
-                      <img src={s.photo_url} alt={s.name} className="h-6 w-6 rounded-full object-cover shrink-0" />
+                      <img loading="lazy" decoding="async" src={s.photo_url} alt={s.name} className="h-6 w-6 rounded-full object-cover shrink-0" />
                     ) : (
                       <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-semibold text-muted-foreground shrink-0">
                         {s.name.charAt(0).toUpperCase()}

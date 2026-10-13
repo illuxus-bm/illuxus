@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import SiteHeader from "@/components/SiteHeader";
+import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 
 /**
  * Shared chrome for every footer-linked public marketing page (Features,
@@ -35,6 +36,9 @@ export function PublicPageShell({
       <div className="print:hidden">
         <SiteHeader landingMode={landingHeader} />
       </div>
+      {/* Sits in the space every page already leaves above its heading, so it
+          shifts nothing. Renders nothing on the home page. */}
+      <Breadcrumbs className="pointer-events-auto absolute inset-x-0 top-[calc(var(--app-header-h,56px)+18px)] z-[1] px-4 print:hidden" />
       {children}
     </div>
   );

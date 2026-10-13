@@ -234,7 +234,7 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
       <section className="relative">
         {/* Cover — full-bleed, displays full 1128:191 image with no cropping and no gap above. */}
         {cover ? (
-          <img
+          <img loading="lazy" decoding="async"
             src={cover}
             alt={`${org.name} cover`}
             className="block w-full h-auto"
@@ -255,7 +255,7 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
           <div className="pt-5 sm:pt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sm:gap-8 pb-6 sm:pb-8 border-b" style={{ borderColor: `${theme.textColor}12` }}>
             <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 min-w-0 flex-1">
               {org.logo_url ? (
-                <img
+                <img loading="lazy" decoding="async"
                   src={org.logo_url}
                   alt={org.name}
                   className="-mt-10 sm:-mt-20 h-20 w-20 sm:h-32 sm:w-32 lg:h-36 lg:w-36 rounded-2xl object-cover shrink-0"

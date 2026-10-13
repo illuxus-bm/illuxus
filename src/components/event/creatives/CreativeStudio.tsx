@@ -144,7 +144,7 @@ function SectionHeading({ step, title, hint }: { step: number; title: string; hi
 function SpeakerAvatar({ speaker }: { speaker: StudioSpeaker }) {
   const [failed, setFailed] = useState(false);
   if (speaker.photoUrl && !failed) {
-    return <img src={speaker.photoUrl} alt="" onError={() => setFailed(true)} className="h-9 w-9 shrink-0 rounded-full object-cover" />;
+    return <img loading="lazy" decoding="async" src={speaker.photoUrl} alt="" onError={() => setFailed(true)} className="h-9 w-9 shrink-0 rounded-full object-cover" />;
   }
   return (
     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground">

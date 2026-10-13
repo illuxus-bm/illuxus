@@ -167,7 +167,7 @@ export default function CommunityMembersPage() {
               return (
                 <div key={m.user_id} className="border border-border rounded-xl bg-card p-3 flex items-center gap-3">
                   <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[12px] font-semibold shrink-0 overflow-hidden">
-                    {m.profile?.avatar_url ? <img src={m.profile.avatar_url} alt="" className="h-full w-full object-cover" /> : initials}
+                    {m.profile?.avatar_url ? <img loading="lazy" decoding="async" src={m.profile.avatar_url} alt="" className="h-full w-full object-cover" /> : initials}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">

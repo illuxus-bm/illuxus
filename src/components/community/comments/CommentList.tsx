@@ -56,7 +56,7 @@ export function CommentList({ postId }: { postId: string }) {
               <li key={c.id} className="flex gap-2">
                 <div className="h-7 w-7 rounded-full bg-muted text-foreground flex items-center justify-center text-[10px] font-semibold shrink-0 overflow-hidden">
                   {c.author?.avatar_url ? (
-                    <img src={c.author.avatar_url} alt="" className="h-full w-full object-cover" />
+                    <img loading="lazy" decoding="async" src={c.author.avatar_url} alt="" className="h-full w-full object-cover" />
                   ) : (
                     initials
                   )}

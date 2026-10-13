@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import SiteHeader from "@/components/SiteHeader";
+import RouteSeo from "@/components/RouteSeo";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -140,6 +141,11 @@ export default function EventsListingPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <RouteSeo
+        title="Events — conferences, workshops and webinars | illuxus"
+        description="Browse upcoming and past events hosted on illuxus: conferences, workshops, meetups and live webinars. Register in a click."
+        canonical="https://illuxus.com/events"
+      />
       <SiteHeader />
 
       <main className="max-w-5xl mx-auto px-4 pt-10 pb-20">
@@ -304,7 +310,7 @@ function EventRow({
       </div>
       <div className="shrink-0 w-full sm:w-40 md:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
         {(event.banner_landscape_url || event.image_url) ? (
-          <img
+          <img loading="lazy" decoding="async"
             src={event.banner_landscape_url || event.image_url!}
             alt={event.title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
@@ -367,7 +373,7 @@ function EventQuickView({
             className="block relative aspect-video w-full overflow-hidden bg-secondary group"
           >
             {(event.banner_landscape_url || event.image_url) ? (
-              <img
+              <img loading="lazy" decoding="async"
                 src={event.banner_landscape_url || event.image_url!}
                 alt={event.title}
                 className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500"
@@ -390,7 +396,7 @@ function EventQuickView({
               <DialogDescription asChild>
                 <div className="flex items-center gap-2 text-[13px]">
                   {event.organizations.logo_url ? (
-                    <img
+                    <img loading="lazy" decoding="async"
                       src={event.organizations.logo_url}
                       alt=""
                       className="h-5 w-5 rounded-full object-cover ring-1 ring-border"

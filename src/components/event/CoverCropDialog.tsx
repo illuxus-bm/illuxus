@@ -222,7 +222,7 @@ export default function CoverCropDialog({
               </div>
             )}
             {imgSize && src && (
-              <img
+              <img loading="lazy" decoding="async"
                 src={src}
                 alt="Crop preview"
                 draggable={false}

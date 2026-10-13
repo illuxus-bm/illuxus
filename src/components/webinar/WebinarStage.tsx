@@ -245,7 +245,7 @@ function Stage({ layout, branding, eventBannerUrl, eventTitle }: { layout: Props
       if (eventBannerUrl) {
         return (
           <div className="relative h-full w-full bg-black overflow-hidden">
-            <img src={eventBannerUrl} alt={eventTitle ?? ""} className="absolute inset-0 h-full w-full object-cover" />
+            <img loading="lazy" decoding="async" src={eventBannerUrl} alt={eventTitle ?? ""} className="absolute inset-0 h-full w-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/10 to-black/70" />
             {eventTitle && (
               <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 px-8 text-center">

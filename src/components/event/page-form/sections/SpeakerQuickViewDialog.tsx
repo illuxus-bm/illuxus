@@ -19,7 +19,7 @@ export default function SpeakerQuickViewDialog({
       media={
         <div className="h-32 w-32 rounded-2xl border border-border bg-muted flex items-center justify-center overflow-hidden aspect-square shrink-0">
           {speaker.photo_url ? (
-            <img src={speaker.photo_url} alt={speaker.name} className="h-full w-full object-cover" />
+            <img loading="lazy" decoding="async" src={speaker.photo_url} alt={speaker.name} className="h-full w-full object-cover" />
           ) : (
             <User className="h-12 w-12 text-muted-foreground" />
           )}

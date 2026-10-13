@@ -557,7 +557,7 @@ function SponsorApplicationRow({
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0 flex-1 flex gap-3">
           {app.logo_url && (
-            <img src={app.logo_url} alt="" className="h-12 w-12 rounded object-contain bg-white border border-border shrink-0" />
+            <img loading="lazy" decoding="async" src={app.logo_url} alt="" className="h-12 w-12 rounded object-contain bg-white border border-border shrink-0" />
           )}
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">

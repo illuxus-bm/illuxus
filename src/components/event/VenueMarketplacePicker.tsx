@@ -517,7 +517,7 @@ function VendorDetailView({
           {/* Cover */}
           <div className="aspect-[16/8] rounded-lg overflow-hidden bg-muted relative">
             {vendor.cover_url ? (
-              <img
+              <img loading="lazy" decoding="async"
                 src={vendor.cover_url}
                 alt=""
                 className="w-full h-full object-cover"

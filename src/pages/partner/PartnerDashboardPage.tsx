@@ -273,7 +273,7 @@ export default function PartnerDashboardPage() {
       <section className="border border-border rounded-xl p-4 sm:p-5 space-y-4">
         <div className="flex flex-col sm:flex-row gap-4">
           {grant.event.image_url && (
-            <img src={grant.event.image_url} alt="" className="w-full sm:w-56 aspect-video object-cover rounded-lg border border-border shrink-0" />
+            <img loading="lazy" decoding="async" src={grant.event.image_url} alt="" className="w-full sm:w-56 aspect-video object-cover rounded-lg border border-border shrink-0" />
           )}
           <div className="min-w-0 space-y-1.5">
             <p className="text-[11px] uppercase tracking-wide text-muted-foreground">

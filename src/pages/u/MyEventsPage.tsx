@@ -128,7 +128,7 @@ function RowCard({ row }: { row: Row }) {
 
   return (
     <li className="bg-card border border-border rounded-2xl overflow-hidden flex flex-col sm:flex-row sm:items-stretch">
-      {(ev.banner_landscape_url || ev.image_url) && <img src={ev.banner_landscape_url || ev.image_url!} alt={ev.title} className="w-full aspect-video sm:w-72 sm:h-full object-cover shrink-0" />}
+      {(ev.banner_landscape_url || ev.image_url) && <img loading="lazy" decoding="async" src={ev.banner_landscape_url || ev.image_url!} alt={ev.title} className="w-full aspect-video sm:w-72 sm:h-full object-cover shrink-0" />}
       <div className="flex-1 p-4 flex flex-col sm:flex-row gap-3 sm:items-center">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">

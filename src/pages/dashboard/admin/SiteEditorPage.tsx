@@ -193,7 +193,7 @@ function IdentityEditor({ value, set }: { value: SiteContentMap["identity"]; set
           placeholder="https://.../og-image.png"
         />
         {value.ogImageUrl && (
-          <img
+          <img loading="lazy" decoding="async"
             src={value.ogImageUrl}
             alt="OG preview"
             className="mt-2 rounded-md border border-border max-h-32 object-cover"
@@ -323,7 +323,7 @@ function NavbarEditor({ value, set }: { value: SiteContentMap["navbar"]; set: Se
         {value.logoUrl && (
           <>
             <div className="mt-2 flex items-center gap-3 text-[12px] text-muted-foreground rounded-md border border-border bg-muted/30 p-3">
-              <img
+              <img loading="lazy" decoding="async"
                 src={value.logoUrl}
                 alt="Logo preview"
                 style={{ height: `${value.logoHeight ?? 32}px` }}
@@ -412,7 +412,7 @@ function NavbarEditor({ value, set }: { value: SiteContentMap["navbar"]; set: Se
         />
         {value.logoUrlDark && (
           <div className="mt-2 flex items-center gap-3 text-[12px] text-muted-foreground rounded-md border border-border bg-neutral-900 p-3">
-            <img
+            <img loading="lazy" decoding="async"
               src={value.logoUrlDark}
               alt="Dark mode logo preview"
               style={{ height: `${value.logoHeight ?? 32}px` }}

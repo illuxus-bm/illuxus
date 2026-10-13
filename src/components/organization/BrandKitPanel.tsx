@@ -167,7 +167,7 @@ export default function BrandKitPanel({ orgId, userId, canEdit }: { orgId: strin
                   {uploading === slot ? (
                     <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
                   ) : asset && isPreviewable(asset) ? (
-                    <img src={asset.url} alt={title} className="max-h-full max-w-full object-contain" />
+                    <img loading="lazy" decoding="async" src={asset.url} alt={title} className="max-h-full max-w-full object-contain" />
                   ) : asset ? (
                     <span className="flex flex-col items-center gap-1 text-neutral-500">
                       <FileText className="h-7 w-7" />

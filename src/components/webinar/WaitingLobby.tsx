@@ -130,7 +130,7 @@ export function WaitingLobby({ eventId, visitorName, role, sessionStatus, onJoin
           </Button>
           <div className="flex items-center gap-2">
             {orgLogo ? (
-              <img src={orgLogo} alt={orgName || ""} className="h-6 w-6 rounded-sm object-cover ring-1 ring-border" />
+              <img loading="lazy" decoding="async" src={orgLogo} alt={orgName || ""} className="h-6 w-6 rounded-sm object-cover ring-1 ring-border" />
             ) : null}
             <span className="text-[11px] font-mono uppercase tracking-[0.18em] text-muted-foreground">{orgName}</span>
           </div>
@@ -273,7 +273,7 @@ export function WaitingLobby({ eventId, visitorName, role, sessionStatus, onJoin
               <div className="relative">
                 {banner ? (
                   <div className="relative aspect-[16/10] w-full overflow-hidden bg-muted">
-                    <img
+                    <img loading="lazy" decoding="async"
                       src={banner}
                       alt={event?.title || ""}
                       className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"

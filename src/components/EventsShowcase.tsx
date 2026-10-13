@@ -83,7 +83,7 @@ const EventsShowcase = () => {
                 <div className="rounded-xl border border-border bg-card overflow-hidden hover:border-foreground/15 transition-all duration-200 hover:shadow-lg hover:shadow-foreground/[0.02]">
                   <div className="relative aspect-video bg-secondary overflow-hidden">
                     {event.image_url ? (
-                      <img
+                      <img loading="lazy" decoding="async"
                         src={event.image_url}
                         alt={event.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"

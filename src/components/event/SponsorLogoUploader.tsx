@@ -50,7 +50,7 @@ export default function SponsorLogoUploader({
     <div className="flex items-center gap-3">
       <div className="h-10 w-20 rounded-md border border-border bg-muted/30 flex items-center justify-center overflow-hidden shrink-0">
         {value ? (
-          <img src={value} alt="Logo" className="h-full w-full object-contain" />
+          <img loading="lazy" decoding="async" src={value} alt="Logo" className="h-full w-full object-contain" />
         ) : (
           <ImageIcon className="h-5 w-5 text-muted-foreground" />
         )}

@@ -133,7 +133,7 @@ export default function PartnerEventsPage() {
                   >
                     <div className="aspect-video bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center relative overflow-hidden">
                       {g.event.image_url ? (
-                        <img src={g.event.image_url} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                        <img loading="lazy" decoding="async" src={g.event.image_url} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                       ) : (
                         <Calendar className="h-10 w-10 text-muted-foreground/50" />
                       )}

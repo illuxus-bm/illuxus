@@ -137,7 +137,7 @@ export default function EventCoverPicker({
       >
         {imageUrl ? (
           <>
-            <img src={imageUrl} alt="Event cover" className="w-full h-full object-cover" />
+            <img loading="lazy" decoding="async" src={imageUrl} alt="Event cover" className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
               <div className="flex gap-2">
                 <button

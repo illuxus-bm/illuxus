@@ -1,9 +1,76 @@
 import { execSync } from "node:child_process";
-import { defineConfig } from "vite";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import { VitePWA } from "vite-plugin-pwa";
+
+import {
+  buildSitemap,
+  buildSitemapIndex,
+  extractRouteMeta,
+  outputFile,
+  renderRouteHtml,
+  SITE_ORIGIN,
+  type RouteMeta,
+} from "./src/lib/seo/prerender";
+
+/** Indexable addresses that have no page of their own to be discovered from. */
+const SITEMAP_EXTRA_URLS = [`${SITE_ORIGIN}/llms.txt`];
+
+/**
+ * After the build, writes one HTML file per static public page with that
+ * page's own title, description, canonical, Open Graph and breadcrumb tags
+ * already in it, plus `sitemap.xml` and `sitemap-index.xml`. See
+ * `src/lib/seo/prerender.ts` for why.
+ *
+ * The pages are discovered from their `<RouteSeo>` declarations, so a new
+ * page is picked up without being listed anywhere. Search Console and Bing
+ * verification tags are added when `VITE_GSC_VERIFICATION` /
+ * `VITE_BING_VERIFICATION` are set in the build environment.
+ */
+function seoPrerender(): Plugin {
+  const pagesDir = path.resolve(__dirname, "src/pages");
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const full = path.join(dir, name);
+      if (statSync(full).isDirectory()) return name === "__tests__" || name === "dev" ? [] : walk(full);
+      return full.endsWith(".tsx") ? [full] : [];
+    });
+
+  return {
+    name: "illuxus-seo-prerender",
+    apply: "build",
+    closeBundle() {
+      const outDir = path.resolve(__dirname, "dist");
+      let baseHtml: string;
+      try {
+        baseHtml = readFileSync(path.join(outDir, "index.html"), "utf8");
+      } catch {
+        return; // Nothing was built (a failed build has already reported why).
+      }
+      const routes = walk(pagesDir)
+        .map((file) => extractRouteMeta(readFileSync(file, "utf8")))
+        .filter((route): route is RouteMeta => route !== null)
+        .sort((a, b) => a.path.localeCompare(b.path));
+      const options = {
+        googleVerification: process.env.VITE_GSC_VERIFICATION?.trim() || undefined,
+        bingVerification: process.env.VITE_BING_VERIFICATION?.trim() || undefined,
+      };
+      for (const route of routes) {
+        const file = path.join(outDir, outputFile(route));
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(file, renderRouteHtml(baseHtml, route, routes, options));
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      writeFileSync(path.join(outDir, "sitemap.xml"), buildSitemap(routes, today, SITEMAP_EXTRA_URLS));
+      writeFileSync(path.join(outDir, "sitemap-index.xml"), buildSitemapIndex(today));
+      // eslint-disable-next-line no-console -- build-time notice; outside src/** lint scope
+      console.log(`[seo] prerendered ${routes.length} pages, wrote sitemap.xml and sitemap-index.xml`);
+    },
+  };
+}
 
 function resolveBuildSha(): string {
   try {
@@ -49,6 +116,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
+      seoPrerender(),
       // PWA / service-worker layer.
       //
       // - registerType: 'prompt' — we control update timing via PWAUpdatePrompt
