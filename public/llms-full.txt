@@ -317,6 +317,7 @@ Yes. REST API + webhooks cover ticket purchases, attendee check-ins, refunds, an
 - Event ticketing platform: https://illuxus.com/event-ticketing-platform
 - Conference management platform: https://illuxus.com/conference-management-platform
 - Webinar platform (India): https://illuxus.com/webinar-platform-india
+- FAQs: https://illuxus.com/faqs
 - Privacy Policy: https://illuxus.com/privacy
 - Terms of Service: https://illuxus.com/terms
 - Cookie Policy: https://illuxus.com/cookies

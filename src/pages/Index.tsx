@@ -8,6 +8,7 @@ import { CinemaReel } from "@/components/cinematic/CinemaReel";
 import { useSmoothScroll } from "@/components/landing/useSmoothScroll";
 import "@/components/landing/landing.css";
 import RouteSeo from "@/components/RouteSeo";
+import { Link } from "react-router-dom";
 
 // Long-tail keyword set for the home / landing page. Each public route gets a
 // distinct set so we surface a broad keyword footprint across the site.
@@ -43,6 +44,39 @@ const HOME_KEYWORDS = [
   "branded event pages",
   "illuxus",
 ].join(", ");
+
+const HOME_FAQS = [
+  {
+    question: "What is illuxus?",
+    answer:
+      "illuxus is an all-in-one event management platform for conferences, meetups, workshops, webinars, and hybrid events. Organizers can publish branded event pages, sell tickets, manage attendees, check guests in with QR codes, host live sessions, and grow event communities from one workspace.",
+  },
+  {
+    question: "How much does illuxus cost?",
+    answer:
+      "illuxus has a free plan for events with up to 100 attendees. Paid plans start at ₹2,499 per month, with a 2% platform fee on paid tickets. Free events remain free, and there is no setup fee or per-attendee fee.",
+  },
+  {
+    question: "Can I sell tickets in INR with UPI?",
+    answer:
+      "Yes. illuxus supports INR ticketing through Razorpay, including UPI, cards, net banking, wallets, and EMI. Stripe supports international cards and multiple currencies for global attendees.",
+  },
+  {
+    question: "Does illuxus support QR code check-in?",
+    answer:
+      "Yes. Every ticket includes a QR code that staff can scan from a phone, tablet, laptop camera, or USB scanner. Organizers can also use self-service kiosk mode, offline scanning with later sync, and badge printing.",
+  },
+  {
+    question: "Can I run webinars and hybrid events on illuxus?",
+    answer:
+      "Yes. illuxus includes browser-based HD webinars with Q&A, polls, reactions, cloud recording, and a branded stage. Organizers can stream in-person sessions to virtual attendees without requiring a separate Zoom link.",
+  },
+  {
+    question: "Is illuxus suitable for event communities?",
+    answer:
+      "Yes. Each event can become a lasting community with a feed, announcements, calendar, member directory, resources, chat, moderation, and AI-powered matchmaking.",
+  },
+];
 
 const HOME_JSON_LD = {
   "@context": "https://schema.org",
@@ -225,88 +259,11 @@ const HOME_JSON_LD = {
     {
       "@type": "FAQPage",
       "@id": "https://illuxus.com/#faq",
-      mainEntity: [
-        {
-          "@type": "Question",
-          name: "What is the best event management platform in India?",
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: "illuxus is the most India-native option in 2026: INR-first pricing, Razorpay + UPI as a first-class payment method, GST-compliant invoicing with GSTIN and HSN codes, named DPO and Grievance Officer in Mumbai, and DPDPA 2023 compliance. The Free tier (up to 100 attendees per event, unlimited events, no credit card) is the easiest way to evaluate fit against alternatives like Eventbrite, Townscript, and Hubilo.",
-          },
-        },
-        {
-          "@type": "Question",
-          name: "How much does illuxus cost?",
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: "Free forever for events under 100 attendees. Paid plans start at ₹2,499/month (Starter), ₹6,999/month (Professional), and ₹16,999+/month (Enterprise). A flat 2% platform fee applies to paid tickets only — free events are free forever. No setup cost, no minimum contract on monthly plans, 20% discount on annual billing.",
-          },
-        },
-        {
-          "@type": "Question",
-          name: "Does illuxus support QR check-in?",
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: "Yes. Every ticket includes a QR on PDF, Apple Wallet, and Google Wallet. Check attendees in from any laptop, tablet, or phone camera, or use a USB scanner wand for higher throughput. Real-time dashboard, offline mode with sync-on-reconnect, self-service kiosk mode, and one-click badge printing on Brother / Zebra printers are included.",
-          },
-        },
-        {
-          "@type": "Question",
-          name: "Can I run hybrid events on illuxus?",
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: "Yes, hybrid is a first-class mode. Stream your in-person session live to virtual attendees with two-way Q&A, polls, and reactions. Tickets can include both in-person and virtual access, or be sold as separate tiers. Sessions auto-record and are available for replay within minutes of session end. Powered by LiveKit — no Zoom required.",
-          },
-        },
-        {
-          "@type": "Question",
-          name: "Is illuxus GDPR and DPDPA compliant?",
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: "Yes. illuxus is DPDPA 2023 (India), GDPR (EU/UK), IT Act 2000, SPDI Rules 2011, and CERT-In 2022 directive compliant. Data is AES-256 at rest and TLS 1.3 in transit. The 28-section Privacy Policy at /privacy documents retention timelines, named DPO and Grievance Officer in Mumbai, sub-processors, cross-border transfers, and full data-subject rights including export, deletion, and grievance.",
-          },
-        },
-        {
-          "@type": "Question",
-          name: "What payment methods does illuxus support?",
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: "Razorpay (UPI, cards, NetBanking, wallets, EMI for India) and Stripe (cards globally + Apple Pay + Google Pay) are bundled. Bank transfer / NEFT is available on Enterprise. illuxus supports INR plus 25+ international currencies including USD, EUR, GBP, AED, SGD, AUD, CAD, and JPY.",
-          },
-        },
-        {
-          "@type": "Question",
-          name: "How does illuxus compare to Eventbrite?",
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: "illuxus charges a flat 2% on paid tickets paid by the organizer; Eventbrite charges a tiered fee plus a separate buyer service fee shown only at the final checkout step. illuxus also bundles webinars, communities, AI matchmaking, and sponsor portals that on Eventbrite require third-party tools. For Indian organizers, illuxus's INR pricing, UPI support, and GST invoicing are decisive.",
-          },
-        },
-        {
-          "@type": "Question",
-          name: "Can I run a webinar on illuxus without sending a Zoom link?",
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: "Yes. illuxus webinars run in the browser on LiveKit-powered HD streaming. No Zoom, no app install for attendees, no per-host seat licence. Q&A, polls, reactions, cloud recording with transcripts, and a branded stage are included on every plan. Tested to 10,000 concurrent viewers per session.",
-          },
-        },
-        {
-          "@type": "Question",
-          name: "Can I sell tickets in INR with UPI on illuxus?",
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: "Yes. UPI is a first-class payment method through the Razorpay integration. Buyers see PhonePe, Google Pay, Paytm, and BHIM deep links on the Indian checkout. Razorpay payouts arrive same-day (T+0) to T+1 depending on bank. INR plus 25+ international currencies are supported on the same checkout.",
-          },
-        },
-        {
-          "@type": "Question",
-          name: "Can I export my data from illuxus?",
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: "Yes, at any time. CSV, Excel, and PDF exports are available from every dashboard. Registrant lists, ticket history, check-in logs, refund records, community posts, and audit logs are all exportable from Settings → Export. There is no data lock-in; you own your event data.",
-          },
-        },
-      ],
+      mainEntity: HOME_FAQS.map(({ question, answer }) => ({
+        "@type": "Question",
+        name: question,
+        acceptedAnswer: { "@type": "Answer", text: answer },
+      })),
     },
     {
       "@type": "BreadcrumbList",
@@ -358,6 +315,39 @@ const Index = () => {
         <FeaturesSection />
         <CinemaReel />
         <PricingSection />
+        <section
+          aria-labelledby="homepage-faq-title"
+          className="mx-auto w-full max-w-5xl px-6 py-24 sm:px-10"
+        >
+          <div className="mx-auto max-w-2xl text-center">
+            <p className="text-sm font-medium uppercase tracking-[0.2em] text-primary">
+              Answers for organizers
+            </p>
+            <h2 id="homepage-faq-title" className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+              Frequently asked questions
+            </h2>
+            <p className="mt-4 text-muted-foreground">
+              Clear answers about event ticketing, webinars, check-in, pricing, and communities.
+            </p>
+          </div>
+          <div className="mx-auto mt-10 max-w-3xl divide-y divide-border rounded-2xl border border-border bg-card px-6">
+            {HOME_FAQS.map(({ question, answer }) => (
+              <details key={question} className="group py-5">
+                <summary className="cursor-pointer list-none pr-8 text-left font-semibold marker:hidden">
+                  <span className="group-open:text-primary">{question}</span>
+                </summary>
+                <p className="pt-3 text-left text-sm leading-7 text-muted-foreground">{answer}</p>
+              </details>
+            ))}
+          </div>
+          <p className="mt-8 text-center text-sm text-muted-foreground">
+            Need more detail?{" "}
+            <Link to="/faqs" className="font-medium text-primary underline-offset-4 hover:underline">
+              Browse all illuxus FAQs
+            </Link>
+            .
+          </p>
+        </section>
         <CTASection />
       </main>
     </div>

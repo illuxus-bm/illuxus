@@ -32,6 +32,7 @@ Allow: /event-management-software
 Allow: /event-ticketing-platform
 Allow: /conference-management-platform
 Allow: /webinar-platform-india
+Allow: /faqs
 Allow: /llms.txt
 Allow: /llms-full.txt
 Disallow: /dashboard
@@ -59,6 +60,7 @@ Disallow: /support/ticket/
 # OpenAI — ChatGPT live retrieval. Allowed.
 User-Agent: ChatGPT-User
 Allow: /
+Allow: /faqs
 Allow: /llms.txt
 Allow: /llms-full.txt
 
@@ -70,6 +72,7 @@ Disallow: /
 # Anthropic — Claude live retrieval. Allowed.
 User-Agent: Claude-Web
 Allow: /
+Allow: /faqs
 Allow: /llms.txt
 Allow: /llms-full.txt
 
@@ -86,6 +89,7 @@ Disallow: /
 # Perplexity — answer-time retrieval. Allowed.
 User-Agent: PerplexityBot
 Allow: /
+Allow: /faqs
 Allow: /llms.txt
 Allow: /llms-full.txt
 
