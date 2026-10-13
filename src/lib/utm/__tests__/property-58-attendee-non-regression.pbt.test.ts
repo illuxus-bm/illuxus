@@ -59,7 +59,17 @@ const ATTENDEE_FILES = [
     // ticked, the handler runs exactly as before — `loadStoredUtm()`,
     // the five utm_* columns on the insert, and `clearStoredUtm()` on
     // success are untouched.
-    hash: "01e076c4e99d2afb814560e35a165c8060fb66dfe4aaab440f4b074551f051d3",
+    //
+    // Bumped again for guest registration. Re-audited against 6.1–6.3:
+    // the signed-in submit handler is unchanged apart from dropping the
+    // redirect to sign-in — its `loadStoredUtm()` values, the five utm_*
+    // columns on the insert and `clearStoredUtm()` on success are as
+    // before. Visitors who are not signed in now register through
+    // `GuestRegistrationForm`, which receives the same `utmParams`; the
+    // `guest-registration` edge function saves the five utm_* values with
+    // the registration, and this card calls `clearStoredUtm()` when that
+    // succeeds (covered by guest-registration-server.test.ts).
+    hash: "9f4972b2c6795ed131952afdabe662ffb7cc539320841d2caa2ddc940d82b277",
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",

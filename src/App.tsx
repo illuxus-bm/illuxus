@@ -48,6 +48,7 @@ function lazyWithLog<T extends { default: React.ComponentType<any> }>(
 // Everything else is code-split so the initial bundle stays light and route
 // transitions show the global loading screen instead of a frozen UI.
 const ResetPasswordPage = lazyWithLog("ResetPasswordPage", () => import("./pages/ResetPasswordPage.tsx"));
+const ActivateAccountPage = lazyWithLog("ActivateAccountPage", () => import("./pages/ActivateAccountPage.tsx"));
 const OnboardingPage = lazyWithLog("OnboardingPage", () => import("./pages/OnboardingPage.tsx"));
 const FeaturesPage = lazyWithLog("FeaturesPage", () => import("./pages/FeaturesPage.tsx"));
 const PublicPricingPage = lazyWithLog("PublicPricingPage", () => import("./pages/PricingPage.tsx"));
@@ -319,6 +320,8 @@ const App = () => (
                 <Route path="/o/:orgSlug/:eventSlug" element={<RouteErrorBoundary><LegacyEventRedirect /></RouteErrorBoundary>} />
                 <Route path="/login" element={<RouteErrorBoundary><LoginPage /></RouteErrorBoundary>} />
                 <Route path="/reset-password" element={<RouteErrorBoundary><ResetPasswordPage /></RouteErrorBoundary>} />
+                {/* Set a password from the link in a registration confirmation email. */}
+                <Route path="/activate" element={<RouteErrorBoundary><ActivateAccountPage /></RouteErrorBoundary>} />
                 {/* Static marketing / legal pages */}
                 <Route path="/features" element={<RouteErrorBoundary><FeaturesPage /></RouteErrorBoundary>} />
                 <Route path="/pricing" element={<RouteErrorBoundary><PublicPricingPage /></RouteErrorBoundary>} />
@@ -451,6 +454,7 @@ function GlobalFooter() {
     "/onboarding",
     "/login",
     "/reset-password",
+    "/activate",
     "/complete-profile",
     "/sponsor",
     "/speaker",
@@ -480,6 +484,7 @@ function GlobalCookieConsent() {
     "/onboarding",
     "/login",
     "/reset-password",
+    "/activate",
     "/complete-profile",
     "/sponsor",
     "/speaker",

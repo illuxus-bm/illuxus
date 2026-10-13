@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { ConsentCheckbox, CONSENT_REQUIRED_MESSAGE, LegalLink } from "@/components/ConsentCheckbox";
-import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
@@ -11,6 +10,8 @@ import {
 } from "lucide-react";
 import { formatMoney } from "@/lib/currency";
 import { publicUrl } from "@/lib/publicUrl";
+import { GuestConfirmationPanel, GuestRegistrationForm } from "@/components/event/GuestRegistration";
+import { loadGuestConfirmation, storeGuestConfirmation, type GuestConfirmation } from "@/lib/guest-registration";
 
 interface RsvpEvent {
   id: string;
@@ -37,6 +38,11 @@ type RsvpState = "idle" | "approved" | "pending" | "waitlisted" | "declined";
  *
  * When `isEventOver` is true new registrations are blocked and the card
  * shows an "Event has ended" notice instead of a Register button.
+ *
+ * Signed-in visitors register in one click from their profile. Visitors who
+ * are not signed in fill a short form instead (no account needed) and see a
+ * confirmation here; their email carries an optional link to set up an
+ * account afterwards.
  */
 export default function EventRsvpCard({
   event,
@@ -52,7 +58,6 @@ export default function EventRsvpCard({
 }) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const navigate = useNavigate();
   const [state, setState] = useState<RsvpState>("idle");
   const [registrationId, setRegistrationId] = useState<string | null>(null);
   const [joinToken, setJoinToken] = useState<string | null>(null);
@@ -71,6 +76,15 @@ export default function EventRsvpCard({
    */
   const [goingCount, setGoingCount] = useState<number>(0);
   const emailVerified = !!user?.email_confirmed_at;
+  // A guest registration made in this tab: its confirmation is shown in
+  // place of the form (and again after a refresh).
+  const [guestConfirmation, setGuestConfirmation] = useState<GuestConfirmation | null>(() => loadGuestConfirmation(event.id));
+  const [resendGuestDetails, setResendGuestDetails] = useState<(() => Promise<boolean>) | null>(null);
+  const updateGuestConfirmation = (next: GuestConfirmation | null) => {
+    setGuestConfirmation(next);
+    storeGuestConfirmation(event.id, next);
+  };
+  const showGuestConfirmation = !user && !!guestConfirmation;
 
   useEffect(() => {
     if (!user) return;
@@ -175,10 +189,8 @@ export default function EventRsvpCard({
 
   const handleRsvp = async () => {
     if (isEventOver) return;
-    if (!user) {
-      navigate(`/login?next=${encodeURIComponent(window.location.pathname)}`);
-      return;
-    }
+    // Visitors who are not signed in use the guest form below instead.
+    if (!user) return;
     if (!emailVerified) {
       toast({
         title: "Verify your email first",
@@ -338,6 +350,21 @@ export default function EventRsvpCard({
   };
 
   const isApprovalFlow = !!event.requires_approval;
+  const idle = state === "idle" && !showGuestConfirmation;
+  const registerLabel = event.requires_approval
+    ? "Request to Join"
+    : event.price && Number(event.price) > 0
+      ? `Register · ${formatMoney(event.price, event.currency || undefined)}`
+      : "Register";
+  const eventDateText = (() => {
+    const d = new Date(event.date);
+    if (Number.isNaN(d.getTime())) return "";
+    try {
+      return new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: event.timezone || undefined }).format(d);
+    } catch {
+      return d.toLocaleString();
+    }
+  })();
 
   return (
     // `text-card-foreground` resets inherited text color so the card stays
@@ -351,7 +378,7 @@ export default function EventRsvpCard({
 
       <div className="p-5 space-y-4">
         {/* Event-over notice — replaces the registration flow for past events */}
-        {isEventOver && state === "idle" && (
+        {isEventOver && idle && (
           <div className="flex items-start gap-3">
             <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
               <CalendarDays className="h-4 w-4 text-muted-foreground" />
@@ -376,7 +403,7 @@ export default function EventRsvpCard({
         {/* State pill — mirrors Lu.ma's "Approval Required" header.
             When the event is sold out we show a single sold-out card
             regardless of the approval flow. */}
-        {state === "idle" && isFull && !isEventOver && (
+        {idle && isFull && !isEventOver && (
           <div className="flex items-start gap-3">
             <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
               <XCircle className="h-4 w-4 text-foreground/70" />
@@ -389,7 +416,7 @@ export default function EventRsvpCard({
             </div>
           </div>
         )}
-        {isApprovalFlow && state === "idle" && !isFull && !isEventOver && (
+        {isApprovalFlow && idle && !isFull && !isEventOver && (
           <div className="flex items-start gap-3">
             <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
               <ShieldCheck className="h-4 w-4 text-foreground/70" />
@@ -406,7 +433,7 @@ export default function EventRsvpCard({
             </div>
           </div>
         )}
-        {!isApprovalFlow && state === "idle" && !isFull && !isEventOver && (
+        {!isApprovalFlow && idle && !isFull && !isEventOver && (
           <div className="flex items-start gap-3">
             <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
               <UserPlus className="h-4 w-4 text-foreground/70" />
@@ -426,7 +453,17 @@ export default function EventRsvpCard({
           </div>
         )}
 
-        {state === "approved" ? (
+        {showGuestConfirmation && guestConfirmation ? (
+          <GuestConfirmationPanel
+            confirmation={guestConfirmation}
+            eventId={event.id}
+            eventTitle={event.title}
+            eventDateText={eventDateText}
+            onResendDetails={resendGuestDetails ?? undefined}
+            onUpdate={updateGuestConfirmation}
+            onStartOver={() => { setResendGuestDetails(null); updateGuestConfirmation(null); }}
+          />
+        ) : state === "approved" ? (
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-[13px] font-medium text-emerald-600">
               <CheckCircle2 className="h-4 w-4" /> You're going
@@ -527,10 +564,25 @@ export default function EventRsvpCard({
           >
             Registration closed
           </Button>
+        ) : !user && !isFull ? (
+          // Not signed in: register with a short form, no account needed.
+          <GuestRegistrationForm
+            eventId={event.id}
+            requiresApproval={isApprovalFlow}
+            submitLabel={registerLabel}
+            accentColor={accentColor}
+            utmParams={utmParams}
+            signInHref={`/login?next=${encodeURIComponent(window.location.pathname)}`}
+            onRegistered={(confirmation, resend) => {
+              setResendGuestDetails(() => resend);
+              updateGuestConfirmation(confirmation);
+              // A second registration in this tab isn't credited to the same campaign.
+              import("@/lib/utm").then(({ clearStoredUtm }) => clearStoredUtm()).catch(() => {});
+            }}
+          />
         ) : (
           <>
-          {/* Only once signed in and able to register — before that the
-              button just leads to sign-in. */}
+          {/* Signed in and able to register. */}
           {user && !isFull && (
             <ConsentCheckbox
               className="mb-3"

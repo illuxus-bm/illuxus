@@ -55,3 +55,11 @@ verify_jwt = true
 # organizer with the outcome and a deep link back to the event dashboard.
 [functions.notify-organizer-venue-response]
 verify_jwt = true
+
+# Public guest registration and post-registration account setup. Called from
+# the event page by visitors who are not signed in; the browser still sends
+# the project's anon key, so the default JWT check stays on. The function
+# enforces its own rules (published event, capacity, rate limits, single-use
+# activation links).
+[functions.guest-registration]
+verify_jwt = true

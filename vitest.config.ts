@@ -11,6 +11,12 @@ export default defineConfig({
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
   },
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+      // Edge functions import from URLs (Deno). Map them to local equivalents so
+      // their logic can be imported and tested here.
+      { find: /^https:\/\/esm\.sh\/@supabase\/supabase-js@2$/, replacement: "@supabase/supabase-js" },
+      { find: /^https:\/\/deno\.land\/x\/denomailer@[^/]+\/mod\.ts$/, replacement: path.resolve(__dirname, "./src/test/stubs/denomailer.ts") },
+    ],
   },
 });
