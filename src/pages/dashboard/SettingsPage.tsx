@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import {
-  User, Shield, Bell, Users, Mail, Trash2, UserPlus, Crown, ShieldCheck, Eye, UserCog, Upload, X, Loader2
+  User, Shield, Bell, Users, Mail, Trash2, UserPlus, Crown, ShieldCheck, Eye, UserCog, Upload, X, Loader2, MailWarning, RotateCw
 } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -26,6 +26,7 @@ import { uuid } from "@/lib/uuid";
 import { publicOrigin } from "@/lib/publicUrl";
 import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 import { fetchPublicProfile, fetchPublicProfiles } from "@/lib/public-profiles";
+import { callTeamInvitation, replyError } from "@/lib/team-invitation";
 
 type Profile = Tables<"profiles">;
 
@@ -201,13 +202,55 @@ const SettingsPage = () => {
     toast({ title: "Photo removed" });
   };
 
+  // Inviting needs a verified email. The `team-invitation` function and the
+  // database both enforce this; the check here only explains it up front.
+  const inviterVerified = !!user?.email_confirmed_at;
+  const [verificationSent, setVerificationSent] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+
+  const handleSendVerification = async () => {
+    if (!user?.email) return;
+    const { error } = await supabase.auth.resend({ type: "signup", email: user.email, options: { emailRedirectTo: `${publicOrigin()}/dashboard/settings` } });
+    if (error) toast({ title: "Could not send the email", description: error.message, variant: "destructive" });
+    else {
+      setVerificationSent(true);
+      toast({ title: "Verification email sent", description: `Check ${user.email}, then come back and invite your team.` });
+    }
+  };
+
+  /** Explains the outcome of a send or resend. */
+  const reportInviteReply = (recipient: string, reply: Awaited<ReturnType<typeof callTeamInvitation>>): boolean => {
+    const b = reply.body;
+    if (b.ok === true) {
+      if (b.email_sent === true) {
+        toast({ title: "Invitation sent", description: `${recipient} can join from the link in their email for the next 14 days.` });
+      } else {
+        toast({
+          title: "Invitation saved, email not sent",
+          description: `The email to ${recipient} could not be delivered. Try Resend in a moment; if it keeps failing, check the SMTP settings.`,
+          variant: "destructive",
+        });
+      }
+      return true;
+    }
+    const titles: Record<string, string> = {
+      inviter_unverified: "Verify your email first",
+      already_member: "Already a member",
+      already_invited: "Already invited",
+      forbidden: "Not allowed",
+    };
+    toast({
+      title: titles[String(b.code)] ?? "Invitation not sent",
+      description: replyError(reply, "Please try again."),
+      variant: "destructive",
+    });
+    return false;
+  };
+
   const handleInvite = async () => {
     if (!org || !user || !inviteEmail.trim()) return;
 
-    // Format gate. Without this the invite row gets persisted with whatever
-    // typo the organiser entered (e.g. "foo@gmail.con" / "name.gmail.com"),
-    // the welcome email bounces off the SMTP server, and the new member never
-    // hears about the invitation.
+    // Format gate, so a typo is caught before anything is saved or emailed.
     const emailNormalized = normalizeEmail(inviteEmail);
     if (!isValidEmailFormat(emailNormalized)) {
       toast({
@@ -218,194 +261,33 @@ const SettingsPage = () => {
       return;
     }
 
+    // The server checks who may invite, creates or reopens the invitation
+    // with a fresh single-use link, and sends the email.
     setInviting(true);
-
-    // Pre-flight: check if this email is already an active member of the org.
-    // Emails live on auth.users (not profiles), so read them through the
-    // manager-only `org_member_emails` RPC (migration 037).
-    const memberEmails = (await fetchMemberEmails(org.id)).map((m) => m.email);
-    if (memberEmails.includes(emailNormalized)) {
-      setInviting(false);
-      toast({ title: "Already a member", description: `${emailNormalized} is already part of this organisation.`, variant: "destructive" });
-      return;
-    }
-
-    // Pre-flight: check for ANY existing invitation row for this email
-    // (regardless of status). The org_invitations table has a UNIQUE
-    // constraint on (org_id, email), so even a revoked or accepted row
-    // blocks a fresh insert with the misleading "duplicate key" error
-    // shown to the organiser as "This email has already been invited".
-    // We surface the right action for each status:
-    //   • pending — same role → "already invited"
-    //              different role → update role on the existing row
-    //   • accepted — the previous member is gone (we already filtered out
-    //               active members above), so reset to pending with a
-    //               fresh token. Reinvite flow.
-    //   • revoked — same as accepted: the organiser explicitly removed
-    //               them and is now reinviting. Reset to pending + new
-    //               token so the new email link can succeed against the
-    //               accept_org_invitation RPC (migration 016).
-    const { data: existingInvite } = await supabase
-      .from("org_invitations")
-      .select("id, role, status")
-      .eq("org_id", org.id)
-      .eq("email", emailNormalized)
-      .maybeSingle();
-
-    let invitation: { token: string } | null = null;
-    let inviteWriteError: { message: string } | null = null;
-
-    if (existingInvite) {
-      if (existingInvite.status === "pending" && existingInvite.role === inviteRole) {
-        setInviting(false);
-        toast({
-          title: "Already invited",
-          description: `${emailNormalized} already has a pending invitation as ${inviteRole}.`,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Reset / update path. For pending rows we keep the existing token
-      // (so any link still in their mailbox keeps working). For accepted
-      // or revoked rows we rotate the token, otherwise an old link from
-      // the previous lifecycle would still be valid against the RPC.
-      const rotateToken = existingInvite.status !== "pending";
-      const updatePayload: Record<string, unknown> = {
-        role: inviteRole,
-        status: "pending",
-        invited_by: user.id,
-        updated_at: new Date().toISOString(),
-      };
-      if (rotateToken) updatePayload.token = uuid();
-
-      const { data: updated, error: updateErr } = await supabase
-        .from("org_invitations")
-        .update(updatePayload)
-        .eq("id", existingInvite.id)
-        .select("token")
-        .single();
-      if (updateErr) {
-        inviteWriteError = updateErr;
-      } else {
-        invitation = updated;
-      }
-    } else {
-      const { data: inserted, error: insertErr } = await supabase
-        .from("org_invitations")
-        .insert({
-          org_id: org.id,
-          email: emailNormalized,
-          role: inviteRole,
-          invited_by: user.id,
-        })
-        .select("token")
-        .single();
-      if (insertErr) {
-        inviteWriteError = insertErr;
-      } else {
-        invitation = inserted;
-      }
-    }
-
-    if (inviteWriteError || !invitation) {
-      setInviting(false);
-      const msg = inviteWriteError?.message || "Could not create the invitation";
-      toast({
-        title: "Error",
-        description: msg.includes("duplicate") ? "This email has already been invited" : msg,
-        variant: "destructive",
-      });
-      return;
-    }
-
+    const reply = await callTeamInvitation({ action: "send", org_id: org.id, email: emailNormalized, role: inviteRole });
     setInviting(false);
-
-    // ── Optimistic UX: close + success toast immediately ─────────────────
-    // The invitation row is already persisted (the org_invitations row was
-    // upserted above). Closing the dialog and showing success now keeps
-    // the click → confirmation feedback under ~1s. The actual SMTP call
-    // takes 5–7s round-trip through Gmail's relay; awaiting it before
-    // showing the toast made the dialog feel frozen.
-    //
-    // If the email actually fails (missing SMTP creds, Gmail throttle,
-    // bad recipient), a follow-up destructive toast surfaces the reason
-    // without blocking the organiser. The invitation row is still valid —
-    // the teammate can accept via the dashboard the next time they sign
-    // in even if the email never arrived.
-    const recipient = inviteEmail.trim().toLowerCase();
-    const inviteUrl = `${publicOrigin()}/login?invite=${invitation?.token || ""}`;
-
-    toast({
-      title: "Invitation sent",
-      description: `${recipient} added as ${inviteRole}. Sending the email…`,
-    });
-
-    setInviteEmail("");
-    setInviteRole("member");
-    setShowInviteDialog(false);
+    if (reportInviteReply(emailNormalized, reply)) {
+      setInviteEmail("");
+      setInviteRole("member");
+      setShowInviteDialog(false);
+    }
     fetchTeam();
-
-    // Fire the email in the background. Failures are non-fatal and surfaced
-    // via a follow-up toast so the organiser knows to resend if needed.
-    void (async () => {
-      try {
-        const { data: fnData, error: fnError } = await supabase.functions.invoke("send-event-email", {
-          body: {
-            event_id: "invite",
-            email_id: invitation?.token || uuid(),
-            subject: `You're invited to join ${org.name} on Illuxus`,
-            body: `Hi!\n\n${user.email} has invited you to join "${org.name}" as a ${inviteRole}.\n\nClick the link below to accept:\n${inviteUrl}\n\nIf you don't have an account yet, you'll be able to create one when you click the link.\n\nBest,\nThe Illuxus Team`,
-            recipient_emails: [recipient],
-          },
-        });
-        type SendResult = { success?: boolean; sent?: number; failed?: number; provider?: string; note?: string; error?: string };
-        const result = (fnData ?? null) as SendResult | null;
-        let note: string | null = null;
-        let delivered = false;
-        if (fnError) {
-          // Non-2xx responses arrive as `FunctionsHttpError` with the real
-          // body in `context` (a Response); surface its `error` instead of
-          // the generic "Edge Function returned a non-2xx status code".
-          note = fnError.message || "Edge function returned an error";
-          const ctx = (fnError as { context?: Response }).context;
-          if (ctx && typeof ctx.text === "function") {
-            try {
-              const parsed = JSON.parse(await ctx.text()) as SendResult;
-              if (parsed.error) note = parsed.error;
-            } catch { /* keep generic note */ }
-          }
-        } else if (result?.error) {
-          note = result.error;
-        } else if (result?.provider === "console") {
-          note = result.note ?? "SMTP not configured — email not delivered. Set SMTP_HOST / SMTP_USERNAME / SMTP_PASSWORD in Edge Function secrets.";
-        } else if (result?.success && (result.sent ?? 0) > 0) {
-          delivered = true;
-        } else if ((result?.failed ?? 0) > 0) {
-          note = "SMTP rejected the send — verify the Gmail App Password and SMTP_FROM in Edge Function secrets.";
-        } else {
-          note = "Email function returned an unexpected response";
-        }
-        if (!delivered) {
-          toast({
-            title: "Email could not be sent",
-            description: `${recipient}'s invitation was saved, but: ${note}. They can still accept from the dashboard.`,
-            variant: "destructive",
-          });
-        }
-      } catch (e) {
-        toast({
-          title: "Email could not be sent",
-          description: `${recipient}'s invitation was saved, but: ${e instanceof Error ? e.message : "Email function unreachable"}.`,
-          variant: "destructive",
-        });
-      }
-    })();
   };
 
+  const handleResendInvite = async (inv: { id: string; email: string }) => {
+    setResendingId(inv.id);
+    const reply = await callTeamInvitation({ action: "resend", invitation_id: inv.id });
+    setResendingId(null);
+    reportInviteReply(inv.email, reply);
+    fetchTeam();
+  };
+
+  // Revoked rather than deleted, so the link reports "withdrawn" and the
+  // invitation can be sent again later.
   const handleCancelInvite = async (id: string) => {
-    await supabase.from("org_invitations").delete().eq("id", id);
-    toast({ title: "Invitation cancelled" });
+    const { error } = await supabase.from("org_invitations").update({ status: "revoked" }).eq("id", id);
+    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+    else toast({ title: "Invitation withdrawn", description: "The link in that email no longer works." });
     fetchTeam();
   };
 
@@ -643,12 +525,27 @@ const SettingsPage = () => {
                       <p className="text-[12px] text-muted-foreground mt-0.5">{members.length} member{members.length !== 1 ? "s" : ""}</p>
                     </div>
                     {canManageOrg && (
-                      <Button size="sm" className="h-8 text-[13px] gap-1.5" onClick={() => setShowInviteDialog(true)}>
+                      <Button size="sm" className="h-8 text-[13px] gap-1.5" onClick={() => setShowInviteDialog(true)} disabled={!inviterVerified}>
                         <UserPlus className="h-3.5 w-3.5" />
                         Invite
                       </Button>
                     )}
                   </div>
+
+                  {canManageOrg && !inviterVerified && (
+                    <div role="status" className="mb-4 flex flex-col sm:flex-row sm:items-center gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3.5 py-3">
+                      <MailWarning className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+                      <p className="flex-1 text-[12.5px] leading-relaxed">
+                        <span className="font-medium">Verify your email to invite team members.</span>{" "}
+                        <span className="text-muted-foreground">
+                          {verificationSent ? `We sent a link to ${user?.email}. Open it, then reload this page.` : `Only verified accounts can send invitations. We'll send a link to ${user?.email}.`}
+                        </span>
+                      </p>
+                      <Button size="sm" variant="outline" className="h-7 text-[12px] shrink-0" onClick={() => void handleSendVerification()}>
+                        {verificationSent ? "Send again" : "Send verification email"}
+                      </Button>
+                    </div>
+                  )}
 
                   {loadingTeam ? (
                     <p className="text-[13px] text-muted-foreground py-4 text-center">Loading...</p>
@@ -728,30 +625,54 @@ const SettingsPage = () => {
                   <div className="bg-card border border-border rounded-lg p-5">
                     <h2 className="text-sm font-semibold mb-3">Pending Invitations</h2>
                     <div className="divide-y divide-border">
-                      {invitations.map((inv) => (
-                        <div key={inv.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                          <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                            <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                      {invitations.map((inv) => {
+                        const expiresAt = inv.expires_at ? new Date(inv.expires_at) : null;
+                        const expired = !!expiresAt && expiresAt.getTime() <= Date.now();
+                        // Admins cannot act on owner invitations (mirrors RLS).
+                        const canActOnInvite = canManageOrg && (isOwner || inv.role !== "owner");
+                        return (
+                          <div key={inv.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                            <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                              <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-medium truncate">{inv.email}</p>
+                              <p className={`text-[11px] ${expired ? "text-destructive" : "text-muted-foreground"}`}>
+                                {expired
+                                  ? `Expired ${expiresAt!.toLocaleDateString()}`
+                                  : `Invited ${new Date(inv.updated_at || inv.created_at).toLocaleDateString()}${expiresAt ? ` · expires ${expiresAt.toLocaleDateString()}` : ""}`}
+                              </p>
+                            </div>
+                            <Badge variant="outline" className={`text-[11px] font-medium capitalize ${roleBadgeColor(inv.role)}`}>
+                              {inv.role}
+                            </Badge>
+                            {canActOnInvite && (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-[12px] gap-1"
+                                  disabled={!inviterVerified || resendingId === inv.id}
+                                  onClick={() => void handleResendInvite(inv)}
+                                  title="Send a new link (the old one stops working)"
+                                >
+                                  <RotateCw className={`h-3 w-3 ${resendingId === inv.id ? "animate-spin" : ""}`} />
+                                  Resend
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                  onClick={() => handleCancelInvite(inv.id)}
+                                  aria-label={`Withdraw the invitation for ${inv.email}`}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            )}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[13px] font-medium truncate">{inv.email}</p>
-                            <p className="text-[11px] text-muted-foreground">Invited {new Date(inv.created_at).toLocaleDateString()}</p>
-                          </div>
-                          <Badge variant="outline" className={`text-[11px] font-medium capitalize ${roleBadgeColor(inv.role)}`}>
-                            {inv.role}
-                          </Badge>
-                          {canManageOrg && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                              onClick={() => handleCancelInvite(inv.id)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}

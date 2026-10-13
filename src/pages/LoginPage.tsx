@@ -20,6 +20,8 @@ import { useSiteContent } from "@/hooks/useSiteContent";
 import { safeInternalPath } from "@/lib/safe-redirect";
 import { useTheme } from "@/contexts/ThemeContext";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
+import { ACTIVE_ORG_KEY } from "@/contexts/OrgContext";
+import { callTeamInvitation, isInvitationLinkToken, replyError } from "@/lib/team-invitation";
 import PersonFieldsForm, {
   emptyPersonFields,
   validatePersonFields,
@@ -121,6 +123,24 @@ const LoginPage = () => {
    */
   const consumeInviteIfAny = async (): Promise<string | null> => {
     if (!inviteToken) return null;
+    // Links from the `team-invitation` function (an existing account was sent
+    // here to sign in first) are redeemed there, against this session.
+    if (isInvitationLinkToken(inviteToken)) {
+      const reply = await callTeamInvitation({ action: "accept_existing", token: inviteToken });
+      if (reply.body.ok !== true) {
+        toast({
+          title: "Invitation not accepted",
+          description: replyError(reply, "Please ask your organiser to resend the invite."),
+          variant: "destructive",
+        });
+        return null;
+      }
+      if (typeof reply.body.org_id === "string") {
+        try { window.localStorage.setItem(ACTIVE_ORG_KEY, reply.body.org_id); } catch { /* storage unavailable */ }
+      }
+      toast({ title: "Invitation accepted", description: `You're in as ${String(reply.body.role || "member")}. Redirecting to the dashboard…` });
+      return "/dashboard";
+    }
     const { data, error } = await supabaseRpc(
       "accept_org_invitation" as never,
       { _token: inviteToken } as never,

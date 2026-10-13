@@ -49,6 +49,7 @@ function lazyWithLog<T extends { default: React.ComponentType<any> }>(
 // transitions show the global loading screen instead of a frozen UI.
 const ResetPasswordPage = lazyWithLog("ResetPasswordPage", () => import("./pages/ResetPasswordPage.tsx"));
 const ActivateAccountPage = lazyWithLog("ActivateAccountPage", () => import("./pages/ActivateAccountPage.tsx"));
+const InviteAcceptPage = lazyWithLog("InviteAcceptPage", () => import("./pages/InviteAcceptPage.tsx"));
 const OnboardingPage = lazyWithLog("OnboardingPage", () => import("./pages/OnboardingPage.tsx"));
 const FeaturesPage = lazyWithLog("FeaturesPage", () => import("./pages/FeaturesPage.tsx"));
 const PublicPricingPage = lazyWithLog("PublicPricingPage", () => import("./pages/PricingPage.tsx"));
@@ -322,6 +323,7 @@ const App = () => (
                 <Route path="/reset-password" element={<RouteErrorBoundary><ResetPasswordPage /></RouteErrorBoundary>} />
                 {/* Set a password from the link in a registration confirmation email. */}
                 <Route path="/activate" element={<RouteErrorBoundary><ActivateAccountPage /></RouteErrorBoundary>} />
+                <Route path="/invite" element={<RouteErrorBoundary><InviteAcceptPage /></RouteErrorBoundary>} />
                 {/* Static marketing / legal pages */}
                 <Route path="/features" element={<RouteErrorBoundary><FeaturesPage /></RouteErrorBoundary>} />
                 <Route path="/pricing" element={<RouteErrorBoundary><PublicPricingPage /></RouteErrorBoundary>} />
@@ -455,6 +457,7 @@ function GlobalFooter() {
     "/login",
     "/reset-password",
     "/activate",
+    "/invite",
     "/complete-profile",
     "/sponsor",
     "/speaker",
@@ -485,6 +488,7 @@ function GlobalCookieConsent() {
     "/login",
     "/reset-password",
     "/activate",
+    "/invite",
     "/complete-profile",
     "/sponsor",
     "/speaker",

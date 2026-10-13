@@ -100,7 +100,7 @@ const PLAN_DETAILS: Record<string, { name: string; limits: PlanLimits }> = {
 export { PLAN_DETAILS };
 export type { Organization, Subscription, PlanLimits };
 
-const ACTIVE_ORG_KEY = "illuxus.active-org-id";
+export const ACTIVE_ORG_KEY = "illuxus.active-org-id";
 
 function loadActiveOrgId(): string | null {
   if (typeof window === "undefined") return null;
