@@ -164,7 +164,9 @@ function ChapterCopy({ chapter, index }: { chapter: (typeof CHAPTERS)[number]; i
 function StaticStory() {
   return (
     <>
-      <section className="relative overflow-hidden pb-20 pt-14 sm:pt-20">
+      {/* The home page runs under the header's chips (landing.css), so the
+          top padding clears them first. */}
+      <section className="relative overflow-hidden pb-20 pt-[calc(var(--header-chips-h,0px)+3.5rem)] sm:pt-[calc(var(--header-chips-h,0px)+5rem)]">
         <SiteContainer className="grid items-center gap-12 lg:grid-cols-[1.1fr_0.9fr]">
           <HeroCopy immediate />
           <PaperTicket className="mx-auto max-w-[520px] -rotate-2 shadow-[0_40px_80px_-40px_rgba(3,14,26,0.6)]" />
@@ -313,7 +315,9 @@ function PinnedStory() {
             </span>
           ))}
         </div>
-        <div ref={hero} className="absolute inset-0 flex items-start pt-10 sm:pt-14 lg:items-center lg:pt-0">
+        {/* Below `lg` the copy sits at the top, so it first clears the
+            header's chips, which float over this stage (landing.css). */}
+        <div ref={hero} className="absolute inset-0 flex items-start pt-[calc(var(--header-chips-h,0px)+2.5rem)] sm:pt-[calc(var(--header-chips-h,0px)+3.5rem)] lg:items-center lg:pt-0">
           <SiteContainer>
             <HeroCopy immediate />
           </SiteContainer>
@@ -330,7 +334,7 @@ function PinnedStory() {
         {/* Chapters */}
         {CHAPTERS.map((chapter, index) => (
           <div key={chapter.id} className="pointer-events-none absolute inset-0">
-            <SiteContainer className="relative flex h-full items-start pt-8 sm:pt-12 lg:items-center lg:pt-0">
+            <SiteContainer className="relative flex h-full items-start pt-[calc(var(--header-chips-h,0px)+2rem)] sm:pt-[calc(var(--header-chips-h,0px)+3rem)] lg:items-center lg:pt-0">
               <div
                 ref={(node) => {
                   copies.current[chapter.id] = node;

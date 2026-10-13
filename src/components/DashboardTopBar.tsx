@@ -1,31 +1,17 @@
 import { AppHeaderBar } from "@/components/layout/AppHeaderBar";
-import { OrganiserNotch, WorkspaceChip } from "@/components/layout/ShellNotch";
-import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
-import { SidebarTrigger } from "@/components/ui/sidebar";
-import { useAuth } from "@/contexts/AuthContext";
+import { AccountMenu } from "@/components/layout/AccountMenu";
+import { AdminNav, OrganiserNav, WorkspaceChip } from "@/components/layout/ShellNav";
 import { useOrg } from "@/contexts/OrgContext";
-import { useNavigate, Link, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Input } from "@/components/ui/input";
-import {
-  LogOut, Bell, ChevronDown, ClipboardList, Handshake, Search, Ticket,
-  CalendarDays, Settings as SettingsIcon, Shield, X, Users2, Sun, Moon,
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Bell, Search, Shield, X } from "lucide-react";
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { useTheme } from "@/contexts/ThemeContext";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { supabaseRpc } from "@/lib/observability";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -109,7 +95,7 @@ function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => void })
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[10vh] px-4" onClick={onClose}>
       <div
-        className="w-full max-w-xl bg-card border border-border rounded-xl shadow-2xl overflow-hidden"
+        className="w-full max-w-xl bg-card border border-border rounded-2xl shadow-pop overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
@@ -174,78 +160,29 @@ function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => void })
 
 // ─── Dashboard Top Bar ────────────────────────────────────────────────────────
 
-export interface DashboardTopBarProps {
-  /** @deprecated The sidebar button now shows automatically whenever the
-   *  page has a sidebar (see AppHeaderBar); this prop is ignored. */
-  showSidebarTrigger?: boolean;
-  /** Render as the first row of the white app panel (search on the left,
-   *  account controls on the right); the logo is then left to the sidebar. */
-  inPanel?: boolean;
-  /** Organiser shell: no bar. The logo, the workspace, each destination and
-   *  each action floats over the page as a chip of its own. */
-  notch?: boolean;
-}
-
 /**
- * The shared top bar used across every organizer surface — DashboardLayout
- * routes and per-event pages alike. Renders the brand mark, theme toggle,
- * global search, notifications popover, and the profile dropdown.
+ * The header of every signed-in dashboard surface — DashboardLayout routes,
+ * per-event pages, community and the super admin panel alike.
  *
- * The bar itself (size, logo, sidebar button) is the shared AppHeaderBar;
- * this component only supplies the dashboard's actions.
+ * The header itself (floating chips, logo, sizes) is the shared AppHeaderBar
+ * and the account chip is the shared AccountMenu; this component supplies
+ * what is the dashboard's own: the workspace, the navigation, global search
+ * and notifications.
  */
-export function DashboardTopBar({ inPanel = false, notch = false }: DashboardTopBarProps = {}) {
-  const { user, isAdmin, accountType, signOut } = useAuth();
-  const { org, memberships } = useOrg();
+export function DashboardTopBar() {
+  const { org } = useOrg();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  // Route-driven context — matches `DashboardLayout`'s sidebar selection.
-  // On admin routes the topbar shows the "Super Admin" badge and the
-  // notifications popover swaps over to platform-level data; on every
-  // other route it stays in the organiser-dashboard mode.
+  // Route-driven context. On admin routes the header carries the super
+  // admin's navigation and the "Super Admin" badge in place of the workspace;
+  // on every other route it is the organiser's.
   const isAdminRoute = pathname.startsWith("/dashboard/admin");
   const { content } = useSiteContent();
   const { brandName } = content.navbar;
-  const { theme, toggle: toggleTheme } = useTheme();
-  // In the organiser shell every control is its own floating chip.
-  const float = notch ? " shell-float" : "";
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifs, setNotifs] = useState<NotifItem[]>([]);
-
-  const handleSignOut = async () => { await signOut(); navigate("/"); };
-
-  // Profile in topbar
-  const [profile, setProfile] = useState<{
-    display_name: string | null;
-    avatar_url: string | null;
-    first_name: string | null;
-    last_name: string | null;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    const load = () => {
-      supabaseRpc("get_my_profile").then(({ data }) => {
-        if (cancelled || !data) return;
-        const p = data as { display_name: string | null; avatar_url: string | null; first_name: string | null; last_name: string | null };
-        setProfile({
-          display_name: p.display_name ?? null,
-          avatar_url: p.avatar_url ?? null,
-          first_name: p.first_name ?? null,
-          last_name: p.last_name ?? null,
-        });
-      });
-    };
-    load();
-    const channel = supabase
-      .channel(`topbar-profile-${user.id}`)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles", filter: `user_id=eq.${user.id}` }, load)
-      .subscribe();
-    return () => { cancelled = true; supabase.removeChannel(channel); };
-  }, [user]);
 
   // Notifications — recent registrations across all org events.
   useEffect(() => {
@@ -299,11 +236,6 @@ export function DashboardTopBar({ inPanel = false, notch = false }: DashboardTop
 
   const unreadCount = notifs.filter((n) => !n.read).length;
 
-  const fullName    = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ").trim();
-  const displayName = profile?.display_name || fullName || user?.email?.split("@")[0] || "User";
-  const initials    = (fullName || displayName).split(/\s+/).map((s) => s[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "U";
-  const avatarUrl   = profile?.avatar_url || null;
-
   // Cmd/Ctrl + K opens search
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -313,55 +245,34 @@ export function DashboardTopBar({ inPanel = false, notch = false }: DashboardTop
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // Context badge — only on admin routes so the Super Admin control tower is
-  // never confused with the organiser dashboard.
-  const leading = isAdminRoute ? (
-          <span className="hidden sm:inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-destructive/10 text-destructive border border-destructive/30">
-            <Shield className="h-2.5 w-2.5" /> Super Admin
-          </span>
-        ) : null;
-
-  // Search: a field-shaped button on wider screens, an icon on phones.
-  const searchField = (
-    <button
-      type="button"
-      onClick={() => setSearchOpen(true)}
-      title="Search (⌘K)"
-      className={`hidden md:flex items-center gap-2.5 h-10 px-3.5 rounded-xl text-[13.5px] text-muted-foreground hover:text-foreground transition-colors ${inPanel ? "w-full max-w-sm bg-muted/70" : "w-56 lg:w-72 bg-card border border-border"}`}
-    >
-      <Search className="h-4 w-4 shrink-0" />
-      <span className="flex-1 text-left truncate">Search anything…</span>
-      <kbd className="text-[10px] font-medium text-muted-foreground/70">⌘K</kbd>
-    </button>
-  );
-  const searchIcon = (
-    <button type="button" className={`shell-icon-btn ${notch ? "shell-float" : "md:hidden"}`} onClick={() => setSearchOpen(true)} title="Search" aria-label="Search">
-      <Search className="h-4 w-4" />
-    </button>
-  );
-
-  const actions = (
+  return (
     <>
+      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
-          {notch ? (
-            <>
-              {/* Phones have no room for the two-sided switch: one button flips the theme. */}
-              <button
-                type="button"
-                className="shell-icon-btn shell-float sm:hidden"
-                onClick={toggleTheme}
-                title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-                aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-              >
-                {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-              </button>
-              <ThemeToggle size="sm" className="shell-float hidden h-9 p-[3px] sm:inline-flex lg:h-10 lg:p-[5px]" />
-            </>
-          ) : (
-            <ThemeToggle size="sm" className="mr-1" />
-          )}
+      <AppHeaderBar
+        brandName={brandName}
+        // Context badge — only on admin routes so the Super Admin control
+        // tower is never confused with the organiser dashboard.
+        leading={isAdminRoute ? (
+          <span
+            className="float-chip inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[10px] font-bold uppercase tracking-widest text-destructive lg:h-10 lg:px-3"
+            title="Super Admin · Platform Control Tower"
+          >
+            <Shield className="h-3.5 w-3.5" />
+            {/* Just the shield on phones, and in the narrow band where the
+                navigation has only just gained its names. */}
+            <span className="hidden sm:inline xl:hidden min-[1340px]:inline">Super Admin</span>
+          </span>
+        ) : (
+          <WorkspaceChip />
+        )}
+        nav={isAdminRoute ? <AdminNav /> : <OrganiserNav />}
+        actions={<>
+          <ThemeToggle floating />
 
-          {searchIcon}
+          <button type="button" className="shell-icon-btn float-chip" onClick={() => setSearchOpen(true)} title="Search (⌘K)" aria-label="Search">
+            <Search className="h-4 w-4" />
+          </button>
 
           {/* Notifications belong to the organiser dashboard — they list
               org-scoped recent registrations. On admin routes there's no
@@ -371,7 +282,7 @@ export function DashboardTopBar({ inPanel = false, notch = false }: DashboardTop
           {!isAdminRoute && (
           <Popover open={notifOpen} onOpenChange={setNotifOpen}>
             <PopoverTrigger asChild>
-              <button type="button" className={`shell-icon-btn relative${float}`} title="Notifications" aria-label="Notifications">
+              <button type="button" className="shell-icon-btn float-chip relative" title="Notifications" aria-label="Notifications">
                 <Bell className="h-4 w-4" />
                 {unreadCount > 0 && (
                   <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive ring-2 ring-card" />
@@ -418,107 +329,9 @@ export function DashboardTopBar({ inPanel = false, notch = false }: DashboardTop
           </Popover>
           )}
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className={`flex items-center gap-1.5 h-9 pl-1 pr-2 rounded-full bg-card border border-border hover:bg-muted transition-colors${notch ? " shell-float lg:h-10 lg:pl-1.5" : ""}`} aria-label="Account menu">
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt={displayName} className="h-7 w-7 rounded-full object-cover" />
-                ) : (
-                  <div className="h-7 w-7 rounded-full bg-foreground flex items-center justify-center text-[10px] font-semibold text-background">
-                    {initials}
-                  </div>
-                )}
-                <ChevronDown className="h-3 w-3 text-muted-foreground" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <div className="px-2 py-1.5">
-                <p className="text-sm font-medium truncate">{displayName}</p>
-                <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
-                <p className="text-xs text-muted-foreground capitalize">
-                  {isAdmin ? "Super admin" : (accountType || "attendee")}
-                </p>
-              </div>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link to="/u/me/events"><Ticket className="h-3.5 w-3.5 mr-2" /> My tickets</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link to="/u/me/applications"><ClipboardList className="h-3.5 w-3.5 mr-2" /> My applications</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link to="/u/me/communities"><Users2 className="h-3.5 w-3.5 mr-2" /> My communities</Link>
-              </DropdownMenuItem>
-              {/* Tracked links an organiser has shared with this account. */}
-              <DropdownMenuItem asChild>
-                <Link to="/partner"><Handshake className="h-3.5 w-3.5 mr-2" /> Partner dashboard</Link>
-              </DropdownMenuItem>
-              {/* Super admin entry — dedicated, distinct from the organiser
-                  dashboard so admins who also run events can switch panels
-                  in one click. */}
-              {isAdmin && (
-                <DropdownMenuItem asChild>
-                  <Link to="/dashboard/admin">
-                    <Shield className="h-3.5 w-3.5 mr-2" /> Super admin
-                  </Link>
-                </DropdownMenuItem>
-              )}
-              {/* Organiser entry — for organisers, admins, and any
-                  workspace member. Links straight to /dashboard/events so
-                  admins don't get bounced by the admin-redirect in
-                  DashboardLanding. */}
-              {(accountType === "organizer" || isAdmin || memberships.length > 0) && (
-                <DropdownMenuItem asChild>
-                  <Link to="/dashboard/events">
-                    <CalendarDays className="h-3.5 w-3.5 mr-2" /> Organizer dashboard
-                  </Link>
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem asChild>
-                <Link to="/dashboard/settings"><SettingsIcon className="h-3.5 w-3.5 mr-2" /> Settings</Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">
-                <LogOut className="h-3.5 w-3.5 mr-2" /> Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-    </>
-  );
-
-  return (
-    <>
-      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
-
-      {notch ? (
-        // Each piece floats on its own (`shell-float`, index.css); the header
-        // only places them. Below `lg` the destinations take a second row.
-        <header className="shell-notch-header app-chrome sticky top-0 z-30 flex flex-wrap items-center gap-x-2 gap-y-2.5 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-4 lg:gap-x-3 lg:px-6 lg:pb-4 lg:pt-[calc(1rem+env(safe-area-inset-top))]">
-          <div className="flex min-w-0 items-center gap-2 lg:flex-1">
-            <a href="https://illuxus.com" className="shell-float flex h-9 shrink-0 items-center rounded-full px-3 lg:h-10" aria-label={`${brandName} home`}>
-              <IlluxusWordmark height={18} ariaLabel="" />
-            </a>
-            <WorkspaceChip />
-            {leading}
-          </div>
-          <div className="order-last flex w-full min-w-0 justify-center lg:order-none lg:w-auto">
-            <OrganiserNotch />
-          </div>
-          <div className="ml-auto flex shrink-0 items-center gap-1.5 lg:flex-1 lg:justify-end">{actions}</div>
-        </header>
-      ) : inPanel ? (
-        <header className="shell-topbar sticky top-0 z-30 flex h-[4.25rem] items-center gap-2 px-4 lg:px-6">
-          <SidebarTrigger className="shell-icon-btn !h-9 !w-9 md:hidden" aria-label="Open menu" />
-          <a href="https://illuxus.com" className="flex shrink-0 items-center md:hidden" aria-label={`${brandName} home`}>
-            <IlluxusWordmark height={20} ariaLabel="" />
-          </a>
-          {leading}
-          {searchField}
-          <div className="ml-auto flex shrink-0 items-center gap-1.5">{actions}</div>
-        </header>
-      ) : (
-        <AppHeaderBar brandName={brandName} leading={leading} actions={<>{searchField}{actions}</>} />
-      )}
+          <AccountMenu settingsHref="/dashboard/settings" />
+        </>}
+      />
     </>
   );
 }

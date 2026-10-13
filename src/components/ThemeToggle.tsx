@@ -5,16 +5,34 @@ import { cn } from "@/lib/utils";
 interface ThemeToggleProps {
   className?: string;
   size?: "sm" | "md";
+  /**
+   * The header's version: a floating chip (`float-chip`, index.css) sized to
+   * sit with the other chips. Phones have no room for the two-sided switch,
+   * so there it is one round button that flips the theme.
+   */
+  floating?: boolean;
 }
 
 /**
  * Two-state pill toggle (sun / moon) — persists via ThemeProvider.
  * Active option gets a raised "thumb" with shadow; inactive is muted.
  */
-export function ThemeToggle({ className, size = "md" }: ThemeToggleProps) {
-  const { theme, setTheme } = useTheme();
+export function ThemeToggle({ className, size = "md", floating = false }: ThemeToggleProps) {
+  const { theme, setTheme, toggle } = useTheme();
   const dimensions = size === "sm" ? "h-8 p-0.5" : "h-9 p-0.5";
   const iconWrap = size === "sm" ? "h-7 w-7" : "h-8 w-8";
+
+  if (floating) {
+    const flipTo = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+    return (
+      <>
+        <button type="button" className="shell-icon-btn float-chip sm:hidden" onClick={toggle} title={flipTo} aria-label={flipTo}>
+          {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+        </button>
+        <ThemeToggle size="sm" className={cn("float-chip hidden h-9 p-[3px] sm:inline-flex lg:h-10 lg:p-[5px]", className)} />
+      </>
+    );
+  }
 
   return (
     <div

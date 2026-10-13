@@ -1,15 +1,18 @@
 /**
- * Top navigation for the signed-in shell. Nothing is joined into a bar: each
- * main destination is its own chip floating over the page (`shell-float`,
- * index.css), as is the workspace beside the logo. Also the row of pills
- * pages use for their own sections.
+ * Navigation for the signed-in shell, in the header's centre slot
+ * (AppHeaderBar). Nothing is joined into a bar: each main destination is its
+ * own chip floating over the page (`float-chip`, index.css), as is the
+ * workspace beside the logo. Also the row of pills pages use for their own
+ * sections.
  */
 import {
   Calendar, Settings, Ticket, Megaphone, FileText, HelpCircle, CreditCard,
-  Building2, Users, MoreHorizontal, ChevronsUpDown, Check, type LucideIcon,
+  Building2, Users, MoreHorizontal, ChevronsUpDown, Check, Shield, BarChart3,
+  Activity, DollarSign, Edit, ScrollText, type LucideIcon,
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { HEADER_CHIP } from "@/components/layout/header-chip";
 import { useOrg, PLAN_DETAILS } from "@/contexts/OrgContext";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
@@ -18,62 +21,37 @@ import {
 
 type NavItem = { title: string; url: string; icon: LucideIcon };
 
-const mainItems: NavItem[] = [
-  { title: "Events",       url: "/dashboard/events",       icon: Calendar  },
-  { title: "Tickets",      url: "/dashboard/tickets",      icon: Ticket    },
-  { title: "Community",    url: "/community",              icon: Users     },
-  { title: "Marketing",    url: "/dashboard/marketing",    icon: Megaphone },
-  { title: "Reports",      url: "/dashboard/reports",      icon: FileText  },
-  { title: "Organization", url: "/dashboard/organization", icon: Building2 },
-];
-
-const moreItems: NavItem[] = [
-  { title: "Billing",  url: "/dashboard/billing",  icon: CreditCard },
-  { title: "Settings", url: "/dashboard/settings", icon: Settings   },
-  { title: "Help",     url: "/dashboard/help",     icon: HelpCircle },
-];
-
 // One destination. `data-active` turns it dark (index.css).
-const CHIP =
-  "shell-float inline-flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-full text-[13px] font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:h-10 lg:min-w-10";
+const CHIP = cn(HEADER_CHIP, "min-w-9 lg:min-w-10");
 // With its name showing it is a pill; with only its icon, a circle the size
 // of its height. Only the current one may give way when a phone runs short.
 const CHIP_NAMED = "px-2.5 sm:px-3 2xl:px-3.5";
 const CHIP_ICON = "shrink-0 xl:px-3 2xl:px-3.5";
 
 /**
- * The organiser's main navigation: one floating chip per destination, the
- * current one dark. Labels show on wide screens; on narrower ones each
- * destination is its icon and only the current one keeps its name, which
- * shortens before the row would ever run off a phone.
+ * A surface's destinations: one floating chip each, the current one dark,
+ * and the less-used ones behind a last "More" chip. Names show on wide
+ * screens; on narrower ones each destination is its icon and only the
+ * current one keeps its name, which shortens before the row would ever run
+ * off a phone.
  */
-export function OrganiserNotch() {
-  const { pathname } = useLocation();
-  const { myRole } = useOrg();
-
-  // Role-based nav scoping. Viewers can only read — hide the write-heavy
-  // surfaces (marketing campaigns, billing) so the nav matches what they're
-  // actually allowed to do. RLS migration 012 enforces the same on the
-  // server. Owner / admin / member see everything; unknown / null roles
-  // default to the safe "everything visible" path so legacy
-  // attendee+organizer flows continue to work.
-  const role = myRole ?? "owner";
-  const isOwnerOrAdmin = role === "owner" || role === "admin";
-  // Viewers keep Organization: it is where they read the details and brand kit.
-  const visibleMain = role === "viewer" ? mainItems.filter((item) => item.title !== "Marketing") : mainItems;
-  const visibleMore = moreItems.filter((item) => item.title !== "Billing" || isOwnerOrAdmin);
-
-  const isActive = (url: string) => {
-    // Events lives at /dashboard/events but /dashboard is the home redirect;
-    // it also stays lit inside an event's own pages.
-    if (url === "/dashboard/events") return pathname === "/dashboard" || pathname.startsWith("/dashboard/events");
-    return pathname.startsWith(url);
-  };
-  const moreActive = visibleMore.find((item) => isActive(item.url));
+function NavChips({
+  label,
+  main,
+  more,
+  isActive,
+}: {
+  /** What this navigates, for screen readers. */
+  label: string;
+  main: NavItem[];
+  more: NavItem[];
+  isActive: (url: string) => boolean;
+}) {
+  const moreActive = more.find((item) => isActive(item.url));
 
   return (
-    <nav aria-label="Main" className="app-chrome flex min-w-0 max-w-full items-center gap-1 sm:gap-1.5 2xl:gap-2">
-      {visibleMain.map((item) => {
+    <nav aria-label={label} className="app-chrome flex min-w-0 max-w-full items-center gap-1 sm:gap-1.5 2xl:gap-2">
+      {main.map((item) => {
         const active = isActive(item.url);
         return (
           <Link
@@ -90,25 +68,95 @@ export function OrganiserNotch() {
         );
       })}
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button type="button" title="More" data-active={!!moreActive} className={cn(CHIP, moreActive ? CHIP_NAMED : CHIP_ICON)}>
-            {moreActive ? <moreActive.icon className="h-4 w-4 shrink-0" /> : <MoreHorizontal className="h-4 w-4 shrink-0" />}
-            <span className={moreActive ? "min-w-0 truncate" : "hidden xl:inline"}>{moreActive ? moreActive.title : "More"}</span>
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
-          {visibleMore.map((item) => (
-            <DropdownMenuItem key={item.url} asChild>
-              <Link to={item.url}>
-                <item.icon className="mr-2 h-3.5 w-3.5" /> {item.title}
-              </Link>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {more.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" title="More" data-active={!!moreActive} className={cn(CHIP, moreActive ? CHIP_NAMED : CHIP_ICON)}>
+              {moreActive ? <moreActive.icon className="h-4 w-4 shrink-0" /> : <MoreHorizontal className="h-4 w-4 shrink-0" />}
+              <span className={moreActive ? "min-w-0 truncate" : "hidden xl:inline"}>{moreActive ? moreActive.title : "More"}</span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            {more.map((item) => (
+              <DropdownMenuItem key={item.url} asChild>
+                <Link to={item.url}>
+                  <item.icon className="mr-2 h-3.5 w-3.5" /> {item.title}
+                </Link>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </nav>
   );
+}
+
+const organiserMain: NavItem[] = [
+  { title: "Events",       url: "/dashboard/events",       icon: Calendar  },
+  { title: "Tickets",      url: "/dashboard/tickets",      icon: Ticket    },
+  { title: "Community",    url: "/community",              icon: Users     },
+  { title: "Marketing",    url: "/dashboard/marketing",    icon: Megaphone },
+  { title: "Reports",      url: "/dashboard/reports",      icon: FileText  },
+  { title: "Organization", url: "/dashboard/organization", icon: Building2 },
+];
+
+const organiserMore: NavItem[] = [
+  { title: "Billing",  url: "/dashboard/billing",  icon: CreditCard },
+  { title: "Settings", url: "/dashboard/settings", icon: Settings   },
+  { title: "Help",     url: "/dashboard/help",     icon: HelpCircle },
+];
+
+/** The organiser's main navigation. */
+export function OrganiserNav() {
+  const { pathname } = useLocation();
+  const { myRole } = useOrg();
+
+  // Role-based nav scoping. Viewers can only read — hide the write-heavy
+  // surfaces (marketing campaigns, billing) so the nav matches what they're
+  // actually allowed to do. RLS migration 012 enforces the same on the
+  // server. Owner / admin / member see everything; unknown / null roles
+  // default to the safe "everything visible" path so legacy
+  // attendee+organizer flows continue to work.
+  const role = myRole ?? "owner";
+  const isOwnerOrAdmin = role === "owner" || role === "admin";
+  // Viewers keep Organization: it is where they read the details and brand kit.
+  const main = role === "viewer" ? organiserMain.filter((item) => item.title !== "Marketing") : organiserMain;
+  const more = organiserMore.filter((item) => item.title !== "Billing" || isOwnerOrAdmin);
+
+  const isActive = (url: string) => {
+    // Events lives at /dashboard/events but /dashboard is the home redirect;
+    // it also stays lit inside an event's own pages.
+    if (url === "/dashboard/events") return pathname === "/dashboard" || pathname.startsWith("/dashboard/events");
+    return pathname.startsWith(url);
+  };
+
+  return <NavChips label="Main" main={main} more={more} isActive={isActive} />;
+}
+
+// The SaaS owner's daily workflow first (overview, then orgs, events and
+// revenue); the two settings pages sit behind "More". Routes for pages that
+// are not listed (support tickets, system health, users) stay registered in
+// App.tsx, so a bookmarked URL still resolves.
+const adminMain: NavItem[] = [
+  { title: "Control Tower", url: "/dashboard/admin",               icon: Shield     },
+  { title: "Analytics",     url: "/dashboard/admin/analytics",     icon: BarChart3  },
+  { title: "Activity Feed", url: "/dashboard/admin/activity",      icon: Activity   },
+  { title: "Organizations", url: "/dashboard/admin/organizations", icon: Building2  },
+  { title: "Events",        url: "/dashboard/admin/events",        icon: Calendar   },
+  { title: "Revenue",       url: "/dashboard/admin/revenue",       icon: DollarSign },
+];
+
+const adminMore: NavItem[] = [
+  { title: "Site Editor", url: "/dashboard/admin/site",  icon: Edit       },
+  { title: "Audit Log",   url: "/dashboard/admin/audit", icon: ScrollText },
+];
+
+/** The super admin's navigation, on `/dashboard/admin/*`. */
+export function AdminNav() {
+  const { pathname } = useLocation();
+  const isActive = (url: string) =>
+    url === "/dashboard/admin" ? pathname === "/dashboard/admin" : pathname.startsWith(url);
+  return <NavChips label="Super admin" main={adminMain} more={adminMore} isActive={isActive} />;
 }
 
 /** The active workspace, beside the logo. A menu when there is more than one. */
@@ -133,7 +181,7 @@ export function WorkspaceChip() {
       </span>
     </>
   );
-  const chip = "shell-float flex h-9 min-w-0 items-center gap-2 rounded-full pl-[5px] pr-[5px] lg:h-10 lg:pl-[7px] lg:pr-3.5";
+  const chip = "float-chip flex h-9 min-w-0 items-center gap-2 rounded-full pl-[5px] pr-[5px] lg:h-10 lg:pl-[7px] lg:pr-3.5";
 
   // Single workspace — a static label, no dropdown clutter.
   if (memberships.length <= 1) {

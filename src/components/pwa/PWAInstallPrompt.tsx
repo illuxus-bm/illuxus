@@ -129,11 +129,11 @@ export function PWAInstallPrompt() {
     return (
       <div
         className={cn(
-          "pointer-events-auto fixed left-1/2 -translate-x-1/2 z-[80]",
+          "pwa-install-prompt pointer-events-auto fixed left-1/2 -translate-x-1/2 z-[80]",
           "bottom-[calc(env(safe-area-inset-bottom)+1rem)]",
           "flex items-center gap-2 px-3 py-2",
-          "rounded-full border border-border bg-background/95 backdrop-blur",
-          "shadow-lg",
+          "rounded-full border border-border bg-card/95 backdrop-blur",
+          "shadow-pop",
         )}
         role="dialog"
         aria-label="Install illuxus"
@@ -163,12 +163,12 @@ export function PWAInstallPrompt() {
     return (
       <div
         className={cn(
-          "pointer-events-auto fixed left-3 right-3 z-[80]",
+          "pwa-install-prompt pointer-events-auto fixed left-3 right-3 z-[80]",
           "bottom-[calc(env(safe-area-inset-bottom)+0.75rem)]",
           "mx-auto max-w-md",
           "flex items-center gap-2 px-3 py-2",
-          "rounded-xl border border-border bg-background/95 backdrop-blur",
-          "shadow-lg",
+          "rounded-2xl border border-border bg-card/95 backdrop-blur",
+          "shadow-pop",
         )}
         role="status"
         aria-label="Install illuxus on iOS"

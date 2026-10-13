@@ -1,6 +1,18 @@
 /* Landing-page styles. Imported by pages/Index.tsx; everything here reads the
    global theme tokens from index.css so light and dark follow the app theme. */
 
+/* ─── Hero under the header ────────────────────────────────────────────────
+   The header is only floating chips, with nothing behind them, so the home
+   page starts at the very top of the window and the chips sit over the
+   hero. `--header-chips-h` keeps the header's real height for anything that
+   has to clear the chips; inside the page `--app-header-h` is zero, so the
+   pinned stage fills the whole window. */
+.landing-home { --header-chips-h: var(--app-header-h); }
+.landing-home > main {
+  --app-header-h: 0px;
+  margin-top: calc(var(--header-chips-h) * -1);
+}
+
 /* ─── Poster type ──────────────────────────────────────────────────────────
    Condensed all-caps headline face. Bebas Neue only ships a regular weight,
    so the weight is pinned to 400 to stop browsers faking a bold. */

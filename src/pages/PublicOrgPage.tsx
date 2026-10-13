@@ -225,15 +225,10 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
       />
       {!isAdmin && <PreviewHostBanner />}
 
-      {/* Centralized site header — Illuxus logo only, no menu. */}
-      <SiteHeader
-        theme={{
-          backgroundColor: theme.backgroundColor,
-          textColor: theme.textColor,
-          accentColor: theme.accentColor,
-          fontFamily: theme.fontFamily,
-        }}
-      />
+      {/* Centralized site header. It keeps the app's own colours rather
+          than this page's theme, so its chips read on any canvas; the logo,
+          which sits bare on the canvas, follows its tone. */}
+      <SiteHeader canvasColor={theme.backgroundColor} />
 
       {/* LinkedIn-style hero: full-bleed cover, then identity row with overlapping logo. */}
       <section className="relative">

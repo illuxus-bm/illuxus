@@ -41,7 +41,7 @@ import { useFxRates, formatConverted } from "@/lib/fx";
 import { CurrencySwitcher, getStoredDisplayCurrency } from "@/components/CurrencySwitcher";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { DashboardTopBar } from "@/components/DashboardTopBar";
-import { SectionPills } from "@/components/layout/ShellNotch";
+import { SectionPills } from "@/components/layout/ShellNav";
 
 const BroadcastPageLazy = lazy(() => import("./event/BroadcastPage"));
 const ApplicationsSectionLazy = lazy(() => import("@/components/event/ApplicationsSection").then((m) => ({ default: m.ApplicationsSection })));
@@ -418,7 +418,7 @@ const EventDetailPage = () => {
   return (
     <>
       <div className="app-shell shell-notch min-h-screen flex flex-col w-full">
-        <DashboardTopBar notch />
+        <DashboardTopBar />
         <div className="app-shell-panel flex-1 flex flex-col">
           {/* Header */}
           <header className="border-b border-border px-3 sm:px-5 py-3 flex items-center justify-between gap-2 min-w-0">

@@ -86,6 +86,12 @@ export default {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
+      // Depth for anything that floats over the page (index.css): `float`
+      // for the header chips, `pop` for menus, toasts and other pop-ups.
+      boxShadow: {
+        float: "var(--float-shadow)",
+        pop: "var(--pop-shadow)",
+      },
       keyframes: {
         "accordion-down": {
           from: { height: "0" },

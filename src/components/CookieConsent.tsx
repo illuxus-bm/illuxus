@@ -137,15 +137,15 @@ export function CookieConsent() {
           className={[
             "fixed z-50 bottom-4 right-4 left-4",
             "sm:left-auto sm:w-[480px]",
-            "bg-card border border-border rounded-2xl shadow-xl",
+            "bg-card border border-border rounded-2xl shadow-pop",
             "p-4 sm:p-5",
             "text-sm",
           ].join(" ")}
         >
           {/* Header row */}
           <div className="flex items-start gap-3 mb-3">
-            <div className="mt-0.5 h-8 w-8 shrink-0 rounded-lg bg-accent/15 flex items-center justify-center">
-              <Cookie className="h-4 w-4 text-accent" aria-hidden="true" />
+            <div className="mt-0.5 h-8 w-8 shrink-0 rounded-full bg-secondary flex items-center justify-center">
+              <Cookie className="h-4 w-4 text-foreground" aria-hidden="true" />
             </div>
             <div className="flex-1 min-w-0">
               <h2 id="cookie-banner-title" ref={headingRef} tabIndex={-1} className="text-sm font-semibold text-foreground outline-none">
@@ -154,7 +154,7 @@ export function CookieConsent() {
               <p id="cookie-banner-text" className="mt-1 text-[13px] text-muted-foreground leading-snug">
                 We use essential cookies to keep you signed in. With your permission we also use analytics and marketing
                 cookies. You can change this at any time.{" "}
-                <Link to="/cookies" className="underline underline-offset-2 text-foreground hover:text-accent">
+                <Link to="/cookies" className="underline underline-offset-2 text-foreground hover:opacity-70">
                   Cookie policy
                 </Link>
               </p>
@@ -215,15 +215,15 @@ export function CookieConsent() {
 
           {/* Action buttons — rejecting is as easy as accepting. */}
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" size="sm" variant="outline" className="flex-1 text-xs h-8" onClick={() => decide(false, false)}>
+            <Button type="button" size="sm" variant="outline" className="flex-1 text-xs h-8 rounded-full" onClick={() => decide(false, false)}>
               Reject non-essential
             </Button>
             {expanded && (
-              <Button type="button" size="sm" variant="outline" className="flex-1 text-xs h-8" onClick={() => decide(analyticsOn, marketingOn)}>
+              <Button type="button" size="sm" variant="outline" className="flex-1 text-xs h-8 rounded-full" onClick={() => decide(analyticsOn, marketingOn)}>
                 Save my choices
               </Button>
             )}
-            <Button type="button" size="sm" className="flex-1 text-xs h-8" onClick={() => decide(true, true)}>
+            <Button type="button" size="sm" className="flex-1 text-xs h-8 rounded-full" onClick={() => decide(true, true)}>
               Accept all
             </Button>
           </div>
@@ -270,7 +270,7 @@ function CookieCategory({ icon, label, description, enabled, locked, onChange }:
             onClick={() => onChange?.(!enabled)}
             className={[
               "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              enabled ? "bg-accent" : "bg-muted-foreground/30",
+              enabled ? "bg-foreground" : "bg-muted-foreground/30",
             ].join(" ")}
           >
             <span

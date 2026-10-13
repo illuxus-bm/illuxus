@@ -329,7 +329,7 @@ const HOME_JSON_LD = {
 const Index = () => {
   useSmoothScroll();
   return (
-    <div data-landing="true" className="relative min-h-screen overflow-x-clip bg-background text-foreground">
+    <div data-landing="true" className="landing-home relative min-h-screen overflow-x-clip bg-background text-foreground">
       {/* Drafting grid, fixed so the page glides over it. */}
       <div aria-hidden="true" className="blueprint-grid pointer-events-none fixed inset-0 z-0" />
       {/* Soft violet wash behind the page, dark theme only. */}

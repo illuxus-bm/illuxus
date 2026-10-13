@@ -1,137 +1,57 @@
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { ArrowRight, Compass } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useOrg } from "@/contexts/OrgContext";
-import { usePortalAccess } from "@/hooks/usePortalAccess";
 import { useSiteContent } from "@/hooks/useSiteContent";
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { supabaseRpc } from "@/lib/observability";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { useTheme } from "@/contexts/ThemeContext";
 import { AppHeaderBar } from "@/components/layout/AppHeaderBar";
-import { ArrowRight, CalendarDays, ChevronDown, ClipboardList, Compass, Handshake, LogOut, Mic, Building2, Settings as SettingsIcon, Shield, Ticket, Users2 } from "lucide-react";
+import { AccountMenu } from "@/components/layout/AccountMenu";
+import { HEADER_CHIP } from "@/components/layout/header-chip";
+import { cn } from "@/lib/utils";
 
 /**
  * Centralized site header used across every public segment
  * (marketing site, discover, attendee, org/event pages).
  *
- * Intentionally minimal: the Illuxus logo on the left and an auth control
- * on the right. Only the marketing variant (landingMode) adds section links.
+ * Intentionally minimal: the Illuxus logo on the left; Discover, the theme
+ * switch and an auth control on the right. Only the marketing variant
+ * (landingMode) adds section links, in the centre.
  *
- * Org / event pages can pass `theme` to inherit the page's tokens so
- * the header blends with the branded canvas.
+ * It is the same header as the dashboard's (AppHeaderBar): chips floating
+ * over the page, with the same account menu. On org / event pages that have
+ * their own design theme the chips keep the app's colours, so they stay
+ * readable on any canvas and in both light and dark app modes. The logo has
+ * no chip behind it, so those pages pass their canvas colour (`canvasColor`)
+ * and the header draws the wordmark that reads on it.
  */
-export interface SiteHeaderTheme {
-  backgroundColor?: string;
-  textColor?: string;
-  accentColor?: string;
-  fontFamily?: string;
-}
-
 export default function SiteHeader({
-  theme,
   homeHref = "/",
-  className = "",
-  transparent = false,
   landingMode = false,
+  canvasColor,
 }: {
-  theme?: SiteHeaderTheme;
   homeHref?: string;
-  className?: string;
-  transparent?: boolean;
+  /** Hex background of a page that has its own design theme, not the app's. */
+  canvasColor?: string;
   /**
    * When true, the header renders the marketing landing variant:
-   *  - "Start for free" CTA button as the rightmost action (when signed out)
-   *  - Translucent canvas-coloured bar, plus section links
-   * Other surfaces (dashboard, themed event pages) pass nothing and get the
-   * compact default.
+   *  - section links as chips in the centre (from `lg` up)
+   *  - "Start for free" as the rightmost chip (when signed out)
+   * Other surfaces pass nothing and get the compact default.
    */
   landingMode?: boolean;
 }) {
-  const { user, signOut, accountType, isAdmin } = useAuth();
-  const { memberships, myRole } = useOrg();
-  const { data: portalAccess } = usePortalAccess();
+  const { user } = useAuth();
   const { content } = useSiteContent();
-  const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { brandName, logoUrl, logoUrlDark } = content.navbar;
-  const { theme: appTheme } = useTheme();
-  // Pick dark logo when in dark mode (and a dark logo is provided); fall back to the light/default logo.
-  // Use the platform logo as final fallback so the header never appears without an image.
-  const fallbackLogo = "https://dcfygmgjqldvynbvmwdy.supabase.co/storage/v1/object/public/site-assets/favicon/1777010462147-m60zhn.png";
-  const activeLogoUrl = appTheme === "dark" ? (logoUrlDark || logoUrl || fallbackLogo) : (logoUrl || fallbackLogo);
+  const { brandName } = content.navbar;
   // `homeHref` is kept in the API for back-compat but the logo now always links to illuxus.com.
   void homeHref;
-
-  // Load profile so the avatar/initials reflect the user's saved name
-  // rather than always falling back to the first email letter.
-  const [profile, setProfile] = useState<{ display_name: string | null; avatar_url: string | null; first_name: string | null; last_name: string | null } | null>(null);
-  useEffect(() => {
-    if (!user) { setProfile(null); return; }
-    let cancelled = false;
-    const load = () => {
-      supabaseRpc("get_my_profile").then(({ data }) => {
-        if (cancelled || !data) return;
-        const p = data as { display_name: string | null; avatar_url: string | null; first_name: string | null; last_name: string | null };
-        setProfile({
-          display_name: p.display_name ?? null,
-          avatar_url: p.avatar_url ?? null,
-          first_name: p.first_name ?? null,
-          last_name: p.last_name ?? null,
-        });
-      });
-    };
-    load();
-    const channel = supabase
-      .channel(`site-header-profile-${user.id}`)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles", filter: `user_id=eq.${user.id}` }, load)
-      .subscribe();
-    return () => { cancelled = true; supabase.removeChannel(channel); };
-  }, [user]);
-
-  const fullName = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ").trim();
-  const displayName = profile?.display_name || fullName || user?.email?.split("@")[0] || "Account";
-  const initials = (fullName || displayName).split(/\s+/).map((s) => s[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || (user?.email?.[0] || "A").toUpperCase();
-  const avatarUrl = profile?.avatar_url || null;
-
-  const handleSignOut = async () => {
-    await signOut();
-    navigate("/");
-  };
-
-  const themed = !!theme;
-  const styleVars: React.CSSProperties = themed
-    ? {
-        backgroundColor: transparent ? "transparent" : theme?.backgroundColor,
-        color: theme?.textColor,
-        borderColor: theme?.textColor ? `${theme.textColor}15` : undefined,
-        fontFamily: theme?.fontFamily ? `${theme.fontFamily}, sans-serif` : undefined,
-      }
-    : {};
-
-  // Themed pages skip backdrop blur to avoid washing out the page palette.
-  // Landing mode renders a glass surface that adapts: in dark mode it sits on
-  // the near-black canvas; in light mode it uses a subtle white/gray glass.
-  const surfaceClass = themed
-    ? "border-b"
-    : landingMode
-      ? "bg-background/90 backdrop-blur-md"
-      : "";
 
   // Section links for the marketing pages. On the landing page itself they
   // are plain hash links (smooth-scrolled); elsewhere they route back to it.
   const landingNav = landingMode ? (
-    <nav aria-label="Sections" className="ml-4 hidden items-center gap-1 lg:flex">
+    <nav aria-label="Sections" className="app-chrome flex items-center gap-1.5 2xl:gap-2">
       {content.navbar.links.map((link) => {
-        const className =
-          "inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground";
+        const className = cn(HEADER_CHIP, "px-3 2xl:px-3.5");
         if (link.href.startsWith("#")) {
           return pathname === "/" ? (
             <a key={link.label} href={link.href} className={className}>{link.label}</a>
@@ -148,177 +68,52 @@ export default function SiteHeader({
     </nav>
   ) : undefined;
 
+  const onDiscover = pathname.startsWith("/discover");
+
   return (
-    // Same bar as the dashboard (AppHeaderBar): size, padding, logo and
-    // position are shared; only these right-hand actions are public-specific.
+    // Same header as the dashboard (AppHeaderBar): only what goes in its
+    // slots is public-specific.
     <AppHeaderBar
       brandName={brandName}
-      className={`${surfaceClass} ${className}`.trim() || undefined}
-      style={styleVars}
-      leading={landingNav}
+      canvasColor={canvasColor}
+      nav={landingNav}
+      navWideOnly
       actions={<>
-          <Link
-            to="/discover"
-            className={
-              landingMode
-                ? "inline-flex h-8 w-8 sm:w-auto items-center justify-center gap-1.5 rounded-full px-0 sm:px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-                : "text-[13px] font-medium px-3 h-8 inline-flex items-center gap-1.5 rounded-full hover:bg-secondary transition-colors"
-            }
-            style={themed ? { color: theme?.textColor } : undefined}
-          >
-            <Compass className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline">Discover</span>
-          </Link>
-          {landingMode ? (
-            <div>
-              <ThemeToggle size="sm" />
-            </div>
-          ) : (
-            <div
-              className={themed ? "rounded-full p-0.5" : undefined}
-              style={
-                themed
-                  ? {
-                      backgroundColor: `${theme?.textColor ?? "#000"}10`,
-                      border: `1px solid ${theme?.textColor ?? "#000"}20`,
-                    }
-                  : undefined
-              }
-            >
-              <ThemeToggle size="sm" />
-            </div>
-          )}
-          {user ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className="flex items-center gap-1.5 h-8 pl-1 pr-2 rounded-md hover:bg-secondary transition-colors"
-                  style={
-                    themed
-                      ? { backgroundColor: `${theme?.textColor ?? "#000"}10`, border: `1px solid ${theme?.textColor ?? "#000"}20`, color: theme?.textColor }
-                      : undefined
-                  }
-                  aria-label={displayName}
-                >
-                  {avatarUrl ? (
-                    <img src={avatarUrl} alt={displayName} className="h-6 w-6 rounded-full object-cover" />
-                  ) : (
-                    <div
-                      className={themed ? "h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-semibold" : "h-6 w-6 rounded-full bg-foreground text-background flex items-center justify-center text-[10px] font-semibold"}
-                      style={themed ? { backgroundColor: theme?.accentColor, color: "#fff" } : undefined}
-                    >
-                      {initials}
-                    </div>
-                  )}
-                  <ChevronDown className="h-3 w-3 opacity-70" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <div className="px-2 py-1.5">
-                  <p className="text-[13px] font-medium truncate">{displayName}</p>
-                  <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
-                  <p className="text-[11px] text-muted-foreground capitalize">
-                    {isAdmin ? "Super admin" : (accountType || "attendee")}
-                  </p>
-                </div>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link to="/u/me/events"><Ticket className="h-3.5 w-3.5 mr-2" /> My tickets</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/u/me/applications"><ClipboardList className="h-3.5 w-3.5 mr-2" /> My applications</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/u/me/communities"><Users2 className="h-3.5 w-3.5 mr-2" /> My communities</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/community"><Users2 className="h-3.5 w-3.5 mr-2" /> Community</Link>
-                </DropdownMenuItem>
-                {/* ── Super admin: dedicated Control Tower entry. Shown only
-                    to users with the platform `admin` role. The link goes
-                    directly to /dashboard/admin so it never gets shadowed
-                    by the organiser dashboard's account-type redirect. */}
-                {isAdmin && (
-                  <DropdownMenuItem asChild>
-                    <Link to="/dashboard/admin">
-                      <Shield className="h-3.5 w-3.5 mr-2" /> Super admin
-                    </Link>
-                  </DropdownMenuItem>
-                )}
-                {/* ── Organiser / workspace surface. Distinct item even for
-                    admins who also run events, so they can switch between
-                    the Control Tower and the organiser dashboard without
-                    URL fiddling. The link goes to /dashboard/events
-                    explicitly (not /dashboard) so admins bypass the
-                    DashboardLanding admin-redirect that sends them to
-                    /dashboard/admin by default. */}
-                {(accountType === "organizer" || isAdmin || memberships.length > 0) && (
-                  <DropdownMenuItem asChild>
-                    <Link to="/dashboard/events">
-                      <CalendarDays className="h-3.5 w-3.5 mr-2" />
-                      {isAdmin
-                        ? "Organizer dashboard"
-                        : accountType === "organizer"
-                          ? "Organizer dashboard"
-                          : myRole && myRole !== "owner"
-                            ? `Workspace · ${myRole}`
-                            : "Workspace dashboard"}
-                    </Link>
-                  </DropdownMenuItem>
-                )}
-                {(portalAccess?.has_speaker || accountType === "attendee" || accountType === "organizer" || isAdmin) && (
-                  <DropdownMenuItem asChild>
-                    <Link to="/speaker"><Mic className="h-3.5 w-3.5 mr-2" /> Speaker dashboard</Link>
-                  </DropdownMenuItem>
-                )}
-                {(portalAccess?.has_sponsor || accountType === "organizer" || accountType === "attendee" || isAdmin) && (
-                  <DropdownMenuItem asChild>
-                    <Link to="/sponsor"><Building2 className="h-3.5 w-3.5 mr-2" /> Sponsor dashboard</Link>
-                  </DropdownMenuItem>
-                )}
-                {/* Tracked links an organiser has shared with this account. */}
-                <DropdownMenuItem asChild>
-                  <Link to="/partner"><Handshake className="h-3.5 w-3.5 mr-2" /> Partner dashboard</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to={accountType === "attendee" ? "/u/me/settings" : "/dashboard/settings"}><SettingsIcon className="h-3.5 w-3.5 mr-2" /> Settings</Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">
-                  <LogOut className="h-3.5 w-3.5 mr-2" /> Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : landingMode ? (
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <Link
-                to="/login"
-                className="hidden sm:inline-flex h-8 items-center rounded-full px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-              >
-                Sign in
-              </Link>
-              <Link
-                to="/login"
-                className="group inline-flex h-8 sm:h-9 items-center gap-1 sm:gap-1.5 rounded-full bg-primary px-3 sm:px-4 text-[12px] sm:text-[13px] font-semibold text-primary-foreground transition-colors duration-150 hover:bg-primary/90 active:scale-[0.98] whitespace-nowrap"
-              >
-                <span className="hidden sm:inline">Start for free</span>
-                <span className="sm:hidden">Sign up</span>
-                <ArrowRight className="h-3 w-3 sm:h-3.5 sm:w-3.5 transition-transform group-hover:translate-x-0.5" />
-              </Link>
-            </div>
-          ) : (
-            <Link
-              to="/login"
-              className="text-[13px] font-medium px-3 h-8 inline-flex items-center rounded-full border transition-colors hover:opacity-90"
-              style={
-                themed
-                  ? { borderColor: `${theme?.textColor ?? "#000"}20`, color: theme?.textColor }
-                  : undefined
-              }
-            >
+        {/* A circle with just the compass on phones. */}
+        <Link
+          to="/discover"
+          title="Discover"
+          aria-current={onDiscover ? "page" : undefined}
+          data-active={onDiscover}
+          className={cn(HEADER_CHIP, "min-w-9 sm:px-3 lg:min-w-10 2xl:px-3.5")}
+        >
+          <Compass className="h-4 w-4 shrink-0" />
+          <span className="hidden sm:inline">Discover</span>
+        </Link>
+
+        <ThemeToggle floating />
+
+        {user ? (
+          <AccountMenu />
+        ) : landingMode ? (
+          <>
+            <Link to="/login" className={cn(HEADER_CHIP, "hidden px-3 sm:inline-flex 2xl:px-3.5")}>
               Sign in
             </Link>
-          )}
+            <Link
+              to="/login"
+              className="group float-chip float-chip-solid inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13px] font-semibold transition-opacity duration-150 hover:opacity-90 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:h-10 lg:px-4"
+            >
+              <span className="hidden sm:inline">Start for free</span>
+              <span className="sm:hidden">Sign up</span>
+              <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+            </Link>
+          </>
+        ) : (
+          <Link to="/login" className={cn(HEADER_CHIP, "px-3 2xl:px-3.5")}>
+            Sign in
+          </Link>
+        )}
       </>}
     />
   );

@@ -7,7 +7,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { DashboardTopBar } from "@/components/DashboardTopBar";
-import { SectionPills } from "@/components/layout/ShellNotch";
+import { SectionPills } from "@/components/layout/ShellNav";
 
 // Mirrors EventDetailPage's sidebarNav exactly so the community view
 // stays in the same visual context as the rest of event management.
@@ -48,7 +48,7 @@ export function CommunityShell({
 
   return (
     <div className="app-shell shell-notch min-h-screen flex flex-col w-full">
-      <DashboardTopBar notch />
+      <DashboardTopBar />
 
       <div className="app-shell-panel flex-1 flex flex-col">
         {/* Event-context header: back arrow + event name — mirrors EventDetailPage header */}

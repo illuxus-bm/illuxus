@@ -711,7 +711,7 @@ export default function CreativeStudio({ eventId, onSaved }: { eventId: string; 
         </TabsContent>
       </Tabs>
 
-      <div className="lg:sticky lg:top-4 lg:self-start">
+      <div className="lg:sticky lg:top-[calc(var(--app-header-h,4rem)+1rem)] lg:self-start">
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
           <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 text-[12px]" onClick={addText}>
             <Type className="h-3.5 w-3.5" /> Text

@@ -1207,7 +1207,7 @@ export default function SiteEditorPage() {
           </div>
 
           {/* Live preview (saved version) */}
-          <div className="border border-border rounded-xl bg-card overflow-hidden h-fit lg:sticky lg:top-16">
+          <div className="border border-border rounded-xl bg-card overflow-hidden h-fit lg:sticky lg:top-[calc(var(--app-header-h,4rem)+0.5rem)]">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
               <div className="flex items-center gap-1.5">
                 <Eye className="h-3.5 w-3.5 text-muted-foreground" />

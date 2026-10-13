@@ -468,9 +468,11 @@ const PublicEventPage = () => {
       )}
       {/* Header (and any future footer) must NOT inherit the event's
           design theme — keep them in the app's default chrome so they stay
-          readable across every preset and in both light/dark app modes. */}
+          readable across every preset and in both light/dark app modes.
+          Only the logo, which sits bare on this canvas, follows its tone. */}
       <SiteHeader
         homeHref={(org?.subdomain || org?.slug) ? `/org/${org?.subdomain || org?.slug}` : "/"}
+        canvasColor={config.theme.backgroundColor}
       />
 
       <EventPagePreview

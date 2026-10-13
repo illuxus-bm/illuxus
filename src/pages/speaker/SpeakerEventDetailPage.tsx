@@ -48,7 +48,7 @@ export default function SpeakerEventDetailPage() {
     <div className="min-h-screen bg-background">
       <SiteHeader />
       {/* Header */}
-      <header className="border-b border-border bg-card/40 backdrop-blur-sm sticky top-0 z-10">
+      <header className="border-b border-border">
         <div className="max-w-screen-xl mx-auto px-6 py-3 flex items-center justify-between gap-3">
           <Link
             to="/speaker"

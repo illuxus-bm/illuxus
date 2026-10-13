@@ -53,10 +53,15 @@
 
 @layer base {
   :root {
-    /* App header height: 56px bar + border + the status-bar inset. Shared by
-       DashboardTopBar and SiteHeader, and used to start sidebars (desktop and
-       the mobile sheet) below the header so it is never covered. */
-    --app-header-h: calc(3.5rem + 1px + env(safe-area-inset-top, 0px)); /* 56px bar + 1px border */
+    /* App header height: the row of floating chips with its padding, plus the
+       status-bar inset (60px on phones, 72px from `lg`, set just below).
+       Every page shares the header (AppHeaderBar); sticky content and
+       sidebars start below it by this much. */
+    --app-header-h: calc(3.75rem + env(safe-area-inset-top, 0px));
+    /* Depth for what floats over the page: the header chips, and pop-ups
+       (menus, popovers, toasts, dialogs, the cookie and install prompts). */
+    --float-shadow: 0 1px 2px hsl(0 0% 0% / 0.05), 0 12px 28px -14px hsl(0 0% 0% / 0.3);
+    --pop-shadow: 0 2px 6px hsl(0 0% 0% / 0.06), 0 24px 48px -20px hsl(0 0% 0% / 0.28);
     /* Public site horizontal gutters — mirrored by <SiteContainer />.
        Header, footer, and landing sections all share these values. */
     --site-max-w: 72rem;        /* matches Tailwind max-w-6xl */
@@ -134,7 +139,13 @@
     --sidebar-ring: 258 90% 66%;
   }
 
+  @media (min-width: 1024px) {
+    :root { --app-header-h: calc(4.5rem + env(safe-area-inset-top, 0px)); }
+  }
+
   .dark {
+    --float-shadow: 0 1px 2px hsl(0 0% 0% / 0.4), 0 12px 28px -14px hsl(0 0% 0% / 0.9);
+    --pop-shadow: 0 2px 6px hsl(0 0% 0% / 0.45), 0 24px 48px -20px hsl(0 0% 0% / 0.95);
     /* Deep neutral canvas, bright accents preserved */
     --background: 258 41% 7%;
     --foreground: 0 0% 98%;
@@ -559,8 +570,8 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
 }
 
 /* ─── Signed-in app shell ──────────────────────────────────────────────────
-   The dashboard look: a soft grey canvas carrying the header and sidebar,
-   with the page itself on one large white rounded panel. Inside the shell
+   The dashboard look: a soft grey canvas with the header's chips floating
+   on it, and the page itself on one large white rounded panel. Inside the shell
    the palette is neutral (no violet tint) and corners are rounder, so every
    dashboard page picks the look up from the tokens it already uses.
    Dialogs and menus render outside the shell and keep the base tokens. */
@@ -580,10 +591,8 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
   --input: 60 4% 89%;
   --ring: 0 0% 25%;
   --radius: 0.875rem;
-  /* The sidebar runs the full height of the window; the top bar lives inside
-     the panel, and sticky content clears it by this much. */
-  --sidebar-top: 0px;
-  --app-header-h: 4.25rem;
+  /* What scrolls under the header fades into the canvas colour. */
+  --float-haze: hsl(var(--shell) / 0.6);
   --sidebar-background: 60 5% 95%;
   --sidebar-foreground: 0 0% 40%;
   --sidebar-accent: 0 0% 100%;
@@ -616,12 +625,6 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
   --sidebar-ring: 0 0% 80%;
 }
 
-/* The header sits on the canvas, not on its own white bar. */
-.app-shell header.app-chrome {
-  background-color: hsl(var(--shell));
-  border-bottom-color: transparent;
-}
-
 /* The white panel every page sits on. `overflow: clip` rounds what is
    inside it without stopping sticky content from following the page. */
 .app-shell-panel {
@@ -640,64 +643,61 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
   }
 }
 
-/* Organiser shell: no sidebar and no header bar. The logo, the workspace,
-   each destination and each action is its own chip (`shell-float`) floating
-   over the page, which scrolls underneath them; the panel takes the full
-   width below. Until there is room for one row the destinations take a
-   second one, so the header is taller there. */
-.app-shell.shell-notch { --app-header-h: 6.625rem; }
+/* Shell with the navigation in the header: the panel takes the full width
+   below it. Until there is room for one row the destinations take a second
+   one, so the header is taller there. */
+.app-shell.shell-notch { --app-header-h: calc(6.625rem + env(safe-area-inset-top, 0px)); }
 .shell-notch .app-shell-panel { margin: 0 0.5rem 0.5rem; }
 @media (min-width: 768px) {
   .shell-notch .app-shell-panel { margin: 0 0.75rem 0.75rem; }
 }
 @media (min-width: 1024px) {
-  .app-shell.shell-notch { --app-header-h: 4.5rem; }
+  .app-shell.shell-notch { --app-header-h: calc(4.5rem + env(safe-area-inset-top, 0px)); }
 }
-/* No bar is drawn behind the chips, and the gaps between them let clicks
-   through to the page. What scrolls under them only goes out of focus: a
-   haze that is the canvas colour (so it cannot be seen until something is
-   under it) and thins out to nothing at its lower edge. */
-.app-shell header.app-chrome.shell-notch-header {
-  background: none;
-  pointer-events: none;
-}
-.shell-notch-header::before {
+
+/* ─── The header, on every page (AppHeaderBar) ─────────────────────────────
+   No bar. Each destination and each action is its own chip (`float-chip`)
+   floating over the page, which scrolls underneath them, and the gaps
+   between chips let clicks through to the page. The logo is the plain
+   wordmark with no chip, so once the page has scrolled, what passes under
+   the header goes out of focus and fades into the canvas colour
+   (`--float-haze`: the app background unless the shell or a themed page
+   says otherwise). The haze is whole behind the logo's row, or page text
+   would run into the logo, and thins to nothing at its lower edge, so it
+   has no line. */
+.float-header { pointer-events: none; }
+.float-header::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: hsl(var(--shell) / 0.55);
+  background: var(--float-haze, hsl(var(--background) / 0.6));
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
-  -webkit-mask-image: linear-gradient(to bottom, #000 45%, transparent);
-  mask-image: linear-gradient(to bottom, #000 45%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent);
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
 }
-.shell-float {
+.float-header[data-scrolled="true"]::before { opacity: 1; }
+.float-chip {
   pointer-events: auto;
   background: hsl(var(--card) / 0.92);
   border: 1px solid hsl(var(--border));
-  /* Set through a variable so the dark theme changes the shadow without
-     outranking the focus ring, which is a box-shadow too. */
-  box-shadow: var(--shell-float-shadow, 0 1px 2px hsl(0 0% 0% / 0.05), 0 12px 28px -14px hsl(0 0% 0% / 0.3));
+  /* A variable, so the dark theme changes it without outranking the focus
+     ring, which is a box-shadow too. */
+  box-shadow: var(--float-shadow);
 }
-.dark .shell-float {
-  --shell-float-shadow: 0 1px 2px hsl(0 0% 0% / 0.4), 0 12px 28px -14px hsl(0 0% 0% / 0.9);
-}
-/* The destination you are on. */
-.shell-float[data-active="true"] {
+/* The destination you are on, and the one call to action. */
+.float-chip[data-active="true"],
+.float-chip-solid {
   background: hsl(var(--foreground));
   border-color: hsl(var(--foreground));
   color: hsl(var(--background));
 }
 @media (min-width: 1024px) {
-  .shell-notch-header .shell-icon-btn { height: 2.5rem; width: 2.5rem; }
-}
-
-/* Top bar: first row of the panel, and stays put while the page scrolls. */
-.shell-topbar {
-  background: hsl(var(--background) / 0.92);
-  backdrop-filter: saturate(1.4) blur(10px);
+  .float-header .shell-icon-btn { height: 2.5rem; width: 2.5rem; }
 }
 
 /* Page titles: large, light and tight, as one consistent voice. */
@@ -742,15 +742,14 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
   background: repeating-linear-gradient(90deg, hsl(var(--foreground) / 0.16) 0 1px, transparent 1px 5px);
 }
 
-/* Sidebar: no divider line; the current page is a white pill. */
-.app-shell [data-sidebar="menu-button"][data-active="true"],
-.app-shell .shell-nav-active {
-  background: hsl(var(--sidebar-accent));
-  color: hsl(var(--sidebar-accent-foreground));
-  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.05), 0 0 0 1px hsl(var(--sidebar-border) / 0.7);
+/* One prompt at a time where they would share the foot of the screen: the
+   install prompt waits while the cookie banner is asking. From `xl` up there
+   is room for both side by side. */
+@media (max-width: 1279px) {
+  body:has(#cookie-banner-title) .pwa-install-prompt { display: none; }
 }
 
-/* Round icon buttons in the header (search, notifications). */
+/* Round icon buttons in the header (search, notifications, theme). */
 .shell-icon-btn {
   display: inline-flex;
   align-items: center;
