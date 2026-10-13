@@ -1,7 +1,8 @@
 /**
- * Top navigation for the signed-in shell: a dark pill centred in the header
- * (the "notch") that carries the main destinations, plus the row of white
- * pills pages use for their own sections.
+ * Top navigation for the signed-in shell. Nothing is joined into a bar: each
+ * main destination is its own chip floating over the page (`shell-float`,
+ * index.css), as is the workspace beside the logo. Also the row of pills
+ * pages use for their own sections.
  */
 import {
   Calendar, Settings, Ticket, Megaphone, FileText, HelpCircle, CreditCard,
@@ -32,13 +33,19 @@ const moreItems: NavItem[] = [
   { title: "Help",     url: "/dashboard/help",     icon: HelpCircle },
 ];
 
-const SEGMENT =
-  "inline-flex h-9 shrink-0 items-center gap-2 rounded-full px-3 text-[13px] font-medium text-white/60 transition-colors duration-150 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60";
-const SEGMENT_ACTIVE = "bg-white !text-neutral-950 shadow-[0_1px_2px_rgb(0_0_0/0.25)]";
+// One destination. `data-active` turns it dark (index.css).
+const CHIP =
+  "shell-float inline-flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-full text-[13px] font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:h-10 lg:min-w-10";
+// With its name showing it is a pill; with only its icon, a circle the size
+// of its height. Only the current one may give way when a phone runs short.
+const CHIP_NAMED = "px-2.5 sm:px-3 2xl:px-3.5";
+const CHIP_ICON = "shrink-0 xl:px-3 2xl:px-3.5";
 
 /**
- * The organiser's main navigation. Labels show on wide screens; on narrower
- * ones each destination is its icon and only the current one keeps its name.
+ * The organiser's main navigation: one floating chip per destination, the
+ * current one dark. Labels show on wide screens; on narrower ones each
+ * destination is its icon and only the current one keeps its name, which
+ * shortens before the row would ever run off a phone.
  */
 export function OrganiserNotch() {
   const { pathname } = useLocation();
@@ -65,10 +72,7 @@ export function OrganiserNotch() {
   const moreActive = visibleMore.find((item) => isActive(item.url));
 
   return (
-    <nav
-      aria-label="Main"
-      className="app-chrome flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-neutral-950 p-1.5 shadow-[0_10px_30px_-12px_rgb(0_0_0/0.45)] ring-1 ring-white/10"
-    >
+    <nav aria-label="Main" className="app-chrome flex min-w-0 max-w-full items-center gap-1 sm:gap-1.5 2xl:gap-2">
       {visibleMain.map((item) => {
         const active = isActive(item.url);
         return (
@@ -77,19 +81,20 @@ export function OrganiserNotch() {
             to={item.url}
             title={item.title}
             aria-current={active ? "page" : undefined}
-            className={cn(SEGMENT, active && SEGMENT_ACTIVE)}
+            data-active={active}
+            className={cn(CHIP, active ? CHIP_NAMED : CHIP_ICON)}
           >
             <item.icon className="h-4 w-4 shrink-0" />
-            <span className={active ? undefined : "hidden xl:inline"}>{item.title}</span>
+            <span className={active ? "min-w-0 truncate" : "hidden xl:inline"}>{item.title}</span>
           </Link>
         );
       })}
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" title="More" className={cn(SEGMENT, moreActive && SEGMENT_ACTIVE)}>
+          <button type="button" title="More" data-active={!!moreActive} className={cn(CHIP, moreActive ? CHIP_NAMED : CHIP_ICON)}>
             {moreActive ? <moreActive.icon className="h-4 w-4 shrink-0" /> : <MoreHorizontal className="h-4 w-4 shrink-0" />}
-            <span className={moreActive ? undefined : "hidden xl:inline"}>{moreActive ? moreActive.title : "More"}</span>
+            <span className={moreActive ? "min-w-0 truncate" : "hidden xl:inline"}>{moreActive ? moreActive.title : "More"}</span>
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
@@ -124,11 +129,11 @@ export function WorkspaceChip() {
       )}
       <span className="hidden min-w-0 text-left lg:block">
         <span className="block max-w-[9rem] truncate text-[12px] font-semibold leading-tight text-foreground">{org.name}</span>
-        <span className="block text-[10px] font-medium uppercase leading-tight tracking-wider text-muted-foreground">{sub}</span>
+        <span className="block truncate text-[10px] font-medium uppercase leading-tight tracking-wider text-muted-foreground">{sub}</span>
       </span>
     </>
   );
-  const chip = "flex h-9 min-w-0 items-center gap-2 rounded-full border border-border bg-card pl-1.5 pr-1.5 lg:pr-3";
+  const chip = "shell-float flex h-9 min-w-0 items-center gap-2 rounded-full pl-[5px] pr-[5px] lg:h-10 lg:pl-[7px] lg:pr-3.5";
 
   // Single workspace — a static label, no dropdown clutter.
   if (memberships.length <= 1) {
