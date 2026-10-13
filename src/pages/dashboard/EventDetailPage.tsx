@@ -48,6 +48,7 @@ const ApplicationsSectionLazy = lazy(() => import("@/components/event/Applicatio
 const UtmAnalyticsPageLazy = lazy(() => import("./event/UtmAnalyticsPage"));
 const CreativesSectionLazy = lazy(() => import("./event/CreativesSection"));
 const BrochureSectionPageLazy = lazy(() => import("./event/BrochureSectionPage"));
+const CertificatesSectionLazy = lazy(() => import("./event/CertificatesSection"));
 
 type Event = Tables<"events">;
 
@@ -65,6 +66,7 @@ const sidebarNav = [
   { label: "Community",     icon: Users2,          key: "community"     },
   { label: "Creatives",     icon: ImagePlus,       key: "creatives"     },
   { label: "Brochure",      icon: FileText,        key: "brochure"      },
+  { label: "Certificates",  icon: Award,           key: "certificates"  },
   { label: "UTM / Links",   icon: BarChart3,       key: "utm"           },
   { label: "Reports",       icon: BarChart3,       key: "reports"       },
 ];
@@ -805,6 +807,12 @@ const EventDetailPage = () => {
             {activeSection === "brochure" && canAccessBrochure && (
               <Suspense fallback={<FullPageLoader label="Loading brochure…" />}>
                 <BrochureSectionPageLazy eventId={event.id} />
+              </Suspense>
+            )}
+
+            {activeSection === "certificates" && (
+              <Suspense fallback={<FullPageLoader label="Loading certificates…" />}>
+                <CertificatesSectionLazy eventId={event.id} />
               </Suspense>
             )}
           </main>

@@ -50,6 +50,7 @@ function lazyWithLog<T extends { default: React.ComponentType<any> }>(
 const ResetPasswordPage = lazyWithLog("ResetPasswordPage", () => import("./pages/ResetPasswordPage.tsx"));
 const ActivateAccountPage = lazyWithLog("ActivateAccountPage", () => import("./pages/ActivateAccountPage.tsx"));
 const InviteAcceptPage = lazyWithLog("InviteAcceptPage", () => import("./pages/InviteAcceptPage.tsx"));
+const CertificateVerifyPage = lazyWithLog("CertificateVerifyPage", () => import("./pages/CertificateVerifyPage.tsx"));
 const OnboardingPage = lazyWithLog("OnboardingPage", () => import("./pages/OnboardingPage.tsx"));
 const FeaturesPage = lazyWithLog("FeaturesPage", () => import("./pages/FeaturesPage.tsx"));
 const PublicPricingPage = lazyWithLog("PublicPricingPage", () => import("./pages/PricingPage.tsx"));
@@ -324,6 +325,7 @@ const App = () => (
                 {/* Set a password from the link in a registration confirmation email. */}
                 <Route path="/activate" element={<RouteErrorBoundary><ActivateAccountPage /></RouteErrorBoundary>} />
                 <Route path="/invite" element={<RouteErrorBoundary><InviteAcceptPage /></RouteErrorBoundary>} />
+                <Route path="/certificates/:code" element={<RouteErrorBoundary><CertificateVerifyPage /></RouteErrorBoundary>} />
                 {/* Static marketing / legal pages */}
                 <Route path="/features" element={<RouteErrorBoundary><FeaturesPage /></RouteErrorBoundary>} />
                 <Route path="/pricing" element={<RouteErrorBoundary><PublicPricingPage /></RouteErrorBoundary>} />
@@ -458,6 +460,7 @@ function GlobalFooter() {
     "/reset-password",
     "/activate",
     "/invite",
+    "/certificates/",
     "/complete-profile",
     "/sponsor",
     "/speaker",
@@ -489,6 +492,7 @@ function GlobalCookieConsent() {
     "/reset-password",
     "/activate",
     "/invite",
+    "/certificates/",
     "/complete-profile",
     "/sponsor",
     "/speaker",
