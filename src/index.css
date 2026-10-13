@@ -726,3 +726,21 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
   box-shadow: 0 40px 80px -30px hsl(258 60% 4% / 0.7), 0 0 0 1px hsl(0 0% 100% / 0.4);
   transform: rotate(-3deg);
 }
+
+/* ─── No visible scrollbars, anywhere ──────────────────────────────────────
+   Every page and every scrolling panel (dialogs, menus, tables, sidebars)
+   still scrolls by wheel, trackpad, touch and keyboard; only the bar itself
+   is hidden. Scrolling to an anchor or a section glides instead of jumping,
+   unless the visitor has asked for reduced motion. */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
