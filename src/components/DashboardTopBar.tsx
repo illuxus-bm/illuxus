@@ -8,7 +8,7 @@ import { useNavigate, Link, useLocation } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import {
   LogOut, Bell, ChevronDown, ClipboardList, Handshake, Search, Ticket,
-  CalendarDays, Settings as SettingsIcon, Shield, X, Users2,
+  CalendarDays, Settings as SettingsIcon, Shield, X, Users2, Sun, Moon,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -21,6 +21,7 @@ import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useTheme } from "@/contexts/ThemeContext";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -180,8 +181,8 @@ export interface DashboardTopBarProps {
   /** Render as the first row of the white app panel (search on the left,
    *  account controls on the right); the logo is then left to the sidebar. */
   inPanel?: boolean;
-  /** Organiser shell: logo left, the main navigation as a centred pill, and
-   *  the actions right, all on the canvas above the page panel. */
+  /** Organiser shell: no bar. The logo, the workspace, each destination and
+   *  each action floats over the page as a chip of its own. */
   notch?: boolean;
 }
 
@@ -205,6 +206,9 @@ export function DashboardTopBar({ inPanel = false, notch = false }: DashboardTop
   const isAdminRoute = pathname.startsWith("/dashboard/admin");
   const { content } = useSiteContent();
   const { brandName } = content.navbar;
+  const { theme, toggle: toggleTheme } = useTheme();
+  // In the organiser shell every control is its own floating chip.
+  const float = notch ? " shell-float" : "";
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -331,7 +335,7 @@ export function DashboardTopBar({ inPanel = false, notch = false }: DashboardTop
     </button>
   );
   const searchIcon = (
-    <button type="button" className={`shell-icon-btn ${notch ? "" : "md:hidden"}`} onClick={() => setSearchOpen(true)} title="Search" aria-label="Search">
+    <button type="button" className={`shell-icon-btn ${notch ? "shell-float" : "md:hidden"}`} onClick={() => setSearchOpen(true)} title="Search" aria-label="Search">
       <Search className="h-4 w-4" />
     </button>
   );
@@ -339,7 +343,23 @@ export function DashboardTopBar({ inPanel = false, notch = false }: DashboardTop
   const actions = (
     <>
 
-          <ThemeToggle size="sm" className="mr-1" />
+          {notch ? (
+            <>
+              {/* Phones have no room for the two-sided switch: one button flips the theme. */}
+              <button
+                type="button"
+                className="shell-icon-btn shell-float sm:hidden"
+                onClick={toggleTheme}
+                title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+                aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+              >
+                {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+              </button>
+              <ThemeToggle size="sm" className="shell-float hidden h-9 p-[3px] sm:inline-flex lg:h-10 lg:p-[5px]" />
+            </>
+          ) : (
+            <ThemeToggle size="sm" className="mr-1" />
+          )}
 
           {searchIcon}
 
@@ -351,7 +371,7 @@ export function DashboardTopBar({ inPanel = false, notch = false }: DashboardTop
           {!isAdminRoute && (
           <Popover open={notifOpen} onOpenChange={setNotifOpen}>
             <PopoverTrigger asChild>
-              <button type="button" className="shell-icon-btn relative" title="Notifications" aria-label="Notifications">
+              <button type="button" className={`shell-icon-btn relative${float}`} title="Notifications" aria-label="Notifications">
                 <Bell className="h-4 w-4" />
                 {unreadCount > 0 && (
                   <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive ring-2 ring-card" />
@@ -400,7 +420,7 @@ export function DashboardTopBar({ inPanel = false, notch = false }: DashboardTop
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-1.5 h-9 pl-1 pr-2 rounded-full bg-card border border-border hover:bg-muted transition-colors" aria-label="Account menu">
+              <button className={`flex items-center gap-1.5 h-9 pl-1 pr-2 rounded-full bg-card border border-border hover:bg-muted transition-colors${notch ? " shell-float lg:h-10 lg:pl-1.5" : ""}`} aria-label="Account menu">
                 {avatarUrl ? (
                   <img src={avatarUrl} alt={displayName} className="h-7 w-7 rounded-full object-cover" />
                 ) : (
@@ -471,19 +491,20 @@ export function DashboardTopBar({ inPanel = false, notch = false }: DashboardTop
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
       {notch ? (
-        // Phones: logo and actions on one row, the navigation pill on the next.
-        <header className="shell-notch-header app-chrome sticky top-0 z-30 flex flex-wrap items-center gap-x-3 gap-y-2.5 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] lg:px-6">
-          <div className="flex min-w-0 items-center gap-3 md:flex-1">
-            <a href="https://illuxus.com" className="flex shrink-0 items-center" aria-label={`${brandName} home`}>
-              <IlluxusWordmark height={22} ariaLabel="" />
+        // Each piece floats on its own (`shell-float`, index.css); the header
+        // only places them. Below `lg` the destinations take a second row.
+        <header className="shell-notch-header app-chrome sticky top-0 z-30 flex flex-wrap items-center gap-x-2 gap-y-2.5 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-4 lg:gap-x-3 lg:px-6 lg:pb-4 lg:pt-[calc(1rem+env(safe-area-inset-top))]">
+          <div className="flex min-w-0 items-center gap-2 lg:flex-1">
+            <a href="https://illuxus.com" className="shell-float flex h-9 shrink-0 items-center rounded-full px-3 lg:h-10" aria-label={`${brandName} home`}>
+              <IlluxusWordmark height={18} ariaLabel="" />
             </a>
             <WorkspaceChip />
             {leading}
           </div>
-          <div className="order-last flex w-full min-w-0 justify-center md:order-none md:w-auto">
+          <div className="order-last flex w-full min-w-0 justify-center lg:order-none lg:w-auto">
             <OrganiserNotch />
           </div>
-          <div className="ml-auto flex shrink-0 items-center gap-1.5 md:flex-1 md:justify-end">{actions}</div>
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 lg:flex-1 lg:justify-end">{actions}</div>
         </header>
       ) : inPanel ? (
         <header className="shell-topbar sticky top-0 z-30 flex h-[4.25rem] items-center gap-2 px-4 lg:px-6">

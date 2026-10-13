@@ -632,7 +632,7 @@ const EventsPage = () => {
             )}
           </div>
 
-          <aside className="order-first xl:order-none min-w-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-6 xl:sticky xl:top-[calc(var(--app-header-h)+1rem)]">
+          <aside className="order-first xl:order-none min-w-0 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-1 gap-6 xl:sticky xl:top-[calc(var(--app-header-h)+1rem)]">
             <section aria-labelledby="next-heading" className="min-w-0">
               <h2 id="next-heading" className="text-[13px] font-medium text-muted-foreground mb-3">Next up</h2>
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col">
@@ -680,7 +680,7 @@ const EventsPage = () => {
 
             <section aria-labelledby="tasks-heading" className="min-w-0">
               <h2 id="tasks-heading" className="text-[13px] font-medium text-muted-foreground mb-3">Quick actions</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-2 xl:grid-cols-1 gap-3">
                 {tasks.map((task) => (
                   <TaskTile key={task.title} {...task} />
                 ))}

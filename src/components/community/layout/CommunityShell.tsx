@@ -32,7 +32,7 @@ const EVENT_NAV = [
  * Standalone shell for the Community area. When the community is event-
  * scoped and the viewer can manage it, renders the same section pills as the
  * manage-event surface so navigation feels continuous. Either way the main
- * navigation is the pill in the top bar.
+ * navigation is the row of chips floating at the top.
  */
 export function CommunityShell({
   children,

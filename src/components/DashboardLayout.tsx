@@ -9,7 +9,7 @@ import { useLocation } from "react-router-dom";
  *
  * Navigation is route-driven, not role-driven:
  *   • `/dashboard/admin/*`  → AdminSidebar (super admin control tower).
- *   • everything else        → the navigation pill in the top bar
+ *   • everything else        → the navigation chips floating at the top
  *                              (organiser / team-member view).
  *
  * The admin sidebar therefore only ever shows up on admin routes — when a
@@ -30,8 +30,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   if (!isAdminRoute) {
     return (
-      // `shell-notch` (index.css): the header sits on the grey canvas with the
-      // navigation pill in it, and the page on the white panel underneath.
+      // `shell-notch` (index.css): no sidebar and no header bar. The navigation
+      // floats at the top as separate chips, over the page on its white panel.
       <div className="app-shell shell-notch min-h-screen flex flex-col w-full">
         <DashboardTopBar notch />
         <main className="app-shell-panel flex-1">

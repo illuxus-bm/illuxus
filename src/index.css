@@ -640,18 +640,58 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
   }
 }
 
-/* Organiser shell: no sidebar. The header stays on the canvas, carrying the
-   navigation pill, and the panel takes the full width below it. On phones
-   the pill drops to a second row, so the header is taller there. */
-.app-shell.shell-notch { --app-header-h: 7.5rem; }
+/* Organiser shell: no sidebar and no header bar. The logo, the workspace,
+   each destination and each action is its own chip (`shell-float`) floating
+   over the page, which scrolls underneath them; the panel takes the full
+   width below. Until there is room for one row the destinations take a
+   second one, so the header is taller there. */
+.app-shell.shell-notch { --app-header-h: 6.625rem; }
 .shell-notch .app-shell-panel { margin: 0 0.5rem 0.5rem; }
 @media (min-width: 768px) {
-  .app-shell.shell-notch { --app-header-h: 4.5rem; }
   .shell-notch .app-shell-panel { margin: 0 0.75rem 0.75rem; }
 }
-.shell-notch-header {
-  background: hsl(var(--shell) / 0.88);
-  backdrop-filter: saturate(1.4) blur(10px);
+@media (min-width: 1024px) {
+  .app-shell.shell-notch { --app-header-h: 4.5rem; }
+}
+/* No bar is drawn behind the chips, and the gaps between them let clicks
+   through to the page. What scrolls under them only goes out of focus: a
+   haze that is the canvas colour (so it cannot be seen until something is
+   under it) and thins out to nothing at its lower edge. */
+.app-shell header.app-chrome.shell-notch-header {
+  background: none;
+  pointer-events: none;
+}
+.shell-notch-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: hsl(var(--shell) / 0.55);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 45%, transparent);
+  mask-image: linear-gradient(to bottom, #000 45%, transparent);
+}
+.shell-float {
+  pointer-events: auto;
+  background: hsl(var(--card) / 0.92);
+  border: 1px solid hsl(var(--border));
+  /* Set through a variable so the dark theme changes the shadow without
+     outranking the focus ring, which is a box-shadow too. */
+  box-shadow: var(--shell-float-shadow, 0 1px 2px hsl(0 0% 0% / 0.05), 0 12px 28px -14px hsl(0 0% 0% / 0.3));
+}
+.dark .shell-float {
+  --shell-float-shadow: 0 1px 2px hsl(0 0% 0% / 0.4), 0 12px 28px -14px hsl(0 0% 0% / 0.9);
+}
+/* The destination you are on. */
+.shell-float[data-active="true"] {
+  background: hsl(var(--foreground));
+  border-color: hsl(var(--foreground));
+  color: hsl(var(--background));
+}
+@media (min-width: 1024px) {
+  .shell-notch-header .shell-icon-btn { height: 2.5rem; width: 2.5rem; }
 }
 
 /* Top bar: first row of the panel, and stays put while the page scrolls. */
