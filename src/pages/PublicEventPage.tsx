@@ -140,17 +140,26 @@ const PublicEventPage = () => {
     if (evRes.data) setEvent(evRes.data as never);
     const sessList = (sesRes.data as RendererSession[]) || [];
     if (sessList.length) {
+      // `*` rather than a column list: `role` (migration 048) may not exist yet,
+      // and without it every link is a speaker.
       const { data: ss } = await supabase
         .from("session_speakers")
-        .select("session_id, speaker_id")
+        .select("*")
         .in("session_id", sessList.map((s) => s.id));
       const map = new Map<string, string[]>();
-      (ss || []).forEach((r: any) => {
-        const arr = map.get(r.session_id) || [];
-        arr.push(r.speaker_id);
-        map.set(r.session_id, arr);
+      const moderators = new Map<string, string>();
+      ((ss || []) as Array<{ session_id: string; speaker_id: string; position?: number; role?: string }>)
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+        .forEach((r) => {
+          if (r.role === "moderator") { moderators.set(r.session_id, r.speaker_id); return; }
+          const arr = map.get(r.session_id) || [];
+          arr.push(r.speaker_id);
+          map.set(r.session_id, arr);
+        });
+      sessList.forEach((s) => {
+        s.speaker_ids = map.get(s.id) || (s.speaker_id && !moderators.has(s.id) ? [s.speaker_id] : []);
+        s.moderator_id = moderators.get(s.id) ?? null;
       });
-      sessList.forEach((s) => { s.speaker_ids = map.get(s.id) || (s.speaker_id ? [s.speaker_id] : []); });
     }
     setSessions(sessList);
 

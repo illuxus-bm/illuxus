@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { DateTimeInput } from "@/components/ui/datetime-input";
@@ -26,6 +27,8 @@ interface Session {
   end_time: string;
   location: string | null;
   speaker_ids: string[];
+  /** Optional moderator, kept apart from the speakers. */
+  moderator_id: string | null;
 }
 
 interface Speaker {
@@ -72,7 +75,11 @@ const typeColors: Record<string, string> = {
   lunch: "bg-orange-500/10 text-orange-600",
 };
 
-const emptySession = { title: "", description: "", session_type: "talk", start_time: "", end_time: "", location: "", speaker_ids: [] as string[], date: "" };
+const emptySession = { title: "", description: "", session_type: "talk", start_time: "", end_time: "", location: "", speaker_ids: [] as string[], date: "", has_moderator: false, moderator_id: null as string | null };
+
+/** True when an error says `session_speakers.role` doesn't exist yet (migration 048 not applied). */
+const missingRoleColumn = (e: { message?: string; code?: string } | null) =>
+  !!e && (e.code === "42703" || e.code === "PGRST204" || /\brole\b/i.test(e.message ?? ""));
 
 export default function SessionManagement({ eventId, eventDate, eventEndDate, publicUrl }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -104,21 +111,27 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
       supabase.from("event_speakers").select("speaker_id, speakers(id, name)").eq("event_id", eventId),
     ]);
     const list = (sess || []) as any[];
-    let linkMap = new Map<string, string[]>();
+    const linkMap = new Map<string, string[]>();
+    const moderatorMap = new Map<string, string>();
     if (list.length) {
+      // `*`: `role` (migration 048) may not exist yet; without it every link is a speaker.
       const { data: ss } = await supabase
         .from("session_speakers")
-        .select("session_id, speaker_id")
+        .select("*")
         .in("session_id", list.map((s) => s.id));
-      (ss || []).forEach((r: any) => {
-        const arr = linkMap.get(r.session_id) || [];
-        arr.push(r.speaker_id);
-        linkMap.set(r.session_id, arr);
-      });
+      ((ss || []) as Array<{ session_id: string; speaker_id: string; position?: number; role?: string }>)
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+        .forEach((r) => {
+          if (r.role === "moderator") { moderatorMap.set(r.session_id, r.speaker_id); return; }
+          const arr = linkMap.get(r.session_id) || [];
+          arr.push(r.speaker_id);
+          linkMap.set(r.session_id, arr);
+        });
     }
     setSessions(list.map((s) => ({
       ...s,
-      speaker_ids: linkMap.get(s.id) || (s.speaker_id ? [s.speaker_id] : []),
+      speaker_ids: linkMap.get(s.id) || (s.speaker_id && !moderatorMap.has(s.id) ? [s.speaker_id] : []),
+      moderator_id: moderatorMap.get(s.id) ?? null,
     })));
     setSpeakers((spk || []).map((s: any) => s.speakers).filter(Boolean));
     setLoading(false);
@@ -186,14 +199,30 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
         fetchData();
         return;
       }
-      if (form.speaker_ids.length) {
-        const { error: insertError } = await supabase.from("session_speakers").insert(
-          form.speaker_ids.map((sid, i) => ({ session_id: sessionId!, speaker_id: sid, position: i })),
-        );
+      const moderatorId = form.has_moderator ? form.moderator_id : null;
+      const speakerIds = form.speaker_ids.filter((sid) => sid !== moderatorId);
+      if (speakerIds.length || moderatorId) {
+        const rows = [
+          ...(moderatorId ? [{ session_id: sessionId!, speaker_id: moderatorId, position: 0, role: "moderator" }] : []),
+          ...speakerIds.map((sid, i) => ({ session_id: sessionId!, speaker_id: sid, position: i + 1, role: "speaker" })),
+        ];
+        let { error: insertError } = await supabase.from("session_speakers").insert(rows as never);
+        if (insertError && missingRoleColumn(insertError)) {
+          // The database doesn't have the moderator column yet: save the
+          // speakers as before and say the moderator couldn't be kept.
+          ({ error: insertError } = await supabase.from("session_speakers").insert(
+            speakerIds.map((sid, i) => ({ session_id: sessionId!, speaker_id: sid, position: i })),
+          ));
+          if (!insertError && moderatorId) {
+            toast.warning("Speakers saved, but the moderator wasn't", {
+              description: "Moderators need a database update (migration 048) that hasn't been applied yet.",
+            });
+          }
+        }
         if (insertError) {
           logger.error("session speakers insert failed", {
             session_id: sessionId,
-            speaker_count: form.speaker_ids.length,
+            speaker_count: speakerIds.length,
             error_message: insertError.message,
           });
           toast.error("Session saved, but updating its speakers failed", { description: insertError.message });
@@ -244,6 +273,8 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
       location: s.location || "",
       speaker_ids: s.speaker_ids || [],
       date: d,
+      has_moderator: !!s.moderator_id,
+      moderator_id: s.moderator_id ?? null,
     });
     setCustomType(isCustom);
     setCustomTypeLabel(isCustom ? s.session_type : "");
@@ -446,8 +477,34 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
               )}
               <div><Label>Location / Room</Label><Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} /></div>
               {form.session_type !== "break" && speakers.length > 0 && (
+                <div className="rounded-lg border border-border p-3 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <Label htmlFor="session-moderator-switch">Moderator</Label>
+                      <p className="text-[11.5px] text-muted-foreground">Shown on its own, before the {form.session_type === "panel" ? "panellists" : "speakers"}.</p>
+                    </div>
+                    <Switch
+                      id="session-moderator-switch"
+                      checked={form.has_moderator}
+                      onCheckedChange={(on) => setForm((f) => ({ ...f, has_moderator: on, moderator_id: on ? f.moderator_id : null }))}
+                    />
+                  </div>
+                  {form.has_moderator && (
+                    <Select
+                      value={form.moderator_id ?? undefined}
+                      onValueChange={(v) => setForm((f) => ({ ...f, moderator_id: v, speaker_ids: f.speaker_ids.filter((x) => x !== v) }))}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Choose the moderator" /></SelectTrigger>
+                      <SelectContent>
+                        {speakers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              )}
+              {form.session_type !== "break" && speakers.length > 0 && (
                 <div>
-                  <Label>Speakers</Label>
+                  <Label>{form.session_type === "panel" ? "Panellists" : "Speakers"}</Label>
                   {form.speaker_ids.length > 0 && (
                     <div className="flex flex-wrap gap-1 mb-2">
                       {form.speaker_ids.map((id) => {
@@ -465,7 +522,7 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
                     </div>
                   )}
                   <div className="border border-border rounded-lg max-h-40 overflow-y-auto p-2 space-y-1.5">
-                    {speakers.map((s) => (
+                    {speakers.filter((s) => !(form.has_moderator && s.id === form.moderator_id)).map((s) => (
                       <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 rounded px-1.5 py-1">
                         <Checkbox
                           checked={form.speaker_ids.includes(s.id)}
@@ -564,6 +621,7 @@ function SessionRow({
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground mt-1">
           <span className="flex items-center gap-1 whitespace-nowrap"><Clock className="h-3 w-3 shrink-0" />{fmt(s.start_time)} – {fmt(s.end_time)}</span>
           {s.location && <span className="flex items-center gap-1 min-w-0"><MapPin className="h-3 w-3 shrink-0" /><span className="truncate">{s.location}</span></span>}
+          {s.moderator_id && <span className="min-w-0 truncate">Moderator: {speakerNames([s.moderator_id])}</span>}
           {s.speaker_ids.length > 0 && <span className="min-w-0 truncate">🎤 {speakerNames(s.speaker_ids)}</span>}
         </div>
         {s.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{s.description}</p>}

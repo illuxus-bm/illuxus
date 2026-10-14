@@ -92,6 +92,8 @@ export interface RendererSession {
   location: string | null;
   speaker_id: string | null;
   speaker_ids?: string[];
+  /** The session's moderator, shown apart from its speakers / panellists. */
+  moderator_id?: string | null;
 }
 
 export interface RendererSponsor {
