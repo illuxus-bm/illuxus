@@ -140,18 +140,18 @@ const PublicEventPage = () => {
     if (evRes.data) setEvent(evRes.data as never);
     const sessList = (sesRes.data as RendererSession[]) || [];
     if (sessList.length) {
-      // `*` rather than a column list: `role` (migration 048) may not exist yet,
-      // and without it every link is a speaker.
+      // The moderator is the link at position -1; speakers count up from 0.
       const { data: ss } = await supabase
         .from("session_speakers")
-        .select("*")
+        .select("session_id, speaker_id, position")
         .in("session_id", sessList.map((s) => s.id));
       const map = new Map<string, string[]>();
       const moderators = new Map<string, string>();
-      ((ss || []) as Array<{ session_id: string; speaker_id: string; position?: number; role?: string }>)
-        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      (ss || [])
+        .slice()
+        .sort((a, b) => a.position - b.position)
         .forEach((r) => {
-          if (r.role === "moderator") { moderators.set(r.session_id, r.speaker_id); return; }
+          if (r.position < 0) { moderators.set(r.session_id, r.speaker_id); return; }
           const arr = map.get(r.session_id) || [];
           arr.push(r.speaker_id);
           map.set(r.session_id, arr);

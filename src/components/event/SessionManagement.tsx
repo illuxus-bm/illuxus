@@ -77,9 +77,9 @@ const typeColors: Record<string, string> = {
 
 const emptySession = { title: "", description: "", session_type: "talk", start_time: "", end_time: "", location: "", speaker_ids: [] as string[], date: "", has_moderator: false, moderator_id: null as string | null };
 
-/** True when an error says `session_speakers.role` doesn't exist yet (migration 048 not applied). */
-const missingRoleColumn = (e: { message?: string; code?: string } | null) =>
-  !!e && (e.code === "42703" || e.code === "PGRST204" || /\brole\b/i.test(e.message ?? ""));
+/** A session's moderator is the `session_speakers` link at this position;
+ *  speakers / panellists count up from 0. */
+const MODERATOR_POSITION = -1;
 
 export default function SessionManagement({ eventId, eventDate, eventEndDate, publicUrl }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -114,15 +114,15 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
     const linkMap = new Map<string, string[]>();
     const moderatorMap = new Map<string, string>();
     if (list.length) {
-      // `*`: `role` (migration 048) may not exist yet; without it every link is a speaker.
       const { data: ss } = await supabase
         .from("session_speakers")
-        .select("*")
+        .select("session_id, speaker_id, position")
         .in("session_id", list.map((s) => s.id));
-      ((ss || []) as Array<{ session_id: string; speaker_id: string; position?: number; role?: string }>)
-        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      (ss || [])
+        .slice()
+        .sort((a, b) => a.position - b.position)
         .forEach((r) => {
-          if (r.role === "moderator") { moderatorMap.set(r.session_id, r.speaker_id); return; }
+          if (r.position === MODERATOR_POSITION) { moderatorMap.set(r.session_id, r.speaker_id); return; }
           const arr = linkMap.get(r.session_id) || [];
           arr.push(r.speaker_id);
           linkMap.set(r.session_id, arr);
@@ -202,23 +202,10 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
       const moderatorId = form.has_moderator ? form.moderator_id : null;
       const speakerIds = form.speaker_ids.filter((sid) => sid !== moderatorId);
       if (speakerIds.length || moderatorId) {
-        const rows = [
-          ...(moderatorId ? [{ session_id: sessionId!, speaker_id: moderatorId, position: 0, role: "moderator" }] : []),
-          ...speakerIds.map((sid, i) => ({ session_id: sessionId!, speaker_id: sid, position: i + 1, role: "speaker" })),
-        ];
-        let { error: insertError } = await supabase.from("session_speakers").insert(rows as never);
-        if (insertError && missingRoleColumn(insertError)) {
-          // The database doesn't have the moderator column yet: save the
-          // speakers as before and say the moderator couldn't be kept.
-          ({ error: insertError } = await supabase.from("session_speakers").insert(
-            speakerIds.map((sid, i) => ({ session_id: sessionId!, speaker_id: sid, position: i })),
-          ));
-          if (!insertError && moderatorId) {
-            toast.warning("Speakers saved, but the moderator wasn't", {
-              description: "Moderators need a database update (migration 048) that hasn't been applied yet.",
-            });
-          }
-        }
+        const { error: insertError } = await supabase.from("session_speakers").insert([
+          ...(moderatorId ? [{ session_id: sessionId!, speaker_id: moderatorId, position: MODERATOR_POSITION }] : []),
+          ...speakerIds.map((sid, i) => ({ session_id: sessionId!, speaker_id: sid, position: i })),
+        ]);
         if (insertError) {
           logger.error("session speakers insert failed", {
             session_id: sessionId,
