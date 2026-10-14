@@ -115,6 +115,28 @@ export default function EventPagePreview({
   const timeLine = `${format(startDate, "h:mm a")}${endDate ? ` – ${format(endDate, "h:mm a")}` : ""}${event.timezone ? ` · ${event.timezone}` : ""}`;
   const mapsHref = mapsUrlFor(event.venue, event.location);
 
+  // Desktop sidebar: sticks below the header when it fits on screen. When it
+  // is taller than the screen it would never show its bottom (the countdown),
+  // so it then scrolls with the page until its bottom is in view and sticks
+  // there instead.
+  const sideRef = useRef<HTMLElement>(null);
+  const [sideTop, setSideTop] = useState<string>(STICKY_TOP);
+  useEffect(() => {
+    const el = sideRef.current;
+    if (!el || previewMode) return;
+    const update = () => {
+      const header = document.querySelector<HTMLElement>("header.float-header")?.offsetHeight ?? 72;
+      const fitsTop = header + 24;
+      const bottomAligned = window.innerHeight - el.offsetHeight - 24;
+      setSideTop(`${Math.min(fitsTop, bottomAligned)}px`);
+    };
+    update();
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    ro?.observe(el);
+    window.addEventListener("resize", update);
+    return () => { ro?.disconnect(); window.removeEventListener("resize", update); };
+  }, [previewMode]);
+
   const share = async () => {
     const url = window.location.href;
     try {
@@ -207,9 +229,10 @@ export default function EventPagePreview({
               Phones: one column. Tablet: date/venue beside registration, the
               countdown full width below. Desktop: a sticky column on the right. */}
           <aside
+            ref={sideRef}
             aria-label="Event details and registration"
             className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 md:items-start md:gap-4 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:flex lg:flex-col lg:items-stretch lg:self-start lg:gap-3.5 lg:[position:var(--side-pos)]"
-            style={{ ["--side-pos" as never]: previewMode ? "static" : "sticky", top: STICKY_TOP }}
+            style={{ ["--side-pos" as never]: previewMode ? "static" : "sticky", top: sideTop }}
           >
             {hasRegistration && (
               <div id="register" className="min-w-0 md:col-start-2 md:row-start-1 lg:order-none">
@@ -300,14 +323,14 @@ export default function EventPagePreview({
 
             {/* Host, below the content on phones and tablets. */}
             {org && (
-              <div className="mt-9 flex flex-wrap items-center gap-4 rounded-[20px] p-5 md:flex-nowrap md:px-6 md:py-[22px] lg:hidden" style={{ backgroundColor: surf.surface }}>
-                <OrgMark size={52} />
-                <div className="flex min-w-0 flex-[1_1_160px] flex-col leading-[1.35]">
+              <div className="mt-9 flex items-center gap-3 rounded-[20px] p-4 md:gap-4 md:px-6 md:py-[22px] lg:hidden" style={{ backgroundColor: surf.surface }}>
+                <OrgMark size={44} />
+                <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
                   <small className="text-[12px] opacity-60">Hosted by</small>
-                  <b className="truncate text-[17px] font-semibold">{org.name}</b>
+                  <b className="truncate text-[15.5px] font-semibold md:text-[17px]">{org.name}</b>
                 </div>
                 {orgHref && !previewMode && (
-                  <Link to={orgHref} className="flex h-11 flex-1 items-center justify-center rounded-xl px-5 text-[14.5px] font-semibold md:flex-none" style={{ backgroundColor: text, color: bg }}>
+                  <Link to={orgHref} className="flex h-10 shrink-0 items-center justify-center rounded-xl px-4 text-[13.5px] font-semibold md:h-11 md:px-5 md:text-[14.5px]" style={{ backgroundColor: text, color: bg }}>
                     More events
                   </Link>
                 )}
@@ -420,6 +443,8 @@ function MainColumn({ showAbout, description, highlights, accent, tint, text, bg
   const root = useRef<HTMLDivElement>(null);
   const [links, setLinks] = useState<{ id: string; label: string }[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const [stuck, setStuck] = useState(false);
 
   // Collect the sections that rendered (each <section> with an id and a heading).
   useLayoutEffect(() => {
@@ -436,6 +461,24 @@ function MainColumn({ showAbout, description, highlights, accent, tint, text, bg
     mo.observe(el, { childList: true, subtree: true });
     return () => mo.disconnect();
   }, []);
+
+  const hasBar = links.length > 1;
+  // The bar is stuck once the marker just above it has passed under the header.
+  const markerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!hasBar) return;
+    const check = () => {
+      const marker = markerRef.current;
+      const bar = barRef.current;
+      if (!marker || !bar) return;
+      const headerPx = parseFloat(getComputedStyle(bar).top) || 72;
+      setStuck(marker.getBoundingClientRect().top < headerPx);
+    };
+    check();
+    window.addEventListener("scroll", check, { passive: true });
+    window.addEventListener("resize", check);
+    return () => { window.removeEventListener("scroll", check); window.removeEventListener("resize", check); };
+  }, [hasBar]);
 
   // Highlight the section under the bar.
   useEffect(() => {
@@ -456,17 +499,22 @@ function MainColumn({ showAbout, description, highlights, accent, tint, text, bg
 
   return (
     <div ref={root} className="min-w-0 lg:col-start-1">
+      {links.length > 1 && <div ref={markerRef} aria-hidden="true" className="h-px lg:mt-7" />}
       {links.length > 1 && (
+        // The site header is see-through, so while the bar is stuck a solid
+        // strip behind the header, across the whole page, keeps the content
+        // from showing between them.
+        <div
+          ref={barRef}
+          className="z-20 -mx-4 -mt-px md:-mx-8 lg:mx-0"
+          style={{ position: sticky ? "sticky" : "static", top: "var(--app-header-h, 4.5rem)", backgroundColor: bg, borderBottom: `1px solid ${line}` }}
+        >
+          {sticky && stuck && (
+            <span aria-hidden="true" className="pointer-events-none absolute -left-[100vw] -right-[100vw] bottom-full" style={{ height: "var(--app-header-h, 4.5rem)", backgroundColor: bg }} />
+          )}
         <nav
           aria-label="Page sections"
-          className="z-20 -mx-4 flex gap-2 overflow-x-auto px-4 py-2.5 [scrollbar-width:none] md:-mx-8 md:px-8 lg:mx-0 lg:mt-7 lg:px-0 [&::-webkit-scrollbar]:hidden"
-          style={{
-            position: sticky ? "sticky" : "static",
-            top: "var(--app-header-h, 4.5rem)",
-            backgroundColor: `${bg}f5`,
-            backdropFilter: "blur(12px)",
-            borderBottom: `1px solid ${line}`,
-          }}
+          className="flex gap-2 overflow-x-auto px-4 py-2.5 [scrollbar-width:none] md:px-8 lg:px-0 [&::-webkit-scrollbar]:hidden"
         >
           {links.map((l) => {
             const on = l.id === current;
@@ -485,6 +533,7 @@ function MainColumn({ showAbout, description, highlights, accent, tint, text, bg
             );
           })}
         </nav>
+        </div>
       )}
 
       {showAbout && (

@@ -755,13 +755,13 @@ function SponsorsSec({ data, theme, sponsors }: { data: SponsorsData; theme: The
                   />
                 </div>
               )}
-              <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {items.map(sp => (
                   <button key={sp.id} type="button" onClick={() => setSelected(sp)}
-                     className="h-[76px] md:h-[92px] lg:h-[100px] rounded-2xl border flex items-center justify-center p-3 transition-shadow hover:shadow-md text-left"
+                     className="aspect-[17/12] overflow-hidden rounded-2xl border flex items-center justify-center p-1.5 transition-shadow hover:shadow-md text-left"
                      style={{ borderColor: `${theme.textColor}1f`, backgroundColor: "transparent" }}>
                     {sp.logo_url
-                      ? <img loading="lazy" decoding="async" src={sp.logo_url} alt={sp.name} className="max-h-10 lg:max-h-12 max-w-full w-auto object-contain" />
+                      ? <img loading="lazy" decoding="async" src={sp.logo_url} alt={sp.name} className="h-full w-full object-contain" />
                       : <span className="text-[12.5px] font-semibold text-center leading-snug">{sp.name}</span>}
                   </button>
                 ))}
@@ -959,13 +959,13 @@ function PartnersSec({ data, theme }: { data: PartnersData; theme: ThemeConfig }
   return (
     <Section theme={theme} tone="tinted" id="partners">
       <SectionHeader title={data.title} intro={data.intro} theme={theme} />
-      <div className="grid grid-cols-3 md:grid-cols-4 gap-2.5">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {data.partners.map(p => (
           <a key={p.id} href={p.website || "#"} target="_blank" rel="noreferrer"
-             className="aspect-[3/2] rounded-xl border flex items-center justify-center p-4"
+             className="aspect-[17/12] overflow-hidden rounded-2xl border flex items-center justify-center p-1.5"
              style={{ borderColor: `${theme.textColor}1f`, backgroundColor: "transparent" }}>
             {p.logoUrl
-              ? <img loading="lazy" decoding="async" src={p.logoUrl} alt={p.name} className="max-h-full max-w-full object-contain" />
+              ? <img loading="lazy" decoding="async" src={p.logoUrl} alt={p.name} className="h-full w-full object-contain" />
               : <span className="text-sm font-semibold text-center">{p.name}</span>}
           </a>
         ))}

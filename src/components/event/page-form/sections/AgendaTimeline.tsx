@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
 import { ChevronDown } from "lucide-react";
 import type { ThemeConfig } from "../types";
@@ -31,6 +31,10 @@ const isPanel = (s: RendererSession) => /panel/i.test(s.session_type);
  * them — the moderator first, on its own, then the panellists / speakers.
  * Breaks are drawn quieter. Long days open on the first few sessions with a
  * button for the rest.
+ *
+ * As the page scrolls the rail fills in the event colour down to the middle
+ * of the screen, each dot lights up as the fill reaches it, and cards fade
+ * and slide in as they come into view (not with reduced motion).
  */
 export function AgendaTimeline({
   sessions,
@@ -46,10 +50,66 @@ export function AgendaTimeline({
   const shown = expanded ? sessions : sessions.slice(0, PREVIEW);
   const line = `${theme.textColor}1a`;
   const surface = `${theme.textColor}0a`;
+  const listRef = useRef<HTMLOListElement>(null);
+
+  // Scroll-linked rail fill and dots, written straight to the DOM so
+  // scrolling never re-renders the list.
+  useEffect(() => {
+    const ol = listRef.current;
+    if (!ol) return;
+    let frame = 0;
+    const paint = () => {
+      frame = 0;
+      const mid = window.innerHeight * 0.55;
+      ol.querySelectorAll<HTMLElement>("[data-row]").forEach((row) => {
+        const track = row.querySelector<HTMLElement>("[data-track]");
+        const dot = row.querySelector<HTMLElement>("[data-dot]");
+        if (track) {
+          const r = track.getBoundingClientRect();
+          const fill = r.height ? Math.min(Math.max((mid - r.top) / r.height, 0), 1) : 0;
+          track.style.setProperty("--fill", String(fill));
+        }
+        if (dot) row.toggleAttribute("data-reached", dot.getBoundingClientRect().top <= mid);
+      });
+    };
+    const onScroll = () => { if (!frame) frame = requestAnimationFrame(paint); };
+    paint();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [shown.length, openId]);
+
+  // Cards below the fold start hidden and fade in as they arrive.
+  useEffect(() => {
+    const ol = listRef.current;
+    if (!ol || typeof IntersectionObserver === "undefined") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (!e.isIntersecting) return;
+        (e.target as HTMLElement).dataset.shown = "true";
+        io.unobserve(e.target);
+      });
+    }, { rootMargin: "0px 0px -8% 0px" });
+    ol.querySelectorAll<HTMLElement>("[data-row]").forEach((row) => {
+      if (row.dataset.shown) return;
+      if (row.getBoundingClientRect().top > window.innerHeight) {
+        row.dataset.shown = "false";
+        io.observe(row);
+      } else {
+        row.dataset.shown = "true";
+      }
+    });
+    return () => io.disconnect();
+  }, [shown.length]);
 
   return (
     <div>
-      <ol className="flex flex-col">
+      <ol ref={listRef} className="flex flex-col">
         {shown.map((session, i) => {
           const moderator = session.moderator_id ? speakerById[session.moderator_id] : undefined;
           const ids = session.speaker_ids?.length ? session.speaker_ids : session.speaker_id ? [session.speaker_id] : [];
@@ -63,7 +123,7 @@ export function AgendaTimeline({
           const open = openId === session.id;
           const groupName = isPanel(session) ? "panel" : everyone.length === 1 ? "speaker" : "speakers";
           return (
-            <li key={session.id} className="grid grid-cols-[12px_minmax(0,1fr)] gap-3.5 md:grid-cols-[72px_12px_minmax(0,1fr)]">
+            <li key={session.id} data-row className="group/row grid grid-cols-[12px_minmax(0,1fr)] gap-3.5 md:grid-cols-[72px_12px_minmax(0,1fr)]">
               <span
                 className="hidden pt-[15px] text-right text-[13.5px] font-semibold md:block"
                 style={{ color: theme.primaryColor }}
@@ -73,16 +133,24 @@ export function AgendaTimeline({
               {/* Rail and dot */}
               <span aria-hidden="true" className="relative">
                 <span
-                  className="absolute left-[5px] w-[2px]"
+                  data-track
+                  className="absolute left-[5px] w-[2px] overflow-hidden"
                   style={{ backgroundColor: line, top: first ? 24 : 0, bottom: last ? undefined : 0, height: last ? 24 : undefined }}
-                />
+                >
+                  <span className="absolute inset-x-0 top-0 h-full origin-top" style={{ backgroundColor: theme.primaryColor, transform: "scaleY(var(--fill, 0))" }} />
+                </span>
                 <span
-                  className="absolute left-0 top-5 h-3 w-3 rounded-full border-[3px]"
-                  style={{ borderColor: quiet ? `${theme.textColor}40` : theme.primaryColor, backgroundColor: theme.backgroundColor }}
+                  data-dot
+                  className="absolute left-0 top-5 h-3 w-3 rounded-full border-[3px] bg-[var(--dot-off)] transition-colors duration-300 group-data-[reached]/row:bg-[var(--dot-on)]"
+                  style={{
+                    borderColor: quiet ? `${theme.textColor}40` : theme.primaryColor,
+                    ["--dot-off" as never]: theme.backgroundColor,
+                    ["--dot-on" as never]: quiet ? `${theme.textColor}40` : theme.primaryColor,
+                  }}
                 />
               </span>
               <div
-                className="mb-3 flex min-w-0 flex-col gap-2 rounded-[18px] border px-4 py-3.5 md:px-[18px] md:py-4"
+                className="mb-3 flex min-w-0 flex-col gap-2 rounded-[18px] border px-4 py-3.5 transition-[opacity,transform] duration-500 ease-out group-data-[shown=false]/row:translate-y-3 group-data-[shown=false]/row:opacity-0 md:px-[18px] md:py-4"
                 style={quiet ? { backgroundColor: surface, borderColor: "transparent" } : { borderColor: line }}
               >
                 <span className="text-[13px] font-semibold md:hidden" style={{ color: theme.primaryColor }}>
