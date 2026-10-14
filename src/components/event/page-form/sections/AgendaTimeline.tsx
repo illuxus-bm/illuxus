@@ -175,7 +175,7 @@ export function AgendaTimeline({
                       onClick={() => setOpenId(open ? null : session.id)}
                       aria-expanded={open}
                       aria-controls={`session-people-${session.id}`}
-                      className="mt-1 flex w-full items-center gap-3 rounded-full border py-1.5 pl-1.5 pr-4 text-left transition-colors hover:opacity-90"
+                      className="mt-1 flex w-fit items-center gap-2.5 self-start rounded-full border py-1.5 pl-1.5 pr-3 text-left transition-colors hover:opacity-90"
                       style={{ borderColor: line, backgroundColor: surface }}
                     >
                       <span className="flex shrink-0 items-center">
@@ -184,9 +184,7 @@ export function AgendaTimeline({
                         ))}
                         {everyone.length > 5 && <span className="ml-1.5 text-[12px] opacity-60">+{everyone.length - 5}</span>}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold">
-                        {open ? `Hide the ${groupName}` : `View the ${groupName}`}
-                      </span>
+                      <span className="sr-only">{open ? `Hide the ${groupName}` : `Show the ${groupName}`}</span>
                       <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
                     </button>
                     {open && (
