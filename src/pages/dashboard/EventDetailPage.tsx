@@ -7,7 +7,7 @@ import type { Tables } from "@/integrations/supabase/types";
 import {
   LayoutDashboard, ClipboardList, Users, FileText, Palette,
   Mail, BarChart3, CalendarCheck, Search, Ticket, Presentation,
-  UserCheck, UsersRound, Award, Megaphone, Globe, ArrowLeft, ExternalLink,
+  UserCheck, Award, Megaphone, Globe, ArrowLeft, ExternalLink,
   Link2, Check, X, Pencil, Copy, Settings, Radio, ChevronDown, RefreshCw, Users2,
   ImagePlus, Building2
 } from "lucide-react";
@@ -334,8 +334,15 @@ const EventDetailPage = () => {
   };
 
   const totalRegs = registrations.length;
-  const checkedInCount = registrations.filter(r => (r as any).checked_in === true).length;
-  const confirmedRegs = registrations.filter(r => r.status === "confirmed").length;
+  // Registrations still awaiting approval, or declined, aren't attendees yet —
+  // the Registrations tab lists them only under Pending / Declined, so the
+  // counts here leave them out too.
+  const awaitingOrDeclined = (r: Tables<"registrations">) =>
+    r.approval_status === "pending" || r.approval_status === "declined";
+  const admittedRegs = registrations.filter(r => r.status === "confirmed" && !awaitingOrDeclined(r));
+  const pendingApprovals = registrations.filter(r => r.approval_status === "pending").length;
+  const checkedInCount = admittedRegs.filter(r => r.checked_in === true).length;
+  const confirmedRegs = admittedRegs.length;
   const cancelledRegs = registrations.filter(r => r.status === "cancelled").length;
   const totalRevenue = registrations
     .filter(r => r.status !== "cancelled")
@@ -619,8 +626,8 @@ const EventDetailPage = () => {
                   </div>
                   <CurrencySwitcher value={displayCcy} onChange={setDisplayCcy} extra={[eventCurrency]} />
                 </div>
-                {/* Metric cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Metric cards — one row of six on wide screens */}
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 2xl:gap-4">
                   <MetricCard
                     label="Revenue"
                     value={
@@ -638,10 +645,17 @@ const EventDetailPage = () => {
                   <MetricCard
                     label="Registrations"
                     value={String(confirmedRegs)}
-                    sub={cancelledRegs > 0 ? `of ${capacity} capacity · ${cancelledRegs} cancelled` : `of ${capacity} capacity`}
+                    sub={[
+                      `of ${capacity} capacity`,
+                      pendingApprovals > 0 ? `${pendingApprovals} pending approval` : null,
+                      cancelledRegs > 0 ? `${cancelledRegs} cancelled` : null,
+                    ].filter(Boolean).join(" · ")}
                     color="text-chart-2"
                   />
                   <MetricCard label="Checked In" value={String(checkedInCount)} sub={`of ${confirmedRegs} registered`} color="text-chart-3" />
+                  <MetricCard label="Sessions" value={String(sessionCount)} sub="On the agenda" color="text-chart-4" />
+                  <MetricCard label="Speakers" value={String(speakerCount)} sub="On the line-up" color="text-chart-5" />
+                  <MetricCard label="Sponsors" value={String(sponsorCount)} sub="Partners & exhibitors" color="text-primary" />
                 </div>
 
                 {/* Charts row */}
@@ -731,12 +745,6 @@ const EventDetailPage = () => {
                   </div>
                 </div>
 
-                {/* Stats row */}
-                <div className="grid grid-cols-3 gap-3">
-                  <NumberCard icon={<Presentation className="h-4 w-4 text-muted-foreground" />} label="Sessions" value={String(sessionCount)} />
-                  <NumberCard icon={<UserCheck className="h-4 w-4 text-muted-foreground" />} label="Speakers" value={String(speakerCount)} />
-                  <NumberCard icon={<UsersRound className="h-4 w-4 text-muted-foreground" />} label="Sponsors" value={String(sponsorCount)} />
-                </div>
               </div>
             )}
 
@@ -826,20 +834,8 @@ function MetricCard({ label, value, sub, color }: { label: string; value: string
   return (
     <div className="bg-card border border-border rounded-lg p-5">
       <p className="flex items-center gap-2 text-[13px] text-muted-foreground"><span className={`h-1.5 w-1.5 rounded-full bg-current ${color}`} />{label}</p>
-      <p className="text-[30px] leading-none font-medium tracking-tight mt-4 tabular-nums">{value}</p>
-      <p className="text-[12px] text-muted-foreground mt-2">{sub}</p>
-    </div>
-  );
-}
-
-function NumberCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="bg-card border border-border rounded-lg p-3 sm:p-4 flex items-center gap-2 sm:gap-3 min-w-0">
-      <span className="shrink-0">{icon}</span>
-      <div className="min-w-0">
-        <p className="text-base sm:text-lg font-semibold mono">{value}</p>
-        <p className="text-[11px] text-muted-foreground truncate">{label}</p>
-      </div>
+      <p className="text-[26px] 2xl:text-[30px] leading-none font-medium tracking-tight mt-4 tabular-nums truncate" title={value}>{value}</p>
+      <p className="text-[12px] text-muted-foreground mt-2 truncate" title={sub}>{sub}</p>
     </div>
   );
 }

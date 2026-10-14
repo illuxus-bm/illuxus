@@ -449,17 +449,16 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     return matchSearch && matchStatus && matchKind;
   });
 
-  // Declined registrations live only in the Declined tab.
+  // Registrations awaiting approval live only in the Pending Approvals tab,
+  // declined ones only in the Declined tab; every other tab lists the rest.
+  const isPending = (r: Row) => r.registration?.approval_status === "pending";
   const isDeclined = (r: Row) => r.registration?.approval_status === "declined";
-  const activeRows = baseRows.filter((r) => !isDeclined(r));
+  const activeRows = baseRows.filter((r) => !isPending(r) && !isDeclined(r));
 
-  const filtered = attTab === "declined"
-    ? baseRows.filter(isDeclined)
-    : activeRows.filter((r) =>
-        attTab === "all" ||
-        (attTab === "pending"
-          ? r.registration?.approval_status === "pending"
-          : r.attendance_state === attTab));
+  const filtered =
+    attTab === "pending" ? baseRows.filter(isPending)
+    : attTab === "declined" ? baseRows.filter(isDeclined)
+    : activeRows.filter((r) => attTab === "all" || r.attendance_state === attTab);
 
   const sorted = useMemo(() => {
     const stateRank: Record<AttState, number> = { inside: 0, outside: 1, never: 2 };
@@ -486,7 +485,8 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
 
   const stats = (() => {
     // Counted over the search/role/status-filtered rows (not the open tab),
-    // leaving declined registrations out of everything but their own count.
+    // leaving pending and declined registrations out of everything but
+    // their own counts.
     let insideNow = 0;
     let outside = 0;
     let notArrived = 0;
@@ -502,7 +502,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       total: activeRows.length,
       confirmed: filteredRegistrations.filter((r) => r.status === "confirmed").length,
       pending: filteredRegistrations.filter((r) => r.status === "pending").length,
-      pendingApprovals: filteredRegistrations.filter((r) => r.registration?.approval_status === "pending").length,
+      pendingApprovals: baseRows.filter(isPending).length,
       declined: baseRows.filter(isDeclined).length,
       cancelled: filteredRegistrations.filter((r) => r.status === "cancelled").length,
       checkedIn: filteredRegistrations.filter((r) => r.checked_in === true).length,
