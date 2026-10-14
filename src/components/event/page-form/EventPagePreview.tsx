@@ -14,8 +14,8 @@ import { renderRichText } from "@/lib/markdown";
  * Editorial magazine-style public event page.
  * Replaces the previous Lu.ma-inspired split layout with a full-bleed
  * edge-to-edge banner, oversized display headline, countdown + About beside
- * the registration card, then full-width sections ending with the event
- * information cards. Respects the user's theme colors
+ * a sticky sidebar (registration + event information), then full-width
+ * sections. Respects the user's theme colors
  * and applies their selected typography.
  */
 
@@ -92,7 +92,7 @@ export default function EventPagePreview({
   const showAbout = sectionEnabled("about");
   const hasCountdown = config.sections.some((sec) => sec.id === "countdown" && sec.enabled);
   const hasRegistration = showTickets && (!!registrationSlot || previewMode);
-  const hasEventInfo = showDateVenue || !!org || going.count > 0;
+  const hasSidebar = hasRegistration || showDateVenue || !!org || going.count > 0;
   const bodyZoom = (() => { const s = config.theme.bodyScale; return s && s !== 1 ? s : undefined; })();
 
   // Pull the About section's `highlights` list — the inline About block
@@ -203,7 +203,7 @@ export default function EventPagePreview({
           the page, ending with the event information cards. */}
       <div className={`${PAGE_GUTTER} pt-10 sm:pt-14 lg:pt-20 pb-10 sm:pb-14 lg:pb-20`}>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 sm:gap-12 lg:gap-x-20 lg:gap-y-16">
-          <main className={`min-w-0 space-y-10 order-2 lg:order-1 ${hasRegistration ? "lg:col-span-8" : "lg:col-span-12"}`}>
+          <main className={`min-w-0 space-y-10 order-2 lg:order-1 ${hasSidebar ? "lg:col-span-8" : "lg:col-span-12"}`}>
             {hasCountdown && (
               <div style={{ zoom: bodyZoom }}>
                 <PublicEventRenderer
@@ -262,11 +262,12 @@ export default function EventPagePreview({
 
           </main>
 
-          {/* Registration — gated by the `tickets` section toggle. First on
-              phones, beside the opening row from lg up. */}
-          {hasRegistration && (
-          <aside className={`${previewMode ? "" : "lg:sticky lg:top-24"} lg:col-span-4 lg:self-start order-1 lg:order-2`}>
-            {registrationSlot ?? (
+          {/* Sidebar: registration (gated by the `tickets` toggle), then the
+              event information cards. First on phones, beside the opening
+              row (countdown + About) from lg up. */}
+          {hasSidebar && (
+          <aside className={`${previewMode ? "" : "lg:sticky lg:top-24"} lg:col-span-4 lg:self-start space-y-6 order-1 lg:order-2`}>
+            {hasRegistration && (registrationSlot ?? (
                 <div
                   className="rounded-3xl p-6 border"
                   style={{ borderColor: `${text}1f`, backgroundColor: `${text}06` }}
@@ -278,35 +279,7 @@ export default function EventPagePreview({
                     Live registration card appears here for visitors.
                   </div>
                 </div>
-            )}
-          </aside>
-          )}
-        </div>
-
-        {/* Every other configured section, across the full page width. */}
-        <div style={{ zoom: bodyZoom }}>
-          <PublicEventRenderer
-            config={config}
-            event={event}
-            speakers={speakers}
-            sessions={sessions}
-            sponsors={sponsors}
-            darkMode={darkMode}
-            flushSections
-            excludeIds={["about", "countdown"]}
-          />
-        </div>
-
-        {/* ───────── Event information ───────── */}
-        {hasEventInfo && (
-          <section className="pt-10">
-            <h2
-              className="text-3xl sm:text-4xl lg:text-[44px] font-semibold tracking-[-0.02em] leading-[1.08] mb-7 lg:mb-9"
-              style={{ fontFamily: DISPLAY, color: text }}
-            >
-              Event information
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
+            ))}
             {/* Key meta — date + location, gated by the `dateVenue` section toggle */}
             {showDateVenue && (
             <div
@@ -405,9 +378,23 @@ export default function EventPagePreview({
                 )}
               </div>
             )}
-            </div>
-          </section>
-        )}
+          </aside>
+          )}
+        </div>
+
+        {/* Every other configured section, across the full page width. */}
+        <div style={{ zoom: bodyZoom }}>
+          <PublicEventRenderer
+            config={config}
+            event={event}
+            speakers={speakers}
+            sessions={sessions}
+            sponsors={sponsors}
+            darkMode={darkMode}
+            flushSections
+            excludeIds={["about", "countdown"]}
+          />
+        </div>
       </div>
     </div>
   );
