@@ -484,13 +484,13 @@ const PublicEventPage = () => {
         org={org}
         going={going}
         darkMode={appTheme === "dark"}
-        registrationSlot={<EventRsvpCard event={event as never} accentColor={config.theme.primaryColor} isEventOver={isEventOver} utmParams={loadStoredUtm()} />}
+        registrationSlot={<EventRsvpCard event={event as never} accentColor={config.theme.primaryColor} isEventOver={isEventOver} utmParams={loadStoredUtm()} organiserHref={(org?.subdomain || org?.slug) ? `/org/${org?.subdomain || org?.slug}` : undefined} />}
       />
 
       {/* Speaker & Sponsor application CTAs — shown to logged-in attendees.
           Hidden once the event is over — no point applying to a past event. */}
       {event && eventExt.status === "published" && !isEventOver && (
-        <div className="w-full px-4 sm:px-8 lg:px-20 py-2">
+        <div className="mx-auto w-full max-w-[1200px] px-4 md:px-8 lg:px-10 pb-10">
           <EventApplicationButtons
             eventId={event.id}
             eventOwnerId={(event as { user_id?: string }).user_id ?? null}

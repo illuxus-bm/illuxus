@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ConsentCheckbox, CONSENT_REQUIRED_MESSAGE, LegalLink } from "@/components/ConsentCheckbox";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
@@ -6,8 +6,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import {
-  CalendarDays, CheckCircle2, Hourglass, XCircle, ShieldCheck, UserPlus, MailWarning, Video, Copy, Users2,
+  CalendarPlus, MailWarning, Video, Copy, Users2, Share2,
 } from "lucide-react";
+import { buildIcsBlobUrl } from "@/lib/ics";
 import { formatMoney } from "@/lib/currency";
 import { publicUrl } from "@/lib/publicUrl";
 import { GuestConfirmationPanel, GuestRegistrationForm } from "@/components/event/GuestRegistration";
@@ -31,6 +32,9 @@ interface RsvpEvent {
 
 type RsvpState = "idle" | "approved" | "pending" | "waitlisted" | "declined";
 
+const subBtn = "flex h-11 items-center justify-center gap-2 rounded-xl border border-border bg-card text-[13.5px] font-semibold transition-colors hover:bg-muted";
+const barBtn = "flex h-[46px] shrink-0 items-center justify-center rounded-[14px] bg-primary px-5 text-[14.5px] font-semibold text-primary-foreground";
+
 /**
  * Lu.ma-style registration card. Shown on the public event page above the
  * About section. Renders only the registration UX (state + CTA); date / venue
@@ -49,10 +53,13 @@ export default function EventRsvpCard({
   accentColor,
   isEventOver = false,
   utmParams = {},
+  organiserHref,
 }: {
   event: RsvpEvent;
   accentColor?: string;
   isEventOver?: boolean;
+  /** Where "Contact organiser" leads a declined visitor (the organiser's page). */
+  organiserHref?: string;
   /** UTM params captured from the page URL — saved with the registration. */
   utmParams?: import("@/lib/utm").UtmParams;
 }) {
@@ -67,6 +74,19 @@ export default function EventRsvpCard({
   // Agreement to the Terms and Privacy Policy, asked for before registering.
   const [agreed, setAgreed] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
+  // Phones: once the card has scrolled off the top, a bar at the bottom of
+  // the screen keeps the status and the main action in reach.
+  const cardRef = useRef<HTMLElement>(null);
+  const [barShown, setBarShown] = useState(false);
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([entry]) => {
+      setBarShown(!entry.isIntersecting && entry.boundingClientRect.top < 0);
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
   /**
    * Live count of non-cancelled registrations for this event. The
    * `events.tickets_sold` column is not maintained by any trigger, so we
@@ -366,31 +386,84 @@ export default function EventRsvpCard({
     }
   })();
 
+  // What the card says for each situation: a status pill, a heading and a line.
+  type Tone = "good" | "warn" | "bad" | "plain";
+  const status: { pill: string; tone: Tone; title: string; text: string } | null =
+    showGuestConfirmation && guestConfirmation ? null
+    : state === "approved" ? { pill: "Confirmed", tone: "good", title: "You’re going", text: "Your seat is confirmed. Show your QR ticket at the venue desk to check in." }
+    : state === "pending" ? { pill: "Pending", tone: "warn", title: "Request sent", text: "The organiser reviews every request and confirms by email." }
+    : state === "waitlisted" ? { pill: "Waitlist", tone: "plain", title: "You’re on the waitlist", text: "We’ll let you know if a seat opens up." }
+    : state === "declined" ? { pill: "Declined", tone: "bad", title: "Your request wasn’t approved", text: "The organiser reviews every request. If you think this is a mistake, contact them and they can take another look." }
+    : isEventOver ? { pill: "Ended", tone: "plain", title: "This event has ended", text: "Registration is closed." }
+    : isFull ? { pill: "Sold out", tone: "plain", title: "Sold out", text: `All ${event.capacity} tickets have been claimed.` }
+    : isApprovalFlow ? { pill: "Approval required", tone: "good", title: "Request your seat", text: "The organiser reviews each request and confirms by email." }
+    : event.price && Number(event.price) > 0
+      ? { pill: formatMoney(event.price, event.currency || undefined), tone: "good", title: "Get your ticket", text: "Register below to book your seat." }
+      : { pill: "Free", tone: "good", title: "Register for free", text: "Register below to save your seat." };
+  const pillStyle: Record<Tone, string> = {
+    good: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    warn: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+    bad: "bg-destructive/10 text-destructive",
+    plain: "bg-muted text-muted-foreground",
+  };
+  const accentButton = accentColor ? { backgroundColor: accentColor, color: "#fff" } : undefined;
+
+  const addToCalendar = () => {
+    const href = buildIcsBlobUrl({
+      uid: event.id,
+      title: event.title,
+      location: [event.venue, event.location].filter(Boolean).join(", ") || undefined,
+      start: event.date,
+      end: event.end_date,
+      url: window.location.href,
+    });
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = `${event.title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "event"}.ics`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(href), 10_000);
+  };
+  const shareEvent = async () => {
+    const url = window.location.href;
+    try {
+      if (navigator.share) await navigator.share({ title: event.title, url });
+      else { await navigator.clipboard.writeText(url); toast({ title: "Link copied" }); }
+    } catch { /* dismissed */ }
+  };
+
+  const toCard = () => cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const shortDate = (() => {
+    const d = new Date(event.date);
+    if (Number.isNaN(d.getTime())) return "";
+    let day = "";
+    try {
+      day = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short", timeZone: event.timezone || undefined }).format(d);
+    } catch {
+      day = d.toDateString();
+    }
+    return [day, event.location || event.venue].filter(Boolean).join(" · ");
+  })();
+  const barAction =
+    state === "approved" && registrationId ? <a href={`/t/${registrationId}`} className={barBtn} style={accentButton}>View ticket</a>
+    : state === "declined" && organiserHref ? <a href={organiserHref} className={`${barBtn} !bg-foreground !text-background`}>Contact organiser</a>
+    : state === "idle" && !isEventOver && !isFull
+      ? <button type="button" onClick={toCard} className={barBtn} style={accentButton}>{isApprovalFlow ? "Request to join" : "Register"}</button>
+      : <button type="button" onClick={toCard} className={`${barBtn} !bg-card !text-foreground border border-border`}>Details</button>;
+
   return (
     // `text-card-foreground` resets inherited text color so the card stays
     // readable even when the parent page sets a preset text color (e.g. cream
     // on the Festival preset would otherwise leak onto the white card bg).
-    <aside className="bg-card text-card-foreground border border-border rounded-2xl shadow-sm overflow-hidden">
-      {/* Header band — Lu.ma "Registration" */}
-      <div className="px-4 py-2.5 bg-muted/60 border-b border-border text-[12px] font-semibold tracking-wide uppercase text-muted-foreground">
-        Registration
-      </div>
+    <aside
+      ref={cardRef}
+      className="scroll-mt-28 rounded-[20px] border border-border bg-card p-[18px] text-card-foreground lg:rounded-3xl lg:p-[22px] lg:shadow-[0_1px_2px_rgba(16,23,22,.04),0_18px_40px_-26px_rgba(16,23,22,.3)]"
+    >
+      <div className="flex flex-col gap-3.5">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11.5px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Registration</span>
+          {status && <span className={`rounded-full px-2.5 py-1 text-[12px] font-semibold ${pillStyle[status.tone]}`}>{status.pill}</span>}
+        </div>
 
-      <div className="p-5 space-y-4">
-        {/* Event-over notice — replaces the registration flow for past events */}
-        {isEventOver && idle && (
-          <div className="flex items-start gap-3">
-            <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
-              <CalendarDays className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-[14px] font-semibold leading-tight">Event has ended</div>
-              <div className="text-[12.5px] text-muted-foreground mt-0.5">
-                Registration for this event is now closed.
-              </div>
-            </div>
-          </div>
-        )}
         {user && !emailVerified && (
           <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
             <MailWarning className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
@@ -400,56 +473,11 @@ export default function EventRsvpCard({
             </div>
           </div>
         )}
-        {/* State pill — mirrors Lu.ma's "Approval Required" header.
-            When the event is sold out we show a single sold-out card
-            regardless of the approval flow. */}
-        {idle && isFull && !isEventOver && (
-          <div className="flex items-start gap-3">
-            <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
-              <XCircle className="h-4 w-4 text-foreground/70" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-[14px] font-semibold leading-tight">Sold Out</div>
-              <div className="text-[12.5px] text-muted-foreground mt-0.5">
-                All {event.capacity} tickets have been claimed for this event.
-              </div>
-            </div>
-          </div>
-        )}
-        {isApprovalFlow && idle && !isFull && !isEventOver && (
-          <div className="flex items-start gap-3">
-            <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
-              <ShieldCheck className="h-4 w-4 text-foreground/70" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-[14px] font-semibold leading-tight">Approval Required</div>
-              <div className="text-[12.5px] text-muted-foreground mt-0.5">
-                Your registration is subject to host approval.
-              </div>
-              {/* Capacity / spots-left indicator intentionally removed —
-                  organizers asked us not to surface remaining-seats
-                  numbers to public attendees. Capacity is still enforced
-                  server-side; it just isn't advertised. */}
-            </div>
-          </div>
-        )}
-        {!isApprovalFlow && idle && !isFull && !isEventOver && (
-          <div className="flex items-start gap-3">
-            <div className="shrink-0 size-9 rounded-lg bg-secondary flex items-center justify-center">
-              <UserPlus className="h-4 w-4 text-foreground/70" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-[14px] font-semibold leading-tight">
-                {event.price && Number(event.price) > 0 ? "Get Tickets" : "Free Registration"}
-              </div>
-              <div className="text-[12.5px] text-muted-foreground mt-0.5">
-                Welcome! To join the event, please register below.
-              </div>
-              {/* Capacity / tickets-left indicator intentionally removed —
-                  organizers asked us not to surface remaining-seats
-                  numbers to public attendees. Capacity is still enforced
-                  server-side; it just isn't advertised. */}
-            </div>
+
+        {status && (
+          <div>
+            <h3 className="mb-1 text-[17px] font-semibold lg:text-[19px]">{status.title}</h3>
+            <p className="m-0 text-[14px] leading-[1.55] text-muted-foreground">{status.text}</p>
           </div>
         )}
 
@@ -464,10 +492,12 @@ export default function EventRsvpCard({
             onStartOver={() => { setResendGuestDetails(null); updateGuestConfirmation(null); }}
           />
         ) : state === "approved" ? (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-[13px] font-medium text-emerald-600">
-              <CheckCircle2 className="h-4 w-4" /> You're going
-            </div>
+          <div className="flex flex-col gap-2.5">
+            {registrationId && (
+              <Button asChild className="h-12 w-full rounded-[14px] text-[14.5px] font-semibold" style={accentButton}>
+                <a href={`/t/${registrationId}`}>View ticket</a>
+              </Button>
+            )}
             {event.event_format !== "physical" && (() => {
               // Always show a Join Webinar entry-point for virtual / hybrid events.
               // - Personal token form when both webinar exists AND we have a join_token
@@ -479,7 +509,7 @@ export default function EventRsvpCard({
                 ? `/e/${event.id}/live?join=${joinToken}`
                 : `/e/${event.id}/live`;
               return (
-                <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
+                <div className="rounded-xl border border-border bg-muted/40 p-3 space-y-2">
                   <div className="flex items-center gap-2 text-[12.5px] font-semibold">
                     <Video className="h-3.5 w-3.5" />
                     {hasPersonalLink ? "Your webinar link" : "Webinar room"}
@@ -513,58 +543,34 @@ export default function EventRsvpCard({
               );
             })()}
             <div className="flex gap-2">
-              {registrationId && (
-                <Button asChild className="flex-1 h-9 text-[13px]" variant="default">
-                  <a href={`/t/${registrationId}`}>View ticket</a>
-                </Button>
-              )}
               {communitySlug && (
-                <Button asChild variant="outline" className="h-9 text-[13px] gap-1.5">
+                <Button asChild variant="outline" className="h-10 flex-1 gap-1.5 rounded-xl text-[13px]">
                   <a href={`/community/${communitySlug}/feed`}>
                     <Users2 className="h-3.5 w-3.5" />
                     Community
                   </a>
                 </Button>
               )}
-              <Button onClick={cancelRsvp} variant="outline" className="h-9 text-[13px]" disabled={submitting}>
-                Cancel
+              <Button onClick={cancelRsvp} variant="outline" className="h-10 flex-1 rounded-xl text-[13px]" disabled={submitting}>
+                Cancel registration
               </Button>
             </div>
           </div>
         ) : state === "pending" ? (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-[13px] font-medium text-amber-600">
-              <Hourglass className="h-4 w-4" /> Request pending
-            </div>
-            <p className="text-[12px] text-muted-foreground">The host will review your request.</p>
-            <Button onClick={cancelRsvp} variant="outline" className="w-full h-9 text-[13px]" disabled={submitting}>
-              Withdraw request
-            </Button>
-          </div>
-        ) : state === "waitlisted" ? (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-[13px] font-medium text-foreground">
-              <CalendarDays className="h-4 w-4" /> On the waitlist
-            </div>
-            <p className="text-[12px] text-muted-foreground">We'll notify you if a spot opens.</p>
-            <Button onClick={cancelRsvp} variant="outline" className="w-full h-9 text-[13px]" disabled={submitting}>
-              Leave waitlist
-            </Button>
-          </div>
-        ) : state === "declined" ? (
-          <div className="flex items-center gap-2 text-[13px] font-medium text-destructive">
-            <XCircle className="h-4 w-4" /> Request declined
-          </div>
-        ) : isEventOver ? (
-          // Event already over — show a muted disabled button instead of Register
-          <Button
-            disabled
-            className="w-full h-11 text-[14px] font-semibold opacity-50 cursor-not-allowed"
-            variant="outline"
-          >
-            Registration closed
+          <Button onClick={cancelRsvp} variant="outline" className="h-11 w-full rounded-xl text-[13.5px]" disabled={submitting}>
+            Withdraw request
           </Button>
-        ) : !user && !isFull ? (
+        ) : state === "waitlisted" ? (
+          <Button onClick={cancelRsvp} variant="outline" className="h-11 w-full rounded-xl text-[13.5px]" disabled={submitting}>
+            Leave waitlist
+          </Button>
+        ) : state === "declined" ? (
+          organiserHref ? (
+            <Button asChild className="h-12 w-full rounded-[14px] bg-foreground text-[14.5px] font-semibold text-background hover:bg-foreground/90">
+              <a href={organiserHref}>Contact organiser</a>
+            </Button>
+          ) : null
+        ) : isEventOver ? null : !user && !isFull ? (
           // Not signed in: register with a short form, no account needed.
           <GuestRegistrationForm
             eventId={event.id}
@@ -585,7 +591,6 @@ export default function EventRsvpCard({
           {/* Signed in and able to register. */}
           {user && !isFull && (
             <ConsentCheckbox
-              className="mb-3"
               checked={agreed}
               onCheckedChange={(value) => {
                 setAgreed(value);
@@ -601,20 +606,49 @@ export default function EventRsvpCard({
           <Button
             onClick={handleRsvp}
             disabled={submitting || isFull}
-            className="w-full h-11 text-[14px] font-semibold"
-            style={accentColor && !isFull ? { backgroundColor: accentColor, color: "#fff" } : undefined}
+            className="h-12 w-full rounded-[14px] text-[14.5px] font-semibold"
+            style={!isFull ? accentButton : undefined}
           >
             {isFull
               ? "Sold Out"
               : event.requires_approval
-                ? "Request to Join"
+                ? "Request to join"
                 : event.price && Number(event.price) > 0
                   ? `Register · ${formatMoney(event.price, event.currency || undefined)}`
-                  : "One-Click Register"}
+                  : "One-click register"}
           </Button>
           </>
         )}
+
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={addToCalendar} className={subBtn}>
+            <CalendarPlus className="h-[17px] w-[17px]" /> Calendar
+          </button>
+          <button type="button" onClick={shareEvent} className={subBtn}>
+            <Share2 className="h-[17px] w-[17px]" /> Share
+          </button>
+        </div>
       </div>
+
+      {/* Phone bottom bar */}
+      {status && (
+        <div
+          role="region"
+          aria-label="Registration"
+          className={`fixed inset-x-0 bottom-0 z-40 flex items-center gap-3 border-t border-border bg-card/95 px-4 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] text-card-foreground shadow-[0_-10px_30px_-18px_rgba(16,23,22,.35)] backdrop-blur-md transition-transform duration-200 md:hidden ${barShown ? "translate-y-0" : "translate-y-[110%]"}`}
+        >
+          <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
+            <b className="flex items-center gap-1.5 truncate text-[14px] font-semibold">
+              {(status.tone === "good" || status.tone === "bad") && (
+                <i className={`inline-block h-[7px] w-[7px] shrink-0 rounded-full ${status.tone === "bad" ? "bg-destructive" : "bg-emerald-500"}`} />
+              )}
+              {status.title}
+            </b>
+            <span className="truncate text-[12.5px] text-muted-foreground">{shortDate}</span>
+          </div>
+          {barAction}
+        </div>
+      )}
     </aside>
   );
 }

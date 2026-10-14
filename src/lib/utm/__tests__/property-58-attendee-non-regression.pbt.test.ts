@@ -69,7 +69,15 @@ const ATTENDEE_FILES = [
     // `guest-registration` edge function saves the five utm_* values with
     // the registration, and this card calls `clearStoredUtm()` when that
     // succeeds (covered by guest-registration-server.test.ts).
-    hash: "9f4972b2c6795ed131952afdabe662ffb7cc539320841d2caa2ddc940d82b277",
+    //
+    // Bumped again for the event-page redesign. Re-audited against 6.1–6.3:
+    // only the returned markup changed (status pill, heading and line per
+    // state, Calendar / Share buttons, the phone bottom bar) plus an
+    // optional `organiserHref` prop. `handleRsvp` — `loadStoredUtm()`, the
+    // five utm_* columns on the insert and `clearStoredUtm()` on success —
+    // is untouched, and `GuestRegistrationForm` still receives `utmParams`
+    // and clears the stored UTM when it succeeds.
+    hash: "d721d82fa98b08ff7453be4a3389544ddb847cc197e43df0fda73a3cf1ef73d3",
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",
