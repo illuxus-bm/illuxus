@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { logger, supabaseRpc } from "@/lib/observability";
-import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX, Copy, ExternalLink, Link2, Upload, Trash2 } from "lucide-react";
+import { Search, Users, Download, Filter, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, Copy, ExternalLink, Link2, Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -149,7 +149,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   } | null>(null);
   const [quickView, setQuickView] = useState<QuickViewRow | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
-  const [attTab, setAttTab] = useState<"all" | "inside" | "outside" | "never" | "pending">("all");
+  const [attTab, setAttTab] = useState<"all" | "inside" | "outside" | "never" | "pending" | "declined">("all");
   const [historyFor, setHistoryFor] = useState<{ id: string; name: string } | null>(null);
   const [eventHistoryOpen, setEventHistoryOpen] = useState(false);
   const [sortKey, setSortKey] = useState<"name" | "state" | "last_in" | "last_out" | "minutes" | "ticket">("name");
@@ -438,19 +438,28 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     return [...attendeeRows, ...visibleExtras];
   }, [registrations, extras]);
 
-  const filtered = allRows.filter((r) => {
+  // Search + role + status filters. The tab counts come from this, so they
+  // don't change when you switch tabs.
+  const baseRows = allRows.filter((r) => {
     const matchSearch =
       r.name.toLowerCase().includes(search.toLowerCase()) ||
       r.email.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "all" || r.status === statusFilter;
     const matchKind = kindFilter === "all" || r.kind === kindFilter;
-    const matchTab =
-      attTab === "all" ||
-      (attTab === "pending"
-        ? r.registration?.approval_status === "pending"
-        : r.attendance_state === attTab);
-    return matchSearch && matchStatus && matchKind && matchTab;
+    return matchSearch && matchStatus && matchKind;
   });
+
+  // Declined registrations live only in the Declined tab.
+  const isDeclined = (r: Row) => r.registration?.approval_status === "declined";
+  const activeRows = baseRows.filter((r) => !isDeclined(r));
+
+  const filtered = attTab === "declined"
+    ? baseRows.filter(isDeclined)
+    : activeRows.filter((r) =>
+        attTab === "all" ||
+        (attTab === "pending"
+          ? r.registration?.approval_status === "pending"
+          : r.attendance_state === attTab));
 
   const sorted = useMemo(() => {
     const stateRank: Record<AttState, number> = { inside: 0, outside: 1, never: 2 };
@@ -476,26 +485,25 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   };
 
   const stats = (() => {
-    // Derive the attendance partition from `filtered` instead of `allRows` 
-    // so the counts update when filters (search, role, etc.) are applied.
-    // This ensures tab counts reflect the current filtered view.
+    // Counted over the search/role/status-filtered rows (not the open tab),
+    // leaving declined registrations out of everything but their own count.
     let insideNow = 0;
     let outside = 0;
     let notArrived = 0;
-    for (const r of filtered) {
+    for (const r of activeRows) {
       if (r.attendance_state === "inside") insideNow += 1;
       else if (r.attendance_state === "outside") outside += 1;
       else notArrived += 1;
     }
-    
-    // For other stats, also use filtered data for consistency
-    const filteredRegistrations = filtered.filter(r => r.registration);
-    
+
+    const filteredRegistrations = activeRows.filter(r => r.registration);
+
     return {
-      total: filtered.length,
+      total: activeRows.length,
       confirmed: filteredRegistrations.filter((r) => r.status === "confirmed").length,
       pending: filteredRegistrations.filter((r) => r.status === "pending").length,
-      pendingApprovals: filteredRegistrations.filter((r) => (r as { approval_status?: string }).approval_status === "pending").length,
+      pendingApprovals: filteredRegistrations.filter((r) => r.registration?.approval_status === "pending").length,
+      declined: baseRows.filter(isDeclined).length,
       cancelled: filteredRegistrations.filter((r) => r.status === "cancelled").length,
       checkedIn: filteredRegistrations.filter((r) => r.checked_in === true).length,
       insideNow,
@@ -1309,24 +1317,6 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         </div>
       </div>
 
-      {/* Stats — concise summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {[
-          { icon: Users, label: "Total", value: stats.total, color: "text-foreground" },
-          { icon: UserCheck, label: "Inside now", value: stats.insideNow, color: "text-[hsl(var(--success))]" },
-          { icon: XCircle, label: "Checked out", value: stats.outside, color: "text-muted-foreground" },
-          { icon: UserX, label: "Not arrived", value: stats.notArrived, color: "text-muted-foreground" },
-        ].map((s) => (
-          <div key={s.label} className="border border-border rounded-lg p-2.5">
-            <div className="flex items-center gap-1 mb-0.5">
-              <s.icon className="h-3 w-3 text-muted-foreground" />
-              <span className="text-[10px] text-muted-foreground truncate">{s.label}</span>
-            </div>
-            <p className={`text-[15px] font-semibold leading-tight truncate ${s.color}`}>{s.value}</p>
-          </div>
-        ))}
-      </div>
-
       {/* Filters */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1 sm:max-w-xs">
@@ -1367,6 +1357,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
             { key: "outside", label: "Checked out",      count: stats.outside },
             { key: "never",   label: "Not arrived",      count: stats.notArrived },
             { key: "pending", label: "Pending Approvals", count: stats.pendingApprovals },
+            { key: "declined", label: "Declined",        count: stats.declined },
           ] as const).map((t) => (
             <button
               key={t.key}
@@ -1554,8 +1545,9 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                               onUndo={(kind) => undoAttendance(r, kind)}
                             />
                           </div>
-                          {/* Approve / Decline — shown inline below the name for pending rows */}
-                          {r.registration?.approval_status === "pending" && (
+                          {/* Approve / Decline — shown inline below the name for
+                              pending rows; declined rows can be approved back. */}
+                          {(r.registration?.approval_status === "pending" || r.registration?.approval_status === "declined") && (
                             <div className="flex items-center gap-1.5 mt-2" onClick={(e) => e.stopPropagation()}>
                               <Button
                                 size="sm"
@@ -1565,6 +1557,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                               >
                                 <CheckCircle className="h-3 w-3" /> Approve
                               </Button>
+                              {r.registration?.approval_status === "pending" && (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -1573,6 +1566,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                               >
                                 <XCircle className="h-3 w-3" /> Decline
                               </Button>
+                              )}
                             </div>
                           )}
                         </div>
