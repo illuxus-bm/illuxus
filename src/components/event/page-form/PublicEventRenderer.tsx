@@ -602,7 +602,7 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
   // Long line-ups open on the first two rows; the rest sit behind one button.
   const [expanded, setExpanded] = useState(false);
   const isList = data.layout === "list";
-  const preview = isList ? 4 : 6;
+  const preview = isList ? 4 : 8;
   const shown = expanded ? speakers : speakers.slice(0, preview);
   return (
     <Section theme={theme} id="speakers">
@@ -610,7 +610,7 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
       {speakers.length === 0 ? (
         <p className="text-sm opacity-50">Speakers will be announced soon.</p>
       ) : (
-        <div className={isList ? "space-y-4" : "grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3"}>
+        <div className={isList ? "space-y-4" : "grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4"}>
           {shown.map((sp) => {
             // Initials fallback — first letter of first + last name, uppercase.
             // Keeps the avatar legible when the organiser hasn't uploaded a photo.
@@ -740,7 +740,7 @@ function SponsorsSec({ data, theme, sponsors }: { data: SponsorsData; theme: The
                   />
                 </div>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
                 {items.map(sp => (
                   <button key={sp.id} type="button" onClick={() => setSelected(sp)}
                      className="aspect-[2/1] rounded-xl border flex items-center justify-center p-4 hover:scale-[1.02] transition-transform text-left"
@@ -765,7 +765,7 @@ function WorkshopsSec({ data, theme }: { data: WorkshopsData; theme: ThemeConfig
   return (
     <Section theme={theme} id="workshops">
       <SectionHeader title={data.title} intro={data.intro} theme={theme} />
-      <div className="grid md:grid-cols-2 gap-4">
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {data.workshops.map(w => (
           <div key={w.id} className="rounded-xl border p-5" style={{ borderColor: `${theme.primaryColor}20` }}>
             <div className="flex items-start justify-between gap-3">
@@ -801,7 +801,7 @@ function ExhibitorsSec({ data, theme }: { data: ExhibitorsData; theme: ThemeConf
           View floor map <ExternalLink className="h-3 w-3" />
         </a>
       )}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         {data.exhibitors.map(e => (
           <div key={e.id} className="rounded-xl border p-4" style={{ borderColor: `${theme.primaryColor}15`, backgroundColor: "transparent" }}>
             <div className="flex items-center gap-3">
@@ -864,7 +864,7 @@ function GallerySec({ data, theme }: { data: GalleryData; theme: ThemeConfig }) 
   return (
     <Section theme={theme} id="gallery">
       <SectionHeader title={data.title} theme={theme} />
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-2">
         {data.items.map(it => (
           <figure key={it.id} className="aspect-square rounded-lg overflow-hidden">
             <img src={it.url} alt={it.caption || ""} className="w-full h-full object-cover" loading="lazy" />
@@ -944,7 +944,7 @@ function PartnersSec({ data, theme }: { data: PartnersData; theme: ThemeConfig }
   return (
     <Section theme={theme} tone="tinted" id="partners">
       <SectionHeader title={data.title} intro={data.intro} theme={theme} />
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
         {data.partners.map(p => (
           <a key={p.id} href={p.website || "#"} target="_blank" rel="noreferrer"
              className="aspect-[3/2] rounded-xl border flex items-center justify-center p-4"
@@ -1091,7 +1091,7 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
 
   return (
     <Section theme={theme} tone="tinted" id="countdown">
-      <div className="max-w-3xl mx-auto text-left">
+      <div className="max-w-3xl text-left">
         <p
           className="text-xs sm:text-sm font-semibold tracking-[0.2em] uppercase mb-4"
           style={{ color: labelColor, opacity: 0.85 }}

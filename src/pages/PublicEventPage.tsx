@@ -490,7 +490,7 @@ const PublicEventPage = () => {
       {/* Speaker & Sponsor application CTAs — shown to logged-in attendees.
           Hidden once the event is over — no point applying to a past event. */}
       {event && eventExt.status === "published" && !isEventOver && (
-        <div className="max-w-4xl mx-auto px-4 py-2">
+        <div className="w-full px-4 sm:px-8 lg:px-20 py-2">
           <EventApplicationButtons
             eventId={event.id}
             eventOwnerId={(event as { user_id?: string }).user_id ?? null}
