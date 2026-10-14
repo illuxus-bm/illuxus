@@ -13,6 +13,7 @@ import {
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { HEADER_CHIP } from "@/components/layout/header-chip";
+import { SoftScroll } from "@/components/event/creatives/studio/SoftScroll";
 import { useOrg, PLAN_DETAILS } from "@/contexts/OrgContext";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
@@ -159,7 +160,7 @@ export function AdminNav() {
   return <NavChips label="Super admin" main={adminMain} more={adminMore} isActive={isActive} />;
 }
 
-/** The active workspace, beside the logo. A menu when there is more than one. */
+/** The active workspace, beside the account menu. A menu when there is more than one. */
 export function WorkspaceChip() {
   const { org, memberships, setActiveOrg, myRole } = useOrg();
   if (!org) return null;
@@ -196,7 +197,7 @@ export function WorkspaceChip() {
           <ChevronsUpDown className="hidden h-3.5 w-3.5 shrink-0 text-muted-foreground lg:block" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
+      <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
           Switch workspace
         </DropdownMenuLabel>
@@ -252,8 +253,12 @@ export function SectionPills({
         ? "border-foreground bg-foreground text-background"
         : "border-border bg-card text-muted-foreground hover:text-foreground",
     );
+  // One line at every width. The row scrolls sideways when it doesn't fit;
+  // SoftScroll fades the cut-off edge, adds arrows for mouse users and keeps
+  // the current pill in view.
   return (
-    <nav aria-label={label} className={cn("app-chrome flex gap-2 overflow-x-auto md:flex-wrap md:overflow-visible", className)}>
+    <nav aria-label={label} className={cn("app-chrome", className)}>
+      <SoftScroll arrows activeKey={activeKey} className="flex gap-2 overflow-x-auto p-0.5">
       {items.map((item) => {
         const active = item.key === activeKey;
         const content = (
@@ -276,6 +281,7 @@ export function SectionPills({
           </button>
         );
       })}
+      </SoftScroll>
     </nav>
   );
 }

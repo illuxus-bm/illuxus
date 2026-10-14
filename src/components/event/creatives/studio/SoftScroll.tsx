@@ -56,7 +56,7 @@ export function SoftScroll({ arrows = false, activeKey, wrapperClassName, classN
   useEffect(() => {
     const el = ref.current;
     if (!el || activeKey === undefined) return;
-    const item = el.querySelector<HTMLElement>('[aria-checked="true"], [aria-selected="true"]');
+    const item = el.querySelector<HTMLElement>('[aria-checked="true"], [aria-selected="true"], [aria-current="page"]');
     if (!item) return;
     const box = el.getBoundingClientRect();
     const it = item.getBoundingClientRect();
