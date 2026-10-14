@@ -341,14 +341,17 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
   const isPaid = priceNum > 0;
 
   return (
-    <div className="max-w-3xl space-y-6 mx-auto">
-      <div className="text-center">
+    <div className="w-full space-y-6">
+      <div>
         <h2 className="text-base font-semibold">Event Settings</h2>
         <p className="text-[12px] text-muted-foreground">Edit details, schedule, capacity, pricing and registration rules.</p>
       </div>
 
+      {/* Cards fill the page: wide ones span both columns from xl up,
+          Schedule and Location sit side by side. */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
       {/* Basics */}
-      <section className="bg-card border border-border rounded-lg p-4 space-y-4">
+      <section className="bg-card border border-border rounded-lg p-4 space-y-4 xl:col-span-2">
         <h3 className="text-[13px] font-semibold">Basics</h3>
         <div className="space-y-3">
           <div>
@@ -496,7 +499,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
       </section>
 
       {/* Tickets & registration */}
-      <section className="bg-card border border-border rounded-lg p-4 space-y-4">
+      <section className="bg-card border border-border rounded-lg p-4 space-y-4 xl:col-span-2">
         <h3 className="text-[13px] font-semibold">Tickets & Registration</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
@@ -676,7 +679,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
       </section>
 
       {/* Community */}
-      <section className="bg-card border border-border rounded-lg p-4 space-y-4">
+      <section className="bg-card border border-border rounded-lg p-4 space-y-4 xl:col-span-2">
         <div className="flex items-center gap-2">
           <Users2 className="h-4 w-4 text-primary" />
           <h3 className="text-[13px] font-semibold">Community</h3>
@@ -704,6 +707,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
           </div>
         )}
       </section>
+      </div>
 
       {/* Actions */}
       <div className="flex items-center justify-between gap-3 pb-4">
