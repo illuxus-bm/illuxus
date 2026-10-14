@@ -9,14 +9,14 @@ import {
   Mail, BarChart3, CalendarCheck, Search, Ticket, Presentation,
   UserCheck, Award, Megaphone, Globe, ArrowLeft, ExternalLink,
   Link2, Check, X, Pencil, Copy, Settings, Radio, ChevronDown, RefreshCw, Users2,
-  ImagePlus, Building2
+  ImagePlus, Building2, MoreHorizontal, EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -101,6 +101,9 @@ const EventDetailPage = () => {
   const [slugError, setSlugError] = useState<string | null>(null);
   const [slugChecking, setSlugChecking] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  // Phone event bar: the status hint and the link editor opened from "More".
+  const [liveTip, setLiveTip] = useState(false);
+  const [mobileLinkOpen, setMobileLinkOpen] = useState(false);
   const { rates: fxRates } = useFxRates();
   const [displayCcy, setDisplayCcy] = useState<string>(() => getStoredDisplayCurrency(DEFAULT_EVENT_CURRENCY));
   const { toast } = useToast();
@@ -421,6 +424,81 @@ const EventDetailPage = () => {
     setActiveSection(k);
   };
 
+  // Public URL panel: slug edit, copy URL and the internal ID. Shown from the
+  // link button on wide screens and from "Edit link" in the phone bar.
+  const linkPanel = (
+    <>
+              <div>
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground/70">Public URL</label>
+                <div className={`mt-1 flex items-center gap-1 px-2 py-1 rounded-md border bg-background/50 ${slugError ? "border-destructive/60" : "border-border"}`}>
+                  <span className="text-[11px] font-mono text-muted-foreground shrink-0">/events/</span>
+                  {editingSlug ? (
+                    <>
+                      <Input
+                        autoFocus
+                        value={slugDraft}
+                        onChange={(e) => setSlugDraft(e.target.value)}
+                        aria-invalid={!!slugError}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveSlug();
+                          if (e.key === "Escape") setEditingSlug(false);
+                        }}
+                        className="h-6 flex-1 text-[11px] font-mono px-1.5"
+                        placeholder="event-slug"
+                      />
+                      <button
+                        onClick={saveSlug}
+                        disabled={savingSlug || !!slugError || slugChecking}
+                        className="h-6 w-6 inline-flex items-center justify-center rounded text-accent hover:bg-accent/10 disabled:opacity-50"
+                        aria-label="Save"
+                        title="Save"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setEditingSlug(false)}
+                        className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-muted"
+                        aria-label="Cancel"
+                        title="Cancel"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-[11px] font-mono text-foreground flex-1 truncate">{event.slug}</span>
+                      <button
+                        onClick={startEditSlug}
+                        className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                        aria-label="Edit slug"
+                        title="Edit"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={copyPublicUrl}
+                        className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                        aria-label="Copy URL"
+                        title="Copy"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    </>
+                  )}
+                </div>
+                {slugError ? (
+                  <p className="mt-1 text-[11px] text-destructive">{slugError}</p>
+                ) : slugChecking ? (
+                  <p className="mt-1 text-[11px] text-muted-foreground">Checking…</p>
+                ) : null}
+              </div>
+              <div className="pt-2 border-t border-border flex items-center gap-1 text-[10px] text-muted-foreground/70">
+                <span className="uppercase tracking-wider">ID</span>
+                <span className="font-mono select-all ml-1" title={event.id}>{event.id}</span>
+              </div>
+            </>
+  );
+
   return (
     <>
       <div className="app-shell shell-notch min-h-screen flex flex-col w-full">
@@ -443,7 +521,7 @@ const EventDetailPage = () => {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <h1 className="text-[17px] font-semibold tracking-tight truncate">{event.title}</h1>
-                  <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${statusStyle[event.status] || ""}`}>
+                  <span className={`hidden sm:inline-block shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${statusStyle[event.status] || ""}`}>
                     {event.status}
                   </span>
                 </div>
@@ -455,7 +533,7 @@ const EventDetailPage = () => {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="hidden sm:flex items-center gap-2 shrink-0">
               {/* Link/share popover — slug edit, copy URL, and internal ID */}
               <Popover>
                 <PopoverTrigger asChild>
@@ -465,74 +543,7 @@ const EventDetailPage = () => {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-80 p-3 space-y-3">
-                  <div>
-                    <label className="text-[11px] uppercase tracking-wider text-muted-foreground/70">Public URL</label>
-                    <div className={`mt-1 flex items-center gap-1 px-2 py-1 rounded-md border bg-background/50 ${slugError ? "border-destructive/60" : "border-border"}`}>
-                      <span className="text-[11px] font-mono text-muted-foreground shrink-0">/events/</span>
-                      {editingSlug ? (
-                        <>
-                          <Input
-                            autoFocus
-                            value={slugDraft}
-                            onChange={(e) => setSlugDraft(e.target.value)}
-                            aria-invalid={!!slugError}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") saveSlug();
-                              if (e.key === "Escape") setEditingSlug(false);
-                            }}
-                            className="h-6 flex-1 text-[11px] font-mono px-1.5"
-                            placeholder="event-slug"
-                          />
-                          <button
-                            onClick={saveSlug}
-                            disabled={savingSlug || !!slugError || slugChecking}
-                            className="h-6 w-6 inline-flex items-center justify-center rounded text-accent hover:bg-accent/10 disabled:opacity-50"
-                            aria-label="Save"
-                            title="Save"
-                          >
-                            <Check className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setEditingSlug(false)}
-                            className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-muted"
-                            aria-label="Cancel"
-                            title="Cancel"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-[11px] font-mono text-foreground flex-1 truncate">{event.slug}</span>
-                          <button
-                            onClick={startEditSlug}
-                            className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                            aria-label="Edit slug"
-                            title="Edit"
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </button>
-                          <button
-                            onClick={copyPublicUrl}
-                            className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                            aria-label="Copy URL"
-                            title="Copy"
-                          >
-                            <Copy className="h-3 w-3" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                    {slugError ? (
-                      <p className="mt-1 text-[11px] text-destructive">{slugError}</p>
-                    ) : slugChecking ? (
-                      <p className="mt-1 text-[11px] text-muted-foreground">Checking…</p>
-                    ) : null}
-                  </div>
-                  <div className="pt-2 border-t border-border flex items-center gap-1 text-[10px] text-muted-foreground/70">
-                    <span className="uppercase tracking-wider">ID</span>
-                    <span className="font-mono select-all ml-1" title={event.id}>{event.id}</span>
-                  </div>
+                  {linkPanel}
                 </PopoverContent>
               </Popover>
               <Button variant="ghost" size="sm" className="h-7 text-[12px] gap-1 px-2 sm:px-3" asChild>
@@ -603,6 +614,94 @@ const EventDetailPage = () => {
                   )}
                 </Button>
               )}
+            </div>
+            {/* Phones: one row of matching square buttons — live status, copy
+                link, open the live page, and "More" for the rest. */}
+            <div className="relative flex shrink-0 items-center gap-1.5 sm:hidden">
+              {event.status === "published" ? (
+                <button
+                  type="button"
+                  onClick={() => { setLiveTip(true); window.setTimeout(() => setLiveTip(false), 1600); }}
+                  aria-label="Published — event is live"
+                  className="relative flex h-[42px] w-[42px] items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-400"
+                >
+                  <Radio className="h-5 w-5" />
+                  <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500 motion-safe:animate-pulse" />
+                </button>
+              ) : (
+                <Button size="sm" className="h-[42px] rounded-xl px-3 text-[13px]" onClick={togglePublish} disabled={publishing}>
+                  {publishing ? "Publishing…" : "Publish"}
+                </Button>
+              )}
+              {liveTip && (
+                <span role="status" className="absolute right-[144px] top-[52px] z-30 whitespace-nowrap rounded-lg bg-foreground px-2.5 py-1.5 text-[12px] font-medium text-background">
+                  Published · live
+                </span>
+              )}
+              <Popover open={mobileLinkOpen} onOpenChange={setMobileLinkOpen}>
+                <PopoverAnchor asChild>
+                  <button
+                    type="button"
+                    onClick={copyPublicUrl}
+                    aria-label="Copy event link"
+                    className="flex h-[42px] w-[42px] items-center justify-center rounded-xl border border-border bg-card text-foreground hover:bg-muted"
+                  >
+                    <Link2 className="h-[19px] w-[19px]" />
+                  </button>
+                </PopoverAnchor>
+                <PopoverContent align="end" className="w-80 p-3 space-y-3">
+                  {linkPanel}
+                </PopoverContent>
+              </Popover>
+              <a
+                href={eventPublicUrl(event, (org as { subdomain?: string | null } | null)?.subdomain || org?.slug || null)}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="View live page"
+                className="flex h-[42px] w-[42px] items-center justify-center rounded-xl border border-border bg-card text-foreground hover:bg-muted"
+              >
+                <ExternalLink className="h-[19px] w-[19px]" />
+              </a>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="More actions"
+                    className="flex h-[42px] w-[42px] items-center justify-center rounded-xl border border-border bg-card text-foreground hover:bg-muted"
+                  >
+                    <MoreHorizontal className="h-5 w-5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-60 rounded-2xl p-1.5">
+                  <div className="flex h-11 items-center gap-3 px-3 text-[14px] font-medium">
+                    <span className={`mx-1 h-2 w-2 rounded-full ${event.status === "published" ? "bg-emerald-500" : "bg-muted-foreground"}`} />
+                    Status
+                    <span className={`ml-auto text-[12px] font-semibold capitalize ${event.status === "published" ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>{event.status}</span>
+                  </div>
+                  <DropdownMenuSeparator />
+                  {event.status === "published" && (
+                    <DropdownMenuItem onClick={republishLive} disabled={publishing} className="h-11 gap-3 rounded-xl text-[14px]">
+                      <RefreshCw className="h-[18px] w-[18px] text-muted-foreground" /> Sync changes
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={() => selectSection("settings")} className="h-11 gap-3 rounded-xl text-[14px]">
+                    <Pencil className="h-[18px] w-[18px] text-muted-foreground" /> Edit event
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => window.setTimeout(() => setMobileLinkOpen(true), 0)} className="h-11 gap-3 rounded-xl text-[14px]">
+                    <Link2 className="h-[18px] w-[18px] text-muted-foreground" /> Edit link
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {event.status === "published" ? (
+                    <DropdownMenuItem onClick={togglePublish} disabled={publishing} className="h-11 gap-3 rounded-xl text-[14px] text-destructive focus:text-destructive">
+                      <EyeOff className="h-[18px] w-[18px]" /> Unpublish
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem onClick={togglePublish} disabled={publishing} className="h-11 gap-3 rounded-xl text-[14px]">
+                      <Globe className="h-[18px] w-[18px] text-muted-foreground" /> Publish
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </header>
 

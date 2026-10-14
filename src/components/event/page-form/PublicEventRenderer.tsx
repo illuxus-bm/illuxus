@@ -247,6 +247,22 @@ function SectionRenderer({
 
 /* ─── Layout helpers ─── */
 
+/**
+ * Sponsor / partner logos sit on a "plate": logo files usually carry a white
+ * background, so the tile itself is that white and the logo is multiplied
+ * onto it — no inner box or hard edge shows. A fixed 16:10 tile with the same
+ * inner padding makes every logo look the same size. On a dark page the plate
+ * is a softer off-white without an outline.
+ */
+const LOGO_TILE = "aspect-[16/10] overflow-hidden rounded-[18px] flex items-center justify-center px-[16%] py-[14%]";
+const LOGO_IMG = "block max-h-full max-w-full h-auto w-auto object-contain mix-blend-multiply";
+function logoPlate(theme: ThemeConfig): React.CSSProperties {
+  const dark = perceivedLuminance(theme.backgroundColor || "#ffffff") < 0.45;
+  return dark
+    ? { backgroundColor: "#F4F4F2", color: "#101716" }
+    : { backgroundColor: "#FFFFFF", boxShadow: "inset 0 0 0 1px #E7EBE9", color: "#101716" };
+}
+
 function Section({
   children, theme, tone = "default", id, flush = false,
 }: {
@@ -758,10 +774,10 @@ function SponsorsSec({ data, theme, sponsors }: { data: SponsorsData; theme: The
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {items.map(sp => (
                   <button key={sp.id} type="button" onClick={() => setSelected(sp)}
-                     className="aspect-[17/12] overflow-hidden rounded-2xl border flex items-center justify-center p-1.5 transition-shadow hover:shadow-md text-left"
-                     style={{ borderColor: `${theme.textColor}1f`, backgroundColor: "transparent" }}>
+                     className={`${LOGO_TILE} transition-transform hover:-translate-y-px text-left`}
+                     style={logoPlate(theme)}>
                     {sp.logo_url
-                      ? <img loading="lazy" decoding="async" src={sp.logo_url} alt={sp.name} className="h-full w-full object-contain" />
+                      ? <img loading="lazy" decoding="async" src={sp.logo_url} alt={sp.name} className={LOGO_IMG} />
                       : <span className="text-[12.5px] font-semibold text-center leading-snug">{sp.name}</span>}
                   </button>
                 ))}
@@ -962,10 +978,10 @@ function PartnersSec({ data, theme }: { data: PartnersData; theme: ThemeConfig }
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {data.partners.map(p => (
           <a key={p.id} href={p.website || "#"} target="_blank" rel="noreferrer"
-             className="aspect-[17/12] overflow-hidden rounded-2xl border flex items-center justify-center p-1.5"
-             style={{ borderColor: `${theme.textColor}1f`, backgroundColor: "transparent" }}>
+             className={LOGO_TILE}
+             style={logoPlate(theme)}>
             {p.logoUrl
-              ? <img loading="lazy" decoding="async" src={p.logoUrl} alt={p.name} className="h-full w-full object-contain" />
+              ? <img loading="lazy" decoding="async" src={p.logoUrl} alt={p.name} className={LOGO_IMG} />
               : <span className="text-sm font-semibold text-center">{p.name}</span>}
           </a>
         ))}
