@@ -42,6 +42,7 @@ import { CurrencySwitcher, getStoredDisplayCurrency } from "@/components/Currenc
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { DashboardTopBar } from "@/components/DashboardTopBar";
 import { SectionPills } from "@/components/layout/ShellNav";
+import { holdsSeat, registrationState } from "@/lib/reports/analytics";
 
 const BroadcastPageLazy = lazy(() => import("./event/BroadcastPage"));
 const ApplicationsSectionLazy = lazy(() => import("@/components/event/ApplicationsSection").then((m) => ({ default: m.ApplicationsSection })));
@@ -334,22 +335,20 @@ const EventDetailPage = () => {
   };
 
   const totalRegs = registrations.length;
-  // Registrations still awaiting approval, or declined, aren't attendees yet —
-  // the Registrations tab lists them only under Pending / Declined, so the
-  // counts here leave them out too.
-  const awaitingOrDeclined = (r: Tables<"registrations">) =>
-    r.approval_status === "pending" || r.approval_status === "declined";
-  const admittedRegs = registrations.filter(r => r.status === "confirmed" && !awaitingOrDeclined(r));
+  // Tickets taken, by the same rule as events.tickets_sold (the events list
+  // and Reports): everything but cancelled, declined and waitlisted, so a
+  // registration awaiting approval holds its seat.
+  const seatRegs = registrations.filter(r => holdsSeat(registrationState(r)));
   const pendingApprovals = registrations.filter(r => r.approval_status === "pending").length;
-  const checkedInCount = admittedRegs.filter(r => r.checked_in === true).length;
-  const confirmedRegs = admittedRegs.length;
+  const checkedInCount = seatRegs.filter(r => r.checked_in === true).length;
+  const confirmedRegs = seatRegs.length;
   const cancelledRegs = registrations.filter(r => r.status === "cancelled").length;
   const totalRevenue = registrations
     .filter(r => r.status !== "cancelled")
     .reduce((s, r) => s + Number(r.amount_paid || 0), 0);
   const eventCurrency = ((event as any).currency || DEFAULT_EVENT_CURRENCY).toUpperCase();
-  const capacity = event.capacity || 100;
-  const yetToSell = Math.max(0, capacity - confirmedRegs);
+  const capacity = Number(event.capacity) || 0;
+  const yetToSell = capacity > 0 ? Math.max(0, capacity - confirmedRegs) : 0;
 
   const donutData = [
     { name: "Registered", value: confirmedRegs },
@@ -646,8 +645,8 @@ const EventDetailPage = () => {
                     label="Registrations"
                     value={String(confirmedRegs)}
                     sub={[
-                      `of ${capacity} capacity`,
-                      pendingApprovals > 0 ? `${pendingApprovals} pending approval` : null,
+                      capacity > 0 ? `of ${capacity} capacity` : "No capacity limit",
+                      pendingApprovals > 0 ? `incl. ${pendingApprovals} awaiting approval` : null,
                       cancelledRegs > 0 ? `${cancelledRegs} cancelled` : null,
                     ].filter(Boolean).join(" · ")}
                     color="text-chart-2"
