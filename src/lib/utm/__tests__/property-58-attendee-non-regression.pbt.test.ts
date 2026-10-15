@@ -81,7 +81,14 @@ const ATTENDEE_FILES = [
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",
-    hash: "b825577081eb289ebb432e95c4fc46edecab65945f243309ce31a0e11eff1ac3",
+    // Bumped after re-audit against Requirements 6.4 and 6.6. Since the
+    // locked version (638c185) the file gained the Declined / Pending tabs,
+    // the meeting-interest filter and an "Interested Sponsors" column (and
+    // CSV column, appended after the UTM block). The `via <utm_source>`
+    // inline hint is unchanged, and the CSV still has the five contiguous
+    // UTM Source / Medium / Campaign / Content / Term columns from the
+    // registration row, blank for speaker and sponsor rows.
+    hash: "84314257ed87ea21845ab7a0dfdfdc4b980f321f7b3bf1574e43f6f11a344b2f",
   },
   {
     path: "src/components/event/registrations/RegistrantQuickView.tsx",

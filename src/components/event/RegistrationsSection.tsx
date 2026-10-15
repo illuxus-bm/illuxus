@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { logger, supabaseRpc } from "@/lib/observability";
-import { Search, Users, Download, Filter, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, Copy, ExternalLink, Link2, Upload, Trash2 } from "lucide-react";
+import { Search, Users, Download, Filter, Handshake, Check, ChevronDown, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, Copy, ExternalLink, Link2, Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,12 @@ import {
   DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command";
+import {
+  interestedSponsorOptions, matchesMeetingInterest, sponsorsByRegistration,
+  type InterestedSponsor, type MeetingInterest, type MeetingInterestFilter,
+} from "@/lib/meeting-interest";
 
 type Registration = Tables<"registrations">;
 
@@ -123,6 +129,13 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  // Meeting Interest (migration 050): which sponsors would like to meet each
+  // registered attendee. Many sponsors can mark the same person.
+  const [interests, setInterests] = useState<MeetingInterest[]>([]);
+  const [meetingFilter, setMeetingFilter] = useState<MeetingInterestFilter>("all");
+  const [meetingOpen, setMeetingOpen] = useState(false);
+  const interestedBy = useMemo(() => sponsorsByRegistration(interests), [interests]);
+  const interestOptions = useMemo(() => interestedSponsorOptions(interests), [interests]);
   const [kindFilter, setKindFilter] = useState<RowKind | "all">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [qrOpen, setQrOpen] = useState(false);
@@ -440,13 +453,23 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
 
   // Search + role + status filters. The tab counts come from this, so they
   // don't change when you switch tabs.
+  useEffect(() => {
+    let alive = true;
+    supabaseRpc("event_meeting_interests" as never, { _eid: eventId } as never).then(({ data, error }) => {
+      // Before migration 050 there is nothing to show; the column stays empty.
+      if (alive && !error) setInterests((data || []) as unknown as MeetingInterest[]);
+    });
+    return () => { alive = false; };
+  }, [eventId, registrations]);
+
   const baseRows = allRows.filter((r) => {
     const matchSearch =
       r.name.toLowerCase().includes(search.toLowerCase()) ||
       r.email.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "all" || r.status === statusFilter;
     const matchKind = kindFilter === "all" || r.kind === kindFilter;
-    return matchSearch && matchStatus && matchKind;
+    const matchInterest = matchesMeetingInterest(r.registration?.id, interestedBy, meetingFilter);
+    return matchSearch && matchStatus && matchKind && matchInterest;
   });
 
   // Registrations awaiting approval live only in the Pending Approvals tab,
@@ -935,6 +958,8 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       "UTM Campaign",
       "UTM Content",
       "UTM Term",
+      // Meeting Interest
+      "Interested Sponsors",
     ];
     
     const formatDateTime = (dateStr: string | null) => {
@@ -1004,6 +1029,8 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         reg?.utm_campaign ?? "",
         reg?.utm_content ?? "",
         reg?.utm_term ?? "",
+        // Meeting Interest
+        (reg ? interestedBy.get(reg.id) ?? [] : []).map((sp) => sp.name).join("; "),
       ];
     });
     // Proper CSV escaping — values containing commas, quotes, or newlines
@@ -1346,6 +1373,56 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
             <SelectItem value="cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>
+        <Popover open={meetingOpen} onOpenChange={setMeetingOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              className={`h-8 shrink-0 gap-1.5 px-2.5 text-[13px] font-normal ${meetingFilter !== "all" ? "border-primary/50 text-foreground" : ""}`}
+              aria-label="Meeting Interest filter"
+            >
+              <Handshake className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline max-w-[160px] truncate">
+                {meetingFilter === "all" ? "Meeting Interest"
+                  : meetingFilter === "with" ? "With meeting interest"
+                  : meetingFilter === "without" ? "Without meeting interest"
+                  : interestOptions.find((o) => o.id === meetingFilter.sponsor)?.name ?? "Sponsor"}
+              </span>
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 p-0">
+            <Command>
+              <CommandInput placeholder="Search sponsors…" className="h-9 text-[13px]" />
+              <CommandList>
+                <CommandEmpty>No sponsor found.</CommandEmpty>
+                <CommandGroup heading="Meeting Interest">
+                  {([["all", "All registrations"], ["with", "With meeting interest"], ["without", "Without meeting interest"]] as const).map(([v, label]) => (
+                    <CommandItem key={v} value={label} onSelect={() => { setMeetingFilter(v); setMeetingOpen(false); }} className="text-[13px]">
+                      <Check className={`mr-2 h-3.5 w-3.5 ${meetingFilter === v ? "opacity-100" : "opacity-0"}`} /> {label}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+                <CommandSeparator />
+                <CommandGroup heading="Interested sponsor">
+                  {interestOptions.length === 0 ? (
+                    <p className="px-2 py-2 text-[12px] text-muted-foreground">No sponsor has marked anyone yet.</p>
+                  ) : interestOptions.map((o) => {
+                    const on = typeof meetingFilter === "object" && meetingFilter.sponsor === o.id;
+                    return (
+                      <CommandItem key={o.id} value={`sponsor ${o.name} ${o.id}`} onSelect={() => { setMeetingFilter({ sponsor: o.id }); setMeetingOpen(false); }} className="text-[13px]">
+                        <Check className={`mr-2 h-3.5 w-3.5 ${on ? "opacity-100" : "opacity-0"}`} />
+                        <span className="truncate">{o.name}</span>
+                        <span className="ml-auto pl-2 text-[11px] text-muted-foreground tabular-nums">
+                          {interests.filter((i) => i.sponsor_id === o.id).length}
+                        </span>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       </div>
 
       {/* Attendance segment tabs + global icon actions */}
@@ -1486,6 +1563,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                   <SortHeader label="Attendee" k="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="" />
                   <th className="text-center px-3 sm:px-4 py-2 sm:py-3 font-medium text-muted-foreground hidden md:table-cell w-[150px]">Role</th>
                   <th className="text-center px-3 sm:px-4 py-2 sm:py-3 font-medium text-muted-foreground hidden lg:table-cell w-[160px]">Reg. status</th>
+                  <th className="text-left px-3 sm:px-4 py-2 sm:py-3 font-medium text-muted-foreground hidden md:table-cell w-[200px]">Interested Sponsors</th>
                   <th className="p-2 sm:p-3 w-[120px]"></th>
                 </tr>
               </thead>
@@ -1536,6 +1614,9 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                           <span className={`md:hidden inline-flex mt-1 px-1.5 py-0 rounded-full text-[10px] font-medium border capitalize ${kindColors[r.kind]}`}>
                             {r.kind}
                           </span>
+                          {r.registration && (interestedBy.get(r.registration.id)?.length ?? 0) > 0 && (
+                            <div className="md:hidden mt-1"><InterestedSponsors sponsors={interestedBy.get(r.registration.id)!} /></div>
+                          )}
                           <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
                             <AttendanceControls
                               row={r}
@@ -1603,6 +1684,9 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                           {r.status}
                         </span>
                       )}
+                    </td>
+                    <td className="px-3 sm:px-4 py-2 sm:py-3 hidden md:table-cell">
+                      <InterestedSponsors sponsors={r.registration ? interestedBy.get(r.registration.id) ?? [] : []} />
                     </td>
                     <td className="p-2 sm:p-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-0.5">
@@ -2140,5 +2224,22 @@ function AttendeeLinkUtmDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Interested Sponsors: up to two names, then "+N"; every name in the tooltip. */
+function InterestedSponsors({ sponsors }: { sponsors: InterestedSponsor[] }) {
+  if (!sponsors.length) return <span className="text-muted-foreground">—</span>;
+  const shown = sponsors.slice(0, 2);
+  const rest = sponsors.length - shown.length;
+  return (
+    <div className="flex flex-wrap items-center gap-1" title={`Interested Sponsors: ${sponsors.map((sp) => sp.name).join(", ")}`}>
+      {shown.map((sp) => (
+        <span key={sp.id} className="inline-flex max-w-[140px] items-center truncate rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-[11px] font-medium text-primary">
+          {sp.name}
+        </span>
+      ))}
+      {rest > 0 && <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">+{rest}</span>}
+    </div>
   );
 }

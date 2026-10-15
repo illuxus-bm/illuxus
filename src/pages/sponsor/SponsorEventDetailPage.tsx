@@ -11,10 +11,16 @@
  * Designation comes from `sponsor_portal_people` (migration 048). Before that
  * migration, speakers' designations are read from their public profiles and
  * attendees show company only.
+ *
+ * Meeting Interest: a checkbox per attendee records that this sponsor would
+ * like to meet them (`sponsor_set_meeting_interest`, migration 050). The
+ * sponsor is worked out on the server from the session; other sponsors'
+ * selections are never touched. It records interest only.
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { ArrowDown, ArrowLeft, CheckCircle2, ChevronRight, Eye, Lock, Mic, Search, User, Users, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
@@ -22,6 +28,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import SiteHeader from "@/components/SiteHeader";
 import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 
 type Person = {
   kind: "speaker" | "attendee";
@@ -32,6 +40,8 @@ type Person = {
   ticket_type: string;
   checked_in: boolean;
   checked_in_at: string | null;
+  /** This sponsor's Meeting Interest (attendees only; migration 050). */
+  meeting_interest?: boolean;
 };
 
 type EventInfo = {
@@ -76,6 +86,30 @@ export default function SponsorEventDetailPage() {
       return (data as EventInfo | null) ?? null;
     },
   });
+
+  const queryClient = useQueryClient();
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+
+  /** Sets this sponsor's Meeting Interest; shown at once, undone if saving fails. */
+  const setInterest = async (p: Person, next: boolean) => {
+    if (p.kind !== "attendee" || savingIds.has(p.id)) return;
+    const key = ["sponsor-people", eventId];
+    const apply = (value: boolean) =>
+      queryClient.setQueryData<Person[]>(key, (rows) => rows?.map((r) => (r.kind === "attendee" && r.id === p.id ? { ...r, meeting_interest: value } : r)));
+    apply(next);
+    setSavingIds((ids) => new Set(ids).add(p.id));
+    const { error } = await supabaseRpc("sponsor_set_meeting_interest" as never, { _eid: eventId, _registration_id: p.id, _interested: next } as never);
+    setSavingIds((ids) => { const n = new Set(ids); n.delete(p.id); return n; });
+    if (error) {
+      apply(!next);
+      const missing = /sponsor_set_meeting_interest|function .* does not exist|schema cache/i.test(error.message ?? "");
+      toast.error("Meeting Interest wasn't saved", {
+        description: missing ? "This needs a database update that hasn't been applied yet (migration 050)." : error.message,
+      });
+      return;
+    }
+    toast.success(next ? `Meeting Interest saved for ${p.name}` : `Meeting Interest removed for ${p.name}`);
+  };
 
   const { data: people = [], isLoading, refetch } = useQuery<Person[]>({
     queryKey: ["sponsor-people", eventId],
@@ -131,6 +165,8 @@ export default function SponsorEventDetailPage() {
     };
   }, [people]);
 
+  const interestCount = useMemo(() => people.filter((p) => p.kind === "attendee" && p.meeting_interest).length, [people]);
+
   const rows = useMemo(() => {
     const term = q.trim().toLowerCase();
     return people
@@ -184,6 +220,25 @@ export default function SponsorEventDetailPage() {
       {p.checked_in ? "Checked in" : "Not yet"}
     </span>
   );
+  const InterestBox = ({ p }: { p: Person }) =>
+    p.kind === "attendee" ? (
+      <label
+        onClick={(e) => e.stopPropagation()}
+        className="flex cursor-pointer items-center gap-2 text-[12.5px] font-medium text-muted-foreground"
+        title="Meeting Interest: you'd like to meet this attendee"
+      >
+        <Checkbox
+          checked={!!p.meeting_interest}
+          disabled={savingIds.has(p.id)}
+          onCheckedChange={(v) => void setInterest(p, v === true)}
+          aria-label={`Meeting Interest for ${p.name}`}
+        />
+        <span className="md:sr-only">Meeting Interest</span>
+      </label>
+    ) : (
+      <span className="text-muted-foreground" title="Speakers aren't registrations">—</span>
+    );
+
   const Avatar = ({ name, size = 40 }: { name: string; size?: number }) => (
     <span
       aria-hidden="true"
@@ -289,7 +344,9 @@ export default function SponsorEventDetailPage() {
         {/* Participants */}
         <div className="mb-3 mt-7 md:mt-9">
           <h2 className="text-[19px] font-bold tracking-tight md:text-[22px]">Participants</h2>
-          <p className="mt-0.5 text-[12.5px] text-muted-foreground">View only · updates as people check in</p>
+          <p className="mt-0.5 text-[12.5px] text-muted-foreground">
+            View only · updates as people check in{interestCount > 0 && <> · <b className="font-semibold text-foreground">{interestCount}</b> marked for Meeting Interest</>}
+          </p>
         </div>
 
         <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between md:gap-4">
@@ -352,8 +409,8 @@ export default function SponsorEventDetailPage() {
             </div>
             <ul className="md:hidden">
               {pageRows.length ? pageRows.map((p) => (
-                <li key={`${p.kind}-${p.id}`}>
-                  <button type="button" onClick={() => setOpenId(p.id)} className="flex w-full items-center gap-3 border-b border-border px-0.5 py-3 text-left last:border-0">
+                <li key={`${p.kind}-${p.id}`} className="border-b border-border last:border-0">
+                  <button type="button" onClick={() => setOpenId(p.id)} className="flex w-full items-center gap-3 px-0.5 pt-3 pb-2 text-left">
                     <Avatar name={p.name} />
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5 leading-snug">
                       <b className="text-[14.5px] font-semibold">{p.name}</b>
@@ -365,6 +422,7 @@ export default function SponsorEventDetailPage() {
                       {p.checked_in && p.checked_in_at && <small className="text-[11.5px] text-muted-foreground">{timeOf(p.checked_in_at)}</small>}
                     </span>
                   </button>
+                  {p.kind === "attendee" && <div className="pb-3 pl-[52px]"><InterestBox p={p} /></div>}
                 </li>
               )) : (
                 <li className="px-3 py-9 text-center text-[13.5px] text-muted-foreground"><b className="mb-1 block text-[15px] text-foreground">{emptyText.title}</b>{emptyText.body}</li>
@@ -386,6 +444,7 @@ export default function SponsorEventDetailPage() {
                     <th scope="col" className="border-b border-border px-[18px] py-3 font-semibold">Role</th>
                     <th scope="col" className="border-b border-border px-[18px] py-3 font-semibold">Check-in</th>
                     <th scope="col" className="border-b border-border px-[18px] py-3 font-semibold">Time</th>
+                    <th scope="col" className="border-b border-border px-[18px] py-3 font-semibold">Meeting Interest</th>
                     <th scope="col" className="w-10 border-b border-border"><span className="sr-only">Open</span></th>
                   </tr>
                 </thead>
@@ -406,10 +465,11 @@ export default function SponsorEventDetailPage() {
                       <td className="border-b border-border px-[18px] py-[11px]"><RoleTag p={p} /></td>
                       <td className="border-b border-border px-[18px] py-[11px]"><Status p={p} /></td>
                       <td className="border-b border-border px-[18px] py-[11px] text-[13px] text-muted-foreground">{p.checked_in ? timeOf(p.checked_in_at) || "—" : "—"}</td>
+                      <td className="border-b border-border px-[18px] py-[11px]"><InterestBox p={p} /></td>
                       <td className="border-b border-border pr-3 text-right text-muted-foreground"><ChevronRight className="ml-auto h-[18px] w-[18px]" /></td>
                     </tr>
                   )) : (
-                    <tr><td colSpan={7} className="px-3 py-9 text-center text-[13.5px] text-muted-foreground"><b className="mb-1 block text-[15px] text-foreground">{emptyText.title}</b>{emptyText.body}</td></tr>
+                    <tr><td colSpan={8} className="px-3 py-9 text-center text-[13.5px] text-muted-foreground"><b className="mb-1 block text-[15px] text-foreground">{emptyText.title}</b>{emptyText.body}</td></tr>
                   )}
                 </tbody>
               </table>
@@ -463,6 +523,15 @@ export default function SponsorEventDetailPage() {
               <Fact label="Designation" value={open.designation || "—"} wide />
               <Fact label="Company" value={open.company || "—"} wide />
             </div>
+            {open.kind === "attendee" && (
+              <label className="mt-2 flex cursor-pointer items-center justify-between gap-3 rounded-[14px] bg-muted/60 px-3 py-3">
+                <span>
+                  <b className="block text-[14px] font-semibold">Meeting Interest</b>
+                  <span className="text-[12px] text-muted-foreground">Let the organiser know you'd like to meet {open.name.split(" ")[0]}.</span>
+                </span>
+                <Switch checked={!!open.meeting_interest} disabled={savingIds.has(open.id)} onCheckedChange={(v) => void setInterest(open, v)} aria-label="Meeting Interest" />
+              </label>
+            )}
             <p className="mt-3.5 flex items-center gap-1.5 text-[12px] text-muted-foreground">
               <Lock className="h-3.5 w-3.5" /> View only. Check-in is handled by the organiser.
             </p>
