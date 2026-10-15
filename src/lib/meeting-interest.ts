@@ -267,6 +267,7 @@ export function meetingErrorMessage(message: string | null | undefined): string 
   if (m.includes("ARRANGED_BY_ORGANISER")) return "The organiser arranged this meeting. Cancel it instead if it won't happen.";
   if (m.includes("CANCEL_INSTEAD")) return "This meeting has a history, so it can't be removed. Cancel it instead.";
   if (m.includes("REASON_REQUIRED")) return "The event has ended — give a reason for changing this outcome.";
+  if (m.includes("Choose the sponsor")) return "You organise this event, so its meetings are managed from the event's Registrations tab, not the sponsor dashboard.";
   if (/function .* does not exist|schema cache|Could not find the function/i.test(m)) return "This needs a database update that hasn't been applied yet (migration 054).";
   return m || "Something went wrong.";
 }

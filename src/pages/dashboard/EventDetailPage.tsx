@@ -1,4 +1,4 @@
-import { useEffect, useState, Suspense, lazy } from "react";
+import { useEffect, useRef, useState, Suspense, lazy } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useAppBack } from "@/lib/app-back";
 import { supabase } from "@/integrations/supabase/client";
@@ -171,18 +171,27 @@ const EventDetailPage = () => {
     return () => { supabase.removeChannel(channel); };
   }, [event?.id]);
 
-  // Deep-link support: keep `activeSection` in sync with `?tab=` so external
-  // links (community sidebar, etc.) can land on a specific manage-event tab.
+  // The open tab lives in `?tab=`, so a reload (or a shared link) lands on
+  // the same tab. Links that change `?tab=` (community sidebar, back/forward)
+  // switch the tab; switching tabs writes it back. Only a *change* of the
+  // param switches the tab, so a click isn't undone by the old value.
+  const lastTabParam = useRef(searchParams.get("tab"));
   useEffect(() => {
     const tab = searchParams.get("tab");
-    if (tab && tab !== activeSection) {
-      setActiveSection(tab);
-      // Drop the param so internal nav doesn't fight with the URL.
-      const next = new URLSearchParams(searchParams);
-      next.delete("tab");
-      setSearchParams(next, { replace: true });
-    }
-  }, [searchParams, activeSection, setSearchParams]);
+    if (tab === lastTabParam.current) return;
+    lastTabParam.current = tab;
+    if (tab && tab !== activeSection) setActiveSection(tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+  useEffect(() => {
+    const want = activeSection === "dashboard" ? null : activeSection;
+    if (searchParams.get("tab") === want) return;
+    const next = new URLSearchParams(searchParams);
+    if (want) next.set("tab", want); else next.delete("tab");
+    lastTabParam.current = want;
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection]);
 
   // Live validation + uniqueness check while typing (debounced)
   useEffect(() => {
