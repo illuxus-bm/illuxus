@@ -12,12 +12,14 @@
  * migration, speakers' designations are read from their public profiles and
  * attendees show company only.
  *
- * Meeting Interest: a checkbox per attendee records that this sponsor would
- * like to meet them (`sponsor_set_meeting_interest`, migration 050). The
+ * Meeting Interest: a checkbox per attendee or speaker records that this
+ * sponsor would like to meet them (`sponsor_set_meeting_interest`, migration
+ * 050; speakers from 051). The
  * sponsor is worked out on the server from the session; other sponsors'
- * selections are never touched. It records interest only.
+ * selections are never touched. It records interest only. Teammates' changes
+ * appear live (migration 051).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -40,7 +42,7 @@ type Person = {
   ticket_type: string;
   checked_in: boolean;
   checked_in_at: string | null;
-  /** This sponsor's Meeting Interest (attendees only; migration 050). */
+  /** This sponsor's Meeting Interest (attendees from migration 050, speakers from 051). */
   meeting_interest?: boolean;
 };
 
@@ -89,22 +91,26 @@ export default function SponsorEventDetailPage() {
 
   const queryClient = useQueryClient();
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const savingRef = useRef(savingIds);
+  savingRef.current = savingIds;
 
   /** Sets this sponsor's Meeting Interest; shown at once, undone if saving fails. */
   const setInterest = async (p: Person, next: boolean) => {
-    if (p.kind !== "attendee" || savingIds.has(p.id)) return;
+    if (savingIds.has(p.id)) return;
     const key = ["sponsor-people", eventId];
     const apply = (value: boolean) =>
-      queryClient.setQueryData<Person[]>(key, (rows) => rows?.map((r) => (r.kind === "attendee" && r.id === p.id ? { ...r, meeting_interest: value } : r)));
+      queryClient.setQueryData<Person[]>(key, (rows) => rows?.map((r) => (r.kind === p.kind && r.id === p.id ? { ...r, meeting_interest: value } : r)));
     apply(next);
     setSavingIds((ids) => new Set(ids).add(p.id));
-    const { error } = await supabaseRpc("sponsor_set_meeting_interest" as never, { _eid: eventId, _registration_id: p.id, _interested: next } as never);
+    const { error } = await supabaseRpc("sponsor_set_meeting_interest" as never, (p.kind === "speaker"
+      ? { _eid: eventId, _registration_id: null, _speaker_id: p.id, _interested: next }
+      : { _eid: eventId, _registration_id: p.id, _interested: next }) as never);
     setSavingIds((ids) => { const n = new Set(ids); n.delete(p.id); return n; });
     if (error) {
       apply(!next);
       const missing = /sponsor_set_meeting_interest|function .* does not exist|schema cache/i.test(error.message ?? "");
       toast.error("Meeting Interest wasn't saved", {
-        description: missing ? "This needs a database update that hasn't been applied yet (migration 050)." : error.message,
+        description: missing ? `This needs a database update that hasn't been applied yet (migration ${p.kind === "speaker" ? "051" : "050"}).` : error.message,
       });
       return;
     }
@@ -129,14 +135,25 @@ export default function SponsorEventDetailPage() {
     },
   });
 
-  // Live: refresh as people check in.
+  // Live: refresh as people check in and as anyone on the sponsor's team
+  // marks Meeting Interest (streamed by migration 051). Also every 30s, since
+  // sponsors can't receive registration changes directly.
   useEffect(() => {
     if (!user || !eventId) return;
+    let soonTimer: ReturnType<typeof setTimeout> | undefined;
+    const soon = () => {
+      clearTimeout(soonTimer);
+      // Don't overwrite a tick that's still saving.
+      soonTimer = setTimeout(() => { if (!savingRef.current.size) void refetch(); }, 300);
+    };
     const channel = supabase
       .channel(`sponsor-portal-${eventId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "registrations", filter: `event_id=eq.${eventId}` }, () => void refetch())
+      .on("postgres_changes", { event: "*", schema: "public", table: "registrations", filter: `event_id=eq.${eventId}` }, soon)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "sponsor_meeting_interests", filter: `event_id=eq.${eventId}` }, soon)
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "sponsor_meeting_interests" }, soon)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const poll = setInterval(() => { if (document.visibilityState === "visible") soon(); }, 30_000);
+    return () => { clearTimeout(soonTimer); clearInterval(poll); supabase.removeChannel(channel); };
   }, [user, eventId, refetch]);
 
   useEffect(() => {
@@ -165,7 +182,7 @@ export default function SponsorEventDetailPage() {
     };
   }, [people]);
 
-  const interestCount = useMemo(() => people.filter((p) => p.kind === "attendee" && p.meeting_interest).length, [people]);
+  const interestCount = useMemo(() => people.filter((p) => p.meeting_interest).length, [people]);
 
   const rows = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -220,24 +237,21 @@ export default function SponsorEventDetailPage() {
       {p.checked_in ? "Checked in" : "Not yet"}
     </span>
   );
-  const InterestBox = ({ p }: { p: Person }) =>
-    p.kind === "attendee" ? (
-      <label
-        onClick={(e) => e.stopPropagation()}
-        className="flex cursor-pointer items-center gap-2 text-[12.5px] font-medium text-muted-foreground"
-        title="Meeting Interest: you'd like to meet this attendee"
-      >
-        <Checkbox
-          checked={!!p.meeting_interest}
-          disabled={savingIds.has(p.id)}
-          onCheckedChange={(v) => void setInterest(p, v === true)}
-          aria-label={`Meeting Interest for ${p.name}`}
-        />
-        <span className="md:sr-only">Meeting Interest</span>
-      </label>
-    ) : (
-      <span className="text-muted-foreground" title="Speakers aren't registrations">—</span>
-    );
+  const InterestBox = ({ p }: { p: Person }) => (
+    <label
+      onClick={(e) => e.stopPropagation()}
+      className="flex cursor-pointer items-center gap-2 text-[12.5px] font-medium text-muted-foreground"
+      title={`Meeting Interest: you'd like to meet this ${p.kind}`}
+    >
+      <Checkbox
+        checked={!!p.meeting_interest}
+        disabled={savingIds.has(p.id)}
+        onCheckedChange={(v) => void setInterest(p, v === true)}
+        aria-label={`Meeting Interest for ${p.name}`}
+      />
+      <span className="md:sr-only">Meeting Interest</span>
+    </label>
+  );
 
   const Avatar = ({ name, size = 40 }: { name: string; size?: number }) => (
     <span
@@ -422,7 +436,7 @@ export default function SponsorEventDetailPage() {
                       {p.checked_in && p.checked_in_at && <small className="text-[11.5px] text-muted-foreground">{timeOf(p.checked_in_at)}</small>}
                     </span>
                   </button>
-                  {p.kind === "attendee" && <div className="pb-3 pl-[52px]"><InterestBox p={p} /></div>}
+                  <div className="pb-3 pl-[52px]"><InterestBox p={p} /></div>
                 </li>
               )) : (
                 <li className="px-3 py-9 text-center text-[13.5px] text-muted-foreground"><b className="mb-1 block text-[15px] text-foreground">{emptyText.title}</b>{emptyText.body}</li>
@@ -523,15 +537,13 @@ export default function SponsorEventDetailPage() {
               <Fact label="Designation" value={open.designation || "—"} wide />
               <Fact label="Company" value={open.company || "—"} wide />
             </div>
-            {open.kind === "attendee" && (
-              <label className="mt-2 flex cursor-pointer items-center justify-between gap-3 rounded-[14px] bg-muted/60 px-3 py-3">
-                <span>
-                  <b className="block text-[14px] font-semibold">Meeting Interest</b>
-                  <span className="text-[12px] text-muted-foreground">Let the organiser know you'd like to meet {open.name.split(" ")[0]}.</span>
-                </span>
-                <Switch checked={!!open.meeting_interest} disabled={savingIds.has(open.id)} onCheckedChange={(v) => void setInterest(open, v)} aria-label="Meeting Interest" />
-              </label>
-            )}
+            <label className="mt-2 flex cursor-pointer items-center justify-between gap-3 rounded-[14px] bg-muted/60 px-3 py-3">
+              <span>
+                <b className="block text-[14px] font-semibold">Meeting Interest</b>
+                <span className="text-[12px] text-muted-foreground">Let the organiser know you'd like to meet {open.name.split(" ")[0]}.</span>
+              </span>
+              <Switch checked={!!open.meeting_interest} disabled={savingIds.has(open.id)} onCheckedChange={(v) => void setInterest(open, v)} aria-label="Meeting Interest" />
+            </label>
             <p className="mt-3.5 flex items-center gap-1.5 text-[12px] text-muted-foreground">
               <Lock className="h-3.5 w-3.5" /> View only. Check-in is handled by the organiser.
             </p>

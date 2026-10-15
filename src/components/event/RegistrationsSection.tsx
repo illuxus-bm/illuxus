@@ -43,7 +43,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command";
 import {
-  interestedSponsorOptions, matchesMeetingInterest, sponsorsByRegistration,
+  interestedSponsorOptions, matchesMeetingInterest, registrationKey, speakerEmailKey, speakerKey, sponsorsByPerson, sponsorsFor,
   type InterestedSponsor, type MeetingInterest, type MeetingInterestFilter,
 } from "@/lib/meeting-interest";
 
@@ -74,6 +74,18 @@ type Row = {
   qr_payload: string;
   registration?: Registration; // only present when source === 'registration'
 };
+
+/** How a row is found among Meeting Interests: an attendee by registration; a
+ *  speaker by speaker profile, or by email when they also registered. Sponsor
+ *  team members can't be marked. */
+function interestKeys(r: Row): string[] {
+  if (r.kind === "sponsor") return [];
+  const keys: string[] = [];
+  if (r.registration) keys.push(registrationKey(r.registration.id));
+  if (r.source === "speaker") keys.push(speakerKey(r.refId));
+  if (r.kind === "speaker" && r.email) keys.push(speakerEmailKey(r.email));
+  return keys;
+}
 
 const statusColors: Record<string, string> = {
   confirmed: "bg-green-500/10 text-green-600 border-green-500/20",
@@ -129,12 +141,12 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  // Meeting Interest (migration 050): which sponsors would like to meet each
-  // registered attendee. Many sponsors can mark the same person.
+  // Meeting Interest (migrations 050/051): which sponsors would like to meet
+  // each attendee or speaker. Many sponsors can mark the same person.
   const [interests, setInterests] = useState<MeetingInterest[]>([]);
   const [meetingFilter, setMeetingFilter] = useState<MeetingInterestFilter>("all");
   const [meetingOpen, setMeetingOpen] = useState(false);
-  const interestedBy = useMemo(() => sponsorsByRegistration(interests), [interests]);
+  const interestedBy = useMemo(() => sponsorsByPerson(interests), [interests]);
   const interestOptions = useMemo(() => interestedSponsorOptions(interests), [interests]);
   const [kindFilter, setKindFilter] = useState<RowKind | "all">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -451,24 +463,48 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     return [...attendeeRows, ...visibleExtras];
   }, [registrations, extras]);
 
-  // Search + role + status filters. The tab counts come from this, so they
-  // don't change when you switch tabs.
+  // Meeting Interest, live: reloaded as sponsors tick or untick (streamed by
+  // migration 051), when the tab comes back into view, and every 30s in case
+  // the stream drops.
   useEffect(() => {
     let alive = true;
-    supabaseRpc("event_meeting_interests" as never, { _eid: eventId } as never).then(({ data, error }) => {
-      // Before migration 050 there is nothing to show; the column stays empty.
-      if (alive && !error) setInterests((data || []) as unknown as MeetingInterest[]);
-    });
-    return () => { alive = false; };
-  }, [eventId, registrations]);
+    let soonTimer: ReturnType<typeof setTimeout> | undefined;
+    const load = () => {
+      supabaseRpc("event_meeting_interests" as never, { _eid: eventId } as never).then(({ data, error }) => {
+        // Before migration 050 there is nothing to show; the column stays empty.
+        if (alive && !error) setInterests((data || []) as unknown as MeetingInterest[]);
+      });
+    };
+    // Several clicks in a row become one reload.
+    const soon = () => { clearTimeout(soonTimer); soonTimer = setTimeout(load, 300); };
+    load();
+    const channel = supabase
+      .channel(`meeting-interests-${eventId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "sponsor_meeting_interests", filter: `event_id=eq.${eventId}` }, soon)
+      // Realtime can't filter deletes, so any removal reloads.
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "sponsor_meeting_interests" }, soon)
+      .subscribe();
+    const onVisible = () => { if (document.visibilityState === "visible") soon(); };
+    document.addEventListener("visibilitychange", onVisible);
+    const poll = setInterval(() => { if (document.visibilityState === "visible") load(); }, 30_000);
+    return () => {
+      alive = false;
+      clearTimeout(soonTimer);
+      clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisible);
+      supabase.removeChannel(channel);
+    };
+  }, [eventId]);
 
+  // Search + role + status filters. The tab counts come from this, so they
+  // don't change when you switch tabs.
   const baseRows = allRows.filter((r) => {
     const matchSearch =
       r.name.toLowerCase().includes(search.toLowerCase()) ||
       r.email.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "all" || r.status === statusFilter;
     const matchKind = kindFilter === "all" || r.kind === kindFilter;
-    const matchInterest = matchesMeetingInterest(r.registration?.id, interestedBy, meetingFilter);
+    const matchInterest = matchesMeetingInterest(interestKeys(r), interestedBy, meetingFilter);
     return matchSearch && matchStatus && matchKind && matchInterest;
   });
 
@@ -1030,7 +1066,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         reg?.utm_content ?? "",
         reg?.utm_term ?? "",
         // Meeting Interest
-        (reg ? interestedBy.get(reg.id) ?? [] : []).map((sp) => sp.name).join("; "),
+        sponsorsFor(interestKeys(r), interestedBy).map((sp) => sp.name).join("; "),
       ];
     });
     // Proper CSV escaping — values containing commas, quotes, or newlines
@@ -1614,8 +1650,8 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                           <span className={`md:hidden inline-flex mt-1 px-1.5 py-0 rounded-full text-[10px] font-medium border capitalize ${kindColors[r.kind]}`}>
                             {r.kind}
                           </span>
-                          {r.registration && (interestedBy.get(r.registration.id)?.length ?? 0) > 0 && (
-                            <div className="md:hidden mt-1"><InterestedSponsors sponsors={interestedBy.get(r.registration.id)!} /></div>
+                          {sponsorsFor(interestKeys(r), interestedBy).length > 0 && (
+                            <div className="md:hidden mt-1"><InterestedSponsors sponsors={sponsorsFor(interestKeys(r), interestedBy)} /></div>
                           )}
                           <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
                             <AttendanceControls
@@ -1686,7 +1722,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                       )}
                     </td>
                     <td className="px-3 sm:px-4 py-2 sm:py-3 hidden md:table-cell">
-                      <InterestedSponsors sponsors={r.registration ? interestedBy.get(r.registration.id) ?? [] : []} />
+                      <InterestedSponsors sponsors={sponsorsFor(interestKeys(r), interestedBy)} />
                     </td>
                     <td className="p-2 sm:p-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-0.5">

@@ -88,7 +88,12 @@ const ATTENDEE_FILES = [
     // inline hint is unchanged, and the CSV still has the five contiguous
     // UTM Source / Medium / Campaign / Content / Term columns from the
     // registration row, blank for speaker and sponsor rows.
-    hash: "84314257ed87ea21845ab7a0dfdfdc4b980f321f7b3bf1574e43f6f11a344b2f",
+    //
+    // Bumped again for live Meeting Interest updates and speaker interests.
+    // Re-audited against 6.4 and 6.6: only the interest loading (now a
+    // realtime subscription) and how rows are matched to interests changed.
+    // The `via <utm_source>` hint and the five UTM CSV columns are untouched.
+    hash: "f496c7b9296fea5a2dd2791492c8595e0b96d3ffbb99504b2a722afcf1e3d92a",
   },
   {
     path: "src/components/event/registrations/RegistrantQuickView.tsx",
