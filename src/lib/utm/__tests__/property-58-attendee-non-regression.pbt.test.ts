@@ -98,7 +98,11 @@ const ATTENDEE_FILES = [
     // 6.4 and 6.6: the Interested Sponsors cell became a meetings popover, the
     // filter gained statuses, and the CSV gained Meeting Status / Met At after
     // Interested Sponsors. The UTM hint and five UTM CSV columns are untouched.
-    hash: "1ba5f63bd70696b751be225dcd5a41bc2803b1f63f56950a371520d4b98af71b",
+    //
+    // Bumped again for meeting disputes and history (migration 054). Re-audited
+    // against 6.4 and 6.6: only the meetings popover, filter and event end date
+    // changed. The UTM hint and five UTM CSV columns are untouched.
+    hash: "2961abcab5eded6f03325d870c5717dd77def1d8cfbad05d672c8c6ba727bc75",
   },
   {
     path: "src/components/event/registrations/RegistrantQuickView.tsx",

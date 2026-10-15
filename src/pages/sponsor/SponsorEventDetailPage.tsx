@@ -23,6 +23,11 @@
  * happen — set by the sponsor or the organiser. The stat chips above the list
  * count each status and filter by it; the details panel shows the history and
  * a private note only the sponsor's team and the organisers see.
+ *
+ * Trustworthy records (migration 054): the organiser has the final say; the
+ * sponsor can change its own outcome for 15 minutes, then disputes it with a
+ * reason; meetings that progressed are cancelled, never removed; every change
+ * is in an append-only history both sides can see.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
@@ -39,8 +44,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import MeetingStatusControl, { MeetingTimeline, type MeetingChange } from "@/components/meetings/MeetingStatusControl";
-import { MEETING_STATUS_LABEL, MEETING_STATUSES, type MeetingState, type MeetingStatus } from "@/lib/meeting-interest";
+import MeetingStatusControl, { MeetingDisputeInfo, MeetingHistory, type MeetingChange } from "@/components/meetings/MeetingStatusControl";
+import {
+  MEETING_STATUS_LABEL, MEETING_STATUSES, isOutcome, meetingErrorMessage,
+  type MeetingState, type MeetingStatus,
+} from "@/lib/meeting-interest";
 
 type Person = {
   kind: "speaker" | "attendee";
@@ -63,15 +71,23 @@ type Person = {
   note?: string | null;
   status_by_side?: "sponsor" | "organiser" | null;
   status_changed_at?: string | null;
+  /** Migration 054: cause, lock and dispute fields, and whether the event is over. */
+  status_cause?: MeetingState["status_cause"];
+  ever_progressed?: boolean | null;
+  outcome_at?: string | null;
+  dispute_status?: MeetingState["dispute_status"];
+  dispute_reason?: string | null;
+  dispute_requested_status?: MeetingStatus | null;
+  disputed_at?: string | null;
+  dispute_resolution?: MeetingState["dispute_resolution"];
+  dispute_note?: string | null;
+  resolved_at?: string | null;
+  event_over?: boolean | null;
 };
 
 /** The person's meeting with this sponsor, or null if not marked. */
 const meetingOf = (p: Person): MeetingState | null => (p.meeting_interest
-  ? {
-    status: p.meeting_status ?? "interested",
-    scheduled_at: p.scheduled_at, location: p.location, met_at: p.met_at,
-    status_reason: p.status_reason, note: p.note, status_by_side: p.status_by_side, status_changed_at: p.status_changed_at,
-  }
+  ? { ...p, status: p.meeting_status ?? "interested" }
   : null);
 
 const personArgs = (p: Person) => (p.kind === "speaker"
@@ -106,7 +122,7 @@ export default function SponsorEventDetailPage() {
   const [asc, setAsc] = useState(true);
   const [page, setPage] = useState(0);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [meet, setMeet] = useState<"any" | MeetingStatus>("any");
+  const [meet, setMeet] = useState<"any" | "disputed" | MeetingStatus>("any");
   const [noteDraft, setNoteDraft] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -146,8 +162,9 @@ export default function SponsorEventDetailPage() {
       apply(!next);
       const missing = /sponsor_set_meeting_interest|function .* does not exist|schema cache/i.test(error.message ?? "");
       toast.error("Meeting Interest wasn't saved", {
-        description: missing ? `This needs a database update that hasn't been applied yet (migration ${p.kind === "speaker" ? "051" : "050"}).` : error.message,
+        description: missing ? `This needs a database update that hasn't been applied yet (migration ${p.kind === "speaker" ? "051" : "050"}).` : meetingErrorMessage(error.message),
       });
+      void refetch();
       return;
     }
     toast.success(next ? `Meeting Interest saved for ${p.name}` : `Meeting Interest removed for ${p.name}`);
@@ -164,7 +181,10 @@ export default function SponsorEventDetailPage() {
       scheduled_at: change.status === "arranged" ? change.scheduledAt ?? null : change.status === "interested" ? null : p.scheduled_at,
       location: change.status === "arranged" ? change.location ?? null : change.status === "interested" ? null : p.location,
       met_at: change.status === "met" ? p.met_at ?? now : null,
-      status_reason: change.status === "not_met" ? change.reason ?? null : null,
+      status_reason: change.status === "not_met" || change.status === "cancelled" ? change.reason ?? null : null,
+      status_cause: change.status === "not_met" ? change.cause ?? "other" : null,
+      outcome_at: isOutcome(change.status) ? (isOutcome(p.meeting_status) ? p.outcome_at ?? now : now) : null,
+      ever_progressed: !!p.ever_progressed || change.status !== "interested",
       status_by_side: "sponsor",
       status_changed_at: now,
     };
@@ -173,17 +193,29 @@ export default function SponsorEventDetailPage() {
     const { error } = await supabaseRpc("set_meeting_status" as never, {
       _eid: eventId, _status: change.status, ...personArgs(p),
       _scheduled_at: change.scheduledAt ?? null, _location: change.location ?? null, _reason: change.reason ?? null,
+      _cause: change.status === "not_met" ? change.cause ?? "other" : null,
     } as never);
     setSavingIds((ids) => { const n = new Set(ids); n.delete(p.id); return n; });
     if (error) {
       queryClient.setQueryData(key, before);
-      const missing = /set_meeting_status|function .* does not exist|schema cache/i.test(error.message ?? "");
-      toast.error("Meeting wasn't updated", {
-        description: missing ? "This needs a database update that hasn't been applied yet (migration 052)." : error.message,
-      });
+      toast.error("Meeting wasn't updated", { description: meetingErrorMessage(error.message) });
+      void refetch();
       return;
     }
     toast.success(`${p.name}: ${MEETING_STATUS_LABEL[change.status]}`);
+    void refetch();
+  };
+
+  /** Asks the organiser to change a locked outcome. */
+  const disputeMeeting = async (p: Person, requested: MeetingStatus, reason: string) => {
+    setSavingIds((ids) => new Set(ids).add(p.id));
+    const { error } = await supabaseRpc("dispute_meeting" as never, {
+      _eid: eventId, _requested_status: requested, _reason: reason, ...personArgs(p),
+    } as never);
+    setSavingIds((ids) => { const n = new Set(ids); n.delete(p.id); return n; });
+    if (error) { toast.error("Dispute wasn't sent", { description: meetingErrorMessage(error.message) }); return; }
+    toast.success("Dispute sent to the organiser");
+    void refetch();
   };
 
   /** Saves the private note on this sponsor's meeting with `p`. */
@@ -192,8 +224,7 @@ export default function SponsorEventDetailPage() {
     const { error } = await supabaseRpc("set_meeting_note" as never, { _eid: eventId, _note: note, ...personArgs(p) } as never);
     setSavingIds((ids) => { const n = new Set(ids); n.delete(p.id); return n; });
     if (error) {
-      const missing = /set_meeting_note|function .* does not exist|schema cache/i.test(error.message ?? "");
-      toast.error("Note wasn't saved", { description: missing ? "This needs a database update that hasn't been applied yet (migration 052)." : error.message });
+      toast.error("Note wasn't saved", { description: meetingErrorMessage(error.message) });
       return;
     }
     queryClient.setQueryData<Person[]>(["sponsor-people", eventId], (rows) => rows?.map((r) => (r.kind === p.kind && r.id === p.id ? { ...r, note: note.trim() || null } : r)));
@@ -278,10 +309,10 @@ export default function SponsorEventDetailPage() {
   }, [people]);
 
   const meetingCounts = useMemo(() => {
-    const c: Record<MeetingStatus | "marked", number> = { marked: 0, interested: 0, arranged: 0, met: 0, not_met: 0 };
+    const c: Record<MeetingStatus | "marked" | "disputed", number> = { marked: 0, interested: 0, arranged: 0, met: 0, not_met: 0, cancelled: 0, disputed: 0 };
     for (const p of people) {
       const m = meetingOf(p);
-      if (m) { c.marked++; c[m.status]++; }
+      if (m) { c.marked++; c[m.status]++; if (m.dispute_status === "open") c.disputed++; }
     }
     return c;
   }, [people]);
@@ -291,7 +322,7 @@ export default function SponsorEventDetailPage() {
     return people
       .filter((p) => tab === "all" || p.kind === tab)
       .filter((p) => (status === "in" ? p.checked_in : status === "no" ? !p.checked_in : true))
-      .filter((p) => meet === "any" || meetingOf(p)?.status === meet)
+      .filter((p) => meet === "any" || (meet === "disputed" ? meetingOf(p)?.dispute_status === "open" : meetingOf(p)?.status === meet))
       .filter((p) => !term || [p.name, p.company, p.designation].some((v) => (v ?? "").toLowerCase().includes(term)))
       .sort((a, b) => (asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)));
   }, [people, tab, status, q, asc, meet]);
@@ -312,6 +343,8 @@ export default function SponsorEventDetailPage() {
   const end = event ? new Date(event.end_date || event.date).getTime() + (event.end_date ? 0 : 12 * 3_600_000) : NaN;
   const live = Number.isFinite(start) && now >= start && now <= end;
   const over = Number.isFinite(end) && now > end;
+  // Meeting rules use the database's view of "over" when it has one (migration 054).
+  const eventOver = people.some((p) => p.event_over) || over;
   const doors = event ? new Date(event.date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
   const until = Number.isFinite(start) ? Math.max(0, start - now) : 0;
   // Calendar days to the start ("tomorrow" even when it's under 24 hours away).
@@ -349,9 +382,14 @@ export default function SponsorEventDetailPage() {
         <MeetingStatusControl
           meeting={m}
           personName={p.name}
+          viewer="sponsor"
+          eventOver={eventOver}
+          checkedIn={p.checked_in}
+          now={now}
           busy={savingIds.has(p.id)}
           onChange={(c) => void setMeeting(p, c)}
           onRemove={() => void setInterest(p, false)}
+          onDispute={(req, why) => void disputeMeeting(p, req, why)}
         />
       );
     }
@@ -482,7 +520,11 @@ export default function SponsorEventDetailPage() {
           </p>
           {meetingCounts.marked > 0 && (
             <div className="mt-3 flex gap-1.5 overflow-x-auto [scrollbar-width:none]" role="group" aria-label="Meetings">
-              {([["any", "All meetings", meetingCounts.marked], ...MEETING_STATUSES.map((k) => [k, MEETING_STATUS_LABEL[k], meetingCounts[k]] as const)] as const)
+              {([
+                ["any", "All meetings", meetingCounts.marked],
+                ...MEETING_STATUSES.map((k) => [k, MEETING_STATUS_LABEL[k], meetingCounts[k]] as const),
+                ["disputed", "Disputed", meetingCounts.disputed],
+              ] as const)
                 .filter(([k, , n]) => k === "any" || k === "interested" || k === "arranged" || k === "met" || n > 0)
                 .map(([k, label, n]) => (
                   <button
@@ -500,6 +542,8 @@ export default function SponsorEventDetailPage() {
                       "bg-blue-500": k === "arranged",
                       "bg-green-500": k === "met",
                       "bg-red-500": k === "not_met",
+                      "bg-muted-foreground/30": k === "cancelled",
+                      "bg-amber-500": k === "disputed",
                     })} />}
                     {label} <b className="font-semibold tabular-nums">{n}</b>
                   </button>
@@ -689,12 +733,30 @@ export default function SponsorEventDetailPage() {
                   <MeetingStatusControl
                     meeting={meetingOf(open)}
                     personName={open.name}
+                    viewer="sponsor"
+                    eventOver={eventOver}
+                    checkedIn={open.checked_in}
+                    now={now}
                     busy={savingIds.has(open.id)}
                     onChange={(c) => void setMeeting(open, c)}
                     onRemove={() => void setInterest(open, false)}
+                    onDispute={(req, why) => void disputeMeeting(open, req, why)}
                   />
                 </div>
-                <div className="mt-3"><MeetingTimeline meeting={meetingOf(open)!} interestedAt={open.interested_at} viewer="sponsor" /></div>
+                <p className="mt-2 text-[12px] text-muted-foreground">
+                  {open.checked_in ? `Checked in${open.checked_in_at ? ` at ${timeOf(open.checked_in_at)}` : ""}` : "Not checked in"}
+                </p>
+                <div className="mt-2.5"><MeetingDisputeInfo meeting={meetingOf(open)!} viewer="sponsor" /></div>
+                <div className="mt-3 border-t border-border pt-3">
+                  <b className="mb-2 block text-[13px] font-semibold">History</b>
+                  <MeetingHistory
+                    eventId={eventId!}
+                    registrationId={open.kind === "attendee" ? open.id : null}
+                    speakerId={open.kind === "speaker" ? open.id : null}
+                    viewer="sponsor"
+                    refreshKey={`${open.meeting_status}|${open.status_changed_at}|${open.dispute_status}|${open.disputed_at}|${open.note}`}
+                  />
+                </div>
                 <div className="mt-3 border-t border-border pt-3">
                   <div className="flex items-center justify-between gap-2">
                     <b className="text-[13px] font-semibold">Private note</b>

@@ -100,9 +100,9 @@ describe("Meeting Interest filter", () => {
 describe("Meetings", () => {
   it("totals each sponsor's meetings by status", () => {
     const t = meetingTotals(interests);
-    expect(t.get("b")).toEqual({ marked: 2, interested: 1, arranged: 1, met: 0, not_met: 0 });
-    expect(t.get("c")).toEqual({ marked: 2, interested: 1, arranged: 0, met: 0, not_met: 1 });
-    expect(t.get("a")).toEqual({ marked: 1, interested: 0, arranged: 0, met: 1, not_met: 0 });
+    expect(t.get("b")).toEqual({ marked: 2, interested: 1, arranged: 1, met: 0, not_met: 0, cancelled: 0, disputed: 0 });
+    expect(t.get("c")).toEqual({ marked: 2, interested: 1, arranged: 0, met: 0, not_met: 1, cancelled: 0, disputed: 0 });
+    expect(t.get("a")).toEqual({ marked: 1, interested: 0, arranged: 0, met: 1, not_met: 0, cancelled: 0, disputed: 0 });
   });
 
   it("undo goes back to arranged only when a time or place was set", () => {
