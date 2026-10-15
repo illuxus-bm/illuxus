@@ -14,8 +14,9 @@ import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Building2, Search, ArrowLeft, MoreHorizontal, Trash2, Pencil, RefreshCw,
-  Crown, DollarSign, Eye, Globe, Users, Calendar,
+  Crown, DollarSign, Eye, Globe, Users, Calendar, Plus,
 } from "lucide-react";
+import { CreateOrganizationDialog } from "@/components/admin/CreateOrganizationDialog";
 import { format, parseISO, subDays } from "date-fns";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -299,6 +300,7 @@ export default function OrganizationManagementPage() {
   const [filter, setFilter] = useState<FilterChip>("all");
   const [drawerOrg, setDrawerOrg] = useState<OrgRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OrgRow | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const orgsQ = useQuery({
     queryKey: ["admin-orgs"],
@@ -407,10 +409,16 @@ export default function OrganizationManagementPage() {
               </div>
             </div>
           </div>
-          <Button size="sm" variant="outline" onClick={() => orgsQ.refetch()} className="h-8">
-            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? "animate-spin" : ""}`} /> Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => orgsQ.refetch()} className="h-8">
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${isLoading ? "animate-spin" : ""}`} /> Refresh
+            </Button>
+            <Button size="sm" onClick={() => setCreating(true)} className="h-8">
+              <Plus className="h-3.5 w-3.5 mr-1.5" /> Create organization
+            </Button>
+          </div>
         </div>
+        <CreateOrganizationDialog open={creating} onOpenChange={setCreating} onCreated={() => void orgsQ.refetch()} />
 
         {/* KPIs */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
