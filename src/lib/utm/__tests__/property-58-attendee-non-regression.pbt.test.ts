@@ -93,7 +93,12 @@ const ATTENDEE_FILES = [
     // Re-audited against 6.4 and 6.6: only the interest loading (now a
     // realtime subscription) and how rows are matched to interests changed.
     // The `via <utm_source>` hint and the five UTM CSV columns are untouched.
-    hash: "f496c7b9296fea5a2dd2791492c8595e0b96d3ffbb99504b2a722afcf1e3d92a",
+    //
+    // Bumped again for meeting status (migration 052). Re-audited against
+    // 6.4 and 6.6: the Interested Sponsors cell became a meetings popover, the
+    // filter gained statuses, and the CSV gained Meeting Status / Met At after
+    // Interested Sponsors. The UTM hint and five UTM CSV columns are untouched.
+    hash: "1ba5f63bd70696b751be225dcd5a41bc2803b1f63f56950a371520d4b98af71b",
   },
   {
     path: "src/components/event/registrations/RegistrantQuickView.tsx",

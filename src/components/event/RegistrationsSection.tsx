@@ -43,9 +43,11 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command";
 import {
-  interestedSponsorOptions, matchesMeetingInterest, registrationKey, speakerEmailKey, speakerKey, sponsorsByPerson, sponsorsFor,
+  ALL_MEETINGS, MEETING_PILL_CLASS, MEETING_STATUS_LABEL, MEETING_STATUSES, interestedSponsorOptions, matchesMeetingInterest, meetingSummary,
+  registrationKey, speakerEmailKey, speakerKey, sponsorsByPerson, sponsorsFor,
   type InterestedSponsor, type MeetingInterest, type MeetingInterestFilter,
 } from "@/lib/meeting-interest";
+import MeetingStatusControl, { type MeetingChange } from "@/components/meetings/MeetingStatusControl";
 
 type Registration = Tables<"registrations">;
 
@@ -141,10 +143,13 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  // Meeting Interest (migrations 050/051): which sponsors would like to meet
-  // each attendee or speaker. Many sponsors can mark the same person.
+  // Meeting Interest (migrations 050–052): which sponsors would like to meet
+  // each attendee or speaker, and how far each meeting got. Many sponsors can
+  // mark the same person.
   const [interests, setInterests] = useState<MeetingInterest[]>([]);
-  const [meetingFilter, setMeetingFilter] = useState<MeetingInterestFilter>("all");
+  const reloadInterestsRef = useRef<() => void>(() => {});
+  const [eventSponsors, setEventSponsors] = useState<{ id: string; name: string }[]>([]);
+  const [meetingFilter, setMeetingFilter] = useState<MeetingInterestFilter>(ALL_MEETINGS);
   const [meetingOpen, setMeetingOpen] = useState(false);
   const interestedBy = useMemo(() => sponsorsByPerson(interests), [interests]);
   const interestOptions = useMemo(() => interestedSponsorOptions(interests), [interests]);
@@ -270,6 +275,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         total_minutes: 0,
     }));
     setExtras([...speakerRows, ...sponsorRows]);
+    setEventSponsors([...sponsorByMap].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)));
   };
 
   useEffect(() => {
@@ -477,10 +483,12 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     };
     // Several clicks in a row become one reload.
     const soon = () => { clearTimeout(soonTimer); soonTimer = setTimeout(load, 300); };
+    reloadInterestsRef.current = load;
     load();
     const channel = supabase
       .channel(`meeting-interests-${eventId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "sponsor_meeting_interests", filter: `event_id=eq.${eventId}` }, soon)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "sponsor_meeting_interests", filter: `event_id=eq.${eventId}` }, soon)
       // Realtime can't filter deletes, so any removal reloads.
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "sponsor_meeting_interests" }, soon)
       .subscribe();
@@ -495,6 +503,52 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       supabase.removeChannel(channel);
     };
   }, [eventId]);
+
+  /** Who the meeting is with, as the database names them: an approved
+   *  attendee's registration, or a speaker's profile (also for a speaker's own
+   *  registration row). Null for rows that can't have meetings. */
+  const meetingPerson = (r: Row): { _registration_id: string | null; _speaker_id: string | null } | null => {
+    if (r.kind === "sponsor") return null;
+    if (r.kind === "speaker") {
+      const id = r.source === "speaker"
+        ? r.refId
+        : extras.find((e) => e.source === "speaker" && !!r.email && e.email.toLowerCase() === r.email.toLowerCase())?.refId;
+      return id ? { _registration_id: null, _speaker_id: id } : null;
+    }
+    const reg = r.registration as (Registration & { approval_status?: string | null }) | undefined;
+    if (!reg || reg.ticket_type === "speaker" || (reg.approval_status && reg.approval_status !== "approved")) return null;
+    return { _registration_id: reg.id, _speaker_id: null };
+  };
+
+  /** An organiser moves a sponsor's meeting on (migration 052). */
+  const setSponsorMeeting = async (r: Row, sponsorId: string, change: MeetingChange) => {
+    const person = meetingPerson(r);
+    if (!person) return;
+    const mine = (i: MeetingInterest) => i.sponsor_id === sponsorId
+      && ((person._registration_id && i.registration_id === person._registration_id) || (person._speaker_id && i.speaker_id === person._speaker_id));
+    setInterests((list) => list.map((i) => (mine(i) ? {
+      ...i, status: change.status,
+      scheduled_at: change.status === "arranged" ? change.scheduledAt ?? null : change.status === "interested" ? null : i.scheduled_at,
+      location: change.status === "arranged" ? change.location ?? null : change.status === "interested" ? null : i.location,
+      met_at: change.status === "met" ? i.met_at ?? new Date().toISOString() : null,
+      status_reason: change.status === "not_met" ? change.reason ?? null : null,
+      status_by_side: "organiser",
+    } : i)));
+    const { error } = await supabaseRpc("set_meeting_status" as never, {
+      _eid: eventId, _status: change.status, _sponsor_id: sponsorId, ...person,
+      _scheduled_at: change.scheduledAt ?? null, _location: change.location ?? null, _reason: change.reason ?? null,
+    } as never);
+    reloadInterestsRef.current();
+    if (error) {
+      const missing = /set_meeting_status|function .* does not exist|schema cache/i.test(error.message ?? "");
+      toast.error("Meeting wasn't updated", {
+        description: missing ? "This needs a database update that hasn't been applied yet (migration 052)." : error.message,
+      });
+      return;
+    }
+    const sponsor = eventSponsors.find((sp) => sp.id === sponsorId)?.name ?? "Sponsor";
+    toast.success(`${sponsor} · ${r.name}: ${MEETING_STATUS_LABEL[change.status]}`);
+  };
 
   // Search + role + status filters. The tab counts come from this, so they
   // don't change when you switch tabs.
@@ -996,6 +1050,8 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       "UTM Term",
       // Meeting Interest
       "Interested Sponsors",
+      "Meeting Status",
+      "Met At",
     ];
     
     const formatDateTime = (dateStr: string | null) => {
@@ -1067,6 +1123,8 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         reg?.utm_term ?? "",
         // Meeting Interest
         sponsorsFor(interestKeys(r), interestedBy).map((sp) => sp.name).join("; "),
+        sponsorsFor(interestKeys(r), interestedBy).map((sp) => `${sp.name}: ${meetingSummary(sp)}`).join("; "),
+        sponsorsFor(interestKeys(r), interestedBy).filter((sp) => sp.met_at).map((sp) => `${sp.name}: ${formatDateTime(sp.met_at ?? null)}`).join("; "),
       ];
     });
     // Proper CSV escaping — values containing commas, quotes, or newlines
@@ -1413,15 +1471,17 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
           <PopoverTrigger asChild>
             <Button
               variant="outline"
-              className={`h-8 shrink-0 gap-1.5 px-2.5 text-[13px] font-normal ${meetingFilter !== "all" ? "border-primary/50 text-foreground" : ""}`}
+              className={`h-8 shrink-0 gap-1.5 px-2.5 text-[13px] font-normal ${meetingFilter.status !== "all" || meetingFilter.sponsor ? "border-primary/50 text-foreground" : ""}`}
               aria-label="Meeting Interest filter"
             >
               <Handshake className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline max-w-[160px] truncate">
-                {meetingFilter === "all" ? "Meeting Interest"
-                  : meetingFilter === "with" ? "With meeting interest"
-                  : meetingFilter === "without" ? "Without meeting interest"
-                  : interestOptions.find((o) => o.id === meetingFilter.sponsor)?.name ?? "Sponsor"}
+              <span className="hidden sm:inline max-w-[180px] truncate">
+                {[
+                  meetingFilter.sponsor ? interestOptions.find((o) => o.id === meetingFilter.sponsor)?.name ?? "Sponsor" : null,
+                  meetingFilter.status === "with" ? "With meeting interest"
+                    : meetingFilter.status === "without" ? "Without meeting interest"
+                    : meetingFilter.status !== "all" ? MEETING_STATUS_LABEL[meetingFilter.status] : null,
+                ].filter(Boolean).join(" · ") || "Meeting Interest"}
               </span>
               <ChevronDown className="h-3 w-3 opacity-60" />
             </Button>
@@ -1432,20 +1492,26 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
               <CommandList>
                 <CommandEmpty>No sponsor found.</CommandEmpty>
                 <CommandGroup heading="Meeting Interest">
-                  {([["all", "All registrations"], ["with", "With meeting interest"], ["without", "Without meeting interest"]] as const).map(([v, label]) => (
-                    <CommandItem key={v} value={label} onSelect={() => { setMeetingFilter(v); setMeetingOpen(false); }} className="text-[13px]">
-                      <Check className={`mr-2 h-3.5 w-3.5 ${meetingFilter === v ? "opacity-100" : "opacity-0"}`} /> {label}
+                  {([
+                    ["all", "All registrations"], ["with", "With meeting interest"], ["without", "Without meeting interest"],
+                    ...MEETING_STATUSES.map((k) => [k, MEETING_STATUS_LABEL[k]] as const),
+                  ] as const).map(([v, label]) => (
+                    <CommandItem key={v} value={`status ${label}`} onSelect={() => { setMeetingFilter((f) => ({ ...f, status: v })); setMeetingOpen(false); }} className="text-[13px]">
+                      <Check className={`mr-2 h-3.5 w-3.5 ${meetingFilter.status === v ? "opacity-100" : "opacity-0"}`} /> {label}
                     </CommandItem>
                   ))}
                 </CommandGroup>
                 <CommandSeparator />
                 <CommandGroup heading="Interested sponsor">
+                  <CommandItem value="sponsor any" onSelect={() => { setMeetingFilter((f) => ({ ...f, sponsor: null })); setMeetingOpen(false); }} className="text-[13px]">
+                    <Check className={`mr-2 h-3.5 w-3.5 ${meetingFilter.sponsor ? "opacity-0" : "opacity-100"}`} /> Any sponsor
+                  </CommandItem>
                   {interestOptions.length === 0 ? (
                     <p className="px-2 py-2 text-[12px] text-muted-foreground">No sponsor has marked anyone yet.</p>
                   ) : interestOptions.map((o) => {
-                    const on = typeof meetingFilter === "object" && meetingFilter.sponsor === o.id;
+                    const on = meetingFilter.sponsor === o.id;
                     return (
-                      <CommandItem key={o.id} value={`sponsor ${o.name} ${o.id}`} onSelect={() => { setMeetingFilter({ sponsor: o.id }); setMeetingOpen(false); }} className="text-[13px]">
+                      <CommandItem key={o.id} value={`sponsor ${o.name} ${o.id}`} onSelect={() => { setMeetingFilter((f) => ({ ...f, sponsor: o.id })); setMeetingOpen(false); }} className="text-[13px]">
                         <Check className={`mr-2 h-3.5 w-3.5 ${on ? "opacity-100" : "opacity-0"}`} />
                         <span className="truncate">{o.name}</span>
                         <span className="ml-auto pl-2 text-[11px] text-muted-foreground tabular-nums">
@@ -1651,7 +1717,14 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                             {r.kind}
                           </span>
                           {sponsorsFor(interestKeys(r), interestedBy).length > 0 && (
-                            <div className="md:hidden mt-1"><InterestedSponsors sponsors={sponsorsFor(interestKeys(r), interestedBy)} /></div>
+                            <div className="md:hidden mt-1" onClick={(e) => e.stopPropagation()}>
+                              <SponsorMeetings
+                                personName={r.name}
+                                sponsors={sponsorsFor(interestKeys(r), interestedBy)}
+                                eventSponsors={meetingPerson(r) ? eventSponsors : null}
+                                onChange={(sponsorId, c) => void setSponsorMeeting(r, sponsorId, c)}
+                              />
+                            </div>
                           )}
                           <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
                             <AttendanceControls
@@ -1721,8 +1794,13 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 sm:px-4 py-2 sm:py-3 hidden md:table-cell">
-                      <InterestedSponsors sponsors={sponsorsFor(interestKeys(r), interestedBy)} />
+                    <td className="px-3 sm:px-4 py-2 sm:py-3 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
+                      <SponsorMeetings
+                        personName={r.name}
+                        sponsors={sponsorsFor(interestKeys(r), interestedBy)}
+                        eventSponsors={meetingPerson(r) ? eventSponsors : null}
+                        onChange={(sponsorId, c) => void setSponsorMeeting(r, sponsorId, c)}
+                      />
                     </td>
                     <td className="p-2 sm:p-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-0.5">
@@ -2263,19 +2341,88 @@ function AttendeeLinkUtmDialog({
   );
 }
 
-/** Interested Sponsors: up to two names, then "+N"; every name in the tooltip. */
+/** Interested Sponsors: up to two names, then "+N", coloured by how far each
+ *  meeting got; every sponsor and status in the tooltip. */
 function InterestedSponsors({ sponsors }: { sponsors: InterestedSponsor[] }) {
   if (!sponsors.length) return <span className="text-muted-foreground">—</span>;
   const shown = sponsors.slice(0, 2);
   const rest = sponsors.length - shown.length;
   return (
-    <div className="flex flex-wrap items-center gap-1" title={`Interested Sponsors: ${sponsors.map((sp) => sp.name).join(", ")}`}>
+    <span className="flex flex-wrap items-center gap-1" title={sponsors.map((sp) => `${sp.name}: ${meetingSummary(sp)}`).join("\n")}>
       {shown.map((sp) => (
-        <span key={sp.id} className="inline-flex max-w-[140px] items-center truncate rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-[11px] font-medium text-primary">
-          {sp.name}
+        <span key={sp.id} className={`inline-flex max-w-[140px] items-center gap-1 truncate rounded-full border px-2 py-0.5 text-[11px] font-medium ${MEETING_PILL_CLASS[sp.status]}`}>
+          {sp.status === "met" && <Check className="h-3 w-3 shrink-0" />}
+          <span className="truncate">{sp.name}</span>
         </span>
       ))}
       {rest > 0 && <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">+{rest}</span>}
-    </div>
+    </span>
+  );
+}
+
+/** The Interested Sponsors badges; clicking them lists every sponsor's
+ *  meeting with this person, where the organiser can move it on or arrange
+ *  one for another sponsor. Without `eventSponsors` (rows that can't have
+ *  meetings) it's just the badges. */
+function SponsorMeetings({
+  personName, sponsors, eventSponsors, onChange,
+}: {
+  personName: string;
+  sponsors: InterestedSponsor[];
+  eventSponsors: { id: string; name: string }[] | null;
+  onChange: (sponsorId: string, change: MeetingChange) => void;
+}) {
+  const [adding, setAdding] = useState<string | null>(null);
+  if (!eventSponsors) return <InterestedSponsors sponsors={sponsors} />;
+  const others = eventSponsors.filter((sp) => !sponsors.some((s) => s.id === sp.id));
+  return (
+    <Popover onOpenChange={(o) => { if (!o) setAdding(null); }}>
+      <PopoverTrigger asChild>
+        <button type="button" className="rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Meetings with ${personName}`}>
+          <InterestedSponsors sponsors={sponsors} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[340px] p-0"
+        // The arrange / didn't-happen dialogs open on top; don't close under them.
+        onInteractOutside={(e) => { if ((e.target as HTMLElement | null)?.closest?.('[role="dialog"]')) e.preventDefault(); }}
+      >
+        <div className="border-b border-border px-3.5 py-2.5">
+          <p className="text-[13px] font-semibold">Meetings with {personName}</p>
+          <p className="text-[11.5px] text-muted-foreground">Sponsors see changes on their dashboard straight away.</p>
+        </div>
+        <ul className="max-h-[320px] overflow-y-auto">
+          {sponsors.length === 0 && <li className="px-3.5 py-3 text-[12.5px] text-muted-foreground">No sponsor has marked {personName.split(" ")[0]} yet.</li>}
+          {sponsors.map((sp) => (
+            <li key={sp.id} className="border-b border-border px-3.5 py-2.5 last:border-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-[13px] font-medium">{sp.name}</span>
+                <MeetingStatusControl meeting={sp} personName={personName} onChange={(c) => onChange(sp.id, c)} />
+              </div>
+              {sp.status_by_side && sp.status !== "interested" && (
+                <p className="mt-1 text-[11.5px] text-muted-foreground">Updated by {sp.status_by_side === "organiser" ? "the organiser team" : "the sponsor"}</p>
+              )}
+              {sp.note && <p className="mt-1 whitespace-pre-wrap rounded-md bg-muted/60 px-2 py-1.5 text-[12px]"><span className="font-medium">Sponsor note:</span> {sp.note}</p>}
+            </li>
+          ))}
+        </ul>
+        {others.length > 0 && (
+          <div className="flex items-center gap-2 border-t border-border px-3.5 py-2.5">
+            <Select value={adding ?? ""} onValueChange={setAdding}>
+              <SelectTrigger className="h-8 flex-1 text-[12.5px]" aria-label="Arrange for another sponsor">
+                <SelectValue placeholder="Arrange for another sponsor…" />
+              </SelectTrigger>
+              <SelectContent>
+                {others.map((sp) => <SelectItem key={sp.id} value={sp.id} className="text-[13px]">{sp.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {adding && (
+              <MeetingStatusControl meeting={null} personName={personName} onChange={(c) => { onChange(adding, c); setAdding(null); }} />
+            )}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }

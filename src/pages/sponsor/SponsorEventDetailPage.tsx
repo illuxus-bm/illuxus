@@ -14,10 +14,15 @@
  *
  * Meeting Interest: a checkbox per attendee or speaker records that this
  * sponsor would like to meet them (`sponsor_set_meeting_interest`, migration
- * 050; speakers from 051). The
- * sponsor is worked out on the server from the session; other sponsors'
- * selections are never touched. It records interest only. Teammates' changes
+ * 050; speakers from 051). The sponsor is worked out on the server from the
+ * session; other sponsors' selections are never touched. Teammates' changes
  * appear live (migration 051).
+ *
+ * Meetings (migration 052): once marked, the person's meeting is a status
+ * pill — Interested → Arranged (optional time and place) → Met, or Didn't
+ * happen — set by the sponsor or the organiser. The stat chips above the list
+ * count each status and filter by it; the details panel shows the history and
+ * a private note only the sponsor's team and the organisers see.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
@@ -32,6 +37,10 @@ import SiteHeader from "@/components/SiteHeader";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import MeetingStatusControl, { MeetingTimeline, type MeetingChange } from "@/components/meetings/MeetingStatusControl";
+import { MEETING_STATUS_LABEL, MEETING_STATUSES, type MeetingState, type MeetingStatus } from "@/lib/meeting-interest";
 
 type Person = {
   kind: "speaker" | "attendee";
@@ -44,7 +53,30 @@ type Person = {
   checked_in_at: string | null;
   /** This sponsor's Meeting Interest (attendees from migration 050, speakers from 051). */
   meeting_interest?: boolean;
+  /** The meeting (migration 052). Absent before it: a marked person is "interested". */
+  meeting_status?: MeetingStatus | null;
+  interested_at?: string | null;
+  scheduled_at?: string | null;
+  location?: string | null;
+  met_at?: string | null;
+  status_reason?: string | null;
+  note?: string | null;
+  status_by_side?: "sponsor" | "organiser" | null;
+  status_changed_at?: string | null;
 };
+
+/** The person's meeting with this sponsor, or null if not marked. */
+const meetingOf = (p: Person): MeetingState | null => (p.meeting_interest
+  ? {
+    status: p.meeting_status ?? "interested",
+    scheduled_at: p.scheduled_at, location: p.location, met_at: p.met_at,
+    status_reason: p.status_reason, note: p.note, status_by_side: p.status_by_side, status_changed_at: p.status_changed_at,
+  }
+  : null);
+
+const personArgs = (p: Person) => (p.kind === "speaker"
+  ? { _registration_id: null, _speaker_id: p.id }
+  : { _registration_id: p.id, _speaker_id: null });
 
 type EventInfo = {
   title: string;
@@ -74,6 +106,8 @@ export default function SponsorEventDetailPage() {
   const [asc, setAsc] = useState(true);
   const [page, setPage] = useState(0);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [meet, setMeet] = useState<"any" | MeetingStatus>("any");
+  const [noteDraft, setNoteDraft] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const { data: event } = useQuery<EventInfo | null>({
@@ -99,7 +133,9 @@ export default function SponsorEventDetailPage() {
     if (savingIds.has(p.id)) return;
     const key = ["sponsor-people", eventId];
     const apply = (value: boolean) =>
-      queryClient.setQueryData<Person[]>(key, (rows) => rows?.map((r) => (r.kind === p.kind && r.id === p.id ? { ...r, meeting_interest: value } : r)));
+      queryClient.setQueryData<Person[]>(key, (rows) => rows?.map((r) => (r.kind === p.kind && r.id === p.id
+        ? { ...r, meeting_interest: value, meeting_status: value ? "interested" : null, interested_at: value ? new Date().toISOString() : null }
+        : r)));
     apply(next);
     setSavingIds((ids) => new Set(ids).add(p.id));
     const { error } = await supabaseRpc("sponsor_set_meeting_interest" as never, (p.kind === "speaker"
@@ -115,6 +151,54 @@ export default function SponsorEventDetailPage() {
       return;
     }
     toast.success(next ? `Meeting Interest saved for ${p.name}` : `Meeting Interest removed for ${p.name}`);
+  };
+
+  /** Moves this sponsor's meeting with `p` on; shown at once, undone if saving fails. */
+  const setMeeting = async (p: Person, change: MeetingChange) => {
+    if (savingIds.has(p.id)) return;
+    const key = ["sponsor-people", eventId];
+    const before = queryClient.getQueryData<Person[]>(key);
+    const now = new Date().toISOString();
+    const next: Partial<Person> = {
+      meeting_status: change.status,
+      scheduled_at: change.status === "arranged" ? change.scheduledAt ?? null : change.status === "interested" ? null : p.scheduled_at,
+      location: change.status === "arranged" ? change.location ?? null : change.status === "interested" ? null : p.location,
+      met_at: change.status === "met" ? p.met_at ?? now : null,
+      status_reason: change.status === "not_met" ? change.reason ?? null : null,
+      status_by_side: "sponsor",
+      status_changed_at: now,
+    };
+    queryClient.setQueryData<Person[]>(key, (rows) => rows?.map((r) => (r.kind === p.kind && r.id === p.id ? { ...r, ...next } : r)));
+    setSavingIds((ids) => new Set(ids).add(p.id));
+    const { error } = await supabaseRpc("set_meeting_status" as never, {
+      _eid: eventId, _status: change.status, ...personArgs(p),
+      _scheduled_at: change.scheduledAt ?? null, _location: change.location ?? null, _reason: change.reason ?? null,
+    } as never);
+    setSavingIds((ids) => { const n = new Set(ids); n.delete(p.id); return n; });
+    if (error) {
+      queryClient.setQueryData(key, before);
+      const missing = /set_meeting_status|function .* does not exist|schema cache/i.test(error.message ?? "");
+      toast.error("Meeting wasn't updated", {
+        description: missing ? "This needs a database update that hasn't been applied yet (migration 052)." : error.message,
+      });
+      return;
+    }
+    toast.success(`${p.name}: ${MEETING_STATUS_LABEL[change.status]}`);
+  };
+
+  /** Saves the private note on this sponsor's meeting with `p`. */
+  const saveNote = async (p: Person, note: string) => {
+    setSavingIds((ids) => new Set(ids).add(p.id));
+    const { error } = await supabaseRpc("set_meeting_note" as never, { _eid: eventId, _note: note, ...personArgs(p) } as never);
+    setSavingIds((ids) => { const n = new Set(ids); n.delete(p.id); return n; });
+    if (error) {
+      const missing = /set_meeting_note|function .* does not exist|schema cache/i.test(error.message ?? "");
+      toast.error("Note wasn't saved", { description: missing ? "This needs a database update that hasn't been applied yet (migration 052)." : error.message });
+      return;
+    }
+    queryClient.setQueryData<Person[]>(["sponsor-people", eventId], (rows) => rows?.map((r) => (r.kind === p.kind && r.id === p.id ? { ...r, note: note.trim() || null } : r)));
+    setNoteDraft(null);
+    toast.success("Note saved");
   };
 
   const { data: people = [], isLoading, refetch } = useQuery<Person[]>({
@@ -152,6 +236,7 @@ export default function SponsorEventDetailPage() {
       .channel(`event-live:${eventId}`)
       .on("broadcast", { event: "changed" }, soon)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "sponsor_meeting_interests", filter: `event_id=eq.${eventId}` }, soon)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "sponsor_meeting_interests", filter: `event_id=eq.${eventId}` }, soon)
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "sponsor_meeting_interests" }, soon)
       .subscribe();
     const onVisible = () => { if (document.visibilityState === "visible") soon(); };
@@ -176,7 +261,8 @@ export default function SponsorEventDetailPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  useEffect(() => setPage(0), [tab, status, q]);
+  useEffect(() => setPage(0), [tab, status, q, meet]);
+  useEffect(() => setNoteDraft(null), [openId]);
 
   const stats = useMemo(() => {
     const speakers = people.filter((p) => p.kind === "speaker");
@@ -191,23 +277,31 @@ export default function SponsorEventDetailPage() {
     };
   }, [people]);
 
-  const interestCount = useMemo(() => people.filter((p) => p.meeting_interest).length, [people]);
+  const meetingCounts = useMemo(() => {
+    const c: Record<MeetingStatus | "marked", number> = { marked: 0, interested: 0, arranged: 0, met: 0, not_met: 0 };
+    for (const p of people) {
+      const m = meetingOf(p);
+      if (m) { c.marked++; c[m.status]++; }
+    }
+    return c;
+  }, [people]);
 
   const rows = useMemo(() => {
     const term = q.trim().toLowerCase();
     return people
       .filter((p) => tab === "all" || p.kind === tab)
       .filter((p) => (status === "in" ? p.checked_in : status === "no" ? !p.checked_in : true))
+      .filter((p) => meet === "any" || meetingOf(p)?.status === meet)
       .filter((p) => !term || [p.name, p.company, p.designation].some((v) => (v ?? "").toLowerCase().includes(term)))
       .sort((a, b) => (asc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)));
-  }, [people, tab, status, q, asc]);
+  }, [people, tab, status, q, asc, meet]);
 
   if (authLoading) return <FullPageLoader />;
   if (!user) return <Navigate to={`/login?next=${encodeURIComponent(`/sponsor/events/${eventId}`)}`} replace />;
 
   const pages = Math.max(1, Math.ceil(rows.length / PAGE));
   const pageRows = rows.slice(page * PAGE, page * PAGE + PAGE);
-  const filtered = !!q.trim() || status !== "any";
+  const filtered = !!q.trim() || status !== "any" || meet !== "any";
   const showing = filtered
     ? `${rows.length} matching`
     : rows.length ? `Showing ${page * PAGE + 1}–${page * PAGE + pageRows.length} of ${rows.length}` : "No one yet";
@@ -246,7 +340,22 @@ export default function SponsorEventDetailPage() {
       {p.checked_in ? "Checked in" : "Not yet"}
     </span>
   );
-  const InterestBox = ({ p }: { p: Person }) => (
+  // A plain function, not a component: a component defined in render would be
+  // remounted on every refresh, closing an open meeting menu or dialog.
+  const interestBox = (p: Person) => {
+    const m = meetingOf(p);
+    if (m) {
+      return (
+        <MeetingStatusControl
+          meeting={m}
+          personName={p.name}
+          busy={savingIds.has(p.id)}
+          onChange={(c) => void setMeeting(p, c)}
+          onRemove={() => void setInterest(p, false)}
+        />
+      );
+    }
+    return (
     <label
       onClick={(e) => e.stopPropagation()}
       className="flex cursor-pointer items-center gap-2 text-[12.5px] font-medium text-muted-foreground"
@@ -260,7 +369,8 @@ export default function SponsorEventDetailPage() {
       />
       <span className="md:sr-only">Meeting Interest</span>
     </label>
-  );
+    );
+  };
 
   const Avatar = ({ name, size = 40 }: { name: string; size?: number }) => (
     <span
@@ -368,8 +478,34 @@ export default function SponsorEventDetailPage() {
         <div className="mb-3 mt-7 md:mt-9">
           <h2 className="text-[19px] font-bold tracking-tight md:text-[22px]">Participants</h2>
           <p className="mt-0.5 text-[12.5px] text-muted-foreground">
-            View only · updates as people check in{interestCount > 0 && <> · <b className="font-semibold text-foreground">{interestCount}</b> marked for Meeting Interest</>}
+            View only · updates as people check in{meetingCounts.marked > 0 && <> · <b className="font-semibold text-foreground">{meetingCounts.marked}</b> marked for Meeting Interest</>}
           </p>
+          {meetingCounts.marked > 0 && (
+            <div className="mt-3 flex gap-1.5 overflow-x-auto [scrollbar-width:none]" role="group" aria-label="Meetings">
+              {([["any", "All meetings", meetingCounts.marked], ...MEETING_STATUSES.map((k) => [k, MEETING_STATUS_LABEL[k], meetingCounts[k]] as const)] as const)
+                .filter(([k, , n]) => k === "any" || k === "interested" || k === "arranged" || k === "met" || n > 0)
+                .map(([k, label, n]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    aria-pressed={meet === k}
+                    onClick={() => setMeet(meet === k && k !== "any" ? "any" : k)}
+                    className={cn(
+                      "flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[12.5px] transition-colors",
+                      meet === k ? "border-foreground bg-foreground font-semibold text-background" : "border-border font-medium text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {k !== "any" && <i className={cn("h-2 w-2 rounded-full", {
+                      "bg-muted-foreground/60": k === "interested",
+                      "bg-blue-500": k === "arranged",
+                      "bg-green-500": k === "met",
+                      "bg-red-500": k === "not_met",
+                    })} />}
+                    {label} <b className="font-semibold tabular-nums">{n}</b>
+                  </button>
+                ))}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between md:gap-4">
@@ -445,7 +581,7 @@ export default function SponsorEventDetailPage() {
                       {p.checked_in && p.checked_in_at && <small className="text-[11.5px] text-muted-foreground">{timeOf(p.checked_in_at)}</small>}
                     </span>
                   </button>
-                  <div className="pb-3 pl-[52px]"><InterestBox p={p} /></div>
+                  <div className="pb-3 pl-[52px]">{interestBox(p)}</div>
                 </li>
               )) : (
                 <li className="px-3 py-9 text-center text-[13.5px] text-muted-foreground"><b className="mb-1 block text-[15px] text-foreground">{emptyText.title}</b>{emptyText.body}</li>
@@ -467,7 +603,7 @@ export default function SponsorEventDetailPage() {
                     <th scope="col" className="border-b border-border px-[18px] py-3 font-semibold">Role</th>
                     <th scope="col" className="border-b border-border px-[18px] py-3 font-semibold">Check-in</th>
                     <th scope="col" className="border-b border-border px-[18px] py-3 font-semibold">Time</th>
-                    <th scope="col" className="border-b border-border px-[18px] py-3 font-semibold">Meeting Interest</th>
+                    <th scope="col" className="border-b border-border px-[18px] py-3 font-semibold">Meeting</th>
                     <th scope="col" className="w-10 border-b border-border"><span className="sr-only">Open</span></th>
                   </tr>
                 </thead>
@@ -488,7 +624,7 @@ export default function SponsorEventDetailPage() {
                       <td className="border-b border-border px-[18px] py-[11px]"><RoleTag p={p} /></td>
                       <td className="border-b border-border px-[18px] py-[11px]"><Status p={p} /></td>
                       <td className="border-b border-border px-[18px] py-[11px] text-[13px] text-muted-foreground">{p.checked_in ? timeOf(p.checked_in_at) || "—" : "—"}</td>
-                      <td className="border-b border-border px-[18px] py-[11px]"><InterestBox p={p} /></td>
+                      <td className="border-b border-border px-[18px] py-[11px]">{interestBox(p)}</td>
                       <td className="border-b border-border pr-3 text-right text-muted-foreground"><ChevronRight className="ml-auto h-[18px] w-[18px]" /></td>
                     </tr>
                   )) : (
@@ -546,13 +682,53 @@ export default function SponsorEventDetailPage() {
               <Fact label="Designation" value={open.designation || "—"} wide />
               <Fact label="Company" value={open.company || "—"} wide />
             </div>
-            <label className="mt-2 flex cursor-pointer items-center justify-between gap-3 rounded-[14px] bg-muted/60 px-3 py-3">
-              <span>
-                <b className="block text-[14px] font-semibold">Meeting Interest</b>
-                <span className="text-[12px] text-muted-foreground">Let the organiser know you'd like to meet {open.name.split(" ")[0]}.</span>
-              </span>
-              <Switch checked={!!open.meeting_interest} disabled={savingIds.has(open.id)} onCheckedChange={(v) => void setInterest(open, v)} aria-label="Meeting Interest" />
-            </label>
+            {meetingOf(open) ? (
+              <div className="mt-2 rounded-[14px] bg-muted/60 px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <b className="text-[14px] font-semibold">Meeting</b>
+                  <MeetingStatusControl
+                    meeting={meetingOf(open)}
+                    personName={open.name}
+                    busy={savingIds.has(open.id)}
+                    onChange={(c) => void setMeeting(open, c)}
+                    onRemove={() => void setInterest(open, false)}
+                  />
+                </div>
+                <div className="mt-3"><MeetingTimeline meeting={meetingOf(open)!} interestedAt={open.interested_at} viewer="sponsor" /></div>
+                <div className="mt-3 border-t border-border pt-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <b className="text-[13px] font-semibold">Private note</b>
+                    {noteDraft === null && (
+                      <button type="button" className="text-[12.5px] font-medium text-primary" onClick={() => setNoteDraft(open.note ?? "")}>
+                        {open.note ? "Edit" : "Add note"}
+                      </button>
+                    )}
+                  </div>
+                  {noteDraft === null ? (
+                    open.note
+                      ? <p className="mt-1 whitespace-pre-wrap text-[13px]">{open.note}</p>
+                      : <p className="mt-1 text-[12px] text-muted-foreground">Only your team and the organiser see this.</p>
+                  ) : (
+                    <div className="mt-1.5 grid gap-2">
+                      <Textarea value={noteDraft} maxLength={2000} rows={3} placeholder="e.g. Wants a demo in November" onChange={(e) => setNoteDraft(e.target.value)} aria-label="Private note" />
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" size="sm" variant="outline" onClick={() => setNoteDraft(null)}>Cancel</Button>
+                        <Button type="button" size="sm" disabled={savingIds.has(open.id)} onClick={() => void saveNote(open, noteDraft)}>Save note</Button>
+                      </div>
+                      <p className="text-[11.5px] text-muted-foreground">Only your team and the organiser see this.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <label className="mt-2 flex cursor-pointer items-center justify-between gap-3 rounded-[14px] bg-muted/60 px-3 py-3">
+                <span>
+                  <b className="block text-[14px] font-semibold">Meeting Interest</b>
+                  <span className="text-[12px] text-muted-foreground">Let the organiser know you'd like to meet {open.name.split(" ")[0]}.</span>
+                </span>
+                <Switch checked={false} disabled={savingIds.has(open.id)} onCheckedChange={(v) => void setInterest(open, v)} aria-label="Meeting Interest" />
+              </label>
+            )}
             <p className="mt-3.5 flex items-center gap-1.5 text-[12px] text-muted-foreground">
               <Lock className="h-3.5 w-3.5" /> View only. Check-in is handled by the organiser.
             </p>

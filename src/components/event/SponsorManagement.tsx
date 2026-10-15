@@ -11,7 +11,10 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical, Search, Megaphone } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
-import { logger } from "@/lib/observability";
+import { logger, supabaseRpc } from "@/lib/observability";
+import { meetingTotals, type MeetingInterest, type MeetingStatus } from "@/lib/meeting-interest";
+
+type MeetingTotals = Record<MeetingStatus | "marked", number>;
 import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 import SponsorLogoUploader from "./SponsorLogoUploader";
 import {
@@ -176,6 +179,25 @@ export default function SponsorManagement({ eventId }: Props) {
   };
 
   useEffect(() => { fetchData(); }, [eventId]);
+
+  // Each sponsor's meetings at this event (migrations 050–052), kept live.
+  const [meetings, setMeetings] = useState<Map<string, MeetingTotals>>(new Map());
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      supabaseRpc("event_meeting_interests" as never, { _eid: eventId } as never).then(({ data, error }) => {
+        if (alive && !error) setMeetings(meetingTotals((data || []) as unknown as MeetingInterest[]));
+      });
+    };
+    load();
+    const channel = supabase
+      .channel(`sponsor-meetings-${eventId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sponsor_meeting_interests", filter: `event_id=eq.${eventId}` }, load)
+      .subscribe();
+    const onVisible = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { alive = false; document.removeEventListener("visibilitychange", onVisible); supabase.removeChannel(channel); };
+  }, [eventId]);
 
   const handleApplicationsToggle = async (enabled: boolean) => {
     setTogglingApplications(true);
@@ -642,6 +664,7 @@ export default function SponsorManagement({ eventId }: Props) {
               <SortableTierGroup
                 key={group.key}
                 group={group}
+                meetings={meetings}
                 onTeam={openTeam}
                 onEdit={openEdit}
                 onDelete={handleDelete}
@@ -815,9 +838,10 @@ type TierGroup = {
 };
 
 function SortableTierGroup({
-  group, onTeam, onEdit, onDelete,
+  group, meetings, onTeam, onEdit, onDelete,
 }: {
   group: TierGroup;
+  meetings: Map<string, MeetingTotals>;
   onTeam: (s: Sponsor) => void;
   onEdit: (s: Sponsor) => void;
   onDelete: (id: string) => void;
@@ -861,7 +885,7 @@ function SortableTierGroup({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 items-stretch p-1">
             {group.sponsors.map((s) => (
               <SortableSponsorCard
-                key={s.id} sponsor={s} group={group}
+                key={s.id} sponsor={s} group={group} meetings={meetings.get(s.id)}
                 onTeam={() => onTeam(s)}
                 onEdit={() => onEdit(s)}
                 onDelete={() => onDelete(s.id)}
@@ -875,10 +899,11 @@ function SortableTierGroup({
 }
 
 function SortableSponsorCard({
-  sponsor: s, group, onTeam, onEdit, onDelete,
+  sponsor: s, group, meetings, onTeam, onEdit, onDelete,
 }: {
   sponsor: Sponsor;
   group: TierGroup;
+  meetings?: MeetingTotals;
   onTeam: () => void; onEdit: () => void; onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } = useSortable({
@@ -913,7 +938,22 @@ function SortableSponsorCard({
       <p className="text-xs text-muted-foreground mt-2 line-clamp-2 min-h-[2.25rem]">
         {s.description || ""}
       </p>
+      <MeetingLine meetings={meetings} />
     </div>
+  );
+}
+
+/** "Meetings: 12 interested · 5 arranged · 3 met" for a sponsor card. */
+function MeetingLine({ meetings: m }: { meetings?: MeetingTotals }) {
+  if (!m?.marked) return <p className="mt-2 border-t border-border pt-2 text-[11.5px] text-muted-foreground">Meetings: none marked yet</p>;
+  return (
+    <p className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-border pt-2 text-[11.5px] text-muted-foreground" aria-label="Meetings">
+      <span className="font-medium text-foreground">Meetings</span>
+      <span><b className="font-semibold text-foreground tabular-nums">{m.marked}</b> interested</span>
+      <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-blue-500" /><b className="font-semibold text-foreground tabular-nums">{m.arranged}</b> arranged</span>
+      <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-green-500" /><b className="font-semibold text-foreground tabular-nums">{m.met}</b> met</span>
+      {m.not_met > 0 && <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-red-500" /><b className="font-semibold text-foreground tabular-nums">{m.not_met}</b> didn't happen</span>}
+    </p>
   );
 }
 
