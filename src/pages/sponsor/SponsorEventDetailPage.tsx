@@ -136,8 +136,10 @@ export default function SponsorEventDetailPage() {
   });
 
   // Live: refresh as people check in and as anyone on the sponsor's team
-  // marks Meeting Interest (streamed by migration 051). Also every 30s, since
-  // sponsors can't receive registration changes directly.
+  // marks Meeting Interest. Sponsors can't read registrations, so check-ins
+  // arrive as a "changed" signal on `event-live:<event>` (migration 051), and
+  // the list is reloaded through `sponsor_portal_people`. Also every 15s in
+  // case the connection drops, and when the tab comes back into view.
   useEffect(() => {
     if (!user || !eventId) return;
     let soonTimer: ReturnType<typeof setTimeout> | undefined;
@@ -147,13 +149,20 @@ export default function SponsorEventDetailPage() {
       soonTimer = setTimeout(() => { if (!savingRef.current.size) void refetch(); }, 300);
     };
     const channel = supabase
-      .channel(`sponsor-portal-${eventId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "registrations", filter: `event_id=eq.${eventId}` }, soon)
+      .channel(`event-live:${eventId}`)
+      .on("broadcast", { event: "changed" }, soon)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "sponsor_meeting_interests", filter: `event_id=eq.${eventId}` }, soon)
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "sponsor_meeting_interests" }, soon)
       .subscribe();
-    const poll = setInterval(() => { if (document.visibilityState === "visible") soon(); }, 30_000);
-    return () => { clearTimeout(soonTimer); clearInterval(poll); supabase.removeChannel(channel); };
+    const onVisible = () => { if (document.visibilityState === "visible") soon(); };
+    document.addEventListener("visibilitychange", onVisible);
+    const poll = setInterval(() => { if (document.visibilityState === "visible") soon(); }, 15_000);
+    return () => {
+      clearTimeout(soonTimer);
+      clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisible);
+      supabase.removeChannel(channel);
+    };
   }, [user, eventId, refetch]);
 
   useEffect(() => {

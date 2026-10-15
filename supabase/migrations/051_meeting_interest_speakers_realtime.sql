@@ -19,6 +19,8 @@
 --        • sponsors — their own sponsor's interests (as `sponsor_portal_people`).
 --      Writes still go only through `sponsor_set_meeting_interest`.
 --
+--   C. Live check-ins on the sponsor dashboard (see section C).
+--
 -- Run after 050. Idempotent — safe to run more than once.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -216,5 +218,45 @@ BEGIN
     EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE public.sponsor_meeting_interests';
   END IF;
 END $$;
+
+-- ── C. Live check-ins on the sponsor dashboard ───────────────────────────────
+-- Sponsors can't read registrations, so they can't receive their changes.
+-- Instead every change to an event's registrations or meeting interests sends
+-- a content-free "changed" signal on the public broadcast topic
+-- `event-live:<event id>`; the sponsor page reloads its list (through
+-- `sponsor_portal_people`, which does the access check) when it hears one.
+-- The signal carries only the table name. If Realtime broadcast isn't
+-- available the signal is skipped — the triggering change always goes through.
+CREATE OR REPLACE FUNCTION public._signal_event_live()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  _eid uuid := COALESCE(NEW.event_id, OLD.event_id);
+BEGIN
+  IF _eid IS NOT NULL THEN
+    BEGIN
+      PERFORM realtime.send(jsonb_build_object('table', TG_TABLE_NAME), 'changed', 'event-live:' || _eid::text, false);
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
+  END IF;
+  RETURN NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public._signal_event_live() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS registrations_signal_event_live ON public.registrations;
+CREATE TRIGGER registrations_signal_event_live
+  AFTER INSERT OR DELETE OR UPDATE OF checked_in, checked_in_at, approval_status, ticket_type, name, company, designation
+  ON public.registrations
+  FOR EACH ROW EXECUTE FUNCTION public._signal_event_live();
+
+DROP TRIGGER IF EXISTS sponsor_meeting_interests_signal_event_live ON public.sponsor_meeting_interests;
+CREATE TRIGGER sponsor_meeting_interests_signal_event_live
+  AFTER INSERT OR DELETE ON public.sponsor_meeting_interests
+  FOR EACH ROW EXECUTE FUNCTION public._signal_event_live();
 
 NOTIFY pgrst, 'reload schema';
