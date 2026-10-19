@@ -10,9 +10,11 @@ import {
   Building2, Users, MoreHorizontal, ChevronsUpDown, Check, Shield, BarChart3,
   Activity, DollarSign, Edit, ScrollText, type LucideIcon,
 } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { HEADER_CHIP } from "@/components/layout/header-chip";
+import { SoftScroll } from "@/components/event/creatives/studio/SoftScroll";
 import { useOrg, PLAN_DETAILS } from "@/contexts/OrgContext";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
@@ -25,15 +27,16 @@ type NavItem = { title: string; url: string; icon: LucideIcon };
 const CHIP = cn(HEADER_CHIP, "min-w-9 lg:min-w-10");
 // With its name showing it is a pill; with only its icon, a circle the size
 // of its height. Only the current one may give way when a phone runs short.
-const CHIP_NAMED = "px-2.5 sm:px-3 2xl:px-3.5";
-const CHIP_ICON = "shrink-0 xl:px-3 2xl:px-3.5";
+const CHIP_NAMED = "px-2.5 max-lg:shrink-0 sm:px-3 2xl:px-3.5";
+const CHIP_ICON = "shrink-0 max-lg:px-3 xl:px-3 2xl:px-3.5";
 
 /**
  * A surface's destinations: one floating chip each, the current one dark,
  * and the less-used ones behind a last "More" chip. Names show on wide
- * screens; on narrower ones each destination is its icon and only the
- * current one keeps its name, which shortens before the row would ever run
- * off a phone.
+ * screens and on phones and small tablets, where the row has its own line
+ * and scrolls sideways (faded at the edges, the current chip brought into
+ * view). In between, each destination is its icon and only the current one
+ * keeps its name.
  */
 function NavChips({
   label,
@@ -48,9 +51,26 @@ function NavChips({
   isActive: (url: string) => boolean;
 }) {
   const moreActive = more.find((item) => isActive(item.url));
+  const navRef = useRef<HTMLElement>(null);
+  const activeUrl = [...main, ...more].find((item) => isActive(item.url))?.url;
+
+  // Phones: keep the current chip in view in the scrolling row.
+  useEffect(() => {
+    const nav = navRef.current;
+    const chip = nav?.querySelector<HTMLElement>('[aria-current="page"], [data-active="true"]');
+    if (!nav || !chip || nav.scrollWidth <= nav.clientWidth) return;
+    const left = chip.offsetLeft - nav.offsetLeft;
+    if (left < nav.scrollLeft || left + chip.offsetWidth > nav.scrollLeft + nav.clientWidth) {
+      nav.scrollLeft = Math.max(0, left - 16);
+    }
+  }, [activeUrl]);
 
   return (
-    <nav aria-label={label} className="app-chrome flex min-w-0 max-w-full items-center gap-1 sm:gap-1.5 2xl:gap-2">
+    <nav
+      ref={navRef}
+      aria-label={label}
+      className="app-chrome flex min-w-0 max-w-full items-center gap-1 sm:gap-1.5 2xl:gap-2 max-lg:-mx-3 max-lg:w-[calc(100%+1.5rem)] max-lg:max-w-none max-lg:justify-start max-lg:gap-2 max-lg:overflow-x-auto max-lg:px-3 max-lg:py-1 max-lg:[mask-image:linear-gradient(to_right,transparent,#000_12px,#000_calc(100%-24px),transparent)] max-lg:[scrollbar-width:none] sm:max-lg:-mx-4 sm:max-lg:w-[calc(100%+2rem)] sm:max-lg:px-4 [&::-webkit-scrollbar]:hidden"
+    >
       {main.map((item) => {
         const active = isActive(item.url);
         return (
@@ -63,7 +83,7 @@ function NavChips({
             className={cn(CHIP, active ? CHIP_NAMED : CHIP_ICON)}
           >
             <item.icon className="h-4 w-4 shrink-0" />
-            <span className={active ? "min-w-0 truncate" : "hidden xl:inline"}>{item.title}</span>
+            <span className={active ? "min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-nowrap" : "hidden whitespace-nowrap max-lg:inline xl:inline"}>{item.title}</span>
           </Link>
         );
       })}
@@ -159,7 +179,7 @@ export function AdminNav() {
   return <NavChips label="Super admin" main={adminMain} more={adminMore} isActive={isActive} />;
 }
 
-/** The active workspace, beside the logo. A menu when there is more than one. */
+/** The active workspace, beside the account menu. A menu when there is more than one. */
 export function WorkspaceChip() {
   const { org, memberships, setActiveOrg, myRole } = useOrg();
   if (!org) return null;
@@ -196,7 +216,7 @@ export function WorkspaceChip() {
           <ChevronsUpDown className="hidden h-3.5 w-3.5 shrink-0 text-muted-foreground lg:block" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
+      <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
           Switch workspace
         </DropdownMenuLabel>
@@ -252,8 +272,12 @@ export function SectionPills({
         ? "border-foreground bg-foreground text-background"
         : "border-border bg-card text-muted-foreground hover:text-foreground",
     );
+  // One line at every width. The row scrolls sideways when it doesn't fit;
+  // SoftScroll fades the cut-off edge, adds arrows for mouse users and keeps
+  // the current pill in view.
   return (
-    <nav aria-label={label} className={cn("app-chrome flex gap-2 overflow-x-auto md:flex-wrap md:overflow-visible", className)}>
+    <nav aria-label={label} className={cn("app-chrome", className)}>
+      <SoftScroll arrows activeKey={activeKey} className="flex gap-2 overflow-x-auto p-0.5">
       {items.map((item) => {
         const active = item.key === activeKey;
         const content = (
@@ -276,6 +300,7 @@ export function SectionPills({
           </button>
         );
       })}
+      </SoftScroll>
     </nav>
   );
 }

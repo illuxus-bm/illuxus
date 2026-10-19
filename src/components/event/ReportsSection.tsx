@@ -11,6 +11,7 @@ import { formatMoney } from "@/lib/currency";
 import { buildReport, registrationState, type ReportEvent } from "@/lib/reports/analytics";
 import { fetchAllRows } from "@/lib/reports/fetch";
 import ExportReportDialog, { type ExportField } from "./reports/ExportReportDialog";
+import { emailSet, participantType, PARTICIPANT_TYPE_LABEL, PARTICIPANT_TYPE_ORDER } from "@/lib/reports/participant-type";
 
 type Registration = Tables<"registrations">;
 type Speaker = Tables<"speakers">;
@@ -47,6 +48,8 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
   const [loadedAt, setLoadedAt] = useState<Date>(() => new Date());
   const [loading, setLoading] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
+  // Emails of the event's sponsor team members, to classify registrations as sponsors.
+  const [sponsorEmails, setSponsorEmails] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -125,6 +128,21 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
     return () => { cancelled = true; };
   }, [eventId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: links } = await supabase.from("event_sponsors").select("sponsor_id").eq("event_id", eventId);
+      const ids = ((links ?? []) as { sponsor_id: string }[]).map((l) => l.sponsor_id);
+      if (!ids.length) { if (!cancelled) setSponsorEmails(new Set()); return; }
+      const { data: members } = await supabase.from("sponsor_members").select("email").in("sponsor_id", ids);
+      if (!cancelled) setSponsorEmails(emailSet(((members ?? []) as { email: string | null }[]).map((m) => m.email)));
+    })();
+    return () => { cancelled = true; };
+  }, [eventId]);
+
+  const speakerEmails = useMemo(() => emailSet(speakers.map((s) => s.email)), [speakers]);
+  const typeOf = (r: Registration) => participantType(r.ticket_type, r.email, speakerEmails, sponsorEmails);
+
   const currency = eventRow?.currency || "INR";
   const targetPct = eventRow?.attendance_target_pct ?? null;
 
@@ -188,6 +206,7 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
 
   const REGISTRATION_FIELDS = useMemo<(ExportField & { get: (r: Registration) => string | number })[]>(() => [
     // Identity
+    { key: "participant_type", label: "Participant type", group: "Identity", defaultOn: true, get: (r) => PARTICIPANT_TYPE_LABEL[typeOf(r)] },
     { key: "title",       label: "Title",        group: "Identity", defaultOn: false, get: (r) => r.title ?? "" },
     { key: "first_name",  label: "First name",   group: "Identity", defaultOn: true,  get: (r) => r.first_name ?? "" },
     { key: "last_name",   label: "Last name",    group: "Identity", defaultOn: true,  get: (r) => r.last_name ?? "" },
@@ -231,17 +250,35 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
     { key: "qr_code",     label: "QR code",         group: "System", defaultOn: false, get: (r) => r.qr_code ?? "" },
     { key: "created_at",  label: "Registered at",   group: "System", defaultOn: true,  get: (r) => fmtDateTime(r.created_at) },
     { key: "updated_at",  label: "Updated at",      group: "System", defaultOn: false, get: (r) => fmtDateTime(r.updated_at) },
-  ], []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [speakerEmails, sponsorEmails]);
 
-  const exportReport = () => setExportOpen(true);
+  // Saved field choices. v2 added "Participant type": carry earlier choices
+  // forward with it switched on, once, so returning users get the new column.
+  const exportStorageKey = `illuxus.report-export.v2.${eventId}`;
+  const exportReport = () => {
+    try {
+      const old = localStorage.getItem(`illuxus.report-export.${eventId}`);
+      if (old && !localStorage.getItem(exportStorageKey)) {
+        const keys = JSON.parse(old) as unknown;
+        if (Array.isArray(keys)) localStorage.setItem(exportStorageKey, JSON.stringify(["participant_type", ...keys.filter((k) => k !== "participant_type")]));
+      }
+    } catch { /* storage unavailable: defaults apply */ }
+    setExportOpen(true);
+  };
 
   const handleExportConfirm = (selectedKeys: string[]) => {
     const cols = REGISTRATION_FIELDS.filter((f) => selectedKeys.includes(f.key));
     if (cols.length === 0) return;
+    // Grouped: speakers, then sponsors, then delegates (registration order within each).
+    const rows = registrations
+      .map((r, i) => ({ r, i, t: PARTICIPANT_TYPE_ORDER[typeOf(r)] }))
+      .sort((a, b) => a.t - b.t || a.i - b.i)
+      .map(({ r }) => r);
     downloadCsv(
       `event-report-${eventId}.csv`,
       cols.map((c) => c.label),
-      registrations.map((r) => cols.map((c) => c.get(r))),
+      rows.map((r) => cols.map((c) => c.get(r))),
     );
   };
 
@@ -604,7 +641,7 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
         onOpenChange={setExportOpen}
         fields={REGISTRATION_FIELDS}
         rowCount={registrations.length}
-        storageKey={`illuxus.report-export.${eventId}`}
+        storageKey={exportStorageKey}
         onConfirm={handleExportConfirm}
       />
     </div>

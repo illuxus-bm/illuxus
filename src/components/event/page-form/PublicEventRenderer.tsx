@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import SponsorQuickViewDialog from "./sections/SponsorQuickViewDialog";
 import SpeakerQuickViewDialog from "./sections/SpeakerQuickViewDialog";
-import { AgendaRoadmap } from "./sections/AgendaRoadmap";
+import { AgendaTimeline } from "./sections/AgendaTimeline";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatPriceOrFree } from "@/lib/currency";
 import { sanitizeHtml } from "@/lib/sanitize-html";
@@ -92,6 +92,8 @@ export interface RendererSession {
   location: string | null;
   speaker_id: string | null;
   speaker_ids?: string[];
+  /** The session's moderator, shown apart from its speakers / panellists. */
+  moderator_id?: string | null;
 }
 
 export interface RendererSponsor {
@@ -166,7 +168,7 @@ export default function PublicEventRenderer({
         // the organizer expects when dragging the Font Size slider.
         zoom: (() => { const s = theme.bodyScale ?? theme.fontScale; return s && s !== 1 ? s : undefined; })(),
       }}
-      className={`w-full ${flushSections ? "[&_section]:!px-0 [&_section]:!py-10 [&_section]:!border-t-0" : ""}`}
+      className={`w-full ${flushSections ? "[&_section]:!px-0 [&_section]:!pb-0 [&_section]:!pt-9 md:[&_section]:!pt-12 [&_section]:!border-t-0 [&_section]:!bg-transparent" : ""}`}
     >
       {ordered.map((section) => {
         const sectionTheme: ThemeConfig = section.themeOverride
@@ -245,6 +247,22 @@ function SectionRenderer({
 
 /* ─── Layout helpers ─── */
 
+/**
+ * Sponsor / partner logos sit on a "plate": logo files usually carry a white
+ * background, so the tile itself is that white and the logo is multiplied
+ * onto it — no inner box or hard edge shows. A fixed 16:10 tile with the same
+ * inner padding makes every logo look the same size. On a dark page the plate
+ * is a softer off-white without an outline.
+ */
+const LOGO_TILE = "aspect-[16/10] overflow-hidden rounded-[18px] flex items-center justify-center px-[16%] py-[14%]";
+const LOGO_IMG = "block max-h-full max-w-full h-auto w-auto object-contain mix-blend-multiply";
+function logoPlate(theme: ThemeConfig): React.CSSProperties {
+  const dark = perceivedLuminance(theme.backgroundColor || "#ffffff") < 0.45;
+  return dark
+    ? { backgroundColor: "#F4F4F2", color: "#101716" }
+    : { backgroundColor: "#FFFFFF", boxShadow: "inset 0 0 0 1px #E7EBE9", color: "#101716" };
+}
+
 function Section({
   children, theme, tone = "default", id, flush = false,
 }: {
@@ -280,7 +298,7 @@ function SectionHeader({ eyebrow, title, intro, theme, align = "left" }: {
   if (!title && !eyebrow && !intro) return null;
   const fg = readableOn(theme.backgroundColor);
   return (
-    <header className={`mb-7 lg:mb-9 ${align === "center" ? "text-center" : ""}`}>
+    <header className={`mb-[18px] ${align === "center" ? "text-center" : ""}`}>
       {eyebrow && (
         <p
           className="text-[11px] font-semibold tracking-[0.22em] uppercase mb-3"
@@ -291,7 +309,7 @@ function SectionHeader({ eyebrow, title, intro, theme, align = "left" }: {
       )}
       {title && (
         <h2
-          className="text-3xl sm:text-4xl lg:text-[44px] font-semibold tracking-[-0.02em] leading-[1.08]"
+          className="text-[23px] md:text-[27px] lg:text-[29px] font-bold tracking-[-0.015em] leading-[1.25]"
           style={{ color: fg, fontFamily: "var(--ev-title-font, Poppins)" }}
         >
           {title}
@@ -299,7 +317,7 @@ function SectionHeader({ eyebrow, title, intro, theme, align = "left" }: {
       )}
       {intro && (
         <p
-          className={`mt-4 text-[16px] leading-[1.65] opacity-80 max-w-2xl ${align === "center" ? "mx-auto" : ""}`}
+          className={`mt-1 text-[14px] leading-[1.6] opacity-70 max-w-2xl ${align === "center" ? "mx-auto" : ""}`}
           style={{ color: fg }}
         >
           {intro}
@@ -553,7 +571,13 @@ function AgendaSec({ data, theme, sessions, speakers }: {
 
   return (
     <Section theme={theme} id="agenda">
-      <SectionHeader title={data.title || "Agenda"} intro={data.intro} theme={theme} />
+      <SectionHeader
+        title={data.title || "Agenda"}
+        intro={data.intro || (byDay.length === 1
+          ? `${format(new Date(`${byDay[0][0]}T00:00:00`), "EEEE, d MMMM")} · ${sessions.length} session${sessions.length === 1 ? "" : "s"}`
+          : sessions.length ? `${byDay.length} days · ${sessions.length} sessions` : undefined)}
+        theme={theme}
+      />
       {sessions.length === 0 ? null : (
         <>
           {byDay.length > 1 && (
@@ -582,10 +606,12 @@ function AgendaSec({ data, theme, sessions, speakers }: {
           )}
           {activeDay && (
             <div id={`agenda-day-${activeDay[0]}`} className="scroll-mt-24">
-              <p className="text-sm font-semibold mb-3" style={{ color: theme.primaryColor }}>
-                {format(new Date(`${activeDay[0]}T00:00:00`), "EEEE, MMMM d")}
-              </p>
-              <AgendaRoadmap sessions={activeDay[1]} theme={theme} speakerById={speakerById} />
+              {byDay.length > 1 && (
+                <p className="text-sm font-semibold mb-3" style={{ color: theme.primaryColor }}>
+                  {format(new Date(`${activeDay[0]}T00:00:00`), "EEEE, d MMMM")}
+                </p>
+              )}
+              <AgendaTimeline key={activeDay[0]} sessions={activeDay[1]} theme={theme} speakerById={speakerById} />
             </div>
           )}
         </>
@@ -602,7 +628,7 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
   // Long line-ups open on the first two rows; the rest sit behind one button.
   const [expanded, setExpanded] = useState(false);
   const isList = data.layout === "list";
-  const preview = isList ? 4 : 6;
+  const preview = isList ? 4 : 8;
   const shown = expanded ? speakers : speakers.slice(0, preview);
   return (
     <Section theme={theme} id="speakers">
@@ -610,7 +636,7 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
       {speakers.length === 0 ? (
         <p className="text-sm opacity-50">Speakers will be announced soon.</p>
       ) : (
-        <div className={isList ? "space-y-4" : "grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3"}>
+        <div className={isList ? "space-y-4" : "grid grid-cols-2 gap-3 md:grid-cols-4"}>
           {shown.map((sp) => {
             // Initials fallback — first letter of first + last name, uppercase.
             // Keeps the avatar legible when the organiser hasn't uploaded a photo.
@@ -626,12 +652,12 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
                 key={sp.id}
                 type="button"
                 onClick={() => setSelected(sp)}
-                className={`rounded-2xl border w-full transition-transform hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${isList ? "p-5 text-left" : "p-4 text-center"}`}
+                className={`rounded-[20px] border w-full transition-shadow hover:shadow-[0_10px_24px_-16px_rgba(16,23,22,.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${isList ? "p-5 text-left" : "px-3 pt-5 pb-[18px] text-center"}`}
                 style={{ borderColor: cardBorder, backgroundColor: "transparent", color: theme.textColor }}
               >
                 <div className={isList ? "flex items-center gap-4" : "flex flex-col items-center gap-3"}>
                   <div
-                    className="h-16 w-16 rounded-full overflow-hidden flex items-center justify-center text-white font-bold shrink-0 aspect-square text-lg"
+                    className={`${isList ? "h-16 w-16" : "h-[84px] w-[84px]"} rounded-full overflow-hidden flex items-center justify-center text-white font-bold shrink-0 aspect-square text-lg`}
                     style={{ backgroundColor: theme.primaryColor }}
                   >
                     {sp.photo_url ? (
@@ -658,13 +684,18 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
                   </div>
                   <div className={isList ? "min-w-0 flex-1" : "min-w-0 w-full"}>
                     <p
-                      className={isList ? "font-semibold truncate" : "text-sm font-semibold leading-snug line-clamp-2"}
+                      className={isList ? "font-semibold truncate" : "text-[14.5px] font-semibold leading-[1.3] line-clamp-2"}
                       style={{ fontFamily: "var(--ev-title-font, Poppins)" }}
                     >
                       {sp.name}
                     </p>
-                    {subtitle && (
-                      <p className={isList ? "text-xs opacity-60 truncate" : "mt-1 text-xs opacity-60 line-clamp-2"}>{subtitle}</p>
+                    {isList ? (
+                      subtitle && <p className="text-xs opacity-60 truncate">{subtitle}</p>
+                    ) : (
+                      <>
+                        {sp.designation && <p className="mt-[3px] text-[12.5px] leading-[1.45] opacity-80 line-clamp-2">{sp.designation}</p>}
+                        {sp.company && <p className="text-[12.5px] leading-[1.45] opacity-55 line-clamp-2">{sp.company}</p>}
+                      </>
                     )}
                   </div>
                 </div>
@@ -681,7 +712,7 @@ function SpeakersSec({ data, theme, speakers }: { data: SpeakersData; theme: The
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
-          className="mt-5 inline-flex h-10 items-center rounded-full border px-5 text-sm font-semibold transition-opacity hover:opacity-80"
+          className="mt-4 flex h-12 w-full items-center justify-center rounded-[14px] border text-[14.5px] font-semibold transition-opacity hover:opacity-80"
           style={{ borderColor: `${theme.textColor}33`, color: theme.textColor }}
         >
           {expanded ? "Show fewer" : `Show all ${speakers.length} speakers`}
@@ -719,7 +750,7 @@ function SponsorsSec({ data, theme, sponsors }: { data: SponsorsData; theme: The
       {sponsors.length === 0 ? (
         <p className="text-sm opacity-50">Sponsors will be announced soon.</p>
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-6">
           {grouped.map(([tier, items]) => {
             const heading = tier.startsWith("custom:")
               ? (items[0]?.tier_label || "Custom")
@@ -727,9 +758,9 @@ function SponsorsSec({ data, theme, sponsors }: { data: SponsorsData; theme: The
             return (
             <div key={tier}>
               {data.groupByTier && (
-                <div className="flex items-center gap-3 mb-4">
+                <div className="flex items-center gap-3 mb-3">
                   <span
-                    className="text-sm font-bold uppercase tracking-[0.2em]"
+                    className="text-[12px] font-bold uppercase tracking-[0.16em]"
                     style={{ color: theme.textColor }}
                   >
                     {heading}
@@ -740,14 +771,14 @@ function SponsorsSec({ data, theme, sponsors }: { data: SponsorsData; theme: The
                   />
                 </div>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {items.map(sp => (
                   <button key={sp.id} type="button" onClick={() => setSelected(sp)}
-                     className="aspect-[2/1] rounded-xl border flex items-center justify-center p-4 hover:scale-[1.02] transition-transform text-left"
-                     style={{ borderColor: `${theme.textColor}1f`, backgroundColor: "transparent" }}>
+                     className={`${LOGO_TILE} transition-transform hover:-translate-y-px text-left`}
+                     style={logoPlate(theme)}>
                     {sp.logo_url
-                      ? <img loading="lazy" decoding="async" src={sp.logo_url} alt={sp.name} className="max-h-full max-w-full object-contain" />
-                      : <span className="text-sm font-semibold text-center">{sp.name}</span>}
+                      ? <img loading="lazy" decoding="async" src={sp.logo_url} alt={sp.name} className={LOGO_IMG} />
+                      : <span className="text-[12.5px] font-semibold text-center leading-snug">{sp.name}</span>}
                   </button>
                 ))}
               </div>
@@ -944,13 +975,13 @@ function PartnersSec({ data, theme }: { data: PartnersData; theme: ThemeConfig }
   return (
     <Section theme={theme} tone="tinted" id="partners">
       <SectionHeader title={data.title} intro={data.intro} theme={theme} />
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {data.partners.map(p => (
           <a key={p.id} href={p.website || "#"} target="_blank" rel="noreferrer"
-             className="aspect-[3/2] rounded-xl border flex items-center justify-center p-4"
-             style={{ borderColor: `${theme.textColor}1f`, backgroundColor: "transparent" }}>
+             className={LOGO_TILE}
+             style={logoPlate(theme)}>
             {p.logoUrl
-              ? <img loading="lazy" decoding="async" src={p.logoUrl} alt={p.name} className="max-h-full max-w-full object-contain" />
+              ? <img loading="lazy" decoding="async" src={p.logoUrl} alt={p.name} className={LOGO_IMG} />
               : <span className="text-sm font-semibold text-center">{p.name}</span>}
           </a>
         ))}
@@ -1091,7 +1122,7 @@ function CountdownSec({ data, theme, event }: { data: CountdownData; theme: Them
 
   return (
     <Section theme={theme} tone="tinted" id="countdown">
-      <div className="max-w-3xl mx-auto text-left">
+      <div className="max-w-3xl text-left">
         <p
           className="text-xs sm:text-sm font-semibold tracking-[0.2em] uppercase mb-4"
           style={{ color: labelColor, opacity: 0.85 }}

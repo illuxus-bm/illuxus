@@ -1,4 +1,4 @@
-import { useEffect, useState, Suspense, lazy } from "react";
+import { useEffect, useRef, useState, Suspense, lazy } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useAppBack } from "@/lib/app-back";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,16 +7,16 @@ import type { Tables } from "@/integrations/supabase/types";
 import {
   LayoutDashboard, ClipboardList, Users, FileText, Palette,
   Mail, BarChart3, CalendarCheck, Search, Ticket, Presentation,
-  UserCheck, UsersRound, Award, Megaphone, Globe, ArrowLeft, ExternalLink,
+  UserCheck, Award, Megaphone, Globe, ArrowLeft, ExternalLink,
   Link2, Check, X, Pencil, Copy, Settings, Radio, ChevronDown, RefreshCw, Users2,
-  ImagePlus, Building2
+  ImagePlus, Building2, MoreHorizontal, EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -42,6 +42,7 @@ import { CurrencySwitcher, getStoredDisplayCurrency } from "@/components/Currenc
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { DashboardTopBar } from "@/components/DashboardTopBar";
 import { SectionPills } from "@/components/layout/ShellNav";
+import { holdsSeat, registrationState } from "@/lib/reports/analytics";
 
 const BroadcastPageLazy = lazy(() => import("./event/BroadcastPage"));
 const ApplicationsSectionLazy = lazy(() => import("@/components/event/ApplicationsSection").then((m) => ({ default: m.ApplicationsSection })));
@@ -100,6 +101,9 @@ const EventDetailPage = () => {
   const [slugError, setSlugError] = useState<string | null>(null);
   const [slugChecking, setSlugChecking] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  // Phone event bar: the status hint and the link editor opened from "More".
+  const [liveTip, setLiveTip] = useState(false);
+  const [mobileLinkOpen, setMobileLinkOpen] = useState(false);
   const { rates: fxRates } = useFxRates();
   const [displayCcy, setDisplayCcy] = useState<string>(() => getStoredDisplayCurrency(DEFAULT_EVENT_CURRENCY));
   const { toast } = useToast();
@@ -167,18 +171,27 @@ const EventDetailPage = () => {
     return () => { supabase.removeChannel(channel); };
   }, [event?.id]);
 
-  // Deep-link support: keep `activeSection` in sync with `?tab=` so external
-  // links (community sidebar, etc.) can land on a specific manage-event tab.
+  // The open tab lives in `?tab=`, so a reload (or a shared link) lands on
+  // the same tab. Links that change `?tab=` (community sidebar, back/forward)
+  // switch the tab; switching tabs writes it back. Only a *change* of the
+  // param switches the tab, so a click isn't undone by the old value.
+  const lastTabParam = useRef(searchParams.get("tab"));
   useEffect(() => {
     const tab = searchParams.get("tab");
-    if (tab && tab !== activeSection) {
-      setActiveSection(tab);
-      // Drop the param so internal nav doesn't fight with the URL.
-      const next = new URLSearchParams(searchParams);
-      next.delete("tab");
-      setSearchParams(next, { replace: true });
-    }
-  }, [searchParams, activeSection, setSearchParams]);
+    if (tab === lastTabParam.current) return;
+    lastTabParam.current = tab;
+    if (tab && tab !== activeSection) setActiveSection(tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+  useEffect(() => {
+    const want = activeSection === "dashboard" ? null : activeSection;
+    if (searchParams.get("tab") === want) return;
+    const next = new URLSearchParams(searchParams);
+    if (want) next.set("tab", want); else next.delete("tab");
+    lastTabParam.current = want;
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection]);
 
   // Live validation + uniqueness check while typing (debounced)
   useEffect(() => {
@@ -334,15 +347,20 @@ const EventDetailPage = () => {
   };
 
   const totalRegs = registrations.length;
-  const checkedInCount = registrations.filter(r => (r as any).checked_in === true).length;
-  const confirmedRegs = registrations.filter(r => r.status === "confirmed").length;
+  // Tickets taken, by the same rule as events.tickets_sold (the events list
+  // and Reports): everything but cancelled, declined and waitlisted, so a
+  // registration awaiting approval holds its seat.
+  const seatRegs = registrations.filter(r => holdsSeat(registrationState(r)));
+  const pendingApprovals = registrations.filter(r => r.approval_status === "pending").length;
+  const checkedInCount = seatRegs.filter(r => r.checked_in === true).length;
+  const confirmedRegs = seatRegs.length;
   const cancelledRegs = registrations.filter(r => r.status === "cancelled").length;
   const totalRevenue = registrations
     .filter(r => r.status !== "cancelled")
     .reduce((s, r) => s + Number(r.amount_paid || 0), 0);
   const eventCurrency = ((event as any).currency || DEFAULT_EVENT_CURRENCY).toUpperCase();
-  const capacity = event.capacity || 100;
-  const yetToSell = Math.max(0, capacity - confirmedRegs);
+  const capacity = Number(event.capacity) || 0;
+  const yetToSell = capacity > 0 ? Math.max(0, capacity - confirmedRegs) : 0;
 
   const donutData = [
     { name: "Registered", value: confirmedRegs },
@@ -415,6 +433,81 @@ const EventDetailPage = () => {
     setActiveSection(k);
   };
 
+  // Public URL panel: slug edit, copy URL and the internal ID. Shown from the
+  // link button on wide screens and from "Edit link" in the phone bar.
+  const linkPanel = (
+    <>
+              <div>
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground/70">Public URL</label>
+                <div className={`mt-1 flex items-center gap-1 px-2 py-1 rounded-md border bg-background/50 ${slugError ? "border-destructive/60" : "border-border"}`}>
+                  <span className="text-[11px] font-mono text-muted-foreground shrink-0">/events/</span>
+                  {editingSlug ? (
+                    <>
+                      <Input
+                        autoFocus
+                        value={slugDraft}
+                        onChange={(e) => setSlugDraft(e.target.value)}
+                        aria-invalid={!!slugError}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveSlug();
+                          if (e.key === "Escape") setEditingSlug(false);
+                        }}
+                        className="h-6 flex-1 text-[11px] font-mono px-1.5"
+                        placeholder="event-slug"
+                      />
+                      <button
+                        onClick={saveSlug}
+                        disabled={savingSlug || !!slugError || slugChecking}
+                        className="h-6 w-6 inline-flex items-center justify-center rounded text-accent hover:bg-accent/10 disabled:opacity-50"
+                        aria-label="Save"
+                        title="Save"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setEditingSlug(false)}
+                        className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-muted"
+                        aria-label="Cancel"
+                        title="Cancel"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-[11px] font-mono text-foreground flex-1 truncate">{event.slug}</span>
+                      <button
+                        onClick={startEditSlug}
+                        className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                        aria-label="Edit slug"
+                        title="Edit"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={copyPublicUrl}
+                        className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                        aria-label="Copy URL"
+                        title="Copy"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    </>
+                  )}
+                </div>
+                {slugError ? (
+                  <p className="mt-1 text-[11px] text-destructive">{slugError}</p>
+                ) : slugChecking ? (
+                  <p className="mt-1 text-[11px] text-muted-foreground">Checking…</p>
+                ) : null}
+              </div>
+              <div className="pt-2 border-t border-border flex items-center gap-1 text-[10px] text-muted-foreground/70">
+                <span className="uppercase tracking-wider">ID</span>
+                <span className="font-mono select-all ml-1" title={event.id}>{event.id}</span>
+              </div>
+            </>
+  );
+
   return (
     <>
       <div className="app-shell shell-notch min-h-screen flex flex-col w-full">
@@ -437,7 +530,7 @@ const EventDetailPage = () => {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <h1 className="text-[17px] font-semibold tracking-tight truncate">{event.title}</h1>
-                  <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${statusStyle[event.status] || ""}`}>
+                  <span className={`hidden sm:inline-block shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${statusStyle[event.status] || ""}`}>
                     {event.status}
                   </span>
                 </div>
@@ -449,7 +542,7 @@ const EventDetailPage = () => {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="hidden sm:flex items-center gap-2 shrink-0">
               {/* Link/share popover — slug edit, copy URL, and internal ID */}
               <Popover>
                 <PopoverTrigger asChild>
@@ -459,74 +552,7 @@ const EventDetailPage = () => {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-80 p-3 space-y-3">
-                  <div>
-                    <label className="text-[11px] uppercase tracking-wider text-muted-foreground/70">Public URL</label>
-                    <div className={`mt-1 flex items-center gap-1 px-2 py-1 rounded-md border bg-background/50 ${slugError ? "border-destructive/60" : "border-border"}`}>
-                      <span className="text-[11px] font-mono text-muted-foreground shrink-0">/events/</span>
-                      {editingSlug ? (
-                        <>
-                          <Input
-                            autoFocus
-                            value={slugDraft}
-                            onChange={(e) => setSlugDraft(e.target.value)}
-                            aria-invalid={!!slugError}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") saveSlug();
-                              if (e.key === "Escape") setEditingSlug(false);
-                            }}
-                            className="h-6 flex-1 text-[11px] font-mono px-1.5"
-                            placeholder="event-slug"
-                          />
-                          <button
-                            onClick={saveSlug}
-                            disabled={savingSlug || !!slugError || slugChecking}
-                            className="h-6 w-6 inline-flex items-center justify-center rounded text-accent hover:bg-accent/10 disabled:opacity-50"
-                            aria-label="Save"
-                            title="Save"
-                          >
-                            <Check className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setEditingSlug(false)}
-                            className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-muted"
-                            aria-label="Cancel"
-                            title="Cancel"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-[11px] font-mono text-foreground flex-1 truncate">{event.slug}</span>
-                          <button
-                            onClick={startEditSlug}
-                            className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                            aria-label="Edit slug"
-                            title="Edit"
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </button>
-                          <button
-                            onClick={copyPublicUrl}
-                            className="h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                            aria-label="Copy URL"
-                            title="Copy"
-                          >
-                            <Copy className="h-3 w-3" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                    {slugError ? (
-                      <p className="mt-1 text-[11px] text-destructive">{slugError}</p>
-                    ) : slugChecking ? (
-                      <p className="mt-1 text-[11px] text-muted-foreground">Checking…</p>
-                    ) : null}
-                  </div>
-                  <div className="pt-2 border-t border-border flex items-center gap-1 text-[10px] text-muted-foreground/70">
-                    <span className="uppercase tracking-wider">ID</span>
-                    <span className="font-mono select-all ml-1" title={event.id}>{event.id}</span>
-                  </div>
+                  {linkPanel}
                 </PopoverContent>
               </Popover>
               <Button variant="ghost" size="sm" className="h-7 text-[12px] gap-1 px-2 sm:px-3" asChild>
@@ -598,6 +624,94 @@ const EventDetailPage = () => {
                 </Button>
               )}
             </div>
+            {/* Phones: one row of matching square buttons — live status, copy
+                link, open the live page, and "More" for the rest. */}
+            <div className="relative flex shrink-0 items-center gap-1.5 sm:hidden">
+              {event.status === "published" ? (
+                <button
+                  type="button"
+                  onClick={() => { setLiveTip(true); window.setTimeout(() => setLiveTip(false), 1600); }}
+                  aria-label="Published — event is live"
+                  className="relative flex h-[42px] w-[42px] items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-400"
+                >
+                  <Radio className="h-5 w-5" />
+                  <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500 motion-safe:animate-pulse" />
+                </button>
+              ) : (
+                <Button size="sm" className="h-[42px] rounded-xl px-3 text-[13px]" onClick={togglePublish} disabled={publishing}>
+                  {publishing ? "Publishing…" : "Publish"}
+                </Button>
+              )}
+              {liveTip && (
+                <span role="status" className="absolute right-[144px] top-[52px] z-30 whitespace-nowrap rounded-lg bg-foreground px-2.5 py-1.5 text-[12px] font-medium text-background">
+                  Published · live
+                </span>
+              )}
+              <Popover open={mobileLinkOpen} onOpenChange={setMobileLinkOpen}>
+                <PopoverAnchor asChild>
+                  <button
+                    type="button"
+                    onClick={copyPublicUrl}
+                    aria-label="Copy event link"
+                    className="flex h-[42px] w-[42px] items-center justify-center rounded-xl border border-border bg-card text-foreground hover:bg-muted"
+                  >
+                    <Link2 className="h-[19px] w-[19px]" />
+                  </button>
+                </PopoverAnchor>
+                <PopoverContent align="end" className="w-80 p-3 space-y-3">
+                  {linkPanel}
+                </PopoverContent>
+              </Popover>
+              <a
+                href={eventPublicUrl(event, (org as { subdomain?: string | null } | null)?.subdomain || org?.slug || null)}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="View live page"
+                className="flex h-[42px] w-[42px] items-center justify-center rounded-xl border border-border bg-card text-foreground hover:bg-muted"
+              >
+                <ExternalLink className="h-[19px] w-[19px]" />
+              </a>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="More actions"
+                    className="flex h-[42px] w-[42px] items-center justify-center rounded-xl border border-border bg-card text-foreground hover:bg-muted"
+                  >
+                    <MoreHorizontal className="h-5 w-5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-60 rounded-2xl p-1.5">
+                  <div className="flex h-11 items-center gap-3 px-3 text-[14px] font-medium">
+                    <span className={`mx-1 h-2 w-2 rounded-full ${event.status === "published" ? "bg-emerald-500" : "bg-muted-foreground"}`} />
+                    Status
+                    <span className={`ml-auto text-[12px] font-semibold capitalize ${event.status === "published" ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>{event.status}</span>
+                  </div>
+                  <DropdownMenuSeparator />
+                  {event.status === "published" && (
+                    <DropdownMenuItem onClick={republishLive} disabled={publishing} className="h-11 gap-3 rounded-xl text-[14px]">
+                      <RefreshCw className="h-[18px] w-[18px] text-muted-foreground" /> Sync changes
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={() => selectSection("settings")} className="h-11 gap-3 rounded-xl text-[14px]">
+                    <Pencil className="h-[18px] w-[18px] text-muted-foreground" /> Edit event
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => window.setTimeout(() => setMobileLinkOpen(true), 0)} className="h-11 gap-3 rounded-xl text-[14px]">
+                    <Link2 className="h-[18px] w-[18px] text-muted-foreground" /> Edit link
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {event.status === "published" ? (
+                    <DropdownMenuItem onClick={togglePublish} disabled={publishing} className="h-11 gap-3 rounded-xl text-[14px] text-destructive focus:text-destructive">
+                      <EyeOff className="h-[18px] w-[18px]" /> Unpublish
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem onClick={togglePublish} disabled={publishing} className="h-11 gap-3 rounded-xl text-[14px]">
+                      <Globe className="h-[18px] w-[18px] text-muted-foreground" /> Publish
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </header>
 
           {/* This event's sections */}
@@ -619,8 +733,8 @@ const EventDetailPage = () => {
                   </div>
                   <CurrencySwitcher value={displayCcy} onChange={setDisplayCcy} extra={[eventCurrency]} />
                 </div>
-                {/* Metric cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Metric cards — one row of six on wide screens */}
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 2xl:gap-4">
                   <MetricCard
                     label="Revenue"
                     value={
@@ -638,10 +752,17 @@ const EventDetailPage = () => {
                   <MetricCard
                     label="Registrations"
                     value={String(confirmedRegs)}
-                    sub={cancelledRegs > 0 ? `of ${capacity} capacity · ${cancelledRegs} cancelled` : `of ${capacity} capacity`}
+                    sub={[
+                      capacity > 0 ? `of ${capacity} capacity` : "No capacity limit",
+                      pendingApprovals > 0 ? `incl. ${pendingApprovals} awaiting approval` : null,
+                      cancelledRegs > 0 ? `${cancelledRegs} cancelled` : null,
+                    ].filter(Boolean).join(" · ")}
                     color="text-chart-2"
                   />
                   <MetricCard label="Checked In" value={String(checkedInCount)} sub={`of ${confirmedRegs} registered`} color="text-chart-3" />
+                  <MetricCard label="Sessions" value={String(sessionCount)} sub="On the agenda" color="text-chart-4" />
+                  <MetricCard label="Speakers" value={String(speakerCount)} sub="On the line-up" color="text-chart-5" />
+                  <MetricCard label="Sponsors" value={String(sponsorCount)} sub="Partners & exhibitors" color="text-primary" />
                 </div>
 
                 {/* Charts row */}
@@ -731,12 +852,6 @@ const EventDetailPage = () => {
                   </div>
                 </div>
 
-                {/* Stats row */}
-                <div className="grid grid-cols-3 gap-3">
-                  <NumberCard icon={<Presentation className="h-4 w-4 text-muted-foreground" />} label="Sessions" value={String(sessionCount)} />
-                  <NumberCard icon={<UserCheck className="h-4 w-4 text-muted-foreground" />} label="Speakers" value={String(speakerCount)} />
-                  <NumberCard icon={<UsersRound className="h-4 w-4 text-muted-foreground" />} label="Sponsors" value={String(sponsorCount)} />
-                </div>
               </div>
             )}
 
@@ -826,20 +941,8 @@ function MetricCard({ label, value, sub, color }: { label: string; value: string
   return (
     <div className="bg-card border border-border rounded-lg p-5">
       <p className="flex items-center gap-2 text-[13px] text-muted-foreground"><span className={`h-1.5 w-1.5 rounded-full bg-current ${color}`} />{label}</p>
-      <p className="text-[30px] leading-none font-medium tracking-tight mt-4 tabular-nums">{value}</p>
-      <p className="text-[12px] text-muted-foreground mt-2">{sub}</p>
-    </div>
-  );
-}
-
-function NumberCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="bg-card border border-border rounded-lg p-3 sm:p-4 flex items-center gap-2 sm:gap-3 min-w-0">
-      <span className="shrink-0">{icon}</span>
-      <div className="min-w-0">
-        <p className="text-base sm:text-lg font-semibold mono">{value}</p>
-        <p className="text-[11px] text-muted-foreground truncate">{label}</p>
-      </div>
+      <p className="text-[26px] 2xl:text-[30px] leading-none font-medium tracking-tight mt-4 tabular-nums truncate" title={value}>{value}</p>
+      <p className="text-[12px] text-muted-foreground mt-2 truncate" title={sub}>{sub}</p>
     </div>
   );
 }

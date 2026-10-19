@@ -306,7 +306,7 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
   };
 
   return (
-    <div className="space-y-5 max-w-[1100px]">
+    <div className="space-y-5 w-full">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-[18px] font-semibold tracking-tight">Communications</h2>

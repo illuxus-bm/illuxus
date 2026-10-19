@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   createHandler, invitationState, sha256Hex, supabaseStore, validateMemberDetails, INVITE_TTL_DAYS,
-  type CallerUser, type Context, type Deps, type InvitationRow, type Store,
+  type AuditEntry, type CallerUser, type Context, type Deps, type InvitationRow, type Store,
 } from "../../../supabase/functions/team-invitation/index";
 
 const ORG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -15,10 +15,17 @@ const OTHER_ORG = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const NOW = new Date("2026-10-13T10:00:00Z");
 
 interface User { id: string; email: string; password: string; verified: boolean; meta: Record<string, string> }
-interface Invite { id: string; org_id: string; email: string; role: string; status: string; expires_at: string; claimed_at: string | null; token_hash: string | null; invited_by: string; accepted_at: string | null; accepted_by: string | null }
+interface Invite { id: string; org_id: string; email: string; role: string; status: string; expires_at: string; claimed_at: string | null; token_hash: string | null; invited_by: string; accepted_at: string | null; accepted_by: string | null; transfer_ownership?: boolean; prefill?: Record<string, string> }
 
 interface World {
-  orgs: Map<string, { name: string; owner_id: string }>;
+  orgs: Map<string, { name: string; owner_id: string; subdomain?: string; plan?: string; billing_email?: string | null; slug?: string }>;
+  subscriptions: { org_id: string; plan: string }[];
+  superAdmins: Set<string>;
+  /** Global roles (user_roles); provisioning must never add to it. */
+  globalRoles: { user_id: string; role: string }[];
+  audits: AuditEntry[];
+  emailWorks: boolean;
+  issueWorks: boolean;
   members: { org_id: string; user_id: string; role: string }[];
   users: User[];
   /** access token → user id */
@@ -35,7 +42,13 @@ interface World {
 
 function makeWorld(): World {
   const w: World = {
-    orgs: new Map([[ORG, { name: "Acme Events", owner_id: "u-owner" }], [OTHER_ORG, { name: "Other Co", owner_id: "u-other" }]]),
+    orgs: new Map([[ORG, { name: "Acme Events", owner_id: "u-owner", subdomain: "acme" }], [OTHER_ORG, { name: "Other Co", owner_id: "u-other", subdomain: "other" }]]),
+    subscriptions: [],
+    superAdmins: new Set(["u-super"]),
+    globalRoles: [{ user_id: "u-super", role: "admin" }],
+    audits: [],
+    emailWorks: true,
+    issueWorks: true,
     members: [],
     users: [],
     sessions: new Map(),
@@ -59,12 +72,14 @@ function makeWorld(): World {
   addUser("u-member", "member@acme.test", true, [ORG, "member"]);
   addUser("u-other", "boss@other.test", true, [OTHER_ORG, "owner"]);
   addUser("u-existing", "existing@elsewhere.test", true);
+  addUser("u-super", "super@illuxus.test", true);
   return w;
 }
 
 const toRow = (w: World, i: Invite): InvitationRow => ({
   id: i.id, org_id: i.org_id, org_name: w.orgs.get(i.org_id)?.name ?? "", email: i.email, role: i.role,
   status: i.status, expires_at: i.expires_at, claimed_at: i.claimed_at,
+  transfer_ownership: !!i.transfer_ownership, prefill: i.prefill ?? {},
 });
 
 function makeStore(w: World): Store {
@@ -93,6 +108,7 @@ function makeStore(w: World): Store {
     async findInvitationById(id) { const i = w.invites.find((x) => x.id === id); return i ? toRow(w, i) : null; },
     async findInvitationByHash(hash) { const i = w.invites.find((x) => x.token_hash === hash); return i ? toRow(w, i) : null; },
     async issueInvitation(existingId, f) {
+      if (!w.issueWorks) return { error: "insert failed" };
       const fresh = { ...f, status: "pending", claimed_at: null, accepted_at: null, accepted_by: null };
       if (existingId) {
         const i = w.invites.find((x) => x.id === existingId)!;
@@ -132,15 +148,39 @@ function makeStore(w: World): Store {
       let m = w.members.find((x) => x.org_id === i.org_id && x.user_id === userId);
       if (!m) { m = { org_id: i.org_id, user_id: userId, role: i.role }; w.members.push(m); }
       Object.assign(i, { status: "accepted", accepted_at: w.now.toISOString(), accepted_by: userId, claimed_at: null });
+      // Mirrors the org_invitations_hand_over trigger (migration 049).
+      if (i.transfer_ownership) { w.orgs.get(i.org_id)!.owner_id = userId; m.role = "owner"; }
       return { org_id: i.org_id, role: m.role };
     },
+    async isSuperAdmin(userId) { return w.superAdmins.has(userId); },
+    async findOrgBySubdomain(sub) {
+      for (const [id, o] of w.orgs) if (o.subdomain === sub) return { id, owner_id: o.owner_id, name: o.name };
+      return null;
+    },
+    async createOrganization(org) {
+      if ([...w.orgs.values()].some((o) => o.subdomain === org.subdomain)) return { error: "duplicate key", conflict: true };
+      const id = `cccccccc-cccc-4ccc-8ccc-${(w.orgs.size + 1).toString().padStart(12, "0")}`;
+      w.orgs.set(id, { name: org.name, owner_id: org.owner_id, subdomain: org.subdomain, plan: org.plan, billing_email: org.billing_email, slug: org.slug });
+      w.subscriptions.push({ org_id: id, plan: org.plan });
+      return { id };
+    },
+    async deleteOrganization(id) {
+      w.orgs.delete(id);
+      w.subscriptions = w.subscriptions.filter((x) => x.org_id !== id);
+      w.invites = w.invites.filter((x) => x.org_id !== id);
+    },
+    async audit(entry) { w.audits.push(entry); },
   };
 }
 
 function makeDeps(w: World): Deps {
   return {
     store: makeStore(w),
-    async sendEmail(msg) { w.outbox.push(msg); return { ok: true }; },
+    async sendEmail(msg) {
+      if (!w.emailWorks) return { ok: false, error: "SMTP down" };
+      w.outbox.push(msg);
+      return { ok: true };
+    },
     now: () => w.now,
     newToken: () => { const t = (w.issued.length + 1).toString(16).padStart(64, "a"); w.issued.push(t); return t; },
     origin: "https://illuxus.test",
@@ -549,5 +589,163 @@ describe("abuse limits", () => {
     let last = 0;
     for (let i = 0; i < 12; i++) last = (await handle({ action: "accept", token: i.toString(16).padStart(64, "0"), ...details() }, as(null))).status;
     expect(last).toBe(429);
+  });
+});
+
+// ─── Super Admin creates an organization and invites its first user ─────────
+
+const BUSINESS = { max_events: -1, max_attendees_per_event: -1, max_team_members: -1, features: ["basic_analytics", "white_label"] };
+const provision = (over: { org?: Record<string, unknown>; user?: Record<string, unknown> } = {}, by: string | null = "u-super") =>
+  handle({
+    action: "admin_create_org",
+    org: { name: "Keka Events", subdomain: "keka", contact_email: "events@keka.test", plan: "business", plan_limits: BUSINESS, ...over.org },
+    user: { first_name: "Anita", last_name: "Rao", email: "Anita@Keka.test", designation: "Head of Events", mobile_country_code: "+91", mobile_number: "9876543210", ...over.user },
+  }, as(by));
+const newOrgId = () => [...w.orgs.keys()].find((id) => id !== ORG && id !== OTHER_ORG)!;
+
+describe("Super Admin creates an organization", () => {
+  it("creates the organization, its subscription and an owner invitation, and emails it", async () => {
+    const r = await provision();
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ ok: true, org_name: "Keka Events", subdomain: "keka", plan: "business", email_sent: true, account_exists: false });
+    const org = w.orgs.get(newOrgId())!;
+    expect(org).toMatchObject({ name: "Keka Events", subdomain: "keka", plan: "business", billing_email: "events@keka.test", owner_id: "u-super" });
+    expect(org.slug).toMatch(/^keka-events-[a-z0-9]+$/);
+    expect(w.subscriptions).toEqual([{ org_id: newOrgId(), plan: "business" }]);
+    // Super Admin is only the placeholder owner: no membership.
+    expect(w.members.some((m) => m.user_id === "u-super")).toBe(false);
+    const inv = w.invites[0];
+    expect(inv).toMatchObject({ org_id: newOrgId(), email: "anita@keka.test", role: "owner", status: "pending", transfer_ownership: true, invited_by: "u-super" });
+    expect(inv.prefill).toEqual({ first_name: "Anita", last_name: "Rao", designation: "Head of Events", mobile_country_code: "+91", mobile_number: "9876543210" });
+    expect(inv.token_hash).toBe(await sha256Hex(lastToken()));
+    expect(w.outbox[0].subject).toContain("Keka Events is ready");
+    expect(w.outbox[0].text).toContain(`https://illuxus.test/invite?token=${lastToken()}`);
+  });
+
+  it("records the operation in the audit log without the link's secret", async () => {
+    await provision();
+    expect(w.audits).toHaveLength(1);
+    expect(w.audits[0]).toMatchObject({ actor_id: "u-super", action: "organization.provisioned", target_type: "organization", target_id: newOrgId() });
+    expect(w.audits[0].details).toMatchObject({ invite_email: "anita@keka.test", role: "owner", email_sent: true });
+    expect(JSON.stringify(w.audits)).not.toContain(lastToken());
+  });
+
+  it("the invitation page shows the prefilled details and that they will own it", async () => {
+    await provision();
+    const r = await handle({ action: "inspect", token: lastToken() }, as(null));
+    expect(r.body).toMatchObject({ valid: true, org_name: "Keka Events", role: "owner", becomes_owner: true, prefill: { first_name: "Anita", designation: "Head of Events" } });
+  });
+
+  it("a new user who accepts becomes the owner; Super Admin stops being the owner", async () => {
+    await provision();
+    const r = await accept({ first_name: "Anita", last_name: "Rao" });
+    expect(r.status).toBe(200);
+    const anita = w.users.find((u) => u.email === "anita@keka.test")!;
+    expect(w.orgs.get(newOrgId())!.owner_id).toBe(anita.id);
+    expect(memberOf("anita@keka.test")).toEqual([{ org_id: newOrgId(), user_id: anita.id, role: "owner" }]);
+    expect(anita.password).toBe("Welcome2026");
+  });
+
+  it("an existing user signs in and accepts; their other memberships are untouched", async () => {
+    w.members.push({ org_id: OTHER_ORG, user_id: "u-existing", role: "member" });
+    const r = await provision({ user: { email: "existing@elsewhere.test" } });
+    expect(r.body).toMatchObject({ ok: true, account_exists: true });
+    // Nothing happens to the account until its owner accepts.
+    expect(memberOf("existing@elsewhere.test")).toEqual([{ org_id: OTHER_ORG, user_id: "u-existing", role: "member" }]);
+    expect((await accept({}, as(null))).body).toMatchObject({ code: "account_exists" });
+    const ok = await handle({ action: "accept_existing", token: lastToken() }, as("u-existing"));
+    expect(ok.status).toBe(200);
+    expect(w.orgs.get(newOrgId())!.owner_id).toBe("u-existing");
+    expect(memberOf("existing@elsewhere.test")).toEqual([
+      { org_id: OTHER_ORG, user_id: "u-existing", role: "member" },
+      { org_id: newOrgId(), user_id: "u-existing", role: "owner" },
+    ]);
+    expect(w.users.find((u) => u.id === "u-existing")!.password).toBe("Existing123");
+  });
+
+  it("someone else signed in cannot take the invitation", async () => {
+    await provision();
+    const r = await handle({ action: "accept_existing", token: lastToken() }, as("u-member"));
+    expect(r.status).toBe(403);
+    expect(w.orgs.get(newOrgId())!.owner_id).toBe("u-super");
+  });
+
+  it("never grants a global role", async () => {
+    await provision();
+    await accept();
+    expect(w.globalRoles).toEqual([{ user_id: "u-super", role: "admin" }]);
+  });
+
+  it("refuses anyone who is not Super Admin", async () => {
+    expect((await provision({}, null)).status).toBe(401);
+    expect((await provision({}, "u-owner")).status).toBe(403);
+    expect(w.orgs.size).toBe(2);
+    expect(w.invites).toHaveLength(0);
+  });
+
+  it("refuses a URL already used by another organization", async () => {
+    const r = await provision({ org: { subdomain: "acme" } });
+    expect(r.status).toBe(409);
+    expect(r.body).toMatchObject({ code: "subdomain_taken", errors: { "org.subdomain": expect.any(String) } });
+    expect(w.invites).toHaveLength(0);
+  });
+
+  it("sending the same request twice creates one organization and one invitation", async () => {
+    const first = await provision();
+    const again = await provision();
+    expect(again.status).toBe(200);
+    expect(again.body).toMatchObject({ ok: true, already_created: true, org_id: first.body.org_id, invitation_id: first.body.invitation_id });
+    expect(w.orgs.size).toBe(3);
+    expect(w.invites).toHaveLength(1);
+    expect(w.outbox).toHaveLength(1);
+  });
+
+  it("validates both sections and reports each field", async () => {
+    const r = await provision({ org: { name: "", subdomain: "-bad-", plan: "gold" }, user: { first_name: "", email: "nope" } });
+    expect(r.status).toBe(400);
+    expect(Object.keys(r.body.errors as object).sort()).toEqual(["org.name", "org.plan", "org.subdomain", "user.email", "user.first_name"]);
+  });
+
+  it("refuses Super Admin's own email as the first user", async () => {
+    const r = await provision({ user: { email: "super@illuxus.test" } });
+    expect(r.status).toBe(400);
+    expect(w.orgs.size).toBe(2);
+  });
+
+  it("keeps the organization when the email fails, and Resend works", async () => {
+    w.emailWorks = false;
+    const r = await provision();
+    expect(r.body).toMatchObject({ ok: true, email_sent: false });
+    expect(w.orgs.has(newOrgId())).toBe(true);
+    w.emailWorks = true;
+    const again = await handle({ action: "resend", invitation_id: r.body.invitation_id }, as("u-super"));
+    expect(again.body).toMatchObject({ ok: true, email_sent: true });
+    expect(w.invites).toHaveLength(1);
+    expect(w.invites[0].transfer_ownership).toBe(true);
+    expect(w.outbox[0].subject).toContain("is ready");
+  });
+
+  it("removes the organization when the invitation cannot be saved", async () => {
+    w.issueWorks = false;
+    const r = await provision();
+    expect(r.status).toBe(500);
+    expect(w.orgs.size).toBe(2);
+    expect(w.subscriptions).toHaveLength(0);
+  });
+
+  it("an expired provisioning link no longer hands over the organization", async () => {
+    await provision();
+    w.now = new Date(NOW.getTime() + (INVITE_TTL_DAYS + 1) * 86400_000);
+    expect((await accept()).status).toBe(400);
+    expect(w.orgs.get(newOrgId())!.owner_id).toBe("u-super");
+  });
+
+  it("a used link cannot be used again", async () => {
+    await provision();
+    const token = lastToken();
+    expect((await accept()).status).toBe(200);
+    const again = await handle({ action: "accept", token, ...details({ first_name: "Mallory" }) }, as(null));
+    expect(again.status).toBe(400);
+    expect(again.body).toMatchObject({ code: "accepted" });
   });
 });

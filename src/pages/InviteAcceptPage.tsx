@@ -28,7 +28,7 @@ import {
   type InviteeFieldErrors, type InviteeFields,
 } from "@/lib/team-invitation";
 
-interface Invitation { email: string; orgName: string; role: string; accountExists: boolean }
+interface Invitation { email: string; orgName: string; role: string; accountExists: boolean; becomesOwner: boolean }
 
 type Phase =
   | { kind: "checking" }
@@ -82,8 +82,18 @@ const InviteAcceptPage = () => {
       if (b.ok === true && b.valid === true && typeof b.email === "string") {
         setPhase({
           kind: "ready",
-          invitation: { email: b.email, orgName: String(b.org_name || "your team"), role: String(b.role || "member"), accountExists: b.account_exists === true },
+          invitation: { email: b.email, orgName: String(b.org_name || "your team"), role: String(b.role || "member"), accountExists: b.account_exists === true, becomesOwner: b.becomes_owner === true },
         });
+        // Details entered by whoever set up the invitation; the invitee can change them.
+        const p = (b.prefill && typeof b.prefill === "object" ? b.prefill : {}) as Record<string, unknown>;
+        const str = (v: unknown) => (typeof v === "string" ? v : "");
+        setFields((f) => ({
+          first_name: f.first_name || str(p.first_name),
+          last_name: f.last_name || str(p.last_name),
+          designation: f.designation || str(p.designation),
+          mobile_country_code: f.mobile_country_code || str(p.mobile_country_code),
+          mobile_number: f.mobile_number || str(p.mobile_number),
+        }));
       } else if (b.ok === true) {
         setPhase(unusable(String(b.reason), typeof b.org_name === "string" && b.org_name ? b.org_name : null));
       } else {
@@ -173,7 +183,9 @@ const InviteAcceptPage = () => {
           <h1 className="text-[26px] leading-tight font-medium tracking-[-0.035em]">{title}</h1>
           {invitation && (
             <p className="mt-2 text-[13px] text-muted-foreground">
-              You've been invited to join as <span className="font-medium text-foreground">{ROLE_LABEL[invitation.role] ?? "Member"}</span>.
+              {invitation.becomesOwner
+                ? <>Illuxus has set up this organization for you. You'll be its <span className="font-medium text-foreground">owner</span>.</>
+                : <>You've been invited to join as <span className="font-medium text-foreground">{ROLE_LABEL[invitation.role] ?? "Member"}</span>.</>}
             </p>
           )}
         </div>

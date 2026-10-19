@@ -54,14 +54,25 @@ export function AppHeaderBar({
   // them (index.css) stays off till then: on a textured canvas it would
   // otherwise show as a band.
   const [scrolled, setScrolled] = useState(false);
+  // Phones, on surfaces with a menu row: once the page scrolls, the top row
+  // slides away and the menu row stays pinned on its own.
+  const [collapsed, setCollapsed] = useState(false);
+  const collapsible = !!nav && !navWideOnly;
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 4);
+    const onScroll = () => {
+      setScrolled(window.scrollY > 4);
+      setCollapsed(window.scrollY > 24);
+    };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   const canvas = canvasColor ? hexToRgb(canvasColor) : null;
+  const topRow = cn(
+    collapsible && "max-lg:transition-[max-height,opacity] max-lg:duration-200",
+    collapsible && (collapsed ? "max-lg:pointer-events-none max-lg:max-h-0 max-lg:overflow-hidden max-lg:opacity-0" : "max-lg:max-h-16"),
+  );
 
   return (
     <header
@@ -69,10 +80,11 @@ export function AppHeaderBar({
       style={canvas ? ({ "--float-haze": `rgb(${canvas.r} ${canvas.g} ${canvas.b} / 0.6)` } as CSSProperties) : undefined}
       className={cn(
         "float-header app-chrome sticky top-0 z-50 flex flex-wrap items-center gap-x-2 gap-y-2.5 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-4 lg:gap-x-3 lg:px-6 lg:pb-4 lg:pt-[calc(1rem+env(safe-area-inset-top))]",
+        collapsible && collapsed && "max-lg:gap-y-0",
         className,
       )}
     >
-      <div className="flex min-w-0 items-center gap-2 lg:flex-1">
+      <div className={cn("flex min-w-0 items-center gap-2 lg:flex-1", topRow)}>
         {hasSidebar && (
           <SidebarTrigger className="shell-icon-btn float-chip shrink-0" aria-label="Toggle sidebar" />
         )}
@@ -94,7 +106,7 @@ export function AppHeaderBar({
           {nav}
         </div>
       )}
-      <div className="ml-auto flex shrink-0 items-center gap-1.5 lg:flex-1 lg:justify-end">{actions}</div>
+      <div className={cn("ml-auto flex shrink-0 items-center gap-1.5 lg:flex-1 lg:justify-end", topRow)}>{actions}</div>
     </header>
   );
 }

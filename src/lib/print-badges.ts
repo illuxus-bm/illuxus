@@ -359,7 +359,12 @@ export async function buildPrintHtml(
     .card.name-only{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6mm;text-align:center}
     .card.name-only .name{font-size:26pt;font-weight:700;line-height:1.05}
     .card.name-only .company{font-size:14pt;color:#444;margin-top:3mm}
-    ${bwMode ? `
+    ${thermalOffset && (thermalOffset.topMm || thermalOffset.leftMm) ? `
+      /* Printer offset for name-only and designed cards (the default badge
+       * shifts its .inner wrapper itself). \`translate\` composes with the
+       * elements' own centring transform instead of replacing it. */
+      .card:not(.basic) > * { translate: ${thermalOffset.leftMm}mm ${thermalOffset.topMm}mm; }
+    ` : ""}${bwMode ? `
       .card { border: none !important; border-radius: 0 !important; background: #fff !important; }
       .card .bg { display: none !important; }
       .card.basic .banner { filter: grayscale(1) contrast(1.15); }

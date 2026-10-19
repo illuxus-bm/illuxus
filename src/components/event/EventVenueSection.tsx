@@ -178,7 +178,7 @@ export default function EventVenueSection({ eventId }: { eventId: string }) {
 
   // ─── Render ────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="w-full space-y-6">
       {/* Intro */}
       <div>
         <h2 className="text-lg font-semibold">Venue</h2>

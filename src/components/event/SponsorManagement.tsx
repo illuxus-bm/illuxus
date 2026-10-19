@@ -9,9 +9,23 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical, Search, Megaphone } from "lucide-react";
+import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical, Search, Megaphone, Download } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
-import { logger } from "@/lib/observability";
+import { logger, supabaseRpc } from "@/lib/observability";
+import {
+  MEETING_CAUSE_LABEL, MEETING_STATUS_LABEL, historyLabel, meetingTotals,
+  type MeetingCause, type MeetingHistoryEntry, type MeetingInterest, type MeetingStatus, type MeetingTotals,
+} from "@/lib/meeting-interest";
+
+/** One row of `sponsor_meeting_report` (migration 054). */
+interface MeetingReportRow {
+  kind: string; name: string | null; email: string | null; company: string | null; designation: string | null;
+  status: MeetingStatus; status_cause: MeetingCause | null; status_reason: string | null; interested_at: string | null;
+  scheduled_at: string | null; location: string | null; met_at: string | null;
+  checked_in: boolean; checked_in_at: string | null; status_by_side: string | null;
+  dispute_status: string | null; dispute_reason: string | null; dispute_resolution: string | null; dispute_note: string | null;
+  history: { at: string; action: string; from: MeetingStatus | null; to: MeetingStatus | null; side: "sponsor" | "organiser" | null; reason: string | null; cause: MeetingCause | null }[];
+}
 import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 import SponsorLogoUploader from "./SponsorLogoUploader";
 import {
@@ -176,6 +190,65 @@ export default function SponsorManagement({ eventId }: Props) {
   };
 
   useEffect(() => { fetchData(); }, [eventId]);
+
+  /** The organiser's meetings report for one sponsor: every meeting, its
+   *  outcome, check-in evidence and full history, as CSV (migration 054). */
+  const downloadMeetingReport = async (sponsor: Sponsor) => {
+    const { data, error } = await supabaseRpc("sponsor_meeting_report" as never, { _eid: eventId, _sponsor_id: sponsor.id } as never);
+    if (error) {
+      const missing = /function .* does not exist|schema cache|Could not find the function/i.test(error.message ?? "");
+      toast.error("Report wasn't created", { description: missing ? "This needs a database update that hasn't been applied yet (migration 054)." : error.message });
+      return;
+    }
+    const rows = (data || []) as unknown as MeetingReportRow[];
+    const at = (iso: string | null) => (iso ? new Date(iso).toLocaleString([], { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }) : "");
+    const header = [
+      "Name", "Type", "Email", "Company", "Designation", "Meeting status", "Didn't happen — cause", "Reason",
+      "Interested at", "Arranged for", "Place", "Met at", "Checked in", "Checked in at", "Last recorded by",
+      "Dispute", "Dispute reason", "Dispute outcome", "Organiser's note", "History",
+    ];
+    const body = rows.map((r) => [
+      r.name ?? "", r.kind, r.email ?? "", r.company ?? "", r.designation ?? "",
+      MEETING_STATUS_LABEL[r.status] ?? r.status,
+      r.status_cause ? MEETING_CAUSE_LABEL[r.status_cause] : "", r.status_reason ?? "",
+      at(r.interested_at), at(r.scheduled_at), r.location ?? "", at(r.met_at),
+      r.checked_in ? "Yes" : "No", at(r.checked_in_at), r.status_by_side ?? "",
+      r.dispute_status ?? "", r.dispute_reason ?? "", r.dispute_resolution ?? "", r.dispute_note ?? "",
+      r.history.map((h) => {
+        const entry: MeetingHistoryEntry = { created_at: h.at, action: h.action, from_status: h.from, to_status: h.to, side: h.side, reason: h.reason, cause: h.cause };
+        return [at(h.at), h.side === "organiser" ? "Organiser" : "Sponsor", historyLabel(entry), h.reason ? `"${h.reason}"` : ""].filter(Boolean).join(" — ");
+      }).join(" | "),
+    ]);
+    const esc = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+    const csv = [header, ...body].map((line) => line.map((v) => esc(String(v))).join(",")).join("\r\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `meetings-${sponsor.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Meetings report for ${sponsor.name} downloaded`);
+  };
+
+  // Each sponsor's meetings at this event (migrations 050–054), kept live.
+  const [meetings, setMeetings] = useState<Map<string, MeetingTotals>>(new Map());
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      supabaseRpc("event_meeting_interests" as never, { _eid: eventId } as never).then(({ data, error }) => {
+        if (alive && !error) setMeetings(meetingTotals((data || []) as unknown as MeetingInterest[]));
+      });
+    };
+    load();
+    const channel = supabase
+      .channel(`sponsor-meetings-${eventId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sponsor_meeting_interests", filter: `event_id=eq.${eventId}` }, load)
+      .subscribe();
+    const onVisible = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { alive = false; document.removeEventListener("visibilitychange", onVisible); supabase.removeChannel(channel); };
+  }, [eventId]);
 
   const handleApplicationsToggle = async (enabled: boolean) => {
     setTogglingApplications(true);
@@ -642,6 +715,8 @@ export default function SponsorManagement({ eventId }: Props) {
               <SortableTierGroup
                 key={group.key}
                 group={group}
+                meetings={meetings}
+                onReport={(sp) => void downloadMeetingReport(sp)}
                 onTeam={openTeam}
                 onEdit={openEdit}
                 onDelete={handleDelete}
@@ -815,9 +890,11 @@ type TierGroup = {
 };
 
 function SortableTierGroup({
-  group, onTeam, onEdit, onDelete,
+  group, meetings, onReport, onTeam, onEdit, onDelete,
 }: {
   group: TierGroup;
+  meetings: Map<string, MeetingTotals>;
+  onReport: (s: Sponsor) => void;
   onTeam: (s: Sponsor) => void;
   onEdit: (s: Sponsor) => void;
   onDelete: (id: string) => void;
@@ -861,7 +938,7 @@ function SortableTierGroup({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 items-stretch p-1">
             {group.sponsors.map((s) => (
               <SortableSponsorCard
-                key={s.id} sponsor={s} group={group}
+                key={s.id} sponsor={s} group={group} meetings={meetings.get(s.id)} onReport={() => onReport(s)}
                 onTeam={() => onTeam(s)}
                 onEdit={() => onEdit(s)}
                 onDelete={() => onDelete(s.id)}
@@ -875,10 +952,12 @@ function SortableTierGroup({
 }
 
 function SortableSponsorCard({
-  sponsor: s, group, onTeam, onEdit, onDelete,
+  sponsor: s, group, meetings, onReport, onTeam, onEdit, onDelete,
 }: {
   sponsor: Sponsor;
   group: TierGroup;
+  meetings?: MeetingTotals;
+  onReport: () => void;
   onTeam: () => void; onEdit: () => void; onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } = useSortable({
@@ -913,7 +992,27 @@ function SortableSponsorCard({
       <p className="text-xs text-muted-foreground mt-2 line-clamp-2 min-h-[2.25rem]">
         {s.description || ""}
       </p>
+      <MeetingLine meetings={meetings} onReport={onReport} />
     </div>
+  );
+}
+
+/** "Meetings: 12 interested · 5 arranged · 3 met" for a sponsor card, with the report. */
+function MeetingLine({ meetings: m, onReport }: { meetings?: MeetingTotals; onReport: () => void }) {
+  if (!m?.marked) return <p className="mt-2 border-t border-border pt-2 text-[11.5px] text-muted-foreground">Meetings: none marked yet</p>;
+  return (
+    <p className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-border pt-2 text-[11.5px] text-muted-foreground" aria-label="Meetings">
+      <button type="button" onClick={onReport} className="order-last ml-auto inline-flex items-center gap-1 font-medium text-primary hover:underline">
+        <Download className="h-3 w-3" /> Report
+      </button>
+      <span className="font-medium text-foreground">Meetings</span>
+      <span><b className="font-semibold text-foreground tabular-nums">{m.marked}</b> interested</span>
+      <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-blue-500" /><b className="font-semibold text-foreground tabular-nums">{m.arranged}</b> arranged</span>
+      <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-green-500" /><b className="font-semibold text-foreground tabular-nums">{m.met}</b> met</span>
+      {m.not_met > 0 && <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-red-500" /><b className="font-semibold text-foreground tabular-nums">{m.not_met}</b> didn't happen</span>}
+      {m.cancelled > 0 && <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" /><b className="font-semibold text-foreground tabular-nums">{m.cancelled}</b> cancelled</span>}
+      {m.disputed > 0 && <span className="flex items-center gap-1 font-medium text-amber-700 dark:text-amber-400"><i className="h-1.5 w-1.5 rounded-full bg-amber-500" /><b className="font-semibold tabular-nums">{m.disputed}</b> disputed</span>}
+    </p>
   );
 }
 

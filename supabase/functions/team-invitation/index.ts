@@ -19,6 +19,15 @@
  *                the workspace. No company details, no second email.
  *   Signed in as the invited email (an account that already existed):
  *     accept_existing { token }         → adds that account to the workspace.
+ *   Signed in as Super Admin (global `admin` role, verified email):
+ *     admin_create_org { org: { name, subdomain, contact_email?, plan, plan_limits },
+ *                        user: { first_name, last_name, email, designation?,
+ *                                mobile_country_code?, mobile_number? } }
+ *              → creates the organization (plan, limits, subscription) and
+ *                invites its first user, who becomes the owner on accepting.
+ *                Until then the Super Admin is the placeholder owner (no
+ *                membership), so Resend works for them. Sending the same
+ *                request again returns the organization already created.
  *
  * ── How identity is kept straight ──────────────────────────────────────────
  *   • The link carries a 256-bit secret; only its SHA-256 is stored. It is
@@ -44,7 +53,8 @@
  *   PUBLIC_DOMAIN (optional)  site the email links point at; default illuxus.com
  *   ALLOWED_ORIGINS (optional) extra browser origins allowed to call this
  *
- * Needs migrations 045 (rate limits) and 046 (invitation columns).
+ * Needs migrations 045 (rate limits) and 046 (invitation columns);
+ * `admin_create_org` also needs 049 (ownership handover).
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -80,6 +90,10 @@ export interface InvitationRow {
   status: string;
   expires_at: string;
   claimed_at: string | null;
+  /** Accepting makes the invitee the owner (organizations made by Super Admin). */
+  transfer_ownership?: boolean;
+  /** Personal details entered by whoever created the invitation. */
+  prefill?: Record<string, string>;
 }
 
 export interface CallerUser {
@@ -95,6 +109,35 @@ export interface IssueFields {
   invited_by: string;
   token_hash: string;
   expires_at: string;
+  transfer_ownership?: boolean;
+  prefill?: Record<string, string>;
+}
+
+export interface NewOrganization {
+  name: string;
+  slug: string;
+  subdomain: string;
+  owner_id: string;
+  plan: string;
+  plan_limits: PlanLimits;
+  billing_email: string | null;
+}
+
+export interface PlanLimits {
+  max_events: number;
+  max_attendees_per_event: number;
+  max_team_members: number;
+  features: string[];
+}
+
+export interface AuditEntry {
+  actor_id: string;
+  actor_email: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  /** Never tokens, passwords or other secrets. */
+  details: Record<string, unknown>;
 }
 
 /** Everything the handler needs from the outside world. */
@@ -121,6 +164,13 @@ export interface Store {
   deleteUser(id: string): Promise<void>;
   /** Membership + "accepted", in one transaction. */
   completeInvitation(id: string, userId: string, newAccount: boolean): Promise<{ org_id: string; role: string } | { error: string }>;
+  /** Holds the global Super Admin (`admin`) role. */
+  isSuperAdmin(userId: string): Promise<boolean>;
+  findOrgBySubdomain(subdomain: string): Promise<{ id: string; owner_id: string; name: string } | null>;
+  /** Organization + its subscription. `conflict` when the slug or subdomain is taken. */
+  createOrganization(org: NewOrganization): Promise<{ id: string } | { error: string; conflict?: boolean }>;
+  deleteOrganization(id: string): Promise<void>;
+  audit(entry: AuditEntry): Promise<void>;
 }
 
 export interface Deps {
@@ -199,6 +249,63 @@ export function passwordProblem(password: unknown): string | null {
   return null;
 }
 
+export const PLANS = ["free", "starter", "pro", "business"] as const;
+const SUBDOMAIN_RE = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$/;
+
+export const slugify = (v: string): string =>
+  v.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "org";
+
+export interface ProvisionInput {
+  org: { name: string; subdomain: string; contact_email: string | null; plan: string; plan_limits: PlanLimits };
+  user: { first_name: string; last_name: string; email: string; designation: string; mobile_country_code: string; mobile_number: string };
+}
+
+/** The organization and first-user fields of `admin_create_org`; anything else is ignored. */
+export function validateProvision(body: Record<string, unknown>): { ok: true; value: ProvisionInput } | { ok: false; errors: Record<string, string> } {
+  const org = (body.org && typeof body.org === "object" ? body.org : {}) as Record<string, unknown>;
+  const user = (body.user && typeof body.user === "object" ? body.user : {}) as Record<string, unknown>;
+  const errors: Record<string, string> = {};
+  const contact = normalizeEmail(org.contact_email);
+  const limits = (org.plan_limits && typeof org.plan_limits === "object" ? org.plan_limits : {}) as Record<string, unknown>;
+  const value: ProvisionInput = {
+    org: {
+      name: clean(org.name, 120),
+      subdomain: typeof org.subdomain === "string" ? org.subdomain.trim().toLowerCase() : "",
+      contact_email: contact || null,
+      plan: typeof org.plan === "string" ? org.plan : "",
+      plan_limits: {
+        max_events: Number(limits.max_events),
+        max_attendees_per_event: Number(limits.max_attendees_per_event),
+        max_team_members: Number(limits.max_team_members),
+        features: Array.isArray(limits.features) ? limits.features.filter((f): f is string => typeof f === "string").slice(0, 40) : [],
+      },
+    },
+    user: {
+      first_name: clean(user.first_name, 80),
+      last_name: clean(user.last_name, 80),
+      email: normalizeEmail(user.email),
+      designation: clean(user.designation, 120),
+      mobile_country_code: clean(user.mobile_country_code, 6),
+      mobile_number: clean(user.mobile_number, 20).replace(/[\s()-]/g, ""),
+    },
+  };
+  const o = value.org, u = value.user;
+  if (o.name.length < 2) errors["org.name"] = "Enter the organization name.";
+  if (!SUBDOMAIN_RE.test(o.subdomain)) errors["org.subdomain"] = "Use 3–63 lowercase letters, numbers or hyphens, not starting or ending with a hyphen.";
+  if (o.contact_email && (o.contact_email.length > 254 || !EMAIL_RE.test(o.contact_email))) errors["org.contact_email"] = "Enter a valid email address.";
+  if (!(PLANS as readonly string[]).includes(o.plan)) errors["org.plan"] = "Choose a plan.";
+  const l = o.plan_limits;
+  if (![l.max_events, l.max_attendees_per_event, l.max_team_members].every((n) => Number.isInteger(n) && n >= -1)) errors["org.plan"] = "The plan's limits are not valid.";
+  if (!u.first_name) errors["user.first_name"] = "Enter the first name.";
+  if (!u.last_name) errors["user.last_name"] = "Enter the last name.";
+  if (!u.email || u.email.length > 254 || !EMAIL_RE.test(u.email)) errors["user.email"] = "Enter a valid email address.";
+  if (u.mobile_number || u.mobile_country_code) {
+    if (!/^\+\d{1,4}$/.test(u.mobile_country_code)) errors["user.mobile_country_code"] = "Choose a country code.";
+    if (!/^\d{6,15}$/.test(u.mobile_number)) errors["user.mobile_number"] = "Enter a valid mobile number.";
+  }
+  return Object.keys(errors).length ? { ok: false, errors } : { ok: true, value };
+}
+
 export type InvitationState = "pending" | "expired" | "accepted" | "revoked" | "invalid";
 
 export function invitationState(inv: Pick<InvitationRow, "status" | "expires_at"> | null, now: Date): InvitationState {
@@ -216,7 +323,8 @@ function escapeHtml(s: string): string {
 
 const ROLE_LABEL: Record<string, string> = { owner: "an owner", admin: "an admin", member: "a member", viewer: "a viewer" };
 
-export function buildInvitationEmail(ctx: { orgName: string; inviter: string; role: string; url: string }): { subject: string; html: string; text: string } {
+export function buildInvitationEmail(ctx: { orgName: string; inviter: string; role: string; url: string; provisioned?: boolean }): { subject: string; html: string; text: string } {
+  if (ctx.provisioned) return buildProvisionedEmail(ctx);
   const subject = `You're invited to join ${ctx.orgName} on Illuxus`;
   const roleText = ROLE_LABEL[ctx.role] ?? "a member";
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>${escapeHtml(subject)}</title></head>
@@ -240,6 +348,34 @@ export function buildInvitationEmail(ctx: { orgName: string; inviter: string; ro
     `New to Illuxus? You'll add your name, designation, mobile number and a password — that's all. This link is just for you: it works once and expires in ${INVITE_TTL_DAYS} days.`,
     "",
     "If you weren't expecting this invitation, you can ignore this email.",
+  ].join("\n");
+  return { subject, html, text };
+}
+
+/** The first user of an organization Super Admin created: they will own it. */
+function buildProvisionedEmail(ctx: { orgName: string; inviter: string; url: string }): { subject: string; html: string; text: string } {
+  const subject = `${ctx.orgName} is ready for you on Illuxus`;
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>${escapeHtml(subject)}</title></head>
+<body style="margin:0;padding:32px 16px;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+    <table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;background:#ffffff;border-radius:10px;"><tr><td style="padding:32px;">
+      <p style="font-size:13px;font-weight:700;letter-spacing:.02em;color:#111827;margin:0 0 24px;">illuxus</p>
+      <p style="font-size:21px;font-weight:700;color:#111827;margin:0 0 10px;">${escapeHtml(ctx.orgName)} is ready</p>
+      <p style="font-size:14px;line-height:1.6;color:#4b5563;margin:0 0 22px;"><strong style="color:#111827;">${escapeHtml(ctx.inviter)}</strong> from Illuxus has set up <strong style="color:#111827;">${escapeHtml(ctx.orgName)}</strong> for you. Accept to become its owner.</p>
+      <a href="${escapeHtml(ctx.url)}" style="display:inline-block;background:#111827;color:#ffffff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none;">Accept and set up your account</a>
+      <p style="font-size:12px;line-height:1.55;color:#6b7280;margin:22px 0 0;">New to Illuxus? Check your details and choose a password. Already have an account? Sign in with this email to accept. This link is just for you: it works once and expires in ${INVITE_TTL_DAYS} days.</p>
+      <p style="font-size:12px;color:#9ca3af;margin:12px 0 0;">If you weren't expecting this, you can ignore this email.</p>
+    </td></tr></table>
+  </td></tr></table>
+</body></html>`;
+  const text = [
+    `${ctx.inviter} from Illuxus has set up ${ctx.orgName} for you. Accept to become its owner.`,
+    "",
+    `Accept and set up your account: ${ctx.url}`,
+    "",
+    `New to Illuxus? Check your details and choose a password. Already have an account? Sign in with this email to accept. This link is just for you: it works once and expires in ${INVITE_TTL_DAYS} days.`,
+    "",
+    "If you weren't expecting this, you can ignore this email.",
   ].join("\n");
   return { subject, html, text };
 }
@@ -277,15 +413,21 @@ export function createHandler(deps: Deps) {
   }
 
   /** Puts a new link on the invitation and emails it. */
-  async function issueAndSend(existingId: string | null, orgId: string, email: string, role: Role, by: CallerUser): Promise<Reply> {
+  async function issueAndSend(
+    existingId: string | null, orgId: string, email: string, role: Role, by: CallerUser,
+    extra: { transfer_ownership?: boolean; prefill?: Record<string, string>; provisioned?: boolean } = {},
+  ): Promise<Reply> {
     const token = deps.newToken();
     const expires = new Date(deps.now().getTime() + INVITE_TTL_DAYS * 86400_000).toISOString();
-    const saved = await store.issueInvitation(existingId, { org_id: orgId, email, role, invited_by: by.id, token_hash: await sha256Hex(token), expires_at: expires });
+    const fields: IssueFields = { org_id: orgId, email, role, invited_by: by.id, token_hash: await sha256Hex(token), expires_at: expires };
+    if (extra.transfer_ownership) fields.transfer_ownership = true;
+    if (extra.prefill) fields.prefill = extra.prefill;
+    const saved = await store.issueInvitation(existingId, fields);
     if ("error" in saved) return reply(500, { ok: false, code: "save_failed", error: "We could not save the invitation. Please try again." });
 
     const orgName = (await store.orgName(orgId)) || "your team";
     const inviterName = (await store.displayName(by.id)) || by.email;
-    const mail = buildInvitationEmail({ orgName, inviter: inviterName, role, url: `${deps.origin}/invite?token=${token}` });
+    const mail = buildInvitationEmail({ orgName, inviter: inviterName, role, url: `${deps.origin}/invite?token=${token}`, provisioned: extra.provisioned });
     let emailSent = false;
     try { emailSent = (await deps.sendEmail({ to: email, ...mail })).ok; } catch { emailSent = false; }
     return reply(200, { ok: true, invitation_id: saved.id, expires_at: expires, email_sent: emailSent });
@@ -327,7 +469,7 @@ export function createHandler(deps: Deps) {
     if (inv.status !== "pending") return reply(409, { ok: false, code: "not_pending", error: "This invitation is no longer open. Send a new invitation instead." });
     if (!(await within(LIMITS.sendUser, who.user.id))) return tooMany();
     if (!ROLES.includes(inv.role as Role)) return reply(409, { ok: false, code: "invalid_role", error: "This invitation has an unknown role. Send a new invitation instead." });
-    return issueAndSend(inv.id, inv.org_id, normalizeEmail(inv.email), inv.role as Role, who.user);
+    return issueAndSend(inv.id, inv.org_id, normalizeEmail(inv.email), inv.role as Role, who.user, { provisioned: !!inv.transfer_ownership });
   }
 
   async function lookup(raw: unknown): Promise<{ inv: InvitationRow | null; state: InvitationState }> {
@@ -346,6 +488,8 @@ export function createHandler(deps: Deps) {
     return reply(200, {
       ok: true, valid: true, org_name: inv!.org_name, email, role: inv!.role, expires_at: inv!.expires_at,
       account_exists: !!(await store.findUserIdByEmail(email)),
+      becomes_owner: !!inv!.transfer_ownership,
+      prefill: inv!.prefill ?? {},
     });
   }
 
@@ -426,6 +570,75 @@ export function createHandler(deps: Deps) {
     });
   }
 
+  /**
+   * Super Admin: create an organization and invite its first user, who
+   * becomes the owner on accepting. Repeating the same request returns the
+   * organization already created instead of a second one.
+   */
+  async function adminCreateOrg(body: Record<string, unknown>, ctx: Context): Promise<Reply> {
+    const user = ctx.jwt ? await store.userFromJwt(ctx.jwt) : null;
+    if (!user) return reply(401, { ok: false, code: "unauthenticated", error: "Sign in as Super Admin to create organizations." });
+    if (!(await store.isSuperAdmin(user.id))) return reply(403, { ok: false, code: "forbidden", error: "Only Super Admin can create organizations." });
+    if (!user.emailVerified) return reply(403, { ok: false, code: "inviter_unverified", error: "Verify your own email address first." });
+    if (!(await within(LIMITS.sendUser, user.id))) return tooMany();
+
+    const input = validateProvision(body);
+    if ("errors" in input) return reply(400, { ok: false, code: "invalid", errors: input.errors, error: "Check the highlighted fields." });
+    const { org, user: first } = input.value;
+    if (first.email === normalizeEmail(user.email)) {
+      return reply(400, { ok: false, code: "invalid", errors: { "user.email": "Enter the first user's email, not your own." }, error: "Check the highlighted fields." });
+    }
+    // Throws if the lookup fails — nothing has been created yet.
+    const accountExists = !!(await store.findUserIdByEmail(first.email));
+
+    const taken = await store.findOrgBySubdomain(org.subdomain);
+    if (taken) {
+      const inv = await store.findInvitation(taken.id, first.email);
+      if (taken.owner_id === user.id && inv?.transfer_ownership && inv.status === "pending") {
+        // The same request again (a double click, a retry after a timeout).
+        return reply(200, { ok: true, already_created: true, org_id: taken.id, org_name: taken.name, subdomain: org.subdomain, invitation_id: inv.id, expires_at: inv.expires_at, email_sent: null, account_exists: accountExists });
+      }
+      return reply(409, { ok: false, code: "subdomain_taken", errors: { "org.subdomain": "This URL is already used by another organization." }, error: "This URL is already used by another organization." });
+    }
+
+    const created = await store.createOrganization({
+      name: org.name,
+      slug: `${slugify(org.name)}-${deps.now().getTime().toString(36)}`,
+      subdomain: org.subdomain,
+      owner_id: user.id,
+      plan: org.plan,
+      plan_limits: org.plan_limits,
+      billing_email: org.contact_email,
+    });
+    if ("error" in created) {
+      if (created.conflict) return reply(409, { ok: false, code: "subdomain_taken", errors: { "org.subdomain": "This URL is already used by another organization." }, error: "This URL is already used by another organization." });
+      return reply(500, { ok: false, code: "create_failed", error: "We could not create the organization. Nothing was saved; please try again." });
+    }
+
+    const prefill: Record<string, string> = { first_name: first.first_name, last_name: first.last_name };
+    if (first.designation) prefill.designation = first.designation;
+    if (first.mobile_number) { prefill.mobile_country_code = first.mobile_country_code; prefill.mobile_number = first.mobile_number; }
+    const sent = await issueAndSend(null, created.id, first.email, "owner", user, { transfer_ownership: true, prefill, provisioned: true });
+    if (sent.body.ok !== true) {
+      // No organization without its invitation: undo, so a retry starts clean.
+      await store.deleteOrganization(created.id);
+      return reply(500, { ok: false, code: "create_failed", error: "We could not save the invitation, so the organization was not created. Please try again." });
+    }
+
+    const result = {
+      org_id: created.id, org_name: org.name, subdomain: org.subdomain, plan: org.plan,
+      invitation_id: sent.body.invitation_id as string, expires_at: sent.body.expires_at as string,
+      email_sent: sent.body.email_sent === true, account_exists: accountExists,
+    };
+    try {
+      await store.audit({
+        actor_id: user.id, actor_email: user.email, action: "organization.provisioned", target_type: "organization", target_id: created.id,
+        details: { name: org.name, subdomain: org.subdomain, plan: org.plan, invite_email: first.email, role: "owner", invitation_id: result.invitation_id, email_sent: result.email_sent, account_exists: accountExists },
+      });
+    } catch { /* the organization and invitation stand without the log line */ }
+    return reply(200, { ok: true, ...result });
+  }
+
   return async function handle(body: Record<string, unknown>, ctx: Context): Promise<Reply> {
     switch (body.action) {
       case "send": return send(body, ctx);
@@ -433,6 +646,7 @@ export function createHandler(deps: Deps) {
       case "inspect": return inspect(body, ctx);
       case "accept": return accept(body, ctx);
       case "accept_existing": return acceptExisting(body, ctx);
+      case "admin_create_org": return adminCreateOrg(body, ctx);
       default: return reply(400, { ok: false, code: "invalid", error: "Unknown action." });
     }
   };
@@ -440,7 +654,9 @@ export function createHandler(deps: Deps) {
 
 // ─── Supabase-backed store ──────────────────────────────────────────────────
 
-const INVITE_COLUMNS = "id, org_id, email, role, status, expires_at, claimed_at, organizations:org_id(name)";
+// `*` so the handover columns (migration 049) are read when present without
+// breaking invitations before that migration is applied.
+const INVITE_COLUMNS = "*, organizations:org_id(name)";
 const likeExact = (email: string) => email.replace(/[\\%_]/g, "\\$&");
 
 // deno-lint-ignore no-explicit-any
@@ -451,6 +667,8 @@ function toInvitation(data: any): InvitationRow | null {
   return {
     id: data.id, org_id: data.org_id, org_name: org?.name ?? "", email: data.email, role: data.role,
     status: data.status, expires_at: data.expires_at, claimed_at: data.claimed_at ?? null,
+    transfer_ownership: !!data.transfer_ownership,
+    prefill: data.prefill && typeof data.prefill === "object" ? data.prefill : {},
   };
 }
 
@@ -551,6 +769,31 @@ export function supabaseStore(db: any): Store {
       const row = Array.isArray(data) ? data[0] : data;
       if (error || !row) return { error: error?.message ?? "not completed" };
       return { org_id: row.accepted_org_id, role: row.assigned_role };
+    },
+    async isSuperAdmin(userId) {
+      const { data, error } = await db.rpc("has_role", { _user_id: userId, _role: "admin" });
+      return !error && data === true;
+    },
+    async findOrgBySubdomain(subdomain) {
+      const { data } = await db.from("organizations").select("id, owner_id, name").ilike("subdomain", likeExact(subdomain)).limit(1).maybeSingle();
+      return data ? { id: data.id, owner_id: data.owner_id, name: data.name } : null;
+    },
+    async createOrganization(org) {
+      const { data, error } = await db.from("organizations").insert(org).select("id").single();
+      if (error || !data) return { error: error?.message ?? "not created", conflict: error?.code === "23505" };
+      // Same records public signup makes: the organization and its subscription.
+      const { error: subError } = await db.from("subscriptions").insert({ org_id: data.id, plan: org.plan, status: "active" });
+      if (subError) {
+        await db.from("organizations").delete().eq("id", data.id);
+        return { error: subError.message };
+      }
+      return { id: data.id };
+    },
+    async deleteOrganization(id) {
+      await db.from("organizations").delete().eq("id", id);
+    },
+    async audit(entry) {
+      await db.from("audit_logs").insert(entry);
     },
   };
 }

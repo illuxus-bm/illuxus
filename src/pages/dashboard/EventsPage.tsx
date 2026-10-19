@@ -611,18 +611,24 @@ const EventsPage = () => {
                           <div className="border-t border-border pt-3.5 flex items-baseline justify-between gap-3 text-[13px]">
                             <span className="text-muted-foreground truncate">
                               <span className="text-foreground font-medium">{sold}</span>
-                              {capacity > 0 ? ` of ${capacity} tickets` : " tickets"}
+                              {capacity > 0 ? ` of ${capacity} tickets` : ` ticket${sold === 1 ? "" : "s"}`}
                               {Number(event.price || 0) > 0 && ` · ${formatMoney(Number(event.price), event.currency || undefined)}`}
                             </span>
-                            {capacity > 0 && <span className="font-medium tabular-nums shrink-0">{filled}%</span>}
+                            <span className="font-medium tabular-nums shrink-0">
+                              {capacity > 0 ? `${filled}%` : <span className="text-muted-foreground font-normal">No limit</span>}
+                            </span>
                           </div>
-                          {capacity > 0 && (
-                            <div className="meter meter-sm mt-2.5" role="img" aria-label={`${filled}% of tickets taken`}>
-                              {filled > 0 && <div className="meter-fill" style={{ width: `${filled}%` }} />}
-                              <div className="meter-mark" />
-                              <div className="meter-rest" />
-                            </div>
-                          )}
+                          {/* Same footer on every card; without a capacity the
+                              meter stays empty since there's nothing to fill. */}
+                          <div
+                            className="meter meter-sm mt-2.5"
+                            role="img"
+                            aria-label={capacity > 0 ? `${filled}% of tickets taken` : "No capacity limit"}
+                          >
+                            {filled > 0 && <div className="meter-fill" style={{ width: `${filled}%` }} />}
+                            <div className="meter-mark" />
+                            <div className="meter-rest" />
+                          </div>
                         </div>
                       </div>
                     </motion.div>
@@ -654,7 +660,7 @@ const EventsPage = () => {
                     </div>
                     <p className="mt-4 text-[13px] text-muted-foreground">
                       <span className="text-foreground font-medium">{nextEvent.tickets_sold ?? 0}</span>
-                      {Number(nextEvent.capacity) > 0 ? ` of ${nextEvent.capacity} tickets` : " tickets"}
+                      {Number(nextEvent.capacity) > 0 ? ` of ${nextEvent.capacity} tickets` : ` ticket${(nextEvent.tickets_sold ?? 0) === 1 ? "" : "s"}`}
                     </p>
                     <div className="mt-auto pt-4 grid grid-cols-2 gap-2">
                       <Button asChild className="col-span-2 h-10 rounded-xl font-medium">

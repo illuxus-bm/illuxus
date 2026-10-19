@@ -1084,8 +1084,14 @@ export default function PrintBadgesDialog({
         </div>
 
         <DialogFooter className="px-4 sm:px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-border bg-background sm:bg-muted/30 shrink-0 flex-row items-center justify-between sm:justify-between gap-3 sm:space-x-0">
-          <span className="hidden sm:block text-[12px] text-muted-foreground">
+          <span className="hidden sm:block text-[12px] text-muted-foreground leading-snug">
             <span className="font-medium text-foreground">{total}</span>{" "}label{total === 1 ? "" : "s"} total
+            {/* The date, title, "about:blank" and page number come from the
+                browser's own headers and footers, which a page can't turn
+                off. Chrome remembers these choices, so this is a one-time fix. */}
+            <span className="block text-[11px]">
+              In the print dialog, open <em>More settings</em>: Margins <em>None</em>, untick <em>Headers and footers</em>.
+            </span>
           </span>
           <div className="flex w-full sm:w-auto items-center gap-2">
             <Button

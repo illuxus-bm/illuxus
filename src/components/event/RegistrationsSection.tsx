@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { logger, supabaseRpc } from "@/lib/observability";
-import { Search, Users, Download, Filter, UserCheck, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, UserX, Copy, ExternalLink, Link2, Upload, Trash2 } from "lucide-react";
+import { Search, Users, Download, Filter, Handshake, Check, ChevronDown, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, Copy, ExternalLink, Link2, Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,14 @@ import {
   DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command";
+import {
+  ALL_MEETINGS, MEETING_PILL_CLASS, MEETING_STATUS_LABEL, MEETING_STATUSES, interestedSponsorOptions, matchesMeetingInterest, meetingErrorMessage, meetingSummary,
+  registrationKey, speakerEmailKey, speakerKey, sponsorsByPerson, sponsorsFor,
+  type InterestedSponsor, type MeetingInterest, type MeetingInterestFilter,
+} from "@/lib/meeting-interest";
+import MeetingStatusControl, { MeetingDisputeInfo, MeetingHistory, type MeetingChange } from "@/components/meetings/MeetingStatusControl";
 
 type Registration = Tables<"registrations">;
 
@@ -68,6 +76,18 @@ type Row = {
   qr_payload: string;
   registration?: Registration; // only present when source === 'registration'
 };
+
+/** How a row is found among Meeting Interests: an attendee by registration; a
+ *  speaker by speaker profile, or by email when they also registered. Sponsor
+ *  team members can't be marked. */
+function interestKeys(r: Row): string[] {
+  if (r.kind === "sponsor") return [];
+  const keys: string[] = [];
+  if (r.registration) keys.push(registrationKey(r.registration.id));
+  if (r.source === "speaker") keys.push(speakerKey(r.refId));
+  if (r.kind === "speaker" && r.email) keys.push(speakerEmailKey(r.email));
+  return keys;
+}
 
 const statusColors: Record<string, string> = {
   confirmed: "bg-green-500/10 text-green-600 border-green-500/20",
@@ -123,6 +143,16 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  // Meeting Interest (migrations 050–052): which sponsors would like to meet
+  // each attendee or speaker, and how far each meeting got. Many sponsors can
+  // mark the same person.
+  const [interests, setInterests] = useState<MeetingInterest[]>([]);
+  const reloadInterestsRef = useRef<() => void>(() => {});
+  const [eventSponsors, setEventSponsors] = useState<{ id: string; name: string }[]>([]);
+  const [meetingFilter, setMeetingFilter] = useState<MeetingInterestFilter>(ALL_MEETINGS);
+  const [meetingOpen, setMeetingOpen] = useState(false);
+  const interestedBy = useMemo(() => sponsorsByPerson(interests), [interests]);
+  const interestOptions = useMemo(() => interestedSponsorOptions(interests), [interests]);
   const [kindFilter, setKindFilter] = useState<RowKind | "all">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [qrOpen, setQrOpen] = useState(false);
@@ -142,6 +172,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     user_id: string;
     banner_landscape_url: string | null;
     date: string | null;
+    end_date: string | null;
     timezone: string | null;
     venue: string | null;
     location: string | null;
@@ -149,7 +180,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   } | null>(null);
   const [quickView, setQuickView] = useState<QuickViewRow | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
-  const [attTab, setAttTab] = useState<"all" | "inside" | "outside" | "never" | "pending">("all");
+  const [attTab, setAttTab] = useState<"all" | "inside" | "outside" | "never" | "pending" | "declined">("all");
   const [historyFor, setHistoryFor] = useState<{ id: string; name: string } | null>(null);
   const [eventHistoryOpen, setEventHistoryOpen] = useState(false);
   const [sortKey, setSortKey] = useState<"name" | "state" | "last_in" | "last_out" | "minutes" | "ticket">("name");
@@ -245,13 +276,14 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         total_minutes: 0,
     }));
     setExtras([...speakerRows, ...sponsorRows]);
+    setEventSponsors([...sponsorByMap].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)));
   };
 
   useEffect(() => {
     Promise.all([reload(), reloadExtras()]).then(() => setLoading(false));
     supabase
       .from("events")
-      .select("event_format, slug, title, user_id, currency, banner_landscape_url, date, timezone, venue, location, organizations(name)")
+      .select("event_format, slug, title, user_id, currency, banner_landscape_url, date, end_date, timezone, venue, location, organizations(name)")
       .eq("id", eventId)
       .maybeSingle()
       .then(({ data }) => {
@@ -259,7 +291,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
           const ev = data as {
             event_format: string | null; slug: string; title: string; user_id: string;
             currency?: string | null; banner_landscape_url: string | null;
-            date: string | null; timezone: string | null;
+            date: string | null; end_date?: string | null; timezone: string | null;
             venue: string | null; location: string | null;
             organizations?: { name?: string | null } | null;
           };
@@ -270,6 +302,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
             user_id: ev.user_id,
             banner_landscape_url: ev.banner_landscape_url,
             date: ev.date,
+            end_date: ev.end_date ?? null,
             timezone: ev.timezone,
             venue: ev.venue,
             location: ev.location,
@@ -438,19 +471,128 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     return [...attendeeRows, ...visibleExtras];
   }, [registrations, extras]);
 
-  const filtered = allRows.filter((r) => {
+  // Meeting Interest, live: reloaded as sponsors tick or untick (streamed by
+  // migration 051), when the tab comes back into view, and every 30s in case
+  // the stream drops.
+  useEffect(() => {
+    let alive = true;
+    let soonTimer: ReturnType<typeof setTimeout> | undefined;
+    const load = () => {
+      supabaseRpc("event_meeting_interests" as never, { _eid: eventId } as never).then(({ data, error }) => {
+        // Before migration 050 there is nothing to show; the column stays empty.
+        if (alive && !error) setInterests((data || []) as unknown as MeetingInterest[]);
+      });
+    };
+    // Several clicks in a row become one reload.
+    const soon = () => { clearTimeout(soonTimer); soonTimer = setTimeout(load, 300); };
+    reloadInterestsRef.current = load;
+    load();
+    const channel = supabase
+      .channel(`meeting-interests-${eventId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "sponsor_meeting_interests", filter: `event_id=eq.${eventId}` }, soon)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "sponsor_meeting_interests", filter: `event_id=eq.${eventId}` }, soon)
+      // Realtime can't filter deletes, so any removal reloads.
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "sponsor_meeting_interests" }, soon)
+      .subscribe();
+    const onVisible = () => { if (document.visibilityState === "visible") soon(); };
+    document.addEventListener("visibilitychange", onVisible);
+    const poll = setInterval(() => { if (document.visibilityState === "visible") load(); }, 30_000);
+    return () => {
+      alive = false;
+      clearTimeout(soonTimer);
+      clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisible);
+      supabase.removeChannel(channel);
+    };
+  }, [eventId]);
+
+  /** Who the meeting is with, as the database names them: an approved
+   *  attendee's registration, or a speaker's profile (also for a speaker's own
+   *  registration row). Null for rows that can't have meetings. */
+  const meetingPerson = (r: Row): { _registration_id: string | null; _speaker_id: string | null } | null => {
+    if (r.kind === "sponsor") return null;
+    if (r.kind === "speaker") {
+      const id = r.source === "speaker"
+        ? r.refId
+        : extras.find((e) => e.source === "speaker" && !!r.email && e.email.toLowerCase() === r.email.toLowerCase())?.refId;
+      return id ? { _registration_id: null, _speaker_id: id } : null;
+    }
+    const reg = r.registration as (Registration & { approval_status?: string | null }) | undefined;
+    if (!reg || reg.ticket_type === "speaker" || (reg.approval_status && reg.approval_status !== "approved")) return null;
+    return { _registration_id: reg.id, _speaker_id: null };
+  };
+
+  /** Over: its end, or 12 hours after the start (as the database decides, migration 054). */
+  const eventOver = (() => {
+    if (!eventInfo?.date) return false;
+    const end = eventInfo.end_date ? Date.parse(eventInfo.end_date) : Date.parse(eventInfo.date) + 12 * 3_600_000;
+    return Number.isFinite(end) && Date.now() > end;
+  })();
+
+  /** An organiser moves a sponsor's meeting on (migrations 052, 054). */
+  const setSponsorMeeting = async (r: Row, sponsorId: string, change: MeetingChange) => {
+    const person = meetingPerson(r);
+    if (!person) return;
+    const mine = (i: MeetingInterest) => i.sponsor_id === sponsorId
+      && ((person._registration_id && i.registration_id === person._registration_id) || (person._speaker_id && i.speaker_id === person._speaker_id));
+    setInterests((list) => list.map((i) => (mine(i) ? {
+      ...i, status: change.status,
+      scheduled_at: change.status === "arranged" ? change.scheduledAt ?? null : change.status === "interested" ? null : i.scheduled_at,
+      location: change.status === "arranged" ? change.location ?? null : change.status === "interested" ? null : i.location,
+      met_at: change.status === "met" ? i.met_at ?? new Date().toISOString() : null,
+      status_reason: change.status === "not_met" || change.status === "cancelled" ? change.reason ?? null : null,
+      status_cause: change.status === "not_met" ? change.cause ?? "other" : null,
+      status_by_side: "organiser",
+      dispute_status: i.dispute_status === "open" ? "resolved" : i.dispute_status,
+    } : i)));
+    const { error } = await supabaseRpc("set_meeting_status" as never, {
+      _eid: eventId, _status: change.status, _sponsor_id: sponsorId, ...person,
+      _scheduled_at: change.scheduledAt ?? null, _location: change.location ?? null, _reason: change.reason ?? null,
+      _cause: change.status === "not_met" ? change.cause ?? "other" : null,
+    } as never);
+    reloadInterestsRef.current();
+    if (error) {
+      toast.error("Meeting wasn't updated", { description: meetingErrorMessage(error.message) });
+      return;
+    }
+    const sponsor = eventSponsors.find((sp) => sp.id === sponsorId)?.name ?? "Sponsor";
+    toast.success(`${sponsor} · ${r.name}: ${MEETING_STATUS_LABEL[change.status]}`);
+  };
+
+  /** Keeps or changes a record the sponsor disputed (migration 054). */
+  const resolveDispute = async (r: Row, sponsorId: string, keep: boolean, note: string | null) => {
+    const person = meetingPerson(r);
+    if (!person) return;
+    const { error } = await supabaseRpc("resolve_meeting_dispute" as never, {
+      _eid: eventId, _sponsor_id: sponsorId, _keep: keep, _note: note, ...person,
+    } as never);
+    reloadInterestsRef.current();
+    if (error) { toast.error("Dispute wasn't settled", { description: meetingErrorMessage(error.message) }); return; }
+    toast.success(keep ? "Record kept — the sponsor can see your decision" : "Record changed — the sponsor can see your decision");
+  };
+
+  // Search + role + status filters. The tab counts come from this, so they
+  // don't change when you switch tabs.
+  const baseRows = allRows.filter((r) => {
     const matchSearch =
       r.name.toLowerCase().includes(search.toLowerCase()) ||
       r.email.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "all" || r.status === statusFilter;
     const matchKind = kindFilter === "all" || r.kind === kindFilter;
-    const matchTab =
-      attTab === "all" ||
-      (attTab === "pending"
-        ? r.registration?.approval_status === "pending"
-        : r.attendance_state === attTab);
-    return matchSearch && matchStatus && matchKind && matchTab;
+    const matchInterest = matchesMeetingInterest(interestKeys(r), interestedBy, meetingFilter);
+    return matchSearch && matchStatus && matchKind && matchInterest;
   });
+
+  // Registrations awaiting approval live only in the Pending Approvals tab,
+  // declined ones only in the Declined tab; every other tab lists the rest.
+  const isPending = (r: Row) => r.registration?.approval_status === "pending";
+  const isDeclined = (r: Row) => r.registration?.approval_status === "declined";
+  const activeRows = baseRows.filter((r) => !isPending(r) && !isDeclined(r));
+
+  const filtered =
+    attTab === "pending" ? baseRows.filter(isPending)
+    : attTab === "declined" ? baseRows.filter(isDeclined)
+    : activeRows.filter((r) => attTab === "all" || r.attendance_state === attTab);
 
   const sorted = useMemo(() => {
     const stateRank: Record<AttState, number> = { inside: 0, outside: 1, never: 2 };
@@ -476,26 +618,26 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   };
 
   const stats = (() => {
-    // Derive the attendance partition from `filtered` instead of `allRows` 
-    // so the counts update when filters (search, role, etc.) are applied.
-    // This ensures tab counts reflect the current filtered view.
+    // Counted over the search/role/status-filtered rows (not the open tab),
+    // leaving pending and declined registrations out of everything but
+    // their own counts.
     let insideNow = 0;
     let outside = 0;
     let notArrived = 0;
-    for (const r of filtered) {
+    for (const r of activeRows) {
       if (r.attendance_state === "inside") insideNow += 1;
       else if (r.attendance_state === "outside") outside += 1;
       else notArrived += 1;
     }
-    
-    // For other stats, also use filtered data for consistency
-    const filteredRegistrations = filtered.filter(r => r.registration);
-    
+
+    const filteredRegistrations = activeRows.filter(r => r.registration);
+
     return {
-      total: filtered.length,
+      total: activeRows.length,
       confirmed: filteredRegistrations.filter((r) => r.status === "confirmed").length,
       pending: filteredRegistrations.filter((r) => r.status === "pending").length,
-      pendingApprovals: filteredRegistrations.filter((r) => (r as { approval_status?: string }).approval_status === "pending").length,
+      pendingApprovals: baseRows.filter(isPending).length,
+      declined: baseRows.filter(isDeclined).length,
       cancelled: filteredRegistrations.filter((r) => r.status === "cancelled").length,
       checkedIn: filteredRegistrations.filter((r) => r.checked_in === true).length,
       insideNow,
@@ -927,6 +1069,10 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       "UTM Campaign",
       "UTM Content",
       "UTM Term",
+      // Meeting Interest
+      "Interested Sponsors",
+      "Meeting Status",
+      "Met At",
     ];
     
     const formatDateTime = (dateStr: string | null) => {
@@ -996,6 +1142,10 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         reg?.utm_campaign ?? "",
         reg?.utm_content ?? "",
         reg?.utm_term ?? "",
+        // Meeting Interest
+        sponsorsFor(interestKeys(r), interestedBy).map((sp) => sp.name).join("; "),
+        sponsorsFor(interestKeys(r), interestedBy).map((sp) => `${sp.name}: ${meetingSummary(sp)}`).join("; "),
+        sponsorsFor(interestKeys(r), interestedBy).filter((sp) => sp.met_at).map((sp) => `${sp.name}: ${formatDateTime(sp.met_at ?? null)}`).join("; "),
       ];
     });
     // Proper CSV escaping — values containing commas, quotes, or newlines
@@ -1309,24 +1459,6 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         </div>
       </div>
 
-      {/* Stats — concise summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {[
-          { icon: Users, label: "Total", value: stats.total, color: "text-foreground" },
-          { icon: UserCheck, label: "Inside now", value: stats.insideNow, color: "text-[hsl(var(--success))]" },
-          { icon: XCircle, label: "Checked out", value: stats.outside, color: "text-muted-foreground" },
-          { icon: UserX, label: "Not arrived", value: stats.notArrived, color: "text-muted-foreground" },
-        ].map((s) => (
-          <div key={s.label} className="border border-border rounded-lg p-2.5">
-            <div className="flex items-center gap-1 mb-0.5">
-              <s.icon className="h-3 w-3 text-muted-foreground" />
-              <span className="text-[10px] text-muted-foreground truncate">{s.label}</span>
-            </div>
-            <p className={`text-[15px] font-semibold leading-tight truncate ${s.color}`}>{s.value}</p>
-          </div>
-        ))}
-      </div>
-
       {/* Filters */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1 sm:max-w-xs">
@@ -1356,6 +1488,66 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
             <SelectItem value="cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>
+        <Popover open={meetingOpen} onOpenChange={setMeetingOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              className={`h-8 shrink-0 gap-1.5 px-2.5 text-[13px] font-normal ${meetingFilter.status !== "all" || meetingFilter.sponsor ? "border-primary/50 text-foreground" : ""}`}
+              aria-label="Meeting Interest filter"
+            >
+              <Handshake className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline max-w-[180px] truncate">
+                {[
+                  meetingFilter.sponsor ? interestOptions.find((o) => o.id === meetingFilter.sponsor)?.name ?? "Sponsor" : null,
+                  meetingFilter.status === "with" ? "With meeting interest"
+                    : meetingFilter.status === "without" ? "Without meeting interest"
+                    : meetingFilter.status === "disputed" ? "Disputed"
+                    : meetingFilter.status !== "all" ? MEETING_STATUS_LABEL[meetingFilter.status] : null,
+                ].filter(Boolean).join(" · ") || "Meeting Interest"}
+              </span>
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 p-0">
+            <Command>
+              <CommandInput placeholder="Search sponsors…" className="h-9 text-[13px]" />
+              <CommandList>
+                <CommandEmpty>No sponsor found.</CommandEmpty>
+                <CommandGroup heading="Meeting Interest">
+                  {([
+                    ["all", "All registrations"], ["with", "With meeting interest"], ["without", "Without meeting interest"],
+                    ...MEETING_STATUSES.map((k) => [k, MEETING_STATUS_LABEL[k]] as const),
+                    ["disputed", "Disputed"],
+                  ] as const).map(([v, label]) => (
+                    <CommandItem key={v} value={`status ${label}`} onSelect={() => { setMeetingFilter((f) => ({ ...f, status: v })); setMeetingOpen(false); }} className="text-[13px]">
+                      <Check className={`mr-2 h-3.5 w-3.5 ${meetingFilter.status === v ? "opacity-100" : "opacity-0"}`} /> {label}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+                <CommandSeparator />
+                <CommandGroup heading="Interested sponsor">
+                  <CommandItem value="sponsor any" onSelect={() => { setMeetingFilter((f) => ({ ...f, sponsor: null })); setMeetingOpen(false); }} className="text-[13px]">
+                    <Check className={`mr-2 h-3.5 w-3.5 ${meetingFilter.sponsor ? "opacity-0" : "opacity-100"}`} /> Any sponsor
+                  </CommandItem>
+                  {interestOptions.length === 0 ? (
+                    <p className="px-2 py-2 text-[12px] text-muted-foreground">No sponsor has marked anyone yet.</p>
+                  ) : interestOptions.map((o) => {
+                    const on = meetingFilter.sponsor === o.id;
+                    return (
+                      <CommandItem key={o.id} value={`sponsor ${o.name} ${o.id}`} onSelect={() => { setMeetingFilter((f) => ({ ...f, sponsor: o.id })); setMeetingOpen(false); }} className="text-[13px]">
+                        <Check className={`mr-2 h-3.5 w-3.5 ${on ? "opacity-100" : "opacity-0"}`} />
+                        <span className="truncate">{o.name}</span>
+                        <span className="ml-auto pl-2 text-[11px] text-muted-foreground tabular-nums">
+                          {interests.filter((i) => i.sponsor_id === o.id).length}
+                        </span>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       </div>
 
       {/* Attendance segment tabs + global icon actions */}
@@ -1367,6 +1559,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
             { key: "outside", label: "Checked out",      count: stats.outside },
             { key: "never",   label: "Not arrived",      count: stats.notArrived },
             { key: "pending", label: "Pending Approvals", count: stats.pendingApprovals },
+            { key: "declined", label: "Declined",        count: stats.declined },
           ] as const).map((t) => (
             <button
               key={t.key}
@@ -1495,6 +1688,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                   <SortHeader label="Attendee" k="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="" />
                   <th className="text-center px-3 sm:px-4 py-2 sm:py-3 font-medium text-muted-foreground hidden md:table-cell w-[150px]">Role</th>
                   <th className="text-center px-3 sm:px-4 py-2 sm:py-3 font-medium text-muted-foreground hidden lg:table-cell w-[160px]">Reg. status</th>
+                  <th className="text-left px-3 sm:px-4 py-2 sm:py-3 font-medium text-muted-foreground hidden md:table-cell w-[200px]">Interested Sponsors</th>
                   <th className="p-2 sm:p-3 w-[120px]"></th>
                 </tr>
               </thead>
@@ -1545,6 +1739,21 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                           <span className={`md:hidden inline-flex mt-1 px-1.5 py-0 rounded-full text-[10px] font-medium border capitalize ${kindColors[r.kind]}`}>
                             {r.kind}
                           </span>
+                          {sponsorsFor(interestKeys(r), interestedBy).length > 0 && (
+                            <div className="md:hidden mt-1" onClick={(e) => e.stopPropagation()}>
+                              <SponsorMeetings
+                                personName={r.name}
+                                sponsors={sponsorsFor(interestKeys(r), interestedBy)}
+                                eventSponsors={meetingPerson(r) ? eventSponsors : null}
+                                eventId={eventId}
+                                person={meetingPerson(r)}
+                                eventOver={eventOver}
+                                checkedIn={r.checked_in || r.attendance_state !== "never"}
+                                onChange={(sponsorId, c) => void setSponsorMeeting(r, sponsorId, c)}
+                                onResolve={(sponsorId, keep, note) => void resolveDispute(r, sponsorId, keep, note)}
+                              />
+                            </div>
+                          )}
                           <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
                             <AttendanceControls
                               row={r}
@@ -1554,8 +1763,9 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                               onUndo={(kind) => undoAttendance(r, kind)}
                             />
                           </div>
-                          {/* Approve / Decline — shown inline below the name for pending rows */}
-                          {r.registration?.approval_status === "pending" && (
+                          {/* Approve / Decline — shown inline below the name for
+                              pending rows; declined rows can be approved back. */}
+                          {(r.registration?.approval_status === "pending" || r.registration?.approval_status === "declined") && (
                             <div className="flex items-center gap-1.5 mt-2" onClick={(e) => e.stopPropagation()}>
                               <Button
                                 size="sm"
@@ -1565,6 +1775,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                               >
                                 <CheckCircle className="h-3 w-3" /> Approve
                               </Button>
+                              {r.registration?.approval_status === "pending" && (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -1573,6 +1784,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                               >
                                 <XCircle className="h-3 w-3" /> Decline
                               </Button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1609,6 +1821,19 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                           {r.status}
                         </span>
                       )}
+                    </td>
+                    <td className="px-3 sm:px-4 py-2 sm:py-3 hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
+                      <SponsorMeetings
+                        personName={r.name}
+                        sponsors={sponsorsFor(interestKeys(r), interestedBy)}
+                        eventSponsors={meetingPerson(r) ? eventSponsors : null}
+                        eventId={eventId}
+                        person={meetingPerson(r)}
+                        eventOver={eventOver}
+                        checkedIn={r.checked_in || r.attendance_state !== "never"}
+                        onChange={(sponsorId, c) => void setSponsorMeeting(r, sponsorId, c)}
+                        onResolve={(sponsorId, keep, note) => void resolveDispute(r, sponsorId, keep, note)}
+                      />
                     </td>
                     <td className="p-2 sm:p-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-0.5">
@@ -2146,5 +2371,133 @@ function AttendeeLinkUtmDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Interested Sponsors: up to two names, then "+N", coloured by how far each
+ *  meeting got; every sponsor and status in the tooltip. */
+function InterestedSponsors({ sponsors }: { sponsors: InterestedSponsor[] }) {
+  if (!sponsors.length) return <span className="text-muted-foreground">—</span>;
+  const shown = sponsors.slice(0, 2);
+  const rest = sponsors.length - shown.length;
+  return (
+    <span className="flex flex-wrap items-center gap-1" title={sponsors.map((sp) => `${sp.name}: ${meetingSummary(sp)}${sp.dispute_status === "open" ? " (disputed)" : ""}`).join("\n")}>
+      {shown.map((sp) => (
+        <span key={sp.id} className={`inline-flex max-w-[140px] items-center gap-1 truncate rounded-full border px-2 py-0.5 text-[11px] font-medium ${MEETING_PILL_CLASS[sp.status]} ${sp.dispute_status === "open" ? "ring-2 ring-amber-500/60" : ""}`}>
+          {sp.status === "met" && <Check className="h-3 w-3 shrink-0" />}
+          <span className="truncate">{sp.name}</span>
+        </span>
+      ))}
+      {rest > 0 && <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">+{rest}</span>}
+    </span>
+  );
+}
+
+/** The Interested Sponsors badges; clicking them lists every sponsor's
+ *  meeting with this person, where the organiser can move it on or arrange
+ *  one for another sponsor. Without `eventSponsors` (rows that can't have
+ *  meetings) it's just the badges. */
+function SponsorMeetings({
+  personName, sponsors, eventSponsors, eventId, person, eventOver, checkedIn, onChange, onResolve,
+}: {
+  personName: string;
+  sponsors: InterestedSponsor[];
+  eventSponsors: { id: string; name: string }[] | null;
+  eventId: string;
+  person: { _registration_id: string | null; _speaker_id: string | null } | null;
+  eventOver: boolean;
+  checkedIn: boolean;
+  onChange: (sponsorId: string, change: MeetingChange) => void;
+  onResolve: (sponsorId: string, keep: boolean, note: string | null) => void;
+}) {
+  const [adding, setAdding] = useState<string | null>(null);
+  const [historyOf, setHistoryOf] = useState<string | null>(null);
+  if (!eventSponsors) return <InterestedSponsors sponsors={sponsors} />;
+  const others = eventSponsors.filter((sp) => !sponsors.some((s) => s.id === sp.id));
+  return (
+    <Popover onOpenChange={(o) => { if (!o) setAdding(null); }}>
+      <PopoverTrigger asChild>
+        <button type="button" className="rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Meetings with ${personName}`}>
+          <InterestedSponsors sponsors={sponsors} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[min(380px,calc(100vw-24px))] p-0"
+        // The arrange / didn't-happen dialogs open on top; don't close under them.
+        onInteractOutside={(e) => { if ((e.target as HTMLElement | null)?.closest?.('[role="dialog"]')) e.preventDefault(); }}
+      >
+        <div className="border-b border-border px-3.5 py-2.5">
+          <p className="text-[13px] font-semibold">Meetings with {personName}</p>
+          <p className="text-[11.5px] text-muted-foreground">Sponsors see changes on their dashboard straight away.</p>
+        </div>
+        <ul className="max-h-[320px] overflow-y-auto">
+          {sponsors.length === 0 && <li className="px-3.5 py-3 text-[12.5px] text-muted-foreground">No sponsor has marked {personName.split(" ")[0]} yet.</li>}
+          {sponsors.map((sp) => (
+            <li key={sp.id} className="border-b border-border px-3.5 py-2.5 last:border-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-[96px] flex-1 truncate text-[13px] font-medium" title={sp.name}>{sp.name}</span>
+                <MeetingStatusControl
+                  meeting={sp}
+                  personName={personName}
+                  viewer="organiser"
+                  eventOver={eventOver}
+                  checkedIn={checkedIn}
+                  onChange={(c) => onChange(sp.id, c)}
+                  onResolve={(keep, note) => onResolve(sp.id, keep, note)}
+                  className="min-w-0 justify-end"
+                />
+              </div>
+              {sp.status_by_side && sp.status !== "interested" && (
+                <p className="mt-1 text-[11.5px] text-muted-foreground">Updated by {sp.status_by_side === "organiser" ? "the organiser team" : "the sponsor"}</p>
+              )}
+              {sp.dispute_status && <div className="mt-1.5"><MeetingDisputeInfo meeting={sp} viewer="organiser" /></div>}
+              {sp.note && <p className="mt-1 whitespace-pre-wrap rounded-md bg-muted/60 px-2 py-1.5 text-[12px]"><span className="font-medium">Sponsor note:</span> {sp.note}</p>}
+              {person && (
+                <div className="mt-1.5">
+                  <button type="button" className="text-[12px] font-medium text-primary" onClick={() => setHistoryOf(historyOf === sp.id ? null : sp.id)}>
+                    {historyOf === sp.id ? "Hide history" : "History"}
+                  </button>
+                  {historyOf === sp.id && (
+                    <div className="mt-1.5">
+                      <MeetingHistory
+                        eventId={eventId}
+                        registrationId={person._registration_id}
+                        speakerId={person._speaker_id}
+                        sponsorId={sp.id}
+                        viewer="organiser"
+                        refreshKey={`${sp.status}|${sp.status_changed_at}|${sp.dispute_status}|${sp.disputed_at}`}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+        {others.length > 0 && (
+          <div className="flex items-center gap-2 border-t border-border px-3.5 py-2.5">
+            <Select value={adding ?? ""} onValueChange={setAdding}>
+              <SelectTrigger className="h-8 flex-1 text-[12.5px]" aria-label="Arrange for another sponsor">
+                <SelectValue placeholder="Arrange for another sponsor…" />
+              </SelectTrigger>
+              <SelectContent>
+                {others.map((sp) => <SelectItem key={sp.id} value={sp.id} className="text-[13px]">{sp.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {adding && (
+              <MeetingStatusControl
+                meeting={null}
+                personName={personName}
+                viewer="organiser"
+                eventOver={eventOver}
+                checkedIn={checkedIn}
+                onChange={(c) => { onChange(adding, c); setAdding(null); }}
+              />
+            )}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }

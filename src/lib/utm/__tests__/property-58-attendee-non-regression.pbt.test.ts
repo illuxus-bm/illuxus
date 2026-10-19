@@ -69,11 +69,40 @@ const ATTENDEE_FILES = [
     // `guest-registration` edge function saves the five utm_* values with
     // the registration, and this card calls `clearStoredUtm()` when that
     // succeeds (covered by guest-registration-server.test.ts).
-    hash: "9f4972b2c6795ed131952afdabe662ffb7cc539320841d2caa2ddc940d82b277",
+    //
+    // Bumped again for the event-page redesign. Re-audited against 6.1–6.3:
+    // only the returned markup changed (status pill, heading and line per
+    // state, Calendar / Share buttons, the phone bottom bar) plus an
+    // optional `organiserHref` prop. `handleRsvp` — `loadStoredUtm()`, the
+    // five utm_* columns on the insert and `clearStoredUtm()` on success —
+    // is untouched, and `GuestRegistrationForm` still receives `utmParams`
+    // and clears the stored UTM when it succeeds.
+    hash: "d721d82fa98b08ff7453be4a3389544ddb847cc197e43df0fda73a3cf1ef73d3",
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",
-    hash: "b825577081eb289ebb432e95c4fc46edecab65945f243309ce31a0e11eff1ac3",
+    // Bumped after re-audit against Requirements 6.4 and 6.6. Since the
+    // locked version (638c185) the file gained the Declined / Pending tabs,
+    // the meeting-interest filter and an "Interested Sponsors" column (and
+    // CSV column, appended after the UTM block). The `via <utm_source>`
+    // inline hint is unchanged, and the CSV still has the five contiguous
+    // UTM Source / Medium / Campaign / Content / Term columns from the
+    // registration row, blank for speaker and sponsor rows.
+    //
+    // Bumped again for live Meeting Interest updates and speaker interests.
+    // Re-audited against 6.4 and 6.6: only the interest loading (now a
+    // realtime subscription) and how rows are matched to interests changed.
+    // The `via <utm_source>` hint and the five UTM CSV columns are untouched.
+    //
+    // Bumped again for meeting status (migration 052). Re-audited against
+    // 6.4 and 6.6: the Interested Sponsors cell became a meetings popover, the
+    // filter gained statuses, and the CSV gained Meeting Status / Met At after
+    // Interested Sponsors. The UTM hint and five UTM CSV columns are untouched.
+    //
+    // Bumped again for meeting disputes and history (migration 054). Re-audited
+    // against 6.4 and 6.6: only the meetings popover, filter and event end date
+    // changed. The UTM hint and five UTM CSV columns are untouched.
+    hash: "2961abcab5eded6f03325d870c5717dd77def1d8cfbad05d672c8c6ba727bc75",
   },
   {
     path: "src/components/event/registrations/RegistrantQuickView.tsx",

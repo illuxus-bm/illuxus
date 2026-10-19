@@ -140,17 +140,26 @@ const PublicEventPage = () => {
     if (evRes.data) setEvent(evRes.data as never);
     const sessList = (sesRes.data as RendererSession[]) || [];
     if (sessList.length) {
+      // The moderator is the link at position -1; speakers count up from 0.
       const { data: ss } = await supabase
         .from("session_speakers")
-        .select("session_id, speaker_id")
+        .select("session_id, speaker_id, position")
         .in("session_id", sessList.map((s) => s.id));
       const map = new Map<string, string[]>();
-      (ss || []).forEach((r: any) => {
-        const arr = map.get(r.session_id) || [];
-        arr.push(r.speaker_id);
-        map.set(r.session_id, arr);
+      const moderators = new Map<string, string>();
+      (ss || [])
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .forEach((r) => {
+          if (r.position < 0) { moderators.set(r.session_id, r.speaker_id); return; }
+          const arr = map.get(r.session_id) || [];
+          arr.push(r.speaker_id);
+          map.set(r.session_id, arr);
+        });
+      sessList.forEach((s) => {
+        s.speaker_ids = map.get(s.id) || (s.speaker_id && !moderators.has(s.id) ? [s.speaker_id] : []);
+        s.moderator_id = moderators.get(s.id) ?? null;
       });
-      sessList.forEach((s) => { s.speaker_ids = map.get(s.id) || (s.speaker_id ? [s.speaker_id] : []); });
     }
     setSessions(sessList);
 
@@ -484,13 +493,13 @@ const PublicEventPage = () => {
         org={org}
         going={going}
         darkMode={appTheme === "dark"}
-        registrationSlot={<EventRsvpCard event={event as never} accentColor={config.theme.primaryColor} isEventOver={isEventOver} utmParams={loadStoredUtm()} />}
+        registrationSlot={<EventRsvpCard event={event as never} accentColor={config.theme.primaryColor} isEventOver={isEventOver} utmParams={loadStoredUtm()} organiserHref={(org?.subdomain || org?.slug) ? `/org/${org?.subdomain || org?.slug}` : undefined} />}
       />
 
       {/* Speaker & Sponsor application CTAs — shown to logged-in attendees.
           Hidden once the event is over — no point applying to a past event. */}
       {event && eventExt.status === "published" && !isEventOver && (
-        <div className="max-w-4xl mx-auto px-4 py-2">
+        <div className="mx-auto w-full max-w-[1200px] px-4 md:px-8 lg:px-10 pb-10">
           <EventApplicationButtons
             eventId={event.id}
             eventOwnerId={(event as { user_id?: string }).user_id ?? null}

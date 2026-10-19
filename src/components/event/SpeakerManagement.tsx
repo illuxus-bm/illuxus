@@ -523,6 +523,29 @@ function AssignSpeakerPopover({
   );
 }
 
+/** The speaker's photo; the placeholder icon when there is none or it fails to load. */
+function SpeakerThumb({ name, photoUrl }: { name: string; photoUrl: string | null }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [photoUrl]);
+  if (photoUrl && !failed) {
+    return (
+      <img
+        loading="lazy"
+        decoding="async"
+        src={photoUrl}
+        alt={name}
+        onError={() => setFailed(true)}
+        className="h-10 w-10 rounded-full object-cover shrink-0 bg-muted"
+      />
+    );
+  }
+  return (
+    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+      <UserCheck className="h-5 w-5 text-primary" />
+    </div>
+  );
+}
+
 function SortableSpeakerCard({
   speaker: s, link, onEdit, onDelete,
 }: {
@@ -546,9 +569,7 @@ function SortableSpeakerCard({
         >
           <GripVertical className="h-4 w-4" />
         </button>
-        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-          <UserCheck className="h-5 w-5 text-primary" />
-        </div>
+        <SpeakerThumb name={s.name} photoUrl={s.photo_url} />
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-sm">{s.name}</p>
           {(s.designation || s.company) && (

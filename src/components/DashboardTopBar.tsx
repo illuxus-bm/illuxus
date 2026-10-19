@@ -263,9 +263,7 @@ export function DashboardTopBar() {
                 navigation has only just gained its names. */}
             <span className="hidden sm:inline xl:hidden min-[1340px]:inline">Super Admin</span>
           </span>
-        ) : (
-          <WorkspaceChip />
-        )}
+        ) : undefined}
         nav={isAdminRoute ? <AdminNav /> : <OrganiserNav />}
         actions={<>
           <ThemeToggle floating />
@@ -329,6 +327,8 @@ export function DashboardTopBar() {
           </Popover>
           )}
 
+          {/* The active workspace sits beside the account menu (organiser only). */}
+          {!isAdminRoute && <WorkspaceChip />}
           <AccountMenu settingsHref="/dashboard/settings" />
         </>}
       />
