@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Heart } from "lucide-react";
+import { Download, Heart, ShieldCheck } from "lucide-react";
+import { collectMyData, downloadJson, exportFileName, type ExportClient } from "@/lib/data-export";
 
 interface FollowedOrg {
   id: string;
@@ -24,6 +25,7 @@ export default function ProfilePage() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
@@ -84,6 +86,26 @@ export default function ProfilePage() {
     if (error) toast({ title: "Could not save", description: error.message, variant: "destructive" });
     else toast({ title: "Profile updated" });
     setSaving(false);
+  };
+
+  const downloadMyData = async () => {
+    if (!user) return;
+    setExporting(true);
+    try {
+      const now = new Date();
+      const result = await collectMyData(supabase as unknown as ExportClient, user, now);
+      downloadJson(exportFileName(now), result);
+      const failed = Object.values(result.data).filter((r) => "error" in r).length;
+      toast(
+        failed
+          ? { title: "Download ready", description: `${failed} section(s) could not be read and are marked in the file.` }
+          : { title: "Download ready" },
+      );
+    } catch (err) {
+      toast({ title: "Could not prepare your data", description: err instanceof Error ? err.message : undefined, variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
   };
 
   const initials = (displayName || user?.email || "A").slice(0, 2).toUpperCase();
@@ -181,6 +203,31 @@ export default function ProfilePage() {
               })}
             </ul>
           )}
+        </section>
+
+        <section className="mt-10" aria-labelledby="your-data-title">
+          <div className="flex items-center gap-2 mb-4">
+            <ShieldCheck className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            <h2 id="your-data-title" className="text-base font-semibold">Your data</h2>
+          </div>
+          <div className="bg-card border border-border rounded-2xl p-5 space-y-4">
+            <p className="text-[13px] text-muted-foreground">
+              Download a copy of the personal data linked to your account — profile, registrations, applications,
+              community and webinar activity — as a JSON file.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="button" variant="outline" onClick={downloadMyData} disabled={exporting} className="h-9 text-[13px]">
+                <Download className="h-4 w-4 mr-1.5" aria-hidden="true" />
+                {exporting ? "Preparing…" : "Download my data"}
+              </Button>
+              <Link to="/data-deletion" className="text-[13px] text-primary underline-offset-4 hover:underline">
+                Request deletion of my data
+              </Link>
+              <Link to="/privacy" className="text-[13px] text-muted-foreground underline-offset-4 hover:underline">
+                Privacy policy
+              </Link>
+            </div>
+          </div>
         </section>
       </main>
     </div>

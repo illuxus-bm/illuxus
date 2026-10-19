@@ -61,6 +61,7 @@ const TermsPage = lazyWithLog("TermsPage", () => import("./pages/TermsPage.tsx")
 const CookiePolicyPage = lazyWithLog("CookiePolicyPage", () => import("./pages/CookiePolicyPage.tsx"));
 const RefundPolicyPage = lazyWithLog("RefundPolicyPage", () => import("./pages/RefundPolicyPage.tsx"));
 const DataDeletionPage = lazyWithLog("DataDeletionPage", () => import("./pages/DataDeletionPage.tsx"));
+const AccessibilityPage = lazyWithLog("AccessibilityPage", () => import("./pages/AccessibilityPage.tsx"));
 const GdprPage = lazyWithLog("GdprPage", () => import("./pages/GdprPage.tsx"));
 const DocumentationPage = lazyWithLog("DocumentationPage", () => import("./pages/DocumentationPage.tsx"));
 const FaqsPage = lazyWithLog("FaqsPage", () => import("./pages/FaqsPage.tsx"));
@@ -345,6 +346,7 @@ const App = () => (
                 <Route path="/refund-policy" element={<Navigate to="/refunds" replace />} />
                 <Route path="/data-deletion" element={<RouteErrorBoundary><DataDeletionPage /></RouteErrorBoundary>} />
                 <Route path="/gdpr" element={<RouteErrorBoundary><GdprPage /></RouteErrorBoundary>} />
+                <Route path="/accessibility" element={<RouteErrorBoundary><AccessibilityPage /></RouteErrorBoundary>} />
                 <Route path="/docs" element={<RouteErrorBoundary><DocumentationPage /></RouteErrorBoundary>} />
                 <Route path="/faqs" element={<RouteErrorBoundary><FaqsPage /></RouteErrorBoundary>} />
                 <Route

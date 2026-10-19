@@ -5,6 +5,7 @@ import PricingSection from "@/components/PricingSection";
 import TestimonialsSection from "@/components/TestimonialsSection";
 import CTASection from "@/components/CTASection";
 import { CinemaReel } from "@/components/cinematic/CinemaReel";
+import { PlatformModules } from "@/components/landing/PlatformModules";
 import { useSmoothScroll } from "@/components/landing/useSmoothScroll";
 import "@/components/landing/landing.css";
 import RouteSeo from "@/components/RouteSeo";
@@ -109,15 +110,18 @@ const HOME_JSON_LD = {
       },
       featureList: [
         "Branded event pages",
-        "Online ticketing with Stripe + Razorpay + UPI",
-        "QR code check-in and badge printing",
-        "Live webinar studio with LiveKit",
-        "Speaker and sponsor management",
+        "Registration, ticket categories, approvals and waitlists",
+        "QR code check-in, self check-in kiosk and badge printing",
+        "Live webinars with chat, Q&A, polls and recording",
+        "Speaker and sponsor portals",
+        "Creative studio for social posts",
+        "Event brochure builder",
+        "Certificates with public verification",
         "Event communities",
-        "Real-time analytics",
-        "Email + WhatsApp messaging",
-        "AI matchmaking",
-        "White-label and SSO",
+        "Email and WhatsApp messaging",
+        "UTM and partner link analytics",
+        "Venue sourcing",
+        "Embeddable events widget",
       ],
     },
     {
@@ -313,6 +317,7 @@ const Index = () => {
         <HeroSection />
         <TestimonialsSection />
         <FeaturesSection />
+        <PlatformModules />
         <CinemaReel />
         <PricingSection />
         <section

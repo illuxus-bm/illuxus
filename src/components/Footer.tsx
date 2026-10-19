@@ -35,6 +35,8 @@ const LEGAL_LINKS = [
   { label: "Terms", href: "/terms" },
   { label: "Refunds", href: "/refunds" },
   { label: "Cookies", href: "/cookies" },
+  { label: "GDPR", href: "/gdpr" },
+  { label: "Accessibility", href: "/accessibility" },
   { label: "Delete my data", href: "/data-deletion" },
 ];
 

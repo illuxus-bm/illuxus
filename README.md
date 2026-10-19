@@ -1,17 +1,19 @@
 # illuxus
 
-A Lu.ma-style events platform: organizers run branded events, sell tickets, check
-attendees in/out via QR, host LiveKit webinars, and grow communities around their
-events. Built with a strong bias toward observability, property-based testing,
-security-first architecture, and production-grade scalability.
+An all-in-one events platform. Organisers publish branded event pages, take registrations, check
+guests in and out by QR code, print badges, run browser-based webinars, and design posters,
+brochures and certificates. After the event, they keep attendees together in a community. The
+codebase leans hard on observability, property-based tests, row-level security and honest
+public pages.
 
-> **New to the codebase?** Read [Project layout](#project-layout) and
-> [Conventions](#conventions) below for architecture and house rules, then
-> [`ROADMAP.md`](./ROADMAP.md) for product trajectory and in-flight work.
+> **New here?** Read [Project layout](#project-layout) and [Conventions](#conventions) first, then
+> [`ROADMAP.md`](./ROADMAP.md) for direction and the product mindmap, and
+> [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md) before touching anything legal, payments or
+> messaging.
 
 ---
 
-## Table of Contents
+## Table of contents
 
 - [Stack at a glance](#stack-at-a-glance)
 - [Getting started](#getting-started)
@@ -19,47 +21,39 @@ security-first architecture, and production-grade scalability.
 - [Project layout](#project-layout)
 - [Route map](#route-map)
 - [Data layer](#data-layer)
-- [Features & capabilities](#features--capabilities)
-- [Security & observability](#security--observability)
-- [Performance & scalability](#performance--scalability)
+- [Features](#features)
+- [SEO and public pages](#seo-and-public-pages)
+- [Legal, privacy and accessibility](#legal-privacy-and-accessibility)
+- [Security and observability](#security-and-observability)
+- [Performance and scalability](#performance-and-scalability)
 - [Testing](#testing)
 - [Configuration](#configuration)
 - [Conventions](#conventions)
-- [Acknowledgements](#acknowledgements)
+- [Recent updates](#recent-updates)
+- [Documentation index](#documentation-index)
 
 ---
 
 ## Stack at a glance
 
-### Core Stack
+| Layer | Choice |
+| --- | --- |
+| Build / dev | Vite 5 + SWC, TypeScript 5, Bun (canonical package manager) |
+| UI | React 18, Tailwind 3, shadcn/ui (Radix), Framer Motion, Sonner |
+| Routing | `react-router-dom` v6, every route lazy-loaded through `lazyWithLog` |
+| Data | Supabase Postgres (RLS on every table), Realtime, Storage, Edge Functions (Deno) |
+| Server state | TanStack Query v5 |
+| Forms | `react-hook-form` + `zod` |
+| Live video | Agora (`agora-rtc-sdk-ng`), the main stage; LiveKit, the legacy stage |
+| Canvas and print | Custom scene renderer for creatives, `jspdf` / `jspdf-autotable` for PDFs, `exceljs`, `qrcode.react`, `html5-qrcode` |
+| AI | Google Gemini via edge functions (creative copy and backgrounds), with per-event daily quotas |
+| Hosting | Vercel: static SPA, per-page prerendered HTML, Edge functions under `api/` |
+| Email / messaging | SMTP (Gmail or Resend), Meta WhatsApp Cloud API |
+| Observability | Internal Logger + `supabaseRpc` wrapper, Sentry-compatible remote sink, error boundaries |
+| Tests | Vitest, fast-check (property-based), Testing Library, Playwright (e2e and visual) |
+| PWA | `vite-plugin-pwa` (Workbox), installable on iOS, Android and desktop |
 
-| Layer            | Choice                                                                                   |
-| ---------------- | ---------------------------------------------------------------------------------------- |
-| Build / dev      | Vite 5 + SWC, Bun (canonical), TypeScript 5                                              |
-| UI               | React 18, Tailwind 3, shadcn/ui (Radix primitives), Framer Motion, Sonner toasts         |
-| Routing          | `react-router-dom` v6 with route-level code-splitting                                    |
-| Data             | Supabase Postgres (RLS-first), Realtime, Storage, Edge Functions                         |
-| Server state     | TanStack Query v5                                                                        |
-| Forms            | `react-hook-form` + `zod`                                                                |
-| Charts           | Recharts                                                                                 |
-| Drag & drop      | `@dnd-kit`                                                                               |
-| Live video       | Agora (`agora-rtc-sdk-ng`) + LiveKit (`@livekit/components-react`) for webinar stage     |
-| QR / badges      | `html5-qrcode`, `qrcode.react`, `jspdf`                                                  |
-| PDF generation   | `jspdf`, `jspdf-autotable`, `exceljs`                                                    |
-| Observability    | Sentry (via DSN), unified internal Logger + RPC wrapper, Error Boundaries                |
-| Tests            | Vitest, fast-check (property-based), Playwright (e2e + visual)                           |
-| PWA              | Workbox (vite-plugin-pwa), installable on iOS/Android/Desktop                            |
-
-### Key Dependencies (all exact versions in `bun.lock`)
-
-- `@supabase/supabase-js`: v2.107.0
-- `@livekit/components-react`: v2.9.21
-- `agora-rtc-sdk-ng`: v4.24.4
-- `react-hook-form` + `zod`: v7.61.1 / v3.25.76
-- `tanstack/react-query`: v5.83.0
-- `dompurify`: v3.4.11 (XSS protection)
-- `fast-check`: v3.23.2 (property-based testing)
-- `vite-plugin-pwa`: v1.3.0 (PWA service worker)
+Exact versions live in `bun.lock`.
 
 ---
 
@@ -67,26 +61,25 @@ security-first architecture, and production-grade scalability.
 
 ```sh
 bun install
-cp .env.example .env.local   # fill in Supabase + observability values
+cp .env.example .env.local   # fill in Supabase and, optionally, analytics values
 bun run dev
 ```
 
-### Available Scripts
+| Script | Purpose |
+| --- | --- |
+| `bun run dev` | Vite dev server |
+| `bun run build` | Production build, plus prerendered per-page HTML and `sitemap.xml` (see [SEO](#seo-and-public-pages)) |
+| `bun run build:dev` | Development-mode build |
+| `bun run preview` | Serve the production build locally |
+| `bun run lint` | ESLint |
+| `bun run test` | Vitest, single run (unit and property tests) |
+| `bun run test:watch` | Vitest in watch mode |
+| `bun run audit:tokens` | Design-token audit of the QuickView surfaces |
 
-| Script                | Purpose                                      |
-| --------------------- | -------------------------------------------- |
-| `bun run dev`         | Vite dev server                              |
-| `bun run build`       | Production build (optimized, minified)       |
-| `bun run build:dev`   | Dev-mode build (sourcemaps, no minification) |
-| `bun run preview`     | Preview a production build locally           |
-| `bun run lint`        | ESLint over `src/`                           |
-| `bun run test`        | Vitest single run (unit + property tests)    |
-| `bun run test:watch`  | Vitest watch mode                            |
-| `bun run audit:tokens`| Audits design tokens in QuickView surfaces   |
+`package-lock.json` exists for npm fallback; ignore any stray `pnpm-*` files.
 
-**Important**: The project uses **bun** as the canonical package manager. See `bun.lock`.
-A `package-lock.json` exists for npm fallback. There is no pnpm workspace; ignore the
-stray `pnpm-*.yaml` files if you see them.
+Dev-only preview routes: `/__preview/creatives` shows every creative template in every format,
+and `/__preview/quick-views` shows the quick-view panels.
 
 ---
 
@@ -94,64 +87,65 @@ stray `pnpm-*.yaml` files if you see them.
 
 ```mermaid
 flowchart LR
-  subgraph Client[React SPA]
-    direction TB
-    Routes[react-router routes]
+  subgraph Browser[React SPA + PWA]
+    Routes[Lazy routes]
     UI[shadcn UI]
     Query[TanStack Query]
-    Obs[observability layer]
+    Obs[Observability layer]
+    Canvas[Scene renderer<br/>creatives / brochures / certificates / badges]
+  end
+
+  subgraph Vercel
+    Static[Prerendered HTML per page<br/>+ sitemap.xml]
+    ApiOg[api/event-og, api/org-og]
+    ApiMap[api/sitemap-events]
+    ApiWidget[api/widget + embed.js]
   end
 
   subgraph Supabase
-    direction TB
     DB[(Postgres + RLS)]
-    RT[Realtime channels]
-    Storage[(Storage buckets)]
+    RT[Realtime]
+    Storage[(Storage)]
     Edge[Edge Functions]
   end
 
   subgraph External
-    AG[Agora RTC]
-    LK[LiveKit Cloud]
-    Sentry[Sentry / DSN sink]
-    FX[Open exchange rates]
+    Agora[Agora RTC]
+    LK[LiveKit]
+    Gemini[Google Gemini]
+    SMTP[SMTP / Resend]
+    WA[Meta WhatsApp]
+    Sentry[Sentry sink]
+    GA[GA4 / Clarity<br/>after consent]
   end
 
-  Routes --> UI
-  UI --> Query
-  Query -->|supabaseRpc| Obs
-  Obs -->|x-correlation-id| DB
+  Static --> Routes
+  Routes --> UI --> Query
+  Query -->|supabaseRpc + correlation id| DB
   Obs -->|warn+| Sentry
   UI --> RT
   UI --> Storage
+  Canvas --> Storage
+  ApiOg --> DB
+  ApiMap --> DB
+  ApiWidget --> Edge
   Edge --> DB
-  Edge --> AG
+  Edge --> Agora
   Edge --> LK
-  Edge --> FX
-  AG -.events.-> Edge
-  LK -.webhook.-> Edge
+  Edge --> Gemini
+  Edge --> SMTP
+  Edge --> WA
+  UI -.consent.-> GA
 ```
 
-### Key Principles
+### Key principles
 
-1. **Every RPC goes through `supabaseRpc`** from `@/lib/observability`, which adds a
-   correlation id, logs name/params/duration in dev, and threads errors back into the
-   Logger. **Do not** call `supabase.rpc(...)` directly — that is enforced via lint.
-
-2. **Every log line goes through `logger`** from `@/lib/observability`. Direct
-   `console.*` is banned (`no-console: error`); the only sanctioned exception is the
-   contractual `console.warn('UI sync failure')` in `RegistrationsSection.tsx`.
-
-3. **Routes are lazy** via `lazyWithLog(...)` so chunk-load failures land in the
-   Logger before bubbling up to the Route Error Boundary.
-
-4. **Auth + org context wrap every authenticated route**: `AuthProvider` →
-   `OrgProvider` → `ProfileGate` → optional role-specific gate (organizer / admin /
-   attendee).
-
-5. **Public domain resolution**: every share URL uses `publicOrigin()` from
-   `src/lib/publicUrl.ts` (env `VITE_PUBLIC_ORIGIN` → `window.location.origin` →
-   `https://illuxus.com`). Never inline a host.
+1. **Every RPC goes through `supabaseRpc`** (`@/lib/observability`). It adds a correlation id, logs duration and threads errors into the Logger. Lint enforces it.
+2. **Every log line goes through `logger`.** `no-console` is an error; the one sanctioned exception is the contractual `console.warn('UI sync failure')` in `RegistrationsSection.tsx`.
+3. **Routes are lazy** via `lazyWithLog(...)`, so chunk-load failures reach the Logger before the route error boundary.
+4. **Gates wrap authenticated routes:** `AuthProvider` → `OrgProvider` → `ProfileGate` → an organiser, admin or attendee gate.
+5. **Public URLs come from `publicOrigin()`** (`src/lib/publicUrl.ts`). Never inline a host.
+6. **Public copy must match the code.** Don't advertise a feature, integration or certification that doesn't exist. [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md) lists the claims still waiting on code.
 
 ---
 
@@ -159,60 +153,62 @@ flowchart LR
 
 ```
 src/
-├── App.tsx                     route table + auth gates + GlobalFooter
-├── main.tsx                    entrypoint, boots Logger, mounts <App/>
+├── App.tsx                     route table, gates, GlobalFooter, cookie banner
+├── main.tsx                    entrypoint: boots the Logger, mounts <App/>
 ├── components/
-│   ├── ui/                     shadcn primitives (do not edit casually)
-│   ├── event/                  event-management surfaces (registrations, settings,
-│   │                           sessions, sponsors, speakers, attendance, reports,
-│   │                           page-form, page-builder, creatives)
-│   ├── community/              feed, comments, layout, notifications
-│   ├── webinar/                AgoraWebinarStage, LiveKit stage, lobby, controls
+│   ├── ui/                     shadcn primitives (wrap, don't edit)
+│   ├── landing/                landing sections, motion, PlatformModules
+│   ├── layout/                 SiteContainer, PublicPageShell, Breadcrumbs, portal shell
+│   ├── event/                  event workspace: registrations, attendance, sessions,
+│   │                           speakers, sponsors, venue, reports, utm, page-form,
+│   │                           page-builder, creatives, brochure, certificates
+│   ├── community/              feed, comments, chat, notifications
+│   ├── webinar/                Agora stage, LiveKit stage, lobby, controls
 │   ├── applications/           speaker / sponsor application dialogs
 │   ├── auth/                   password meter, 2FA challenge
-│   ├── people/                 PersonFieldsForm
-│   └── layout/                 SiteContainer + responsive gutters
+│   ├── CookieConsent.tsx       consent banner (GPC-aware)
+│   ├── ConsentCheckbox.tsx     required, unticked form consent
+│   ├── RouteSeo.tsx            per-page title, description, canonical, JSON-LD
+│   └── SiteHead.tsx            site-wide defaults, organisation schema, analytics after consent
 ├── pages/
-│   ├── Index, LoginPage, DiscoverFeed, EventsListingPage,
-│   ├── PublicEventPage, PublicOrgPage, EventLivePage, SelfCheckInPage,
-│   ├── FeaturesPage, PricingPage, AboutPage, ContactPage, PrivacyPage, TermsPage,
-│   ├── u/                      attendee surfaces (profile, my events, applications)
-│   ├── t/                      ticket detail
-│   ├── speaker/, sponsor/      portal pages
-│   ├── dashboard/              organizer dashboard (events, attendees, tickets,
-│   │   ├── admin/              analytics, marketing, landing-builder, domains,
-│   │   ├── community/          reports, help, settings, billing, admin, community)
-│   │   └── event/              broadcast + guest list
-│   └── dev/                    dev-only preview routes
-├── contexts/                   AuthContext, OrgContext, ThemeContext
-├── hooks/                      app-wide hooks + community/* feature hooks
+│   ├── Index, Features, Pricing, About, Contact, Faqs, Documentation
+│   ├── Privacy, Terms, CookiePolicy, RefundPolicy, Gdpr, Accessibility, DataDeletion
+│   ├── DiscoverFeed, EventsListingPage, PublicEventPage, PublicOrgPage, EventLivePage
+│   ├── SelfCheckIn/Out, CertificateVerify, TicketTrack, MyTickets, ActivateAccount, InviteAccept
+│   ├── seo/                    keyword landing pages
+│   ├── u/  t/                  attendee profile, events, applications, communities; ticket detail
+│   ├── speaker/ sponsor/       portals
+│   ├── partner/                partner analytics portal (UTM shares)
+│   ├── dashboard/              organiser workspace
+│   │   ├── event/              broadcast, guest list, creatives, brochure, certificates, UTM
+│   │   ├── community/          per-community pages
+│   │   └── admin/              super-admin pages
+│   └── dev/                    dev-only previews
+├── contexts/                   Auth, Org, Theme
+├── hooks/                      app-wide hooks (+ community/*)
 ├── lib/
-│   ├── observability/          logger, sinks (console/remote), redaction,
-│   │                           correlation, offline queue, error boundaries,
-│   │                           supabaseRpc wrapper
-│   ├── attendance/             pure state machine + 13 fast-check property tests
-│   ├── community/              rbac + shared types
-│   ├── currency.ts, fx.ts      money formatting + 5-min cached FX
-│   ├── datetime.ts, timezones  time utilities (event-local time is canonical)
-│   ├── publicUrl.ts            canonical share-URL builder (env-aware)
-│   ├── attendee-link.ts        per-attendee tracked join URLs with UTM
-│   ├── ticket-pdf, print-badges, badge-design
-│   ├── creatives/              social creative generator, badge renderer
-│   └── event-routes.ts         canonical /org/:slug/events/:slug builders
+│   ├── observability/          logger, sinks, redaction, correlation, offline queue, boundaries
+│   ├── attendance/             pure check-in/out state machine + 13 property tests
+│   ├── creatives/studio/       scene graph, templates, formats, renderer
+│   ├── brochure/               sections, templates, PDF, inline editor
+│   ├── certificates/           designs, fields, PDF, issuing API
+│   ├── seo/                    build-time prerender + sitemap builders
+│   ├── utm/                    attribution capture and storage
+│   ├── data-export.ts          "Download my data"
+│   ├── data-deletion.ts        deletion-request tickets
+│   ├── image-loader.ts         canvas image loading with a CORS fallback
+│   ├── print-badges.ts, badge-*.ts, fit-engine.ts
+│   ├── currency.ts, fx.ts, datetime.ts, timezones.ts, ics.ts
+│   └── publicUrl.ts, event-routes.ts, safe-redirect.ts, sanitize-html.ts
 ├── integrations/supabase/      generated types + browser client
-└── types/                      cross-feature TS types
+└── types/
 
+api/                            Vercel Edge functions: event-og, org-og, sitemap-events, widget, geo
 supabase/
-├── migrations/
-│   └── 000_full_schema.sql     consolidated schema + all incremental migrations
-├── functions/                  edge functions (livekit-*, fx-rates,
-│                               send-event-email, send-communication-email,
-│                               recording-*, org-events,
-│                               create-participant-account, seed-cities,
-│                               whatsapp-*)
+├── migrations/                 000_full_schema.sql + numbered incremental files (021–047)
+├── functions/                  Deno edge functions (see Data layer)
 └── config.toml
-
-docs/                           observability, agora setup, audits
+docs/                           compliance, audits, observability, setup guides
 tests/                          Playwright e2e + visual regression
 scripts/                        token audit, slug check
 ```
@@ -221,424 +217,387 @@ scripts/                        token audit, slug check
 
 ## Route map
 
-### Public Routes
+### Public and marketing
 
-- `/` — landing (signed-out + admins) or `/discover` feed (signed-in users)
-- `/discover` — Lu.ma-style discovery feed
-- `/events` — public events listing (shows ongoing + future events)
-- `/events/:id` — single event by id/slug
-- `/org/:slug` — org public page
-- `/org/:orgSlug/events/:eventSlug` — canonical event URL
-- `/o/:slug` and `/o/:orgSlug/:eventSlug` — legacy redirects (preserved forever)
-- `/features`, `/pricing`, `/about`, `/contact`, `/privacy`, `/terms` — marketing/legal
-- `/event-management-software`, `/event-ticketing-platform`, etc. — SEO landing pages
+- `/` — landing page (signed-in users go to `/discover`)
+- `/discover`, `/events`, `/events/:id`, `/e/:id`
+- `/org/:slug`, `/org/:orgSlug/events/:eventSlug` (canonical event URL)
+- `/o/:slug`, `/o/:orgSlug/:eventSlug` — legacy; permanently redirected to `/org/…`
+- `/features`, `/pricing`, `/about`, `/contact`, `/faqs`, `/docs`
+- `/event-management-software`, `/event-ticketing-platform`, `/conference-management-platform`, `/webinar-platform-india`
+- `/certificates/:code` — public certificate verification
+- `/support/ticket/:ticketNumber` — support ticket tracking
+- Unknown paths show the custom 404 page (`noindex`)
 
-### Auth + Onboarding
+### Legal and privacy
 
-- `/login`, `/reset-password`, `/complete-profile`, `/onboarding`
+- `/privacy`, `/terms`, `/cookies`, `/refunds` (`/refund-policy` redirects here), `/gdpr`, `/accessibility`, `/data-deletion`
 
-### Attendee Portal
+### Auth and onboarding
 
-- `/u/me`, `/u/me/events`, `/u/me/applications`, `/u/me/settings`
-- `/t/:id` — ticket detail
-- `/checkin/:eventId` — public self-check-in (check-in only)
-- `/checkout/:eventId` — public self-check-out (check-out only)
-- `/e/:id/live` — live event page (with optional `?join=` token for unique attendee links)
+- `/login`, `/reset-password`, `/activate`, `/invite`, `/complete-profile`, `/onboarding`
 
-### Organizer Dashboard (gated by `OrganizerRoute` + `OnboardingGuard`)
+### Attendee
 
-- `/dashboard/events`, `/dashboard/events/new`, `/dashboard/events/:id`
+- `/u/me` (profile, followed organisations, **Download my data**), `/u/me/events`, `/u/me/applications`, `/u/me/communities`, `/u/me/settings`
+- `/my/tickets`, `/t/:id`
+- `/checkin/:eventId`, `/checkout/:eventId` — self check-in and self check-out
+- `/e/:id/live` — live event (optional `?join=` personal link)
+
+### Organiser workspace (`OrganizerRoute` + `OnboardingGuard`)
+
+- `/dashboard`, `/dashboard/events`, `/dashboard/events/new`
+- `/dashboard/events/:id` — tabs: Overview, Website, Design, Agenda, Speakers, Sponsors, Venue, Registrations, Attendees, Communicate, Webinar, Community, Creatives, Brochure, Certificates, UTM / Links, Reports, Settings
 - `/dashboard/events/:id/guests`, `/dashboard/events/:id/broadcast`
-- `/dashboard/events/:id/registrations` — Check-in / Check-out tabs (mutually exclusive)
-- `/dashboard/events/:id/creatives` — Social creative generator
-- `/dashboard/tickets`, `/dashboard/reports`, `/dashboard/marketing`,
-  `/dashboard/landing-builder`, `/dashboard/billing`, `/dashboard/help`, `/dashboard/settings`
+- `/dashboard/tickets`, `/dashboard/reports`, `/dashboard/analytics`, `/dashboard/marketing`, `/dashboard/landing-builder`, `/dashboard/organization`, `/dashboard/billing`, `/dashboard/help`, `/dashboard/settings`
 
-### Community (per organizer)
+### Community
 
-- `/dashboard/community`, `/dashboard/community/:slug`, then
-  `/feed`, `/members`, `/announcements`, `/calendar`, `/resources`, `/chat`,
-  `/leaderboard`, `/moderation`, `/settings` under that.
+- `/community`, `/community/:slug` and `/feed`, `/members`, `/announcements`, `/calendar`, `/resources`, `/chat`, `/communications`, `/moderation`, `/settings` under it
+- `/dashboard/community/*` for organisers
 
 ### Portals
 
-- `/speaker`, `/speaker/events/:eventId`
-- `/sponsor`, `/sponsor/events/:eventId`, `/sponsor/accept`
+- Speaker: `/speaker`, `/speaker/events/:eventId`
+- Sponsor: `/sponsor`, `/sponsor/events/:eventId`, `/sponsor/accept`
+- Partner: `/partner`, `/partner/:accessId` (UTM analytics shared without an account)
 
-### Admin (super-admin only)
+### Super-admin
 
-- `/dashboard/admin`, `/dashboard/admin/site`, `/dashboard/admin/audit`
-- `/dashboard/admin/analytics`, `/dashboard/admin/tickets`, `/dashboard/admin/users`
-- `/dashboard/admin/organizations`, `/dashboard/admin/events`, `/dashboard/admin/revenue`
-- `/dashboard/admin/system`, `/dashboard/admin/activity`
+- `/dashboard/admin` and `/site`, `/audit`, `/analytics`, `/tickets`, `/users`, `/organizations`, `/events`, `/revenue`, `/system`, `/activity`
+
+Permanent (301) redirects for old and alternative URLs live in `vercel.json` → `redirects`.
 
 ---
 
 ## Data layer
 
-The Supabase schema lives as a single consolidated file:
+`supabase/migrations/000_full_schema.sql` is the consolidated base schema. The numbered files
+after it (`021_…` to `047_certificates.sql`) are incremental changes, applied in order. Each is
+idempotent (`IF EXISTS` / `CREATE OR REPLACE`), so re-running is safe. Regenerate
+`src/integrations/supabase/types.ts` after a schema change, and never edit it by hand.
 
-```
-supabase/migrations/000_full_schema.sql
-```
+> The generated types are currently behind the schema. `tsc` reports errors in pages that use
+> newer tables (for example `event_emails`, `video_provider`). Regenerate them before relying on
+> type checking for those files.
 
-This file is the cumulative DDL of the entire platform — every table, RLS
-policy, trigger, RPC, and configuration in one place. It replaced 15
-historical migration files in June 2026 to keep the schema legible. Apply it
-via `supabase db push` or paste into the SQL editor on a fresh project. The
-file is idempotent (`DROP POLICY IF EXISTS` and `CREATE OR REPLACE FUNCTION`
-throughout) so re-runs are safe.
+### Main tables
 
-### Key Tables
+| Area | Tables |
+| --- | --- |
+| Events | `events` (incl. `page_config`), `sessions`, `session_speakers`, `event_speakers`, `event_sponsors`, `org_sponsor_tiers`, `event_venue_selections` |
+| People | `profiles`, `user_roles`, `speakers`, `sponsors`, `sponsor_members`, `speaker_applications`, `sponsor_applications` |
+| Registrations | `registrations` (QR code, approval status, attendance state), `attendance_events` (immutable audit trail) |
+| Organisations | `organizations`, `org_members`, `org_invitations`, `org_followers`, `brand_kits`, `subscriptions` |
+| Design | `event_creatives`, `event_creative_backgrounds`, `event_creative_ai_drafts`, `certificate_templates`, `certificate_template_versions`, `certificates`, `certificate_audit` |
+| Messaging | `communications`, `communication_recipients`, `event_emails`, `email_settings`, `app_notifications` |
+| Attribution | `utm_links`, `utm_clicks`, `utm_partner_access` |
+| Community | `community_*` (members, posts, comments, reactions, messages, polls, badges, connections, reports) |
+| Webinar | `webinar_*` (sessions, attendance, chat, Q&A, polls, reactions, stage requests, speakers) |
+| Platform | `site_content` (site editor), `audit_logs`, `support_tickets`, `support_ticket_messages`, `cities` |
 
-- **`events`**: Event metadata, page_config (theme, SEO, sections), branding
-- **`registrations`**: Attendee registration with QR, attendance_state, approval_status
-- **`sessions`**: Event sessions (agenda) with speakers, start/end times
-- **`speakers` + `event_speakers`**: Speaker profiles linked to events
-- **`sponsors` + `event_sponsors`**: Sponsor profiles linked to events
-- **`webinar_sessions`**: Live webinar sessions with attendance tracking
-- **`attendance_events`**: Immutable audit trail of all attendance transitions
-- **`community_posts`, `community_comments`, `community_reactions`**: Community feed
-- **`event_creatives`**: Generated social graphics (speaker/sponsor/promo images)
+### Edge functions (`supabase/functions/`)
 
-### Edge Functions
+| Group | Functions |
+| --- | --- |
+| Video | `agora-token`, `livekit-token`, `livekit-room-create`, `livekit-room-end`, `livekit-go-live`, `livekit-promote`, `livekit-webhook`, `recording-start`, `recording-stop` |
+| Email | `send-email`, `send-event-email`, `send-communication-email`, `send-ticket-email`, `send-ticket-reply`, `send-speaker-invite-email`, `send-sponsor-invite-email`, `team-invitation` |
+| WhatsApp | `send-whatsapp`, `whatsapp-sync-templates`, `whatsapp-webhook` (HMAC-verified) |
+| Registration | `guest-registration` (register without an account), `create-participant-account` |
+| Venue | `notify-venue-selection`, `notify-organizer-venue-response` |
+| AI | `generate-creative-copy`, `generate-creative-background` (Gemini, quota-limited) |
+| Support | `submit-support-ticket` (also used for data-deletion requests) |
+| Other | `fx-rates`, `org-events` (widget feed), `og-event`, `seed-cities` |
 
-- LiveKit suite (`livekit-token`, `livekit-room-create`, `livekit-room-end`,
-  `livekit-go-live`, `livekit-promote`, `livekit-webhook`)
-- Agora-related stage and webhook helpers
-- `recording-start`, `recording-stop` — Supabase Storage-backed recordings
-- `fx-rates` — 5-minute cached currency exchange
-- `send-event-email`, `send-communication-email` — transactional email
-- `create-participant-account`, `seed-cities`, `org-events`
-- WhatsApp suite (`send-whatsapp`, `whatsapp-sync-templates`, `whatsapp-webhook`)
+Shared helpers live in `_shared/`: CORS allowlist, auth, SMTP, Resend and the edge logger.
 
-Generated database types live at `src/integrations/supabase/types.ts`. Regenerate
-after a schema change; never edit by hand.
+### Vercel Edge functions (`api/`)
 
----
-
-## Features & capabilities
-
-### Event Management
-
-- **Event creation**: Slug auto-generation with collision retry, quick-create flow
-- **Page builder**: Branded event landing pages with theme editor (title/body scale, colors)
-- **Sessions/Agenda**: Multi-day support, speaker linking, display ordering
-- **Speakers & Sponsors**: Management, photo/logo upload, tier-based branding
-- **Registration system**: QR-based attendance, bulk import, email invitations
-- **Check-in/Check-out**: Two distinct scanner modes with strict state isolation
-- **Attendance tracking**: State machine with `never`/`inside`/`outside` states
-- **Badge printing**: Customizable badges with title/body fonts matching page theme
-- **PDF exports**: Tickets, badges, brochures with branded layouts
-
-### Community Features
-
-- **Community hub**: Per-organizer community spaces
-- **Feed & comments**: Threaded discussions with likes/reactions
-- **Members directory**: Member management with roles and permissions
-- **Announcements**: Broadcast to community members
-- **Calendar**: Shared community events
-- **Resources**: Shared documents and materials
-- **Moderation**: Content moderation and user management
-- **Leaderboard**: Engagement tracking and rewards
-
-### Webinar & Live Events
-
-- **LiveKit stage**: Production-grade live video streaming
-- **Agora integration**: Alternative RTM for reactions and announcements
-- **Participant management**: Speaker/sponsor roles, stage requests
-- **Chat & Q&A**: Real-time communication
-- **Polls**: Live polling and results
-- **Reactions**: Emoji-based audience engagement
-- **Recording**: Auto-recording to Supabase Storage
-- **Waiting lobby**: Pre-event attendee queue
-- **Branding**: Event-themed overlays and branding
-
-### Marketing & Analytics
-
-- **Email broadcasts**: Branded email campaigns with templates
-- **WhatsApp broadcasts**: Template-based messaging (pending approval flow)
-- **Marketing pages**: SEO-targeted landing pages
-- **Analytics dashboard**: KPIs, sparklines, charts
-- **Revenue tracking**: ticket sales, payouts, analytics
-- **UTM attribution**: Track attendee acquisition sources
-
-### Organizational Features
-
-- **Multi-org support**: Switch between workspaces
-- **Team management**: Invite members, role-based access
-- **Billing & plans**: Different tiers with feature limits
-- **Domains**: Custom domain configuration
-- **Organization branding**: Logo, colors, theme presets
-- **2FA support**: Two-factor authentication
-
-### Admin Platform (Super-Admin)
-
-- **User management**: View and manage all platform users
-- **Organization management**: View and manage all organizations
-- **Event moderation**: Review and moderate events
-- **Revenue dashboard**: Platform-wide revenue analytics
-- **System health**: Infrastructure monitoring
-- **Audit log**: All platform actions logged
-- **Site editor**: Global site configuration
-
-### Advanced Features
-
-- **Social creative generator**: Auto-generate social graphics for speakers/sponsors
-  - Multiple template presets (speaker, sponsor, combo)
-  - Platform-specific sizing (LinkedIn, Instagram, Twitter, Email)
-  - Batch generation with ZIP export
-  - Template selection persistence per event
-  - Branded with event theme colors
-
-- **Brochure generator**: Multi-page PDF event brochures
-  - Agenda, speakers, sponsors, venue sections
-  - Reorderable section layout
-  - Theme-based color customization
-  - QR code for venue map (when configured)
-
-- **PWA support**: Installable Progressive Web App
-  - Offline capability with service worker
-  - Install prompt on iOS/Android/Desktop
-  - Standalone mode splash screens
-  - Auto-updates with non-intrusive prompt
-  - Safe-area inset support for notched devices
-
-### Developer Features
-
-- **Property-based testing**: 13+ fast-check property tests
-- **Structured observability**: Correlation IDs, PII redaction, offline queue
-- **Error boundaries**: Route-level + root error handling
-- **Code splitting**: Route-level lazy loading
-- **Type safety**: Full TypeScript coverage
-- **Theme tokens**: Design system with CSS variables
+| Route | Purpose |
+| --- | --- |
+| `api/event-og`, `api/org-og` | Server-rendered Open Graph tags for event and organisation pages |
+| `/sitemap-events.xml` → `api/sitemap-events` | Live sitemap of published events and organisation pages |
+| `api/widget` + `/embed.js` | Embeddable "upcoming events" widget, with no Supabase keys in the snippet |
+| `api/geo` | Country lookup for the phone-code picker |
 
 ---
 
-## Security & observability
+## Features
 
-### Security Features
+### Event workspace
 
-1. **Row-Level Security (RLS)** on every table
-2. **SECURITY DEFINER** functions with `SET search_path = public`
-3. **Origin allowlist** on edge functions via `ALLOWED_ORIGINS` secret
-4. **PII redaction** on all observability data
-5. **Correlation IDs** on all RPC calls for traceability
-6. **Rate limiting** on edge functions (TODO: implement)
-7. **HMAC verification** on webhooks (TODO: implement for Meta)
+- **Event creation:** quick create, slug generation with collision retry, drafts.
+- **Event website:** a page builder with themes, title and body size sliders, a 1128 × 191 cover banner, and sections for agenda, speakers, sponsors, venue and FAQs.
+- **Agenda:** multi-day sessions in the event's own time zone, with speakers attached.
+- **Speakers and sponsors:** management, applications, self-serve portals, sponsor tiers, and logo and photo uploads.
+- **Venue sourcing:** a venue marketplace picker, service requests and venue responses with email notifications.
+- **Registrations:**
+  - Ticket categories, approval queue, waitlist, bulk import and invitations.
+  - Guest registration without an account, with a password set afterwards.
+  - Email de-duplication across roles, inline role change, quick-view panels, per-attendee tracked join links.
+- **Check-in and check-out:** separate scanner modes over a property-tested state machine, a self check-in kiosk and live attendance.
+- **Badges:** a badge designer, banner layouts, thermal-printer fitting, printing, and bulk download as PDF or JPG from the Registrations toolbar.
+- **Communicate:** email broadcasts with per-recipient delivery status, WhatsApp templates and announcements.
+- **Reports:** CSV, Excel and PDF exports, with column selection.
 
-### Observability Layer
+### Design studio
 
-The observability layer at `src/lib/observability/` provides:
+- **Creative studio:** a Canva-style scene editor. Every element can be moved, resized, restyled or removed.
+  - 48 designs per creative type, with colourways and event and partner versions.
+  - Every social format, built from the event's own speakers, sponsors and branding.
+  - AI-drafted copy and backgrounds, and PNG or ZIP export.
+- **Brochure builder:** several brochure types, including a full-page poster cover and the DevOps Connect reference format.
+  - Section reordering and colour schemes.
+  - Inline editing of every element, with autosave.
+  - PDF export.
+- **Certificates:** a template studio, bulk issuing, PDF output and public verification at `/certificates/:code`.
 
-- **Structured Logger**: Leveled logging (trace/debug/info/warn/error/fatal)
-- **PII Redaction**: Automatic scrubbing of emails, tokens, phone numbers
-- **Correlation IDs**: Threaded through all RPC calls
-- **Offline Queue**: IndexedDB-backed buffer for offline operation
-- **Error Boundaries**: Route-level and root error handling
-- **Remote Sink**: Sentry-compatible remote error reporting
-- **Privacy Opt-out**: Build-time and runtime opt-out controls
+### Live and community
 
-**Usage:**
+- **Webinars:** an Agora stage with chat, Q&A, polls, reactions, stage requests, a waiting lobby, pre-join checks, branding and recording. LiveKit is the legacy stage.
+- **Communities:** feed, comments, announcements, calendar, resources, chat, members, leaderboard, moderation and content reports.
+
+### Growth and analytics
+
+- **UTM and partners:** tracked links, click and registration attribution, lead exports, and partner dashboards shared by link.
+- **Analytics:** organiser KPIs and charts, and platform analytics for admins.
+- **Website widget:** one `<script>` tag shows an organisation's upcoming events on any site.
+- **SEO landing pages and the discovery feed.**
+
+### Organisation and platform
+
+- **Organisations:** multiple workspaces, team invitations (verified inviters, personal details only), brand kit, organisation landing page, custom domains.
+- **Accounts:** emailed sign-up code, 2FA, and a country-code picker pre-selected from the visitor's IP.
+- **Super-admin:** site editor (draft and publish), users, organisations, event moderation, revenue, system health, activity and audit logs, support tickets.
+- **PWA:** installable, offline app shell, update prompt, safe-area support.
+
+> **Not built yet, though some copy mentions them:** payment collection (Razorpay / Stripe), SSO,
+> AI matchmaking, promo codes and offline scan queueing. See
+> [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md) §2.
+
+---
+
+## SEO and public pages
+
+The app is a single-page app, so `vite.config.ts` adds a `seoPrerender` plugin. At build time it
+reads every page's `<RouteSeo title description canonical>` and does the following:
+
+- writes `dist/<path>/index.html` with that page's own title, description, canonical URL, Open Graph and Twitter tags, breadcrumb JSON-LD and a `<noscript>` summary with internal links;
+- writes `dist/sitemap.xml` and `dist/sitemap-index.xml`. The index points at the static sitemap and at the live `/sitemap-events.xml`.
+
+Pages with run-time values (events, organisations) or `noindex` are skipped. Event and organisation
+pages get their tags from `api/event-og` and `api/org-og`. `src/lib/seo/__tests__/prerender.test.ts`
+checks that every prerendered page has a unique path, title and description, and that each
+description is at least 50 characters.
+
+Also in place:
+
+- `public/robots.txt`;
+- 301 redirects in `vercel.json`;
+- a site-wide organisation and website schema (`SiteHead.tsx`);
+- visible breadcrumbs on public pages;
+- a custom 404 page;
+- `loading="lazy" decoding="async"` on images;
+- Search Console and Bing verification tags, read from env vars.
+
+---
+
+## Legal, privacy and accessibility
+
+| Surface | Where |
+| --- | --- |
+| Privacy Policy (DPDPA 2023, IT Act, SPDI Rules, IT Rules 2021, CERT-In) | `/privacy` |
+| Terms of Service | `/terms` |
+| Cookie Policy | `/cookies` |
+| Refund & Cancellation Policy | `/refunds` |
+| GDPR Notice (EU / UK) | `/gdpr` |
+| Accessibility Statement (WCAG 2.2 AA, partial) | `/accessibility` |
+| Data deletion and marketing opt-out requests | `/data-deletion` (filed as a privacy support ticket) |
+| Download my data (JSON) | `/u/me` → "Your data" |
+| Cookie banner | `CookieConsent.tsx`: nothing non-essential by default, an equal "Reject" button, reopened from "Cookie settings" in the footer, Global Privacy Control honoured |
+| Form consents | `ConsentCheckbox.tsx`: required and never pre-ticked; Terms acceptance stored as `terms_accepted_at` |
+| Keyboard access | skip link, visible focus ring, reduced-motion support |
+
+The full law-by-law review and the open gaps are in [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md).
+Update it whenever a legal page, sub-processor or market changes.
+
+---
+
+## Security and observability
+
+**Security controls**
+
+- Row-level security on every table; `SECURITY DEFINER` functions pin `search_path`.
+- An origin allowlist (`ALLOWED_ORIGINS`) on edge functions, and rate limits on public ones (guest registration, invitations, email, AI generation).
+- HMAC verification on the WhatsApp webhook.
+- Hardening on 9 October 2026: open email relay, account-takeover paths and data-exposure holes closed (migration `038_security_hardening.sql`).
+- HSTS (preload), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, and a `Permissions-Policy` that allows only the camera and microphone.
+- PII redaction in all logs.
+- Still open: a Content-Security-Policy header, and 180-day log retention for CERT-In (see `docs/COMPLIANCE.md`).
+
+**Observability** (`src/lib/observability/`)
+
+The structured Logger supports levels, correlation ids, PII redaction, an IndexedDB offline queue,
+route and root error boundaries, a Sentry-compatible remote sink, and opt-out at build time or run
+time.
+
 ```ts
 import { logger, supabaseRpc } from '@/lib/observability';
 
 logger.info('clicked rsvp', { event_id });
-logger.error('rsvp failed', { event_id, error_message: err.message });
-
 const { data, error, correlationId } = await supabaseRpc('set_attendance', { p_reg_id });
 ```
 
-**Documentation**: See [`docs/observability.md`](./docs/observability.md)
+See [`docs/observability.md`](./docs/observability.md) and
+[`docs/observability-privacy.md`](./docs/observability-privacy.md).
 
 ---
 
-## Performance & scalability
+## Performance and scalability
 
-### Current Capacity (as of 2026-08-27)
+Capacity estimates (from the 27 August 2026 audit):
 
 | Surface | Comfortable | Stress point | First failure mode |
-|---------|-------------|--------------|-------------------|
-| Anonymous landing (Vercel CDN) | ~50,000 RPS | 100,000 RPS | Vercel/Edge function quota |
-| Authenticated API (Supabase Pro REST) | ~1,500 RPS | 4,000 RPS | RLS CPU (no `registrations(event_id)` idx) |
-| Realtime concurrent connections (Supabase Pro) | 500 | 1,000 | Realtime broadcast quota |
-| Single live event page (12 channels/user) | ~500 simultaneous attendees | ~1,000 | WAL volume from REPLICA IDENTITY FULL |
-| LiveKit / Agora video | 3,000 viewers / room | 10,000 viewers / room | Bandwidth + license tier |
+| --- | --- | --- | --- |
+| Anonymous landing (Vercel CDN) | ~50,000 RPS | 100,000 RPS | Vercel / Edge quota |
+| Authenticated API (Supabase Pro) | ~1,500 RPS | 4,000 RPS | RLS CPU |
+| Realtime connections (Supabase Pro) | 500 | 1,000 | Realtime quota |
+| One live event page | ~500 attendees | ~1,000 | WAL volume |
+| Agora / LiveKit video | 3,000 viewers per room | 10,000 | Bandwidth and licence tier |
 
-### Capacity After Critical Fixes (See [Audit Report](./docs/PLATFORM_AUDIT.md))
+Details and remediation: [`docs/PLATFORM_AUDIT.md`](./docs/PLATFORM_AUDIT.md).
 
-| Surface | Before | After Critical | After All High |
-|---------|--------|----------------|----------------|
-| Live event attendees | ~500 | ~2,000 | ~5,000 (Team tier) |
-| Concurrent Realtime connections | 500 | 2,000 | 5,000 |
-| Daily active users | ~1,000 | ~10,000 | ~50,000 |
+**Optimisations:**
 
-### Cost Estimates (10k DAU)
-
-| Service | Estimate |
-|---------|----------|
-| Supabase Pro + add-ons | $400–$800 |
-| Vercel Pro | $70 |
-| Agora (RTC) | $300–$2,000 |
-| Resend (email) | $20–$200 |
-| Meta WhatsApp | $50–$400 |
-| Sentry | $50–$200 |
-| Cloudflare | $20 |
-
-**Total**: **$1,100–$3,500/month**
-
-### Key Performance Optimizations
-
-1. **Route-level code splitting**: Lazy-loaded route chunks
-2. **TanStack Query defaults**: `staleTime: 30s`, `gcTime: 5min`, `refetchOnWindowFocus: false`
-3. **IndexedDB offline queue**: For observability data during offline operation
-4. **Service worker caching**: App shell + Supabase Storage cache-first
-5. **Vite manual chunks**: Vendor bundle splitting
-6. **Lazy-loaded heavy dependencies**: ExcelJS, jspdf, Agora SDK
-7. **Image lazy loading**: `loading="lazy" decoding="async"` on listing images
-8. **Pagination**: Server-side pagination for large result sets
-
-### Known Scalability Constraints
-
-See [`docs/observability.md`](./docs/observability.md) for more details.
+- route-level code splitting, with heavy libraries (ExcelJS, jsPDF, Agora) loaded lazily;
+- TanStack Query defaults (`staleTime` 30 s, `gcTime` 5 min, no refetch on focus);
+- Workbox caching: the app shell is precached, Storage is cache-first and the REST API is network-first;
+- prerendered HTML for public pages, and lazy-loaded images;
+- server-side pagination for large lists.
 
 ---
 
 ## Testing
 
-| Suite                | Command                                | What it covers                                |
-| -------------------- | -------------------------------------- | --------------------------------------------- |
-| Unit                 | `bun run test`                         | Vitest specs in `src/**/__tests__/*.test.ts*` |
-| Property-based       | included in `bun run test`             | `*.property.test.ts` and `src/lib/attendance/__tests__/property-*.pbt.test.ts` (13 PBT files for the attendance state machine) |
-| E2E                  | `npx playwright test`                  | `tests/e2e/*.spec.ts`                         |
-| Visual regression    | `npx playwright test tests/visual`     | QuickView surfaces                            |
+| Suite | Command | Covers |
+| --- | --- | --- |
+| Unit + property | `bun run test` | `src/**/__tests__/*.test.ts(x)`, `*.pbt.test.ts` (fast-check) |
+| E2E | `npx playwright test` | `tests/e2e/*.spec.ts`, `tests/badge-fit.spec.ts` |
+| Visual regression | `npx playwright test tests/visual` | QuickView surfaces |
 
-### Property-Based Testing
+Property tests cover:
 
-illuxus uses **fast-check** for property-based testing of critical business logic:
+- the attendance state machine (13 files);
+- the badge fit engine;
+- sanitisation and redaction;
+- template resolution;
+- UTM attribution, including a SHA-256 "tripwire" on attendee-facing files that fails when those files change without a re-audit.
 
-- **Attendance state machine**: 13 property tests covering state transitions, ordering invariants, idempotence
-- **Sanitization**: XSS protection验证 with fuzzed payloads
-- **Redaction**: PII scrubbing completeness and correctness
-- **Template resolution**: Theme fallback logic and aspect-ratio reflow
-- **PDF generation**: Layout, pagination, and content assembly
+**Known red tests (20 Oct 2026):**
 
-**Pattern**: Use `fast-check` with `property()` and `assert()`. See existing PBT files in `src/lib/attendance/__tests__/`.
+- The UTM tripwire for `RegistrationsSection.tsx` and `RegistrantQuickView.tsx`: those files changed upstream and need re-auditing, then new fingerprints.
+- `gutters.test.tsx`: `SiteHeader` no longer uses `SiteContainer` after the navbar rewrite.
 
 ---
 
 ## Configuration
 
-### Environment Variables
+### Client (Vite) variables
 
 | Variable | Purpose | Default |
-|----------|---------|---------|
-| `VITE_SUPABASE_URL` | Supabase project URL | - |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable (anon) key | - |
-| `VITE_PUBLIC_ORIGIN` | Public domain for share URLs | `https://illuxus.com` |
-| `VITE_PUBLIC_PUBLISHED_HOST` | Published host for events | `events.illuxus.com` |
-| `VITE_PUBLIC_DOMAIN` | Public domain | `illuxus.com` |
-| `VITE_OBSERVABILITY_DSN` | Sentry DSN for remote error reporting | - |
-| `VITE_OBSERVABILITY_OPT_OUT` | Opt-out of observability | - |
-| `VITE_BUILD_SHA` | Git commit sha (injected at build) | - |
+| --- | --- | --- |
+| `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID` | Supabase project | — |
+| `VITE_PUBLIC_ORIGIN` | Origin used in share links and auth emails | `https://illuxus.com` |
+| `VITE_PUBLIC_PUBLISHED_HOST`, `VITE_PUBLIC_DOMAIN` | Published-event host and apex domain | `events.illuxus.com`, `illuxus.com` |
+| `VITE_WEBINAR_PROVIDER`, `VITE_AGORA_APP_ID` | Webinar stage selection | — |
+| `VITE_OBSERVABILITY_DSN`, `VITE_OBSERVABILITY_OPT_OUT` | Remote error sink | — |
+| `VITE_GA4_ID`, `VITE_CLARITY_ID` | Analytics, loaded only after cookie consent | — |
+| `VITE_GSC_VERIFICATION`, `VITE_BING_VERIFICATION` | Search Console and Bing verification tags, written into prerendered HTML | — |
+| `VITE_BUILD_SHA` | Commit sha, injected at build | — |
 
-### Build Configuration
+### Edge-function secrets (Supabase)
 
-- **Vite config**: `vite.config.ts`
-- **ESLint config**: `eslint.config.js`
-- **Tailwind config**: `tailwind.config.ts`
-- **Vitest config**: `vitest.config.ts`
-- **Playwright config**: `playwright.config.ts`
+| Area | Secrets |
+| --- | --- |
+| Core | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGINS` |
+| Email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `RESEND_FROM`, `RESEND_FROM_EMAIL`, `SUPPORT_EMAIL`, `SUPPORT_INBOX_EMAIL` |
+| Video | `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_WS_URL` |
+| WhatsApp | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_API_VERSION` |
+| AI | `GEMINI_API_KEY`, `GEMINI_COPY_MODEL`, `GEMINI_COPY_DAILY_QUOTA`, `GEMINI_PER_EVENT_DAILY_QUOTA` |
+| Links | `PUBLIC_DOMAIN`, `PUBLIC_PUBLISHED_HOST`, `ORGANIZER_DASHBOARD_URL`, `VENDOR_PORTAL_URL` |
 
-### CI/CD
-
-Source map upload at build time requires these secrets:
-- `OBSERVABILITY_AUTH_TOKEN`
-- `OBSERVABILITY_ORG`
-- `OBSERVABILITY_PROJECT`
+Source-map upload in CI needs `OBSERVABILITY_AUTH_TOKEN`, `OBSERVABILITY_ORG` and
+`OBSERVABILITY_PROJECT`. Setup guides: [`docs/agora-setup.md`](./docs/agora-setup.md),
+[`docs/gemini-setup.md`](./docs/gemini-setup.md).
 
 ---
 
 ## Conventions
 
-- **Money** uses `formatMoney` from `@/lib/currency`. The DB stores amounts in the
-  event's currency; `useFxRates` (5-minute TTL, refresh on visibility change)
-  converts to display currency.
-
-- **Datetimes** are stored UTC and formatted in event-local time using helpers from
-  `@/lib/datetime` and the `timezones` whitelist. **Never** call `new Date(iso).getDate()`
-  on a stored timestamptz — strip the `T` suffix or use the helpers (the agenda
-  Day-N tab bug is a recurring failure mode of doing this wrong).
-
-- **Routing** to org/event pages goes through `event-routes.ts` builders; never
-  string-concat URLs. Share URLs go through `publicOrigin()` (see `src/lib/publicUrl.ts`).
-
-- **shadcn primitives** in `components/ui/` are generated. Wrap them in feature
-  components rather than editing them.
-
-- **Design tokens** are CSS variables on `:root` — Tailwind classes use
-  `bg-card`, `border-border`, `text-foreground`, etc. New colors require a token,
-  not a hex value.
-
-- **Person titles** must be one of `('Mr','Ms','Mrs','Prefer not to say')` — the DB
-  has a validation trigger. The canonical list lives in `src/lib/phone-country.ts`
-  as `TITLE_OPTIONS`.
-
-- **Footer is global**: `<GlobalFooter />` in `App.tsx` renders the shared `Footer`
-  on every public route. Don't add per-page `<Footer />` calls.
-
-- **PBT first** when behavior has a clear invariant (state machines, idempotence,
-  ordering, redaction). Use `fast-check` and pattern off the existing PBT files.
+- **Money** uses `formatMoney` from `@/lib/currency`. Amounts are stored in the event's currency; `useFxRates` (5-minute TTL) converts for display.
+- **Datetimes** are stored in UTC and shown in event-local time via `@/lib/datetime`. Never call `new Date(iso).getDate()` on a stored timestamp; that is how the "Day 2" agenda bug happens.
+- **URLs** for organisations and events come from `event-routes.ts`; share links come from `publicOrigin()`.
+- **shadcn primitives** in `components/ui/` are generated. Wrap them; don't edit them.
+- **Colours** are CSS-variable tokens (`bg-card`, `text-foreground`, …). A new colour means a new token, not a hex value.
+- **Person titles** are one of `Mr`, `Ms`, `Mrs`, `Prefer not to say` (a DB trigger validates this); see `TITLE_OPTIONS` in `src/lib/phone-country.ts`.
+- **The footer is global** (`<GlobalFooter />` in `App.tsx`). Don't add a footer per page.
+- **Every public page** declares `<RouteSeo>` with a unique title, a description of 50+ characters and a canonical URL. The prerender tests enforce this.
+- **Consent checkboxes** use `ConsentCheckbox`, are never pre-ticked, and link to the documents they cover.
+- **Canvas images** load through `loadCanvasImage` (`src/lib/image-loader.ts`) so exports don't break on CORS.
+- **Write property tests first** wherever behaviour has an invariant (state machines, idempotence, ordering, redaction).
 
 ---
 
-## Recent Updates (2026)
+## Recent updates
+
+### October 2026
+
+- **Compliance pass:**
+  - Global Privacy Control honoured, "Download my data" on `/u/me`, and an accessibility statement at `/accessibility`.
+  - Privacy-policy references corrected, and a global compliance review in [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md).
+- **Landing page:** honest feature cards, plus a new "One workspace for the whole event" section covering the creative studio, brochures, certificates, communities, venue sourcing, partner links, the widget and the installable app.
+- **SEO:**
+  - Per-page prerendered HTML, a live events sitemap, 19 permanent redirects and unique page tags.
+  - Breadcrumbs, a custom 404 page, lazy-loaded images, env-driven verification tags, and FAQ structured data on the home page.
+- **Legal:** Refund Policy, Cookie Policy rewrite, data-deletion requests, required form consents, an honest cookie banner, and the fake reviews removed.
+- **Certificates:** template studio, issuing and public verification.
+- **Creative studio:** a data-driven, Canva-style studio with 48 designs per type, colourways, event and partner versions, and every element editable.
+- **Brochures:** several brochure types, a full-page poster cover, inline editing with autosave, and a fix for images not loading.
+- **Badges:** bulk download from Registrations, PDF or JPG output, banner layouts, saved band colours and the fit engine.
+- **Registration and teams:**
+  - Registration without an account, an emailed sign-up code, and a single country-code picker.
+  - Verified team invitations, and an organisation page with brand kit.
+- **UTM:** tracked-link management, lead exports, and partner dashboards shared by link.
+- **Security:** open email relay, account-takeover and data-exposure holes closed.
+- **UI:** new portal shell, navbar and dashboard layout; smooth scrolling without scrollbars.
+
+### September 2026
+
+- Venue-scoped email notifications; badge fit engine and thermal-printer centring.
 
 ### August 2026
 
-- **Comprehensive codebase audit**: Identified 40+ ESLint errors, 29 npm advisories (11 high, 15 moderate, 3 low)
-  including DOMPurify XSS bypasses, lodash prototype pollution, brace-expansion ReDoS
-  - See [PLATFORM_AUDIT.md](./docs/PLATFORM_AUDIT.md) for full details
-- **Audit report updated**: Added remediation roadmap with ~12 hours to fix code quality issues
-- **README updated**: Comprehensive feature documentation, security & observability sections
+- Platform, security and QA audits ([`docs/PLATFORM_AUDIT.md`](./docs/PLATFORM_AUDIT.md), [`docs/SECURITY_AUDIT_2026-08-27.md`](./docs/SECURITY_AUDIT_2026-08-27.md)).
 
 ### July 2026
 
-- **PWA polish**: Installable on iOS, Android, and desktop with workbox service worker
-- **Schema consolidation**: All migrations into single `000_full_schema.sql`
-- **Mobile responsiveness pass**: Full responsive design down to 375px
-- **Theme: Title size + Body size sliders**: CSS zoom for rem-based scaling
-- **Cover banner standardized**: 1128 x 191 aspect ratio
-- **Event landing polish**: Organised-by line, fallback fetch, countdown grid, font scaling
-- **Footer unification**: Single `GlobalFooter` in `App.tsx`
-- **Agora migration phase 1**: Participant store sync, floating reactions, session-storage auto-rejoin
-- **Per-attendee tracked join links with UTM**: `attendee-link.ts` utility
-- **Registrations improvements**: Email deduplication, inline role change, QuickView, bulk import
-- **Landing pages shipped**: Features, Pricing, About, Contact, Privacy, Terms
-- **Admin / super-admin panel**: `/dashboard/admin` with site editor and audit log
-- **Password reset URL fix**: Uses `publicOrigin()` for correct domain resolution
-- **Timezone correctness**: Fix Day 2 auto-created agenda bug for IST-region events
-- **Event creation flow**: Slug collision retry, draft visibility
+- PWA, schema consolidation, a mobile pass down to 375 px, and theme size sliders.
+- Footer unification and Agora stage phase 1.
+- Per-attendee UTM links, an admin panel, and timezone fixes.
 
 ---
 
-## Acknowledgements
+## Documentation index
 
-Public links and bookmarks should remain stable forever — both the legacy
-`/o/:slug` URLs and the canonical `/org/:slug` are kept working via redirects in
-`App.tsx`.
+| Document | What it covers |
+| --- | --- |
+| [`ROADMAP.md`](./ROADMAP.md) | Product mindmap, Now / Next / Later, epics |
+| [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md) | Global IT and data-protection review, open gaps, action plan |
+| [`docs/PLATFORM_AUDIT.md`](./docs/PLATFORM_AUDIT.md) | Scalability, code quality and dependency audit |
+| [`docs/SECURITY_AUDIT_2026-08-27.md`](./docs/SECURITY_AUDIT_2026-08-27.md) | Security, QA and reliability audit |
+| [`docs/observability.md`](./docs/observability.md), [`docs/observability-privacy.md`](./docs/observability-privacy.md) | Logger, sinks, redaction, opt-out |
+| [`docs/utm-attribution.md`](./docs/utm-attribution.md) | UTM capture, storage and the tripwire |
+| [`docs/agora-setup.md`](./docs/agora-setup.md), [`docs/gemini-setup.md`](./docs/gemini-setup.md) | Third-party setup |
 
----
-
-## Additional Resources
-
-- **[ROADMAP.md](./ROADMAP.md)**: Product trajectory, Now/Next/Later, epics
-- **[`docs/`](./docs/)**: Technical documentation (observability, agora setup)
-- **[docs/PLATFORM_AUDIT.md](./docs/PLATFORM_AUDIT.md)**: Comprehensive platform audit
-  with security issues, scalability analysis, and remediation roadmap
-- **[docs/SECURITY_AUDIT_2026-08-27.md](./docs/SECURITY_AUDIT_2026-08-27.md)**: Security,
-  QA and reliability audit
-
----
-
-_End of README._
+Public links must keep working: legacy `/o/…` URLs and the other old paths in `vercel.json` are
+permanently redirected, never dropped.

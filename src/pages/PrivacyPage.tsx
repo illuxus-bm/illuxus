@@ -146,7 +146,7 @@ Once the retention period expires, we securely erase, anonymise, or aggregate th
 
 (d) Right to nominate (Section 14) — you may nominate another individual to exercise your DPDPA rights in the event of your death or incapacity. To register a nominee, write to privacy@illuxus.com with the nominee's name, relationship, and an attested ID.
 
-To exercise any of these rights, write to privacy@illuxus.com from the email address associated with your account, or use the in-app "Privacy & data" controls under Settings → Privacy. We may verify your identity before responding. We will respond within 30 days; for complex requests we may extend by a further 30 days with notice to you.
+To exercise any of these rights, write to privacy@illuxus.com from the email address associated with your account. Signed-in users can also download a copy of their data at any time from "Your data" on their profile page (/u/me), and anyone can file an erasure request at /data-deletion. We may verify your identity before responding. We will respond within 30 days; for complex requests we may extend by a further 30 days with notice to you.
 
 There is no fee for exercising your rights. We may charge a reasonable administrative fee for manifestly unfounded or excessive requests (e.g., repetitive bulk requests) or for additional copies.`,
   },
@@ -187,9 +187,9 @@ Parents and guardians may at any time review, correct, or delete their child's a
     title: "11. Withdrawing consent",
     body: `You may withdraw consent at any time:
 
-• In-app — Settings → Privacy → Manage consents. Toggle off any category.
+• Data and account — file a request at /data-deletion; choose "Stop marketing" to withdraw marketing consent only.
 • Marketing emails — click "Unsubscribe" at the bottom of any marketing email.
-• Cookies — open the "Manage cookies" link in the footer or use your browser controls (see the Cookie Policy at /cookies).
+• Cookies — open the "Cookie settings" link in the footer or use your browser controls (see the Cookie Policy at /cookies). A Global Privacy Control signal from your browser is honoured as an opt-out of marketing cookies.
 • SMS/WhatsApp — reply STOP to any non-transactional message.
 • In writing — email privacy@illuxus.com from your registered email.
 

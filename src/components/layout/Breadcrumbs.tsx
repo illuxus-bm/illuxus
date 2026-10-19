@@ -19,6 +19,7 @@ const LABELS: Record<string, string> = {
   cookies: "Cookie Policy",
   refunds: "Refund Policy",
   gdpr: "GDPR Notice",
+  accessibility: "Accessibility",
   "data-deletion": "Delete my data",
   events: "Events",
   discover: "Discover",

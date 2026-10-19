@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { Cookie, ChevronDown, ChevronUp, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { globalPrivacyControl } from "@/hooks/useCookieConsent";
 import { logger } from "@/lib/observability";
 
 const STORAGE_KEY = "illuxus:cookie-consent";
@@ -68,6 +69,7 @@ export function CookieConsent() {
   // without making one.
   const [decided, setDecided] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const gpc = globalPrivacyControl();
 
   // Only show after mount so SSR / hydration is stable
   useEffect(() => {
@@ -102,7 +104,8 @@ export function CookieConsent() {
     exit: { y: prefersReducedMotion ? 0 : 16, opacity: 0 },
   };
 
-  const decide = (analytics: boolean, marketing: boolean) => {
+  const decide = (analytics: boolean, requestedMarketing: boolean) => {
+    const marketing = requestedMarketing && !gpc;
     saveDecision({
       consent: analytics || marketing ? "accepted" : "declined",
       analytics,
@@ -204,8 +207,14 @@ export function CookieConsent() {
                   {/* Marketing */}
                   <CookieCategory
                     label="Marketing cookies"
-                    description="Used to show relevant ads and promotions."
-                    enabled={marketingOn}
+                    description={
+                      gpc
+                        ? "Off: your browser sends a Global Privacy Control signal, which we treat as an opt-out."
+                        : "Used to show relevant ads and promotions."
+                    }
+                    enabled={marketingOn && !gpc}
+                    locked={gpc}
+                    lockedLabel="Off (GPC)"
                     onChange={setMarketingOn}
                   />
                 </div>
@@ -243,10 +252,11 @@ interface CategoryProps {
   description: string;
   enabled: boolean;
   locked?: boolean;
+  lockedLabel?: string;
   onChange?: (val: boolean) => void;
 }
 
-function CookieCategory({ icon, label, description, enabled, locked, onChange }: CategoryProps) {
+function CookieCategory({ icon, label, description, enabled, locked, lockedLabel, onChange }: CategoryProps) {
   return (
     <div className="flex items-start justify-between gap-3 py-1.5">
       <div className="flex items-start gap-2 min-w-0">
@@ -258,8 +268,13 @@ function CookieCategory({ icon, label, description, enabled, locked, onChange }:
       </div>
       <div className="shrink-0 mt-0.5">
         {locked ? (
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-green-600 bg-green-500/10 rounded px-1.5 py-0.5">
-            Always on
+          <span
+            className={[
+              "text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5",
+              enabled ? "text-green-600 bg-green-500/10" : "text-muted-foreground bg-muted",
+            ].join(" ")}
+          >
+            {lockedLabel ?? "Always on"}
           </span>
         ) : (
           <button

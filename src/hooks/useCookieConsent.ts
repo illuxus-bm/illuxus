@@ -8,7 +8,20 @@ export type CookieConsentState = {
 
 const STORAGE_KEY = "illuxus:cookie-consent";
 
-function readFromStorage(): CookieConsentState {
+/**
+ * True when the browser sends a Global Privacy Control signal. California
+ * (CPRA) and Colorado (CPA) treat it as an opt-out of selling or sharing
+ * personal data, so it overrides any marketing-cookie choice.
+ */
+export function globalPrivacyControl(): boolean {
+  try {
+    return (navigator as Navigator & { globalPrivacyControl?: boolean }).globalPrivacyControl === true;
+  } catch {
+    return false;
+  }
+}
+
+export function readFromStorage(): CookieConsentState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { consent: "pending", analytics: false, marketing: false };
@@ -17,7 +30,7 @@ function readFromStorage(): CookieConsentState {
       return {
         consent: "accepted",
         analytics: parsed.analytics ?? true,
-        marketing: parsed.marketing ?? false,
+        marketing: (parsed.marketing ?? false) && !globalPrivacyControl(),
       };
     }
     if (parsed.consent === "declined") {
