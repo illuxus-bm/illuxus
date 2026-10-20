@@ -2,7 +2,8 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useOrg } from "@/contexts/OrgContext";
+import { FeatureGate } from "@/components/plans/FeatureGate";
+import { useHasFeature } from "@/hooks/usePlanFeatures";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { toast } from "sonner";
-import { Radio, Square, Plus, Copy, Megaphone, Sparkles, LogOut, ArrowLeft, Minimize2, Maximize2, X, MessageSquare, Maximize, Minimize, Circle, CircleDot, StopCircle, PhoneOff, MapPinned, ExternalLink, Link2, Users, HelpCircle, BarChart2, Hand } from "lucide-react";
+import { Radio, Square, Plus, Copy, Megaphone, LogOut, ArrowLeft, Minimize2, Maximize2, X, MessageSquare, Maximize, Minimize, Circle, CircleDot, StopCircle, PhoneOff, MapPinned, ExternalLink, Link2, Users, HelpCircle, BarChart2, Hand } from "lucide-react";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { useSessionBranding } from "@/components/webinar/StageOverlays";
 import { publicUrl } from "@/lib/publicUrl";
@@ -49,8 +50,7 @@ const PreJoinCheck = lazy(() =>
 
 export default function BroadcastPage() {
   const { id: routeId } = useParams();
-  const { user } = useAuth();
-  const { hasAddon } = useOrg();
+  const { user, isAdmin } = useAuth();
   // The route param can be either a UUID or a slug (other dashboard pages
   // already accept both). DB queries expect UUIDs, so resolve once up-front
   // and gate every DB call on the resolved id. URLs / nav links keep using
@@ -76,6 +76,7 @@ export default function BroadcastPage() {
   // chaining. Typing the state as `Partial<EventRow>` captures that truth
   // without forcing every cell to be present.
   const [event, setEvent] = useState<Partial<EventRow> | null>(null);
+  const webinarAllowed = useHasFeature(event?.org_id ?? null, "webinar");
   const [orgBrandingDefault, setOrgBrandingDefault] = useState<boolean>(true);
   const branding = useSessionBranding(session?.id);
   const effectiveBranding = event?.webinar_branding_enabled ?? orgBrandingDefault ?? true;
@@ -362,19 +363,12 @@ export default function BroadcastPage() {
     );
   }
 
-  if (!hasAddon("webinar")) {
+  if (webinarAllowed === false && !isAdmin) {
     return (
       <div className="min-h-screen bg-background p-4 lg:p-6">
-      <div className="max-w-2xl">
-        <Card className="p-8 text-center space-y-4">
-          <Sparkles className="h-8 w-8 mx-auto text-muted-foreground" />
-          <h1 className="text-lg font-semibold tracking-tight">Webinar add-on required</h1>
-          <p className="text-[13px] text-muted-foreground">
-            The built-in webinar studio (10 speakers, unlimited viewers, Q&amp;A, polls, networking lounge, recording, branded overlays) is part of the Webinar add-on.
-          </p>
-          <Button asChild><Link to="/dashboard/billing">Enable Webinar add-on</Link></Button>
+        <Card className="max-w-2xl">
+          <FeatureGate feature="webinar" orgId={event?.org_id ?? null}>{null}</FeatureGate>
         </Card>
-      </div>
       </div>
     );
   }

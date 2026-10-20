@@ -118,6 +118,7 @@ const PlatformAnalyticsPage = lazyWithLog("PlatformAnalyticsPage", () => import(
 const SupportTicketsPage = lazyWithLog("SupportTicketsPage", () => import("./pages/dashboard/admin/SupportTicketsPage.tsx"));
 const UserManagementPage = lazyWithLog("UserManagementPage", () => import("./pages/dashboard/admin/UserManagementPage.tsx"));
 const OrganizationManagementPage = lazyWithLog("OrganizationManagementPage", () => import("./pages/dashboard/admin/OrganizationManagementPage.tsx"));
+const PlansPage = lazyWithLog("PlansPage", () => import("./pages/dashboard/admin/PlansPage.tsx"));
 const EventModerationPage = lazyWithLog("EventModerationPage", () => import("./pages/dashboard/admin/EventModerationPage.tsx"));
 const RevenuePage = lazyWithLog("RevenuePage", () => import("./pages/dashboard/admin/RevenuePage.tsx"));
 const SystemHealthPage = lazyWithLog("SystemHealthPage", () => import("./pages/dashboard/admin/SystemHealthPage.tsx"));
@@ -408,6 +409,7 @@ const App = () => (
                 <Route path="/dashboard/admin/tickets" element={<RouteErrorBoundary><SuperAdminRoute><SupportTicketsPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/users" element={<RouteErrorBoundary><SuperAdminRoute><UserManagementPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/organizations" element={<RouteErrorBoundary><SuperAdminRoute><OrganizationManagementPage /></SuperAdminRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/admin/plans" element={<RouteErrorBoundary><SuperAdminRoute><PlansPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/events" element={<RouteErrorBoundary><SuperAdminRoute><EventModerationPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/revenue" element={<RouteErrorBoundary><SuperAdminRoute><RevenuePage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/system" element={<RouteErrorBoundary><SuperAdminRoute><SystemHealthPage /></SuperAdminRoute></RouteErrorBoundary>} />

@@ -1,10 +1,23 @@
 // Tests migration 040 (UTM partner sharing) on an in-memory Postgres.
 // Focus: a partner can only ever see / add to the one link shared with them.
-// Run:  npm i --no-save @electric-sql/pglite  &&  node supabase/tests/040_utm_partner_access.test.mjs supabase/migrations/040_utm_partner_access.sql supabase/migrations/042_partner_utm_analytics.sql supabase/migrations/043_utm_partner_remove.sql
+// Run:  npm i --no-save @electric-sql/pglite  &&  node supabase/tests/040_utm_partner_access.test.mjs
 import fs from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 
-const migration = fs.readFileSync(process.argv[2], "utf8") + "\n" + (process.argv[3] ? fs.readFileSync(process.argv[3], "utf8") : "") + "\n" + (process.argv[4] ? fs.readFileSync(process.argv[4], "utf8") : "");
+const bundle = fs.readFileSync(new URL("../migrations/000_full_schema.sql", import.meta.url), "utf8");
+const readSection = (name) => {
+  const startMarker = `-- >>> BEGIN SOURCE MIGRATION: ${name} >>>\n`;
+  const endMarker = `-- <<< END SOURCE MIGRATION: ${name} <<<`;
+  const start = bundle.indexOf(startMarker);
+  const end = bundle.indexOf(endMarker, start + startMarker.length);
+  if (start < 0 || end < 0) throw new Error(`Migration section not found: ${name}`);
+  return bundle.slice(start + startMarker.length, end);
+};
+const migration = [
+  "040_utm_partner_access.sql",
+  "042_partner_utm_analytics.sql",
+  "043_utm_partner_remove.sql",
+].map(readSection).join("\n");
 const db = new PGlite();
 
 const OWNER = "11111111-1111-4111-8111-111111111111";

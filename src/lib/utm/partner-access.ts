@@ -131,7 +131,7 @@ export const isPartnerFeatureMissing = (e: RpcError | null | undefined) =>
   !!e && (e.code === "PGRST202" || e.code === "42883" || /could not find the function|function .* does not exist/i.test(e.message ?? ""));
 
 export const PARTNER_NEEDS_DB_UPDATE =
-  "Partner sharing needs a one-time database update: run supabase/migrations/040_utm_partner_access.sql in the Supabase SQL Editor.";
+  "Partner sharing needs a one-time database update: apply the 040_utm_partner_access.sql section from supabase/migrations/000_full_schema.sql in the Supabase SQL Editor.";
 
 /** Message safe to show: our own database messages are written for people. */
 export function partnerErrorMessage(e: RpcError | null | undefined): string {

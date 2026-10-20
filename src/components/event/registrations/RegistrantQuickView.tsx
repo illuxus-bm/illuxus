@@ -274,7 +274,7 @@ export default function RegistrantQuickView({
       toast.error("Failed to save", {
         description:
           "You don't have permission to edit this record. If you are the event organizer, " +
-          "apply supabase/migrations/001_event_owner_can_edit_speakers_sponsors.sql to your database.",
+          "apply Migration 001 (event_owner_can_edit_speakers_sponsors) from supabase/migrations/000_full_schema.sql to your database.",
       });
       return;
     }

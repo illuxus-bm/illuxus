@@ -158,7 +158,7 @@ export function UtmPartnersSection({ eventId, links }: { eventId: string; links:
       const err = e as { code?: string; message?: string };
       toast.error("Couldn't remove the partner", {
         description: isPartnerFeatureMissing(err)
-          ? "Removing partners needs a one-time database update: run supabase/migrations/043_utm_partner_remove.sql in the Supabase SQL Editor."
+          ? "Removing partners needs a one-time database update: apply the 043_utm_partner_remove.sql section from supabase/migrations/000_full_schema.sql in the Supabase SQL Editor."
           : partnerErrorMessage(err),
         duration: 12_000,
       });

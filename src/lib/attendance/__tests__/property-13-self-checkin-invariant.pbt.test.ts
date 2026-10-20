@@ -3,7 +3,7 @@
 // Validates: Requirements 14.1, 14.2, 14.3
 //
 // The patched `self_check_in` RPC (see
-// `supabase/migrations/007_self_check_in_no_out.sql`) must satisfy two
+// section `007_self_check_in_no_out.sql` in `supabase/migrations/000_full_schema.sql`) must satisfy two
 // invariants for any registration `r` and any invocation that resolves
 // to `r`:
 //

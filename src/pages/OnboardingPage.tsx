@@ -15,6 +15,7 @@ import {
   HANDLE_MAX_LEN,
 } from "@/lib/workspace-handle";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
+import { buildUpgradeRequest } from "@/lib/plans/upgrade-request";
 
 const PLANS = [
   {
@@ -120,7 +121,9 @@ const OnboardingPage = () => {
     setSaving(true);
 
     const baseSlug = slugify(orgName);
-    const planLimits = PLAN_DETAILS[selectedPlan]?.limits || PLAN_DETAILS.free.limits;
+    // Every workspace starts on Free (the database enforces this too); a paid
+    // choice becomes an upgrade request the team switches on.
+    const planLimits = PLAN_DETAILS.free.limits;
 
     // Create org
     const { data: org, error: orgErr } = await supabase
@@ -130,7 +133,7 @@ const OnboardingPage = () => {
         slug: baseSlug + "-" + Date.now().toString(36),
         subdomain: subdomain || null,
         owner_id: user.id,
-        plan: selectedPlan,
+        plan: "free",
         plan_limits: planLimits as any,
         billing_email: user.email,
       })
@@ -153,9 +156,27 @@ const OnboardingPage = () => {
     // Create subscription
     await supabase.from("subscriptions").insert({
       org_id: org.id,
-      plan: selectedPlan,
+      plan: "free",
       status: "active",
     });
+
+    if (selectedPlan !== "free" && user.email) {
+      const requested = PLANS.find((p) => p.key === selectedPlan)?.name ?? selectedPlan;
+      const { error: ticketErr } = await supabase.functions.invoke("submit-support-ticket", {
+        body: buildUpgradeRequest({
+          name: (user.user_metadata?.full_name as string | undefined) ?? user.email,
+          email: user.email,
+          orgName: orgName.trim(),
+          orgId: org.id,
+          currentPlan: "free",
+          requestedPlan: requested,
+          pageUrl: window.location.href,
+        }),
+      });
+      toast(ticketErr
+        ? { title: "You're on Free for now", description: `We couldn't send your ${requested} request — ask us from Billing.` }
+        : { title: `${requested} requested`, description: "You're on Free until our team switches it on. We'll email you." });
+    }
 
     // Mark onboarding done
     await supabase
@@ -264,7 +285,7 @@ const OnboardingPage = () => {
                   <Sparkles className="h-6 w-6 text-foreground" />
                 </div>
                 <h1 className="text-xl font-semibold tracking-tight">Choose your plan</h1>
-                <p className="text-sm text-muted-foreground mt-1">You can change this anytime. Start free, upgrade when ready.</p>
+                <p className="text-sm text-muted-foreground mt-1">Every workspace starts on Free. Pick a paid plan and our team will switch it on for you.</p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
@@ -311,7 +332,7 @@ const OnboardingPage = () => {
                   Back
                 </Button>
                 <Button onClick={handleComplete} disabled={saving} size="sm" className="h-9 px-6 text-[13px] font-medium gap-1">
-                  {saving ? "Setting up..." : "Get Started"} <ArrowRight className="h-3.5 w-3.5" />
+                  {saving ? "Setting up..." : selectedPlan === "free" ? "Get Started" : "Start free & request upgrade"} <ArrowRight className="h-3.5 w-3.5" />
                 </Button>
               </div>
             </motion.div>

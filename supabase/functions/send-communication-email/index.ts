@@ -21,6 +21,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger } from "../_shared/edge-logger.ts";
 import { defaultFromAddress, sendViaSmtp, smtpConfigured } from "../_shared/smtp.ts";
+import { featureNotIncluded, orgHasFeature } from "../_shared/entitlements.ts";
 
 const log = createEdgeLogger("send-communication-email");
 
@@ -80,6 +81,16 @@ Deno.serve(async (req) => {
       return json({ error: "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing", step }, 500);
     }
     const supabase = createClient(supabaseUrl, serviceKey);
+
+    step = "check-plan";
+    const { data: comm } = await supabase
+      .from("communications")
+      .select("org_id")
+      .eq("id", communication_id)
+      .maybeSingle();
+    if (!(await orgHasFeature(supabase, (comm as { org_id: string } | null)?.org_id, "communications"))) {
+      return json({ ...featureNotIncluded("communications", "email broadcasts"), step }, 403);
+    }
 
     step = "read-pending-rows";
     const { data: rowsRaw, error: rowsErr } = await supabase

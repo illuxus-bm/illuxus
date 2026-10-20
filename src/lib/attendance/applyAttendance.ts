@@ -348,7 +348,7 @@ const SELF_CHECKIN_ACTOR: Actor = { id: "self", role: "admin" };
 
 /**
  * TypeScript port of the patched `public.self_check_in(p_token, p_event_id)`
- * RPC (see `supabase/migrations/007_self_check_in_no_out.sql`).
+ * RPC (see section `007_self_check_in_no_out.sql` in `supabase/migrations/000_full_schema.sql`).
  *
  * Critical invariant (REQ-14, this is the whole reason the migration
  * exists): when the resolved registration's `attendance_state = 'inside'`

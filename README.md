@@ -205,7 +205,7 @@ src/
 
 api/                            Vercel Edge functions: event-og, org-og, sitemap-events, widget, geo
 supabase/
-├── migrations/                 000_full_schema.sql + numbered incremental files (021–047)
+├── migrations/                 000_full_schema.sql (base schema + ordered migration sections)
 ├── functions/                  Deno edge functions (see Data layer)
 └── config.toml
 docs/                           compliance, audits, observability, setup guides
@@ -264,7 +264,7 @@ scripts/                        token audit, slug check
 
 ### Super-admin
 
-- `/dashboard/admin` and `/site`, `/audit`, `/analytics`, `/tickets`, `/users`, `/organizations`, `/events`, `/revenue`, `/system`, `/activity`
+- `/dashboard/admin` and `/site`, `/audit`, `/analytics`, `/tickets`, `/users`, `/organizations`, `/plans`, `/events`, `/revenue`, `/system`, `/activity`
 
 Permanent (301) redirects for old and alternative URLs live in `vercel.json` → `redirects`.
 
@@ -272,9 +272,11 @@ Permanent (301) redirects for old and alternative URLs live in `vercel.json` →
 
 ## Data layer
 
-`supabase/migrations/000_full_schema.sql` is the consolidated base schema. The numbered files
-after it (`021_…` to `047_certificates.sql`) are incremental changes, applied in order. Each is
-idempotent (`IF EXISTS` / `CREATE OR REPLACE`), so re-running is safe. Regenerate
+`supabase/migrations/000_full_schema.sql` is the single SQL bundle. It contains the base schema
+followed by the ordered migration sections; each section keeps its original filename as a marker.
+Run the whole file once only when provisioning a fresh database. For an existing database, apply
+only the relevant section after checking its prerequisites; do not replay the bundle or use it as a
+replacement for the existing Supabase migration history. Regenerate
 `src/integrations/supabase/types.ts` after a schema change, and never edit it by hand.
 
 > The generated types are currently behind the schema. `tsc` reports errors in pages that use
@@ -294,6 +296,7 @@ idempotent (`IF EXISTS` / `CREATE OR REPLACE`), so re-running is safe. Regenerat
 | Attribution | `utm_links`, `utm_clicks`, `utm_partner_access` |
 | Community | `community_*` (members, posts, comments, reactions, messages, polls, badges, connections, reports) |
 | Webinar | `webinar_*` (sessions, attendance, chat, Q&A, polls, reactions, stage requests, speakers) |
+| Plans | `plans` (features and limits per plan), `organizations.plan`, `organizations.feature_overrides`, `subscriptions` |
 | Platform | `site_content` (site editor), `audit_logs`, `support_tickets`, `support_ticket_messages`, `cities` |
 
 ### Edge functions (`supabase/functions/`)
@@ -309,7 +312,7 @@ idempotent (`IF EXISTS` / `CREATE OR REPLACE`), so re-running is safe. Regenerat
 | Support | `submit-support-ticket` (also used for data-deletion requests) |
 | Other | `fx-rates`, `org-events` (widget feed), `og-event`, `seed-cities` |
 
-Shared helpers live in `_shared/`: CORS allowlist, auth, SMTP, Resend and the edge logger.
+Shared helpers live in `_shared/`: CORS allowlist, auth, plan checks (`entitlements.ts`), SMTP, Resend and the edge logger.
 
 ### Vercel Edge functions (`api/`)
 
@@ -368,7 +371,19 @@ Shared helpers live in `_shared/`: CORS allowlist, auth, SMTP, Resend and the ed
 
 - **Organisations:** multiple workspaces, team invitations (verified inviters, personal details only), brand kit, organisation landing page, custom domains.
 - **Accounts:** emailed sign-up code, 2FA, and a country-code picker pre-selected from the visitor's IP.
-- **Super-admin:** site editor (draft and publish), users, organisations, event moderation, revenue, system health, activity and audit logs, support tickets.
+- **Super-admin:** site editor (draft and publish), users, organisations, plans and features, event moderation, revenue, system health, activity and audit logs, support tickets.
+
+### Plans and feature access
+
+Super admins decide which organiser features each plan includes, at `/dashboard/admin/plans`: one column per plan, one row per feature, plus each plan's limits. They can also switch single features on or off for one organisation (Organizations → open an organisation → Features).
+
+- **Catalogue:** `src/lib/plans/features.ts` lists every feature: the event workspace sections (website, agenda, speakers, sponsors, venue sourcing, badges, self check-in kiosk, email broadcasts, WhatsApp, webinar studio, communities, creative studio, AI copy and backgrounds, brochures, certificates, UTM links, reports) and organisation-level ones (marketing, landing page). Perks marked "Label only" are shown on the plan but not checked anywhere yet.
+- **Source of truth:** the database. The `plans` table holds each plan's features, and `org_entitlements(org)` returns what an organisation gets: plan features + legacy `addons` + overrides set to on − overrides set to off.
+- **App:** event sections that aren't on the plan show a lock and an upgrade panel (`FeatureGate`), checked against the event's own organisation. "Request access" files a billing support ticket. Super admins can always open everything.
+- **Server:** triggers refuse new certificates, certificate templates, creatives, UTM links and venue selections when the plan lacks them. Edge functions refuse webinar tokens and rooms, AI generation, WhatsApp sends and email broadcasts the same way.
+- **Plan changes:** only super admins can change an organisation's plan, add-ons or overrides. New workspaces always start on Free, and a paid plan picked during onboarding becomes an upgrade request.
+- **Limits:** limits (events, attendees, team members) are stored and shown but not enforced yet.
+- **Before first use:** run the `048_plan_features.sql` section of `000_full_schema.sql`. Until then the app falls back to the built-in plans, which keep every module on (the webinar studio stays an add-on).
 - **PWA:** installable, offline app shell, update prompt, safe-area support.
 
 > **Not built yet, though some copy mentions them:** payment collection (Razorpay / Stripe), SSO,

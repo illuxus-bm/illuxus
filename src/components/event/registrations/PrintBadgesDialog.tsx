@@ -30,6 +30,8 @@ import { downloadBadges, type BadgeExportFormat } from "@/lib/badge-export";
 import { loadBandPresets, saveBandPresets, sameBandColors, type BandColorPreset } from "@/lib/badge-band-presets";
 import type { FitWarning } from "@/lib/fit-engine";
 import { loadSizes, saveSizes, badgeSizeMm, type SavedSize } from "@/lib/badge-design";
+import { FeatureLockedDialog } from "@/components/plans/FeatureGate";
+import { useEventFeatureLocked } from "@/hooks/usePlanFeatures";
 
 // ─── Font options ─────────────────────────────────────────────────────────────
 
@@ -459,6 +461,7 @@ interface Props {
 export default function PrintBadgesDialog({
   open, onOpenChange, badges, eventId, eventTitle, defaultMode = "badge",
 }: Props) {
+  const planGate = useEventFeatureLocked(eventId, "badges");
   const p = loadPrefs();
 
   const [mode,        setMode       ] = useState<PrintMode >(p.mode        ?? defaultMode);
@@ -701,6 +704,10 @@ export default function PrintBadgesDialog({
   }, [open, refreshPreview]);
 
   // ─────────────────────────────────────────────────────────────────────────
+
+  if (planGate.locked) {
+    return <FeatureLockedDialog feature="badges" orgId={planGate.orgId} open={open} onOpenChange={onOpenChange} />;
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

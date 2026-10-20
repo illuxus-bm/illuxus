@@ -6,7 +6,7 @@
  */
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Building2, Layout, Loader2, Palette } from "lucide-react";
+import { Building2, Check, Layout, Loader2, Lock, Palette } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import BrandKitPanel from "@/components/organization/BrandKitPanel";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg, PLAN_DETAILS } from "@/contexts/OrgContext";
+import { FeatureGate } from "@/components/plans/FeatureGate";
+import { FEATURES } from "@/lib/plans/features";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -28,7 +30,7 @@ type TabId = (typeof TABS)[number]["id"];
 
 const OrganizationPage = () => {
   const { user, isAdmin } = useAuth();
-  const { org, myRole, memberCount, refreshOrg } = useOrg();
+  const { org, myRole, memberCount, refreshOrg, entitlements } = useOrg();
   const { toast } = useToast();
   const [params, setParams] = useSearchParams();
 
@@ -140,7 +142,7 @@ const OrganizationPage = () => {
               <h2 className="text-sm font-semibold">Plan & usage</h2>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {[
-                  ["Current plan", PLAN_DETAILS[org.plan || "free"]?.name || org.plan],
+                  ["Current plan", entitlements?.plan_name || PLAN_DETAILS[org.plan || "free"]?.name || org.plan],
                   ["Your role", org.owner_id === user?.id ? "Owner" : myRole || "Member"],
                   ["Team members", String(memberCount)],
                 ].map(([label, value]) => (
@@ -150,6 +152,23 @@ const OrganizationPage = () => {
                   </div>
                 ))}
               </div>
+              {entitlements && (
+                <div>
+                  <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">What your plan includes</p>
+                  <ul className="grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                    {FEATURES.filter((f) => f.enforced).map((f) => {
+                      const on = entitlements.features.includes(f.key);
+                      return (
+                        <li key={f.key} className={`flex items-center gap-2 text-[13px] ${on ? "text-foreground" : "text-muted-foreground"}`}>
+                          {on ? <Check className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" /> : <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+                          <span>{f.label}</span>
+                          <span className="sr-only">{on ? "(included)" : "(not included)"}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -161,7 +180,9 @@ const OrganizationPage = () => {
         {tab === "landing" && (
           <div className="-mx-4 -mb-4 border-t border-border p-4 lg:-mx-6 lg:-mb-6 lg:p-6">
             <Suspense fallback={<div className="flex items-center justify-center gap-2 py-16 text-[13px] text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading the landing page editor…</div>}>
-              <OrgPageForm />
+              <FeatureGate feature="landing_builder" orgId={org.id}>
+                <OrgPageForm />
+              </FeatureGate>
             </Suspense>
           </div>
         )}

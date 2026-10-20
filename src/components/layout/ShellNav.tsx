@@ -8,7 +8,7 @@
 import {
   Calendar, Settings, Ticket, Megaphone, FileText, HelpCircle, CreditCard,
   Building2, Users, MoreHorizontal, ChevronsUpDown, Check, Shield, BarChart3,
-  Activity, DollarSign, Edit, ScrollText, type LucideIcon,
+  Activity, DollarSign, Edit, ScrollText, Layers, Lock, type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -162,6 +162,7 @@ const adminMain: NavItem[] = [
   { title: "Analytics",     url: "/dashboard/admin/analytics",     icon: BarChart3  },
   { title: "Activity Feed", url: "/dashboard/admin/activity",      icon: Activity   },
   { title: "Organizations", url: "/dashboard/admin/organizations", icon: Building2  },
+  { title: "Plans",         url: "/dashboard/admin/plans",         icon: Layers     },
   { title: "Events",        url: "/dashboard/admin/events",        icon: Calendar   },
   { title: "Revenue",       url: "/dashboard/admin/revenue",       icon: DollarSign },
 ];
@@ -181,9 +182,9 @@ export function AdminNav() {
 
 /** The active workspace, beside the account menu. A menu when there is more than one. */
 export function WorkspaceChip() {
-  const { org, memberships, setActiveOrg, myRole } = useOrg();
+  const { org, memberships, setActiveOrg, myRole, entitlements } = useOrg();
   if (!org) return null;
-  const planName = PLAN_DETAILS[org.plan || "free"]?.name || "Free";
+  const planName = entitlements?.plan_name || PLAN_DETAILS[org.plan || "free"]?.name || "Free";
   const sub = `${planName}${myRole && myRole !== "owner" ? ` · ${myRole}` : ""}`;
 
   const face = (
@@ -245,7 +246,8 @@ export function WorkspaceChip() {
   );
 }
 
-export type SectionPill = { key: string; label: string; icon?: LucideIcon; to?: string };
+/** `locked`: not on the plan — still selectable, shown with a lock. */
+export type SectionPill = { key: string; label: string; icon?: LucideIcon; to?: string; locked?: boolean };
 
 /**
  * A page's own sections as a row of white pills; the current one is dark.
@@ -284,6 +286,12 @@ export function SectionPills({
           <>
             {item.icon && <item.icon className="h-3.5 w-3.5 shrink-0" />}
             {item.label}
+            {item.locked && (
+              <>
+                <Lock className="h-3 w-3 shrink-0 opacity-70" aria-hidden="true" />
+                <span className="sr-only">(not on your plan)</span>
+              </>
+            )}
           </>
         );
         return item.to && !active ? (

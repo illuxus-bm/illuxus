@@ -42,6 +42,8 @@ import { CurrencySwitcher, getStoredDisplayCurrency } from "@/components/Currenc
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { DashboardTopBar } from "@/components/DashboardTopBar";
 import { SectionPills } from "@/components/layout/ShellNav";
+import { FeatureGate } from "@/components/plans/FeatureGate";
+import { useOrgEntitlements } from "@/hooks/usePlanFeatures";
 import { holdsSeat, registrationState } from "@/lib/reports/analytics";
 
 const BroadcastPageLazy = lazy(() => import("./event/BroadcastPage"));
@@ -52,6 +54,23 @@ const BrochureSectionPageLazy = lazy(() => import("./event/BrochureSectionPage")
 const CertificatesSectionLazy = lazy(() => import("./event/CertificatesSection"));
 
 type Event = Tables<"events">;
+
+/** Plan feature behind each event section. Sections not listed are always available. */
+const SECTION_FEATURES: Record<string, string> = {
+  venue: "venue_sourcing",
+  broadcast: "webinar",
+  manage: "speakers",
+  exhibitors: "sponsor_management",
+  agenda: "agenda",
+  design: "website_builder",
+  communicate: "communications",
+  community: "community",
+  creatives: "creatives",
+  brochure: "brochure",
+  certificates: "certificates",
+  utm: "utm_tracking",
+  reports: "reports",
+};
 
 const sidebarNav = [
   { label: "Overview",      icon: LayoutDashboard, key: "dashboard"     },
@@ -106,6 +125,9 @@ const EventDetailPage = () => {
   const [mobileLinkOpen, setMobileLinkOpen] = useState(false);
   const { rates: fxRates } = useFxRates();
   const [displayCcy, setDisplayCcy] = useState<string>(() => getStoredDisplayCurrency(DEFAULT_EVENT_CURRENCY));
+  // The event's own organisation decides what's included — not the active
+  // workspace, which differs for super admins and multi-org members.
+  const { data: eventEntitlements } = useOrgEntitlements(event?.org_id ?? null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -411,14 +433,22 @@ const EventDetailPage = () => {
     completed: "bg-chart-2/15 text-chart-2",
   };
 
-  const sectionPills = sidebarNav.filter((i) =>
-    !(i.key === "broadcast" && (event as any).event_format === "physical") &&
-    !(i.key === "creatives" && !canAccessCreatives) &&
-    !(i.key === "brochure" && !canAccessBrochure)
-  );
+  // A section is locked when the plan is known and doesn't include it. Locked
+  // sections stay visible (with a lock) so organisers can see and ask for them.
+  const isLocked = (key: string) => {
+    const feature = SECTION_FEATURES[key];
+    return !!feature && !!eventEntitlements && !eventEntitlements.features.includes(feature);
+  };
+  const sectionPills = sidebarNav
+    .filter((i) =>
+      !(i.key === "broadcast" && (event as any).event_format === "physical") &&
+      !(i.key === "creatives" && !canAccessCreatives) &&
+      !(i.key === "brochure" && !canAccessBrochure)
+    )
+    .map((i) => ({ ...i, locked: isLocked(i.key) }));
   const selectSection = async (k: string) => {
     if (k === "broadcast") { setActiveSection("broadcast"); return; }
-    if (k === "community") {
+    if (k === "community" && (isAdmin || !isLocked("community"))) {
       // Resolve this event's community and jump to its feed.
       const { data: cid } = await supabaseRpc("community_resolve_event" as never, { _event_id: event.id } as never);
       if (cid) {
@@ -725,6 +755,7 @@ const EventDetailPage = () => {
 
           {/* Content */}
           <main className="flex-1 p-4 lg:p-6 overflow-y-auto">
+            <FeatureGate key={activeSection} feature={SECTION_FEATURES[activeSection]} orgId={event.org_id ?? null}>
             {activeSection === "dashboard" && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-3">
@@ -930,6 +961,7 @@ const EventDetailPage = () => {
                 <CertificatesSectionLazy eventId={event.id} />
               </Suspense>
             )}
+            </FeatureGate>
           </main>
         </div>
       </div>

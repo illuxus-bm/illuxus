@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { FeatureGate } from "@/components/plans/FeatureGate";
 import { useOrg } from "@/contexts/OrgContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -843,6 +844,7 @@ const MarketingPage = () => (
         </p>
       </div>
 
+      <FeatureGate feature="marketing">
       <Tabs defaultValue="email" className="space-y-5">
         <TabsList className="h-9">
           <TabsTrigger value="email" className="text-[13px] gap-1.5">
@@ -868,6 +870,7 @@ const MarketingPage = () => (
           <LandingPagesTab />
         </TabsContent>
       </Tabs>
+      </FeatureGate>
     </div>
   </DashboardLayout>
 );

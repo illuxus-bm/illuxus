@@ -46,6 +46,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { RtcRole, RtcTokenBuilder, RtmTokenBuilder } from "npm:agora-token@2.0.5";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { getCallerUser, getManagedEvent, isUuid, serviceClient } from "../_shared/auth.ts";
+import { eventHasFeature, featureNotIncluded } from "../_shared/entitlements.ts";
 
 const DEFAULT_EXPIRE_SECONDS = 3600;
 const MAX_EXPIRE_SECONDS = 24 * 3600;
@@ -158,6 +159,13 @@ Deno.serve(async (req: Request) => {
       access = await sessionAccess(admin, caller?.id ?? null, body.channel, speakerToken, joinToken);
     } catch (err) {
       return jsonResponse(500, { error: "access check failed", detail: err instanceof Error ? err.message : String(err) });
+    }
+    if (access !== "no-session" && access !== "none") {
+      const { data: s } = await admin.from("webinar_sessions").select("event_id").eq("id", body.channel).maybeSingle();
+      const eventId = (s as { event_id: string } | null)?.event_id;
+      if (!(await eventHasFeature(admin, eventId, "webinar"))) {
+        return jsonResponse(403, featureNotIncluded("webinar", "the webinar studio"));
+      }
     }
   }
 

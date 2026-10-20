@@ -81,14 +81,13 @@ supabase functions deploy generate-creative-background
 
 ## 3. Apply the database migration
 
-Migration `023_creative_ai_backgrounds.sql` adds the `event_creative_backgrounds`
+The `023_creative_ai_backgrounds.sql` section in
+`supabase/migrations/000_full_schema.sql` adds the `event_creative_backgrounds`
 table (the persistent cache + generation history the Edge Function reads and
 writes) and an `event_creatives.metadata jsonb` column used to tag
-AI-backed Creatives in the library.
-
-```sh
-supabase db push
-```
+AI-backed Creatives in the library. For an existing project, apply only that
+section in the Supabase SQL Editor. Run the complete bundle only when setting
+up a fresh database.
 
 ---
 
@@ -159,7 +158,7 @@ distinct prompts (each a cache miss) within 24h should eventually return
 
 | Path                                                              | Role |
 | ------------------------------------------------------------------ | ---- |
-| `supabase/migrations/023_creative_ai_backgrounds.sql`               | `event_creative_backgrounds` table + `event_creatives.metadata` column |
+| `supabase/migrations/000_full_schema.sql` (section `023_creative_ai_backgrounds.sql`) | `event_creative_backgrounds` table + `event_creatives.metadata` column |
 | `supabase/functions/generate-creative-background/index.ts`         | Server-side Gemini call, cache lookup, quota enforcement, Storage upload |
 | `src/lib/creatives/creative-ai.ts`                                  | Client-side types, prompt composition, cache-key mirror, `callGenerateBackground` |
 | `src/components/event/creatives/AiBackgroundPanel.tsx`              | Style/aspect-ratio picker + confirmation UI mounted in the Creative Generator dialogs |

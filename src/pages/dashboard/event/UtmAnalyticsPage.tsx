@@ -149,7 +149,7 @@ const DATE_OPTIONS: { label: string; value: DateRange; days: number | null }[] =
 
 /** Shown when the database function behind link deletion (migration 039) is not installed. */
 const NEEDS_DB_UPDATE =
-  "Removing a link's click history needs a one-time database update: run supabase/migrations/039_utm_delete_tracking.sql in the Supabase SQL Editor, then delete again.";
+  "Removing a link's click history needs a one-time database update: apply the 039_utm_delete_tracking.sql section from supabase/migrations/000_full_schema.sql in the Supabase SQL Editor, then delete again.";
 
 /** PostgREST / Postgres "no such function" — the RPC hasn't been deployed. */
 const isMissingFunction = (e: { code?: string; message?: string }) =>
@@ -903,7 +903,7 @@ export default function UtmAnalyticsPage({
           <p className="text-[12px]">
             You can still create and copy links, and their clicks and registrations are counted below. Until the
             database update is run, links won't appear under “Saved UTM links”, can't be shared with partners, and
-            click counts for a date range show as 0. To fix it, run <span className="font-mono">supabase/RUN_ME_pending_updates.sql</span> once
+            click counts for a date range show as 0. To fix it, apply the relevant UTM sections in <span className="font-mono">supabase/migrations/000_full_schema.sql</span>
             in the Supabase SQL Editor.
           </p>
         </div>

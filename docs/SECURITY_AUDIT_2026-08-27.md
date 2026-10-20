@@ -595,7 +595,7 @@ and IaC risk entirely.
 | DEV-002 | `.npmrc` sets `legacy-peer-deps=true` globally to work around one Agora peer conflict, silencing all future peer-dependency errors. |
 | DEV-003 | Source maps are `"hidden"` in production and uploaded only when `OBSERVABILITY_AUTH_TOKEN` is set; otherwise `.map` files ship to `dist/`. `vercel.json` sets `no-store` + `noindex` on `.map`, but they remain fetchable. |
 | DEV-004 | `ALLOWED_ORIGINS` cannot be verified from the repo. If unset, `_shared/cors.ts` falls back to dev origins plus the `*.vercel.app` wildcard. **NOT VERIFIED — check the deployed secret.** |
-| DEV-005 | `supabase/fix_communities.sql` and `fix_missing_members.sql` sit outside `migrations/` as untracked-intent repair scripts. Schema drift risk. |
+| DEV-005 | The former community repair scripts are retained as commented archival sections in `supabase/migrations/000_full_schema.sql`; review before any manual use. |
 
 `.gitignore` correctly excludes `.env*` (except `.env.example`), `dist`, and
 `supabase/.temp/`. Verified: only `.env.example` is tracked.
@@ -1113,7 +1113,7 @@ limits plus a WAF/Cloudflare rule in front of the functions domain.
 
 ### SEC-017 — Tenant-isolation policy that never references the caller
 **Category** Security / AuthZ · **Severity** HIGH (latent) · **Confidence** CONFIRMED
-**Location** `supabase/migrations/027_event_venue_selections.sql:35-45`
+**Location** section `027_event_venue_selections.sql` in `supabase/migrations/000_full_schema.sql`
 
 ```sql
 USING (EXISTS (SELECT 1 FROM events e

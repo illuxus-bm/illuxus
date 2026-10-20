@@ -133,6 +133,9 @@ mindmap
     Super-admin
       Site editor
       Users and organisations
+      Plans and features
+        Feature matrix per plan
+        Per-organisation overrides
       Event moderation
       Revenue
       System health
@@ -156,6 +159,11 @@ mindmap
 
 ### Recently shipped (September – October 2026)
 
+- **Plans and feature access (20 Oct):**
+  - Super admins choose which organiser features each plan includes at `/dashboard/admin/plans`, and can switch single features on or off per organisation.
+  - Locked event sections show a lock and a "Request access" panel. Database triggers and edge functions refuse locked features server-side.
+  - Organisations can no longer change their own plan, and onboarding starts everyone on Free (a paid choice becomes an upgrade request).
+  - Database section `048_plan_features.sql`.
 - **Compliance pass (20 Oct):**
   - Global Privacy Control honoured, "Download my data" on `/u/me`, and an accessibility statement at `/accessibility`.
   - Privacy-policy references corrected, and the footer GDPR link fixed.
@@ -210,6 +218,8 @@ Write up requirements before starting anything bigger than a day.
 7. **Analytics rework.** An 8-card KPI grid with sparklines, a dual-axis revenue and tickets chart, top events and a weekday heatmap.
 8. **Accessibility.** Keyboard move and resize in the canvas editors, tagged PDFs, webinar captions.
 9. **Self-hosted fonts** to stop the font request to Google before consent.
+10. **Plan limits.** Enforce each plan's event, attendee and team-member limits (stored and editable today, not checked), with a clear message when one is reached. Payments (item 1) should then move plans automatically instead of by ticket.
+11. **Plans everywhere.** Let `team-invitation` (admin "Create organisation") and the public pricing page read the `plans` table rather than their own copies.
 
 ### Later
 
@@ -296,6 +306,14 @@ others wherever we have users.
 - Code: `src/pages/{Privacy,Terms,CookiePolicy,RefundPolicy,Gdpr,Accessibility,DataDeletion}Page.tsx`, `src/components/CookieConsent.tsx`, `src/hooks/useCookieConsent.ts`, `src/components/ConsentCheckbox.tsx`, `src/lib/data-export.ts`, `src/lib/data-deletion.ts`
 - Docs: [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md)
 - Open work: everything in COMPLIANCE §2, §3 and §5, in the order of its action plan.
+
+### Epic K — Plans and entitlements
+
+**Goal.** What an organiser can use is decided in one place, by super admins, and enforced on the server as well as in the UI.
+
+- Code: `src/lib/plans/`, `src/hooks/usePlanFeatures.ts`, `src/components/plans/FeatureGate.tsx`, `src/pages/dashboard/admin/PlansPage.tsx`, `src/components/admin/OrgFeatureOverrides.tsx`, `supabase/functions/_shared/entitlements.ts`
+- DB: the `048_plan_features.sql` section: `plans`, `org_entitlements()`, `org_has_feature()`, guard triggers, `admin_save_plan`, `admin_set_org_features`. Tests: `supabase/tests/048_plan_features.test.mjs`.
+- Open work: enforce limits, connect payments, read plans in pricing and admin org creation.
 
 ### Epic J — Foundations and DX
 

@@ -101,13 +101,12 @@ Restart `bun run dev` after changing env vars.
 
 ## 4. Apply the database migration
 
-Migration `014_video_provider.sql` adds an `events.video_provider`
+The `014_video_provider.sql` section in
+`supabase/migrations/000_full_schema.sql` adds an `events.video_provider`
 column with a check constraint of `(NULL, 'livekit', 'agora')`. NULL
-means "use the platform default".
-
-```sh
-supabase db push
-```
+means "use the platform default". For an existing project, apply only that
+section in the Supabase SQL Editor. Run the complete bundle only when setting
+up a fresh database.
 
 If you're using the SQL editor:
 
@@ -264,7 +263,7 @@ component renders.
 
 | Path                                                            | Role |
 | --------------------------------------------------------------- | ---- |
-| `supabase/migrations/014_video_provider.sql`                    | DB column + check constraint |
+| `supabase/migrations/000_full_schema.sql` (section `014_video_provider.sql`) | DB column + check constraint |
 | `supabase/functions/agora-token/index.ts`                       | Server-side token signer (RTC + RTM) |
 | `src/lib/webinar/provider.ts`                                   | Provider resolver |
 | `src/lib/webinar/useAgoraClient.ts`                             | Low-level RTC client hook (channel profile, role, audience latency, token rotation) |

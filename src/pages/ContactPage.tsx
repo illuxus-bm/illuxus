@@ -38,7 +38,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
 
 // Categories mirror the support_ticket_category enum in
-// supabase/migrations/005_support_tickets.sql. Keep this list in sync when
+// supabase/migrations/000_full_schema.sql (section 005_support_tickets.sql). Keep this list in sync when
 // the enum changes — the edge function also clamps unknown values to "general".
 const CATEGORIES: Array<{ value: string; label: string }> = [
   { value: "general",         label: "General enquiry" },

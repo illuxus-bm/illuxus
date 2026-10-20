@@ -230,7 +230,7 @@ Property-based suites (`fast-check`) are a real strength: 13 for the attendance 
 | `src/lib/safe-redirect.ts` (new) | Origin-comparison redirect validator | SEC-11 | Low | 30 pass |
 | `src/lib/__tests__/safe-redirect.test.ts` (new) | Regression guard incl. threat self-check | SEC-11 | None | 30 pass |
 | `src/pages/LoginPage.tsx` | Use `safeInternalPath` | SEC-11 | Low | verified all 3 nav sinks |
-| `supabase/migrations/032_anon_rpc_hardening.sql` (new) | Clamp `_limit`; add visibility gate; drop `email` from check-in RPCs | AUDIT-01/02/03 | **Medium** — `DROP FUNCTION` needed | not applied |
+| `supabase/migrations/000_full_schema.sql` (section `032_anon_rpc_hardening.sql`) | Clamp `_limit`; add visibility gate; drop `email` from check-in RPCs | AUDIT-01/02/03 | **Medium** — `DROP FUNCTION` needed | pending apply |
 | `docs/PLATFORM_AUDIT.md` (new) | This report | — | None | — |
 
 **Verification run (`main` toolchain):** `bun run test` → **530/530 pass**. `bun run lint` → **154 errors / 44 warnings = exact baseline, 0 new**. `bun run build` → **exit 0**. CI destructive-SQL and duplicate-version gates dry-run **PASS** against migration 032.
@@ -319,7 +319,7 @@ This verdict is **not a judgement on the engineering**. The codebase is better t
 | C-201 | 2026-08-28 | SEC-11 | `src/lib/safe-redirect.ts` | Origin-comparison validator | Low | 30 pass | **VERIFIED** |
 | C-202 | 2026-08-28 | SEC-11 | `src/lib/__tests__/safe-redirect.test.ts` | Regression guard | None | 30 pass | **VERIFIED** |
 | C-203 | 2026-08-28 | SEC-11 | `src/pages/LoginPage.tsx` | Use `safeInternalPath` | Low | suite pass | **VERIFIED** |
-| C-204 | 2026-08-28 | AUDIT-01/02/03 | `supabase/migrations/032_…sql` | Clamp limit; visibility gate; drop `email` | Medium | gates pass | **PENDING APPLY** |
+| C-204 | 2026-08-28 | AUDIT-01/02/03 | `supabase/migrations/000_full_schema.sql` (section `032_anon_rpc_hardening.sql`) | Clamp limit; visibility gate; drop `email` | Medium | gates pass | **PENDING APPLY** |
 | C-205 | 2026-08-28 | SEC-11 | `src/lib/safe-redirect.ts` | Scoped `no-control-regex` disable | None | lint at baseline | **VERIFIED** |
 | C-206 | 2026-08-28 | — | `docs/PLATFORM_AUDIT.md` | This report | None | — | **VERIFIED** |
 

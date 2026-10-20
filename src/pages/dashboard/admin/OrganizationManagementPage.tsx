@@ -22,6 +22,8 @@ import { format, parseISO, subDays } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { OrgFeatureOverrides } from "@/components/admin/OrgFeatureOverrides";
+import { usePlans } from "@/hooks/usePlanFeatures";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -65,8 +67,7 @@ interface RevenueSummary {
   ticket_count_paid: number;
 }
 
-const PLANS = ["free", "starter", "pro", "business"] as const;
-type FilterChip = "all" | typeof PLANS[number];
+type FilterChip = string;
 
 const planColor: Record<string, string> = {
   free: "bg-muted text-muted-foreground",
@@ -234,6 +235,8 @@ function OrgDetailDrawer({ org, onClose }: { org: OrgRow | null; onClose: () => 
             </div>
           </div>
 
+          <OrgFeatureOverrides orgId={org.id} planKey={org.plan} />
+
           {/* Members */}
           <div className="border border-border rounded-xl bg-card overflow-hidden">
             <div className="px-4 py-2.5 border-b border-border bg-muted/30 flex items-center gap-2">
@@ -298,6 +301,8 @@ export default function OrganizationManagementPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterChip>("all");
+  const { data: plans = [] } = usePlans();
+  const planKeys = plans.map((p) => p.key);
   const [drawerOrg, setDrawerOrg] = useState<OrgRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OrgRow | null>(null);
   const [creating, setCreating] = useState(false);
@@ -341,6 +346,8 @@ export default function OrganizationManagementPage() {
     onSuccess: () => {
       toast.success("Plan updated");
       qc.invalidateQueries({ queryKey: ["admin-orgs"] });
+      qc.invalidateQueries({ queryKey: ["org-entitlements"] });
+      qc.invalidateQueries({ queryKey: ["admin-plan-counts"] });
     },
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -441,7 +448,7 @@ export default function OrganizationManagementPage() {
             />
           </div>
           <div className="flex items-center gap-1">
-            {(["all", ...PLANS] as FilterChip[]).map((c) => (
+            {["all", ...planKeys].map((c) => (
               <button
                 key={c}
                 onClick={() => setFilter(c)}
@@ -493,8 +500,8 @@ export default function OrganizationManagementPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {PLANS.map((p) => (
-                            <SelectItem key={p} value={p} className="text-[12px] uppercase">{p}</SelectItem>
+                          {plans.map((p) => (
+                            <SelectItem key={p.key} value={p.key} className="text-[12px] uppercase">{p.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>

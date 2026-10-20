@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { AccessToken } from "https://esm.sh/livekit-server-sdk@2.9.7";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+import { eventHasFeature, featureNotIncluded } from "../_shared/entitlements.ts";
 
 const log = createEdgeLogger("livekit-token");
 
@@ -122,6 +123,9 @@ Deno.serve(async (req) => {
       .select("id, livekit_room, event_id, status, created_by")
       .eq("id", session_id).maybeSingle();
     if (!session) return json({ error: "Session not found" }, 404);
+    if (!(await eventHasFeature(supabase, session.event_id, "webinar"))) {
+      return json(featureNotIncluded("webinar", "the webinar studio"), 403);
+    }
 
     // Determine role server-side
     const { data: ev } = await supabase

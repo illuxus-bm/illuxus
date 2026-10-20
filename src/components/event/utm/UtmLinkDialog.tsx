@@ -144,7 +144,7 @@ export function UtmLinkDialog({
         (copiedNow ? "" : "Copy it from the field below. ") +
         "Clicks and registrations from it are tracked as usual and will show in the breakdown. " +
         (denied
-          ? "To keep links under “Saved UTM links”, run supabase/RUN_ME_pending_updates.sql once in the Supabase SQL Editor."
+          ? "To keep links under “Saved UTM links”, apply the relevant UTM sections in supabase/migrations/000_full_schema.sql in the Supabase SQL Editor."
           : `Reason: ${error?.message ?? "unknown error"}`),
       duration: 15_000,
     });

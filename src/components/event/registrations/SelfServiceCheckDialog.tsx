@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Tables } from "@/integrations/supabase/types";
 import { publicUrl } from "@/lib/publicUrl";
+import { FeatureLockedDialog } from "@/components/plans/FeatureGate";
+import { useEventFeatureLocked } from "@/hooks/usePlanFeatures";
 
 type Registration = Tables<"registrations">;
 
@@ -44,6 +46,7 @@ export default function SelfServiceCheckDialog({
   eventId,
   registrations,
 }: SelfServiceCheckDialogProps) {
+  const planGate = useEventFeatureLocked(eventId, "self_checkin");
   const [copied, setCopied] = useState<"in" | "out" | null>(null);
 
   const checkInUrl = useMemo(() => publicUrl(`/checkin/${eventId}`), [eventId]);
@@ -71,6 +74,10 @@ export default function SelfServiceCheckDialog({
       setCopied(null);
     }
   };
+
+  if (planGate.locked) {
+    return <FeatureLockedDialog feature="self_checkin" orgId={planGate.orgId} open={open} onOpenChange={onOpenChange} />;
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -19,6 +19,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger } from "../_shared/edge-logger.ts";
+import { featureNotIncluded, orgHasFeature } from "../_shared/entitlements.ts";
 
 const log = createEdgeLogger("send-whatsapp");
 
@@ -103,6 +104,9 @@ Deno.serve(async (req) => {
     if (!commRaw) return json({ error: "Communication not found", step }, 404);
 
     const comm = commRaw as unknown as CommunicationRow;
+    if (!(await orgHasFeature(supabase, comm.org_id, "whatsapp"))) {
+      return json({ ...featureNotIncluded("whatsapp", "WhatsApp messaging"), step }, 403);
+    }
     if (!comm.whatsapp_template_name) {
       return json({ error: "This communication has no WhatsApp template configured", step }, 400);
     }

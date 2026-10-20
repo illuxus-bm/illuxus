@@ -38,7 +38,7 @@
 
 - **What happens:** for any event with `price > 0`, the RSVP card shows "Register · ₹X", and the
   `registrations_validate` trigger marks the registration **approved** because "payment IS the
-  gate" (`supabase/migrations/000_full_schema.sql`, around lines 783 and 9696). No payment gateway
+  gate" (`supabase/migrations/000_full_schema.sql`). No payment gateway
   is integrated: Razorpay and Stripe appear only in copy, never in code.
 - **Copy that says otherwise:** the home-page FAQ and structured data (`src/pages/Index.tsx`: "Can
   I sell tickets in INR with UPI? Yes…", "GST-compliant invoices auto-generated"), Terms §10–12

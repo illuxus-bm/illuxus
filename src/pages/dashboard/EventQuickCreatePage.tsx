@@ -27,7 +27,7 @@ import { formatEventDateTime } from "@/lib/datetime";
 /** Lu.ma-style one-screen event create. Saves a draft, then opens manage hub. */
 export default function EventQuickCreatePage() {
   const { user } = useAuth();
-  const { org, hasAddon } = useOrg();
+  const { org, hasFeature } = useOrg();
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -130,7 +130,7 @@ export default function EventQuickCreatePage() {
       toast({ title: "Could not create event", description: error.message, variant: "destructive" });
       return;
     }
-    if (eventFormat !== "physical" && virtualProvider === "builtin" && hasAddon("webinar")) {
+    if (eventFormat !== "physical" && virtualProvider === "builtin" && hasFeature("webinar")) {
       await supabase.functions.invoke("livekit-room-create", {
         body: { event_id: data.id, record_enabled: false },
       }).catch(() => {});
@@ -298,15 +298,15 @@ export default function EventQuickCreatePage() {
                   </SelectContent>
                 </Select>
               </div>
-              {virtualProvider === "builtin" && !hasAddon("webinar") && (
+              {virtualProvider === "builtin" && !hasFeature("webinar") && (
                 <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-[12px] flex items-start gap-2">
                   <Sparkles className="h-4 w-4 mt-0.5" />
                   <div className="flex-1">
-                    <p className="font-medium">Webinar add-on required</p>
-                    <p className="text-muted-foreground">Built-in streaming, recording, Q&amp;A and networking lounge are part of the Webinar add-on.</p>
+                    <p className="font-medium">Webinar studio isn't on your plan</p>
+                    <p className="text-muted-foreground">The event will be created without a built-in stage. Pick another stream option, or ask us to add the webinar studio to your plan.</p>
                   </div>
                   <Button asChild type="button" size="sm" variant="outline" className="h-7 text-[12px]">
-                    <Link to="/dashboard/billing">Enable</Link>
+                    <Link to="/dashboard/billing">See plans</Link>
                   </Button>
                 </div>
               )}
@@ -506,6 +506,7 @@ export default function EventQuickCreatePage() {
             >
               {saving ? "Saving…" : "Save as draft"}
             </Button>
+            {hasFeature("venue_sourcing") && (
             <Button
               type="button"
               size="sm"
@@ -537,6 +538,7 @@ export default function EventQuickCreatePage() {
             >
               Next: book venue →
             </Button>
+            )}
           </div>
           </div>
           </>

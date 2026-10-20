@@ -174,13 +174,15 @@ the fingerprint in Property 58 along with the change.
 ## Migrations
 
 The UTM columns on `speaker_applications`, `sponsor_applications`, and
-`profiles` land in `supabase/migrations/026_utm_attribution_coverage.sql`
+`profiles` land in the `026_utm_attribution_coverage.sql` section of
+`supabase/migrations/000_full_schema.sql`
 along with a `CREATE OR REPLACE` of the `handle_new_user()` trigger that
 extracts UTM keys from `auth.users.raw_user_meta_data` and stamps them
 on the new profile row.
 
-**Migration 026 must be applied manually to Supabase.** Paste the file
-into the Supabase SQL Editor and run it. The three `ALTER TABLE`
+**Migration 026 must be applied manually to Supabase when needed.** Apply only
+that section in the Supabase SQL Editor after checking its prerequisites; do
+not run the entire bundle against an existing database. The three `ALTER TABLE`
 statements use `add column if not exists`, so re-running is safe. The
 trigger `CREATE OR REPLACE` preserves every field the shipped trigger
 already sets — only the five UTM lines are new.
@@ -196,5 +198,5 @@ comment documents this explicitly.
 - `src/lib/utm/csv-escape.ts` and `src/lib/utm/applications-csv.ts` — the
   export contract.
 - `src/lib/utm/__tests__/` — the seven property tests listed above.
-- `supabase/migrations/026_utm_attribution_coverage.sql` — the UTM columns
+- `supabase/migrations/000_full_schema.sql` (section `026_utm_attribution_coverage.sql`) — the UTM columns
   and the `handle_new_user()` trigger update.

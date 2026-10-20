@@ -1,7 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { entitlementsQueryKey, fetchOrgEntitlements } from "@/hooks/usePlanFeatures";
+import { DEFAULT_PLANS, fallbackEntitlements, type Entitlements, type FeatureOverrides } from "@/lib/plans/features";
 
+/** Legacy snapshot shape stored in `organizations.plan_limits`. */
 interface PlanLimits {
   max_events: number;
   max_attendees_per_event: number;
@@ -19,6 +23,7 @@ interface Organization {
   plan_limits: PlanLimits;
   billing_email: string | null;
   addons: string[];
+  feature_overrides: FeatureOverrides;
   webinar_branding_enabled?: boolean | null;
 }
 
@@ -48,6 +53,8 @@ interface OrgContextType {
   eventCount: number;
   memberCount: number;
   canCreateEvent: boolean;
+  /** What the active organisation's plan includes (plan + add-ons + admin overrides). */
+  entitlements: Entitlements | null;
   hasFeature: (feature: string) => boolean;
   hasAddon: (addon: string) => boolean;
   refreshOrg: () => Promise<void>;
@@ -67,6 +74,7 @@ const OrgContext = createContext<OrgContextType>({
   eventCount: 0,
   memberCount: 0,
   canCreateEvent: false,
+  entitlements: null,
   hasFeature: () => false,
   hasAddon: () => false,
   refreshOrg: async () => {},
@@ -78,24 +86,10 @@ const OrgContext = createContext<OrgContextType>({
 
 export const useOrg = () => useContext(OrgContext);
 
-const PLAN_DETAILS: Record<string, { name: string; limits: PlanLimits }> = {
-  free: {
-    name: "Free",
-    limits: { max_events: 3, max_attendees_per_event: 50, max_team_members: 1, features: ["basic_analytics"] },
-  },
-  starter: {
-    name: "Starter",
-    limits: { max_events: 10, max_attendees_per_event: 200, max_team_members: 3, features: ["basic_analytics", "custom_branding", "email_notifications"] },
-  },
-  pro: {
-    name: "Pro",
-    limits: { max_events: 50, max_attendees_per_event: 1000, max_team_members: 10, features: ["basic_analytics", "advanced_analytics", "custom_branding", "email_notifications", "sponsor_management", "custom_domain"] },
-  },
-  business: {
-    name: "Business",
-    limits: { max_events: -1, max_attendees_per_event: -1, max_team_members: -1, features: ["basic_analytics", "advanced_analytics", "custom_branding", "email_notifications", "sponsor_management", "custom_domain", "api_access", "priority_support", "white_label"] },
-  },
-};
+/** Built-in plans, used before the `plans` table answers. Super admins edit the live ones. */
+const PLAN_DETAILS: Record<string, { name: string; limits: PlanLimits }> = Object.fromEntries(
+  DEFAULT_PLANS.map((p) => [p.key, { name: p.name, limits: { ...p.limits, features: p.features } }]),
+);
 
 export { PLAN_DETAILS };
 export type { Organization, Subscription, PlanLimits };
@@ -116,7 +110,9 @@ function saveActiveOrgId(id: string | null) {
 
 export const OrgProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [org, setOrg] = useState<Organization | null>(null);
+  const [entitlements, setEntitlements] = useState<Entitlements | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [eventCount, setEventCount] = useState(0);
@@ -136,6 +132,7 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
   const fetchOrg = useCallback(async () => {
     if (!user) {
       setOrg(null);
+      setEntitlements(null);
       setSubscription(null);
       setEventCount(0);
       setMemberCount(0);
@@ -214,6 +211,7 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
 
     if (allOrgIds.length === 0) {
       setOrg(null);
+      setEntitlements(null);
       setSubscription(null);
       setMyRole(null);
       setLoading(false);
@@ -240,11 +238,21 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
       .single();
 
     if (orgData) {
+      const addons = ((orgData as { addons?: string[] }).addons) || [];
+      const overrides = ((orgData as { feature_overrides?: FeatureOverrides }).feature_overrides) || {};
       setOrg({
         ...orgData,
         plan_limits: (orgData.plan_limits as unknown as PlanLimits) || PLAN_DETAILS.free.limits,
-        addons: ((orgData as { addons?: string[] }).addons) || [],
+        addons,
+        feature_overrides: overrides,
       });
+
+      // The server's answer, or the same rule applied to the built-in plans
+      // if migration 048 isn't applied yet. Shared with FeatureGate's cache.
+      const ent = (await fetchOrgEntitlements(orgData.id))
+        ?? fallbackEntitlements(orgData.id, orgData.plan, addons, overrides);
+      setEntitlements(ent);
+      queryClient.setQueryData(entitlementsQueryKey(orgData.id), ent);
 
       const { data: subData } = await supabase
         .from("subscriptions")
@@ -266,6 +274,7 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
       setMemberCount(memCount || 0);
     } else {
       setOrg(null);
+      setEntitlements(null);
     }
 
     setLoading(false);
@@ -276,10 +285,10 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
     fetchOrg();
   }, [fetchOrg]);
 
-  const limits = org?.plan_limits || PLAN_DETAILS.free.limits;
-  const canCreateEvent = limits.max_events === -1 || eventCount < limits.max_events;
+  const maxEvents = entitlements?.limits.max_events ?? PLAN_DETAILS.free.limits.max_events;
+  const canCreateEvent = maxEvents < 0 || eventCount < maxEvents;
 
-  const hasFeature = (feature: string) => limits.features.includes(feature);
+  const hasFeature = (feature: string) => (entitlements?.features ?? []).includes(feature);
   const hasAddon = (addon: string) => (org?.addons || []).includes(addon);
 
   return (
@@ -291,6 +300,7 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
         eventCount,
         memberCount,
         canCreateEvent,
+        entitlements,
         hasFeature,
         hasAddon,
         refreshOrg: fetchOrg,

@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { AccessToken } from "https://esm.sh/livekit-server-sdk@2.9.7";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+import { eventHasFeature, featureNotIncluded } from "../_shared/entitlements.ts";
 
 const log = createEdgeLogger("livekit-room-create");
 
@@ -24,9 +25,10 @@ Deno.serve(async (req) => {
 
     const { data: ev } = await supabase.from("events").select("id, user_id").eq("id", event_id).maybeSingle();
     if (!ev) return j({ error: "Event not found" }, 404);
-    if (ev.user_id !== user.id) {
-      const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", user.id).eq("role", "admin").maybeSingle();
-      if (!roles) return j({ error: "Forbidden" }, 403);
+    const { data: adminRole } = await supabase.from("user_roles").select("role").eq("user_id", user.id).eq("role", "admin").maybeSingle();
+    if (ev.user_id !== user.id && !adminRole) return j({ error: "Forbidden" }, 403);
+    if (!adminRole && !(await eventHasFeature(supabase, event_id, "webinar"))) {
+      return j(featureNotIncluded("webinar", "the webinar studio"), 403);
     }
 
     // Reuse latest scheduled or live session if exists

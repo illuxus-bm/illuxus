@@ -501,6 +501,13 @@ Deno.serve(async (req: Request) => {
     return errorResponse(403, { error: "Forbidden", code: "auth" });
   }
 
+  // Plan check (migration 048). Inlined rather than ../_shared/entitlements.ts
+  // for the Dashboard-deploy reason above; same rule: an explicit "no" blocks,
+  // a failed check allows.
+  if (!isAdmin && !(await aiFeatureAllowed(supabase, body.eventId))) {
+    return errorResponse(403, { error: "This organiser's plan doesn't include AI copy and backgrounds.", code: "plan_feature_not_included" });
+  }
+
   // ── 5. Cache lookup (Requirements 2.5, 6.1, 6.2) ──────────────────────────
   const promptNormalized = body.promptText.trim().toLowerCase();
   const cacheKey = computeCacheKey(
@@ -851,3 +858,13 @@ Deno.serve(async (req: Request) => {
     { status: 200, cors },
   );
 });
+
+/** Whether the event's organisation has `creatives_ai` on its plan. */
+// deno-lint-ignore no-explicit-any
+async function aiFeatureAllowed(supabase: any, eventId: string): Promise<boolean> {
+  const { data: ev, error: evErr } = await supabase.from("events").select("org_id").eq("id", eventId).maybeSingle();
+  if (evErr || !ev?.org_id) return true;
+  const { data, error } = await supabase.rpc("org_has_feature", { _org_id: ev.org_id, _feature: "creatives_ai" });
+  if (error) return true;
+  return data !== false;
+}
