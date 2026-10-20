@@ -14542,6 +14542,44 @@ GRANT  EXECUTE ON FUNCTION public.get_certificate_public(text) TO anon, authenti
 -- Idempotent — safe to run more than once.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
+-- ── pre-checks ────────────────────────────────────────────────────────────────
+-- Stop early, with a clear message, if a helper this relies on is missing.
+DO $$
+DECLARE _fn text;
+BEGIN
+  FOREACH _fn IN ARRAY ARRAY['public.has_role(uuid,public.app_role)', 'public.is_org_member(uuid,uuid)', 'public.is_org_owner(uuid,uuid)'] LOOP
+    IF to_regprocedure(_fn) IS NULL THEN
+      RAISE EXCEPTION 'Missing function %: apply the base schema first.', _fn;
+    END IF;
+  END LOOP;
+  IF to_regclass('public.organizations') IS NULL OR to_regclass('public.events') IS NULL THEN
+    RAISE EXCEPTION 'Missing organizations or events table: apply the base schema first.';
+  END IF;
+END $$;
+
+-- Columns used below, in case an older database predates them.
+ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS plan        text   NOT NULL DEFAULT 'free';
+ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS plan_limits jsonb  NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS addons      text[] NOT NULL DEFAULT '{}';
+ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS updated_at  timestamptz NOT NULL DEFAULT now();
+
+-- Own helpers, so this section doesn't depend on others that may be missing.
+CREATE OR REPLACE FUNCTION public.plans_touch_updated_at()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
+BEGIN NEW.updated_at := now(); RETURN NEW; END; $$;
+
+-- Audit entries are best-effort: a missing or changed audit_logs table must
+-- never block a plan change.
+CREATE OR REPLACE FUNCTION public._plan_audit(_action text, _target_type text, _target_id text, _details jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  INSERT INTO public.audit_logs (actor_id, actor_email, action, target_type, target_id, details)
+  VALUES (auth.uid(), (SELECT u.email FROM auth.users u WHERE u.id = auth.uid()), _action, _target_type, _target_id, COALESCE(_details, '{}'::jsonb));
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END; $$;
+REVOKE ALL ON FUNCTION public._plan_audit(text, text, text, jsonb) FROM PUBLIC, anon, authenticated;
+
 -- ── plans ─────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.plans (
   key          text PRIMARY KEY CHECK (key ~ '^[a-z][a-z0-9_]{1,31}$'),
@@ -14563,7 +14601,7 @@ GRANT ALL ON public.plans TO service_role;
 
 DROP TRIGGER IF EXISTS update_plans_updated_at ON public.plans;
 CREATE TRIGGER update_plans_updated_at BEFORE UPDATE ON public.plans
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+  FOR EACH ROW EXECUTE FUNCTION public.plans_touch_updated_at();
 
 -- Seed. Must match DEFAULT_PLANS in src/lib/plans/features.ts.
 INSERT INTO public.plans (key, name, description, sort_order, limits, features) VALUES
@@ -14689,14 +14727,6 @@ CREATE TRIGGER organizations_guard_plan BEFORE INSERT OR UPDATE ON public.organi
 
 -- Subscriptions: owners may create their organisation's row (onboarding);
 -- only super admins change it. The plan always follows the organisation.
-DROP POLICY IF EXISTS "Owner manage sub" ON public.subscriptions;
-DROP POLICY IF EXISTS "Owner create sub" ON public.subscriptions;
-DROP POLICY IF EXISTS "Admin manage subs" ON public.subscriptions;
-CREATE POLICY "Owner create sub" ON public.subscriptions FOR INSERT TO authenticated
-  WITH CHECK (public.is_org_owner(auth.uid(), org_id));
-CREATE POLICY "Admin manage subs" ON public.subscriptions FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
-
 CREATE OR REPLACE FUNCTION public.guard_subscription_plan()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
@@ -14708,9 +14738,23 @@ BEGIN
   RETURN NEW;
 END; $$;
 
-DROP TRIGGER IF EXISTS subscriptions_guard_plan ON public.subscriptions;
-CREATE TRIGGER subscriptions_guard_plan BEFORE INSERT OR UPDATE ON public.subscriptions
-  FOR EACH ROW EXECUTE FUNCTION public.guard_subscription_plan();
+DO $$
+BEGIN
+  IF to_regclass('public.subscriptions') IS NULL THEN
+    RETURN;
+  END IF;
+  ALTER TABLE public.subscriptions ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+  DROP POLICY IF EXISTS "Owner manage sub" ON public.subscriptions;
+  DROP POLICY IF EXISTS "Owner create sub" ON public.subscriptions;
+  DROP POLICY IF EXISTS "Admin manage subs" ON public.subscriptions;
+  CREATE POLICY "Owner create sub" ON public.subscriptions FOR INSERT TO authenticated
+    WITH CHECK (public.is_org_owner(auth.uid(), org_id));
+  CREATE POLICY "Admin manage subs" ON public.subscriptions FOR ALL TO authenticated
+    USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+  DROP TRIGGER IF EXISTS subscriptions_guard_plan ON public.subscriptions;
+  CREATE TRIGGER subscriptions_guard_plan BEFORE INSERT OR UPDATE ON public.subscriptions
+    FOR EACH ROW EXECUTE FUNCTION public.guard_subscription_plan();
+END $$;
 
 -- ── server-side feature checks ────────────────────────────────────────────────
 -- TG_ARGV[0] is the feature key. The organisation comes from the row's
@@ -14795,7 +14839,7 @@ BEGIN
     FROM public.plans p
    WHERE p.key = _key AND o.plan = _key;
 
-  PERFORM public._record_audit('plan.save', 'plan', _key,
+  PERFORM public._plan_audit('plan.save', 'plan', _key,
     jsonb_build_object('name', _name, 'limits', _clean, 'features', to_jsonb(COALESCE(_features, '{}'))));
 END; $$;
 REVOKE ALL ON FUNCTION public.admin_save_plan(text, text, text, int, boolean, jsonb, text[]) FROM PUBLIC, anon;
@@ -14810,7 +14854,7 @@ BEGIN
   SELECT count(*) INTO _n FROM public.organizations WHERE plan = _key;
   IF _n > 0 THEN RAISE EXCEPTION '% organisation(s) are on this plan. Move them to another plan first.', _n; END IF;
   DELETE FROM public.plans WHERE key = _key;
-  PERFORM public._record_audit('plan.delete', 'plan', _key, '{}'::jsonb);
+  PERFORM public._plan_audit('plan.delete', 'plan', _key, '{}'::jsonb);
 END; $$;
 REVOKE ALL ON FUNCTION public.admin_delete_plan(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.admin_delete_plan(text) TO authenticated;
@@ -14827,7 +14871,7 @@ BEGIN
     END IF;
   END LOOP;
   UPDATE public.organizations SET feature_overrides = COALESCE(_overrides, '{}'::jsonb), updated_at = now() WHERE id = _oid;
-  PERFORM public._record_audit('org.features', 'organization', _oid::text, jsonb_build_object('overrides', _overrides));
+  PERFORM public._plan_audit('org.features', 'organization', _oid::text, jsonb_build_object('overrides', _overrides));
 END; $$;
 REVOKE ALL ON FUNCTION public.admin_set_org_features(uuid, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.admin_set_org_features(uuid, jsonb) TO authenticated;
@@ -14845,8 +14889,10 @@ BEGIN
          plan_limits = _p.limits || jsonb_build_object('features', to_jsonb(_p.features)),
          updated_at = now()
    WHERE id = _oid;
-  UPDATE public.subscriptions SET plan = _plan, updated_at = now() WHERE org_id = _oid;
-  PERFORM public._record_audit('org.plan', 'organization', _oid::text, jsonb_build_object('plan', _plan));
+  IF to_regclass('public.subscriptions') IS NOT NULL THEN
+    UPDATE public.subscriptions SET plan = _plan, updated_at = now() WHERE org_id = _oid;
+  END IF;
+  PERFORM public._plan_audit('org.plan', 'organization', _oid::text, jsonb_build_object('plan', _plan));
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.admin_update_org(

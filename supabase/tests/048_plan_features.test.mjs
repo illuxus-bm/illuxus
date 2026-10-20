@@ -28,7 +28,7 @@ await db.exec(`
     $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   GRANT USAGE ON SCHEMA public, auth TO anon, authenticated, service_role;
 
-  CREATE FUNCTION public.update_updated_at_column() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.updated_at = now(); RETURN NEW; END; $$;
+  -- Like the live database: no update_updated_at_column() and no _record_audit().
   CREATE TYPE public.app_role AS ENUM ('admin', 'user');
   CREATE TABLE public.user_roles (user_id uuid, role public.app_role);
   CREATE FUNCTION public.has_role(_user_id uuid, _role public.app_role) RETURNS boolean
@@ -36,9 +36,6 @@ await db.exec(`
     SELECT EXISTS(SELECT 1 FROM public.user_roles WHERE user_id=_user_id AND role=_role); $$;
 
   CREATE TABLE public.audit_logs (id serial, actor_id uuid, actor_email text, action text, target_type text, target_id text, details jsonb, created_at timestamptz DEFAULT now());
-  CREATE FUNCTION public._record_audit(_action text, _target_type text, _target_id text, _details jsonb)
-  RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-  BEGIN INSERT INTO audit_logs(actor_id,action,target_type,target_id,details) VALUES(auth.uid(),_action,_target_type,_target_id,_details); END; $$;
 
   CREATE TABLE public.organizations (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text, owner_id uuid,
