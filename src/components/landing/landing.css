@@ -58,18 +58,15 @@
 }
 
 /* ─── Blueprint canvas ─────────────────────────────────────────────────────
-   Fine drafting grid with a crosshair every fourth line. Rendered on a fixed
-   layer so page content glides over it. */
+   Fine drafting grid. Rendered on a fixed layer so page content glides over it. */
 .blueprint-grid {
   background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cpath d='M80 73v14M73 80h14' stroke='%23111827' stroke-opacity='.3'/%3E%3C/svg%3E"),
     linear-gradient(to right, hsl(var(--foreground) / 0.045) 1px, transparent 1px),
     linear-gradient(to bottom, hsl(var(--foreground) / 0.045) 1px, transparent 1px);
-  background-size: 160px 160px, 40px 40px, 40px 40px;
+  background-size: 40px 40px, 40px 40px;
 }
 .dark .blueprint-grid {
   background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cpath d='M80 73v14M73 80h14' stroke='%23ffffff' stroke-opacity='.24'/%3E%3C/svg%3E"),
     linear-gradient(to right, hsl(var(--foreground) / 0.04) 1px, transparent 1px),
     linear-gradient(to bottom, hsl(var(--foreground) / 0.04) 1px, transparent 1px);
 }
