@@ -1124,7 +1124,7 @@ export default function SiteEditorPage() {
                     onClick={() => setActive(s)}
                     className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-[12px] transition-colors ${
                       isActive
-                        ? "bg-foreground text-background"
+                        ? "bg-primary text-primary-foreground"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     }`}
                     title={status === "draft" ? "Has unpublished changes" : "Published"}

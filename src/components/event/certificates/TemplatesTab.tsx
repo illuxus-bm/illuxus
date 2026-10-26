@@ -148,7 +148,7 @@ export default function TemplatesTab(props: Props) {
         <div className="mb-4 flex flex-wrap items-center gap-1.5">
           {["all", ...TEMPLATE_CATEGORIES].map((c) => (
             <button key={c} type="button" onClick={() => setCategory(c)}
-              className={cn("rounded-full border px-3 py-1 text-[12px] transition-colors", category === c ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:text-foreground")}>
+              className={cn("rounded-full border px-3 py-1 text-[12px] transition-colors", category === c ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:text-foreground")}>
               {c === "all" ? "All" : c}
             </button>
           ))}

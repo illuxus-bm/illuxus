@@ -201,11 +201,11 @@ const OnboardingPage = () => {
           {[0, 1].map((s) => (
             <div key={s} className="flex items-center gap-2">
               <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-semibold transition-colors ${
-                step >= s ? "bg-foreground text-background" : "bg-muted text-muted-foreground"
+                step >= s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
               }`}>
                 {step > s ? <Check className="h-4 w-4" /> : s + 1}
               </div>
-              {s < 1 && <div className={`w-16 h-0.5 ${step > 0 ? "bg-foreground" : "bg-muted"}`} />}
+              {s < 1 && <div className={`w-16 h-0.5 ${step > 0 ? "bg-primary" : "bg-muted"}`} />}
             </div>
           ))}
         </div>
@@ -319,8 +319,8 @@ const OnboardingPage = () => {
                       ))}
                     </ul>
                     {selectedPlan === plan.key && (
-                      <div className="absolute top-3 right-3 h-5 w-5 rounded-full bg-foreground flex items-center justify-center">
-                        <Check className="h-3 w-3 text-background" />
+                      <div className="absolute top-3 right-3 h-5 w-5 rounded-full bg-primary flex items-center justify-center">
+                        <Check className="h-3 w-3 text-primary-foreground" />
                       </div>
                     )}
                   </button>

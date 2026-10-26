@@ -156,7 +156,7 @@ export default function CertificatesSection({ eventId }: { eventId: string }) {
         <div className="flex rounded-lg border border-border bg-card p-1" role="tablist">
           {tabs.map((t) => (
             <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
-              className={cn("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors", tab === t.id ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
+              className={cn("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors", tab === t.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
               <t.icon className="h-3.5 w-3.5" />{t.label}
               {t.count !== undefined && <span className={cn("rounded-full px-1.5 text-[10.5px]", tab === t.id ? "bg-background/20" : "bg-muted")}>{t.count}</span>}
             </button>

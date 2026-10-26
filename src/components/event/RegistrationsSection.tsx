@@ -1577,7 +1577,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
                 attTab === t.key
                   ? t.key === "pending"
                     ? "bg-amber-500 text-white"
-                    : "bg-foreground text-background"
+                    : "bg-primary text-primary-foreground"
                   : t.key === "pending" && t.count > 0
                     ? "bg-amber-500/20 text-amber-600 font-semibold"
                     : "bg-muted text-muted-foreground"

@@ -296,7 +296,7 @@ export function LayersList({ scene, selectedId, onSelect }: { scene: Scene; sele
           onClick={() => onSelect(node.id as string)}
           className={cn(
             "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] transition",
-            node.id === selectedId ? "bg-foreground text-background" : "text-foreground hover:bg-muted",
+            node.id === selectedId ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted",
           )}
         >
           <span className="w-12 shrink-0 text-[10px] uppercase opacity-60">{node.kind}</span>

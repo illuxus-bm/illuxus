@@ -650,7 +650,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
             <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Live preview</span>
             <span
               className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
-                isPaid ? "bg-foreground text-background" : "bg-secondary text-foreground"
+                isPaid ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"
               }`}
             >
               {isPaid ? "Paid event" : "Free event"}

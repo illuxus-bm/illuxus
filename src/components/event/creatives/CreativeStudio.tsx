@@ -132,7 +132,7 @@ function downloadBlob(blob: Blob, filename: string): void {
 function SectionHeading({ step, title, hint }: { step: number; title: string; hint?: string }) {
   return (
     <div className="mb-3 flex items-baseline gap-2">
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-foreground text-[11px] font-semibold text-background">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
         {step}
       </span>
       <h3 className="text-[13px] font-semibold text-foreground">{title}</h3>

@@ -272,7 +272,7 @@ export default function EventQuickCreatePage() {
                   onClick={() => setEventFormat(v)}
                   className={`flex flex-col items-center gap-1 rounded-md border px-3 py-2.5 text-[12px] transition ${
                     eventFormat === v
-                      ? "border-foreground bg-foreground text-background shadow-sm"
+                      ? "border-primary bg-primary text-primary-foreground shadow-sm"
                       : "border-border bg-background hover:bg-muted/50 text-foreground"
                   }`}
                 >
@@ -418,7 +418,7 @@ export default function EventQuickCreatePage() {
                   <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Live preview</span>
                   <span
                     className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
-                      isPaid ? "bg-foreground text-background" : "bg-secondary text-foreground"
+                      isPaid ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"
                     }`}
                   >
                     {isPaid ? "Paid event" : "Free event"}

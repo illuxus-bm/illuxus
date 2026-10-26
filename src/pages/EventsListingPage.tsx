@@ -190,7 +190,7 @@ export default function EventsListingPage() {
               onClick={() => setFilter(f.key)}
               className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
                 filter === f.key
-                  ? "bg-foreground text-background"
+                  ? "bg-primary text-primary-foreground"
                   : "bg-secondary text-muted-foreground hover:text-foreground"
               }`}
             >

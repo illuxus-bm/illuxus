@@ -74,7 +74,7 @@ export default function EventCardLuma({ event, compact = false }: { event: LumaE
             return (
               <span
                 className={`px-2 py-0.5 rounded-full font-medium ${
-                  isPaid ? "bg-foreground text-background" : "bg-secondary text-foreground"
+                  isPaid ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"
                 }`}
               >
                 {formatPriceOrFree(event.price, event.currency || undefined)}

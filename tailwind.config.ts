@@ -70,9 +70,13 @@ export default {
           "5": "hsl(var(--chart-5))",
         },
       },
-      // As text, the accent uses its "ink" value, tuned per theme for contrast.
-      // Fills (`bg-accent`) keep the base accent.
+      // As text, the primary and accent use their "ink" values, tuned per theme
+      // for contrast. Fills (`bg-primary`, `bg-accent`) keep the base colour.
       textColor: {
+        primary: {
+          DEFAULT: "hsl(var(--primary-ink))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
         accent: {
           DEFAULT: "hsl(var(--accent-ink))",
           foreground: "hsl(var(--accent-foreground))",

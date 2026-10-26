@@ -130,7 +130,7 @@ export default function CityAutocomplete({ value, onChange, placeholder, require
               onMouseEnter={() => setHighlight(i)}
               className={cn(
                 "w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition-colors",
-                i === highlight ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
+                i === highlight ? "bg-primary/10 text-foreground" : "hover:bg-muted",
               )}
             >
               <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

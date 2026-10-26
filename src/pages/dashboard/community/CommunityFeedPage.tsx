@@ -38,7 +38,7 @@ export default function CommunityFeedPage() {
                 onClick={() => setFilter(f)}
                 className={`shrink-0 px-3 py-1.5 text-[12px] font-medium rounded-full transition-colors ${
                   filter.key === f.key
-                    ? "bg-foreground text-background"
+                    ? "bg-primary text-primary-foreground"
                     : "bg-muted text-muted-foreground hover:text-foreground"
                 }`}
               >
