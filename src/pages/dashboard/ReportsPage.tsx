@@ -6,6 +6,7 @@ import { formatMoney, DEFAULT_EVENT_CURRENCY } from "@/lib/currency";
 import { convert, useFxRates } from "@/lib/fx";
 import { CurrencySwitcher, getStoredDisplayCurrency } from "@/components/CurrencySwitcher";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -18,6 +19,7 @@ import {
   CheckCircle2, Loader2, Calendar, BarChart3, Target,
   Percent, RefreshCw, ArrowUpRight, ArrowDownRight, CalendarClock,
   FileSpreadsheet, FileDown, Award, AlertTriangle, Trophy, Mic, LayoutGrid, Layers,
+  Search, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
@@ -372,6 +374,67 @@ function ExportButton({ onClick, disabled }: { onClick: () => void; disabled: bo
   );
 }
 
+const matchSpeaker = (s: SpeakerAttendee, q: string) =>
+  [s.name, s.email, s.company, s.event_title].some((v) => v?.toLowerCase().includes(q));
+const matchSponsor = (s: SponsorRow, q: string) =>
+  [s.name, s.email, s.tier, s.website, s.event_title].some((v) => v?.toLowerCase().includes(q));
+
+/** Search plus fixed-size pages, so a long list doesn't stretch the page. */
+function useTablePage<T>(rows: T[], match: (row: T, q: string) => boolean) {
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? rows.filter((r) => match(r, q)) : rows;
+  }, [rows, query, match]);
+  const pages = Math.max(1, Math.ceil(filtered.length / TABLE_ROWS));
+  const current = Math.min(page, pages - 1);
+  return {
+    query,
+    search: (q: string) => { setQuery(q); setPage(0); },
+    page: current,
+    pages,
+    setPage,
+    total: filtered.length,
+    visible: filtered.slice(current * TABLE_ROWS, (current + 1) * TABLE_ROWS),
+  };
+}
+
+function TableSearch({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <div className="relative w-full sm:w-56">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        className="h-7 pl-8 text-[12px]"
+      />
+    </div>
+  );
+}
+
+function Pager({ page, pages, total, onPage }: { page: number; pages: number; total: number; onPage: (p: number) => void }) {
+  if (total <= TABLE_ROWS) return null;
+  const from = page * TABLE_ROWS + 1;
+  const to = Math.min(total, from + TABLE_ROWS - 1);
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3 text-[12px] text-muted-foreground">
+      <span className="tabular-nums">{from}–{to} of {total.toLocaleString()}</span>
+      <div className="flex items-center gap-1">
+        <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => onPage(page - 1)} disabled={page === 0} aria-label="Previous page">
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </Button>
+        <span className="px-1.5 tabular-nums">{page + 1} / {pages}</span>
+        <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => onPage(page + 1)} disabled={page >= pages - 1} aria-label="Next page">
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function SpeakerView({
   report, speakers, eventFilter, onExport,
 }: {
@@ -381,6 +444,7 @@ function SpeakerView({
   onExport: () => void;
 }) {
   const maxPerEvent = Math.max(1, ...report.perEvent.map((e) => e.total));
+  const table = useTablePage(speakers, matchSpeaker);
   return (
     <>
       <p className="text-[12px] text-muted-foreground">
@@ -444,13 +508,21 @@ function SpeakerView({
           )}
         </Card>
 
-        <Card className="lg:col-span-6" icon={Mic} title="Speaker attendance"
+        <Card className="lg:col-span-6" icon={Mic} title="Speaker attendance" stackAction
           subtitle={`${speakers.length.toLocaleString()} ${speakers.length === 1 ? "assignment" : "assignments"}`}
-          action={<ExportButton onClick={onExport} disabled={speakers.length === 0} />}
+          action={
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <TableSearch value={table.query} onChange={table.search} placeholder="Search speakers" />
+              <ExportButton onClick={onExport} disabled={speakers.length === 0} />
+            </div>
+          }
         >
           {speakers.length === 0 ? (
             <Empty className="py-8">No speakers assigned {scopeWord(eventFilter)} yet.</Empty>
+          ) : table.total === 0 ? (
+            <Empty className="py-8">No speakers match “{table.query}”.</Empty>
           ) : (
+            <>
             <div className="overflow-x-auto">
               <table className="w-full whitespace-nowrap text-sm">
                 <thead>
@@ -462,7 +534,7 @@ function SpeakerView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {speakers.map((s, i) => (
+                  {table.visible.map((s, i) => (
                     <tr key={`${s.event_id}-${s.email ?? s.name}-${i}`}>
                       <td className="py-2.5 pr-4 font-medium">{s.name}</td>
                       <td className="py-2.5 pr-4 text-muted-foreground">{s.company ?? "—"}</td>
@@ -481,6 +553,8 @@ function SpeakerView({
                 </tbody>
               </table>
             </div>
+            <Pager page={table.page} pages={table.pages} total={table.total} onPage={table.setPage} />
+            </>
           )}
         </Card>
       </div>
@@ -498,6 +572,7 @@ function SponsorView({
 }) {
   const maxTier = Math.max(1, ...report.byTier.map((t) => t.count));
   const maxEvent = Math.max(1, ...report.byEvent.map((e) => e.count));
+  const table = useTablePage(sponsors, matchSponsor);
   return (
     <>
       <p className="text-[12px] text-muted-foreground">Follows the event filter</p>
@@ -559,13 +634,21 @@ function SponsorView({
           )}
         </Card>
 
-        <Card className="lg:col-span-6" icon={Award} title="Sponsors"
+        <Card className="lg:col-span-6" icon={Award} title="Sponsors" stackAction
           subtitle={`${sponsors.length.toLocaleString()} ${sponsors.length === 1 ? "placement" : "placements"}`}
-          action={<ExportButton onClick={onExport} disabled={sponsors.length === 0} />}
+          action={
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <TableSearch value={table.query} onChange={table.search} placeholder="Search sponsors" />
+              <ExportButton onClick={onExport} disabled={sponsors.length === 0} />
+            </div>
+          }
         >
           {sponsors.length === 0 ? (
             <Empty className="py-8">No sponsors attached {scopeWord(eventFilter)} yet.</Empty>
+          ) : table.total === 0 ? (
+            <Empty className="py-8">No sponsors match “{table.query}”.</Empty>
           ) : (
+            <>
             <div className="overflow-x-auto">
               <table className="w-full whitespace-nowrap text-sm">
                 <thead>
@@ -578,7 +661,7 @@ function SponsorView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {sponsors.map((s, i) => (
+                  {table.visible.map((s, i) => (
                     <tr key={`${s.event_id}-${s.email ?? s.name}-${i}`}>
                       <td className="py-2.5 pr-4 font-medium">{s.name}</td>
                       <td className="py-2.5 pr-4">
@@ -604,6 +687,8 @@ function SponsorView({
                 </tbody>
               </table>
             </div>
+            <Pager page={table.page} pages={table.pages} total={table.total} onPage={table.setPage} />
+            </>
           )}
         </Card>
       </div>
