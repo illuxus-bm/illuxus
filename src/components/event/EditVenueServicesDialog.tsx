@@ -181,7 +181,7 @@ export function EditVenueServicesDialog({
                             )}
                           </div>
                           <div className="text-right shrink-0 min-w-[70px]">
-                            {s.quote_on_request || !s.base_price ? (
+                            {!s.base_price ? (
                               <span className="text-[11px] text-muted-foreground">
                                 Quote on request
                               </span>

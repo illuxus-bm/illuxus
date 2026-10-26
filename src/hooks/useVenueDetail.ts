@@ -6,8 +6,10 @@ import { supabase } from "@/integrations/supabase/client";
  * detail drawer + the confirmed-selection card. Fetches:
  *   • the venue row with every column from migration 106
  *   • the owning vendor's identity for the "operated by" line
- *   • the vendor's active `vendor_services` (venue-add-ons the
- *     organizer can pre-select before Send request)
+ *   • the vendor's active `vendor_services` offered at this venue —
+ *     pinned to it (venue_id) or vendor-wide (venue_id null). These are
+ *     the add-ons (photography, food, lunch…) the organizer can tick
+ *     before Send request.
  *   • the venue's media rows, grouped by kind on the client
  *
  * The exported type stays named `VendorDetail` for continuity — every
@@ -26,6 +28,9 @@ export interface VendorService {
   is_instant_book: boolean;
   quote_on_request: boolean;
   is_active: boolean;
+  /** Add-on category from the venue app (migration 108), e.g.
+   *  "photography", "food", "meals". Null on older rows. */
+  category: string | null;
   addons: Array<{
     id: string;
     name: string;
@@ -39,6 +44,7 @@ export type VenueMediaKind =
   | "setup"
   | "facility"
   | "floor_plan"
+  | "video"
   | "other";
 
 export interface VenueMedia {
@@ -57,8 +63,12 @@ export interface VendorDetail {
   tagline: string | null;     // venue description snippet
   bio: string | null;         // full venue description
   website: string | null;     // owning vendor's website
-  city: string | null;        // from vendor
+  city: string | null;        // venue's own city, falling back to the vendor's
   country: string | null;
+  address_line: string | null;
+  state: string | null;
+  pincode: string | null;
+  map_url: string | null;
   logo_url: string | null;    // vendor logo
   cover_url: string | null;   // venue's cover image
   years_experience: number | null;
@@ -106,8 +116,8 @@ export interface VendorDetail {
   has_elevator: boolean;
 
   // ─── Related ────────────────────────────────────────────────────
-  services: VendorService[];   // vendor-level services
-  media: VenueMedia[];         // venue-level media (photos + floor plan)
+  services: VendorService[];   // add-ons offered at this venue
+  media: VenueMedia[];         // venue-level media (photos, videos, floor plan)
   vendor: {
     id: string;
     business_name: string;
@@ -120,6 +130,11 @@ interface RawVenue {
   name: string;
   space_type: string | null;
   description: string | null;
+  address_line: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  map_url: string | null;
   area_sqft: number | null;
   length_ft: number | null;
   width_ft: number | null;
@@ -178,6 +193,7 @@ export function useVenueDetail(venueId: string | null | undefined) {
           .from("venues" as never)
           .select(
             `id, vendor_id, name, space_type, description,
+             address_line, city, state, pincode, map_url,
              area_sqft, length_ft, width_ft, ceiling_height_ft,
              capacity_floating, capacity_theater, capacity_banquet,
              capacity_ushape, capacity_classroom,
@@ -210,14 +226,17 @@ export function useVenueDetail(venueId: string | null | undefined) {
       const media = ((mediaRes.data as unknown) ?? []) as VenueMedia[];
       const cover = media.find((m) => m.is_cover);
 
-      // ─── Vendor-level services (still per-vendor; used as add-ons) ─
+      // ─── Services offered at this venue ───────────────────────────
+      // Pinned to this venue, or vendor-wide (venue_id null). Services a
+      // multi-venue vendor pinned to a different space are excluded.
       const { data: servicesRaw } = await supabase
         .from("vendor_services" as never)
         .select(
-          "id, title, description, base_price, currency, unit, duration, is_instant_book, quote_on_request, is_active",
+          "id, title, description, base_price, currency, unit, duration, is_instant_book, quote_on_request, is_active, category",
         )
         .eq("vendor_id", raw.vendor_id)
         .eq("is_active", true)
+        .or(`venue_id.is.null,venue_id.eq.${raw.id}`)
         .order("base_price", { ascending: true, nullsFirst: true });
 
       const services = ((servicesRaw as unknown) ?? []) as Array<
@@ -258,8 +277,12 @@ export function useVenueDetail(venueId: string | null | undefined) {
         tagline: raw.description ? raw.description.slice(0, 140) : null,
         bio: raw.description,
         website: owner?.website ?? null,
-        city: owner?.city ?? null,
+        city: raw.city ?? owner?.city ?? null,
         country: owner?.country ?? null,
+        address_line: raw.address_line,
+        state: raw.state,
+        pincode: raw.pincode,
+        map_url: raw.map_url,
         logo_url: owner?.logo_url ?? null,
         cover_url: cover?.url ?? null,
         years_experience: owner?.years_experience ?? null,
@@ -307,6 +330,8 @@ export function useVenueDetail(venueId: string | null | undefined) {
 
         services: services.map((s) => ({
           ...s,
+          // The venue app stores prices in minor units (paise / cents).
+          base_price: s.base_price == null ? null : Number(s.base_price) / 100,
           addons: addonsByService.get(s.id) ?? [],
         })),
         media,

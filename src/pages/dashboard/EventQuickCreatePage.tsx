@@ -140,7 +140,7 @@ export default function EventQuickCreatePage() {
     // Failure here is non-fatal — the event itself is already created.
     if (venueVendor && org?.id) {
       try {
-        await selectVenueVendor.mutateAsync({
+        const sent = await selectVenueVendor.mutateAsync({
           eventId: data.id,
           // venueVendor.id is now the venues.id after the marketplace
           // rewrite; venueVendor.vendor_id is the owning business.
@@ -162,7 +162,9 @@ export default function EventQuickCreatePage() {
         });
         toast({
           title: "Venue selected",
-          description: `${venueVendor.business_name} has been notified by email.`,
+          description: sent.emailed
+            ? `${venueVendor.business_name} has been notified by email.`
+            : `Request saved, but the email to ${venueVendor.business_name} failed. They'll still see it in their venue dashboard.`,
         });
       } catch (err) {
         // Supabase errors are plain PostgrestError objects, not Error
@@ -564,6 +566,7 @@ export default function EventQuickCreatePage() {
               value={brief}
               onChange={(patch) => setBrief((b) => ({ ...b, ...patch }))}
               eventDate={date || null}
+              eventEndDate={endDate || null}
               eventCity={location || null}
               pickerOpen={venuePickerOpen}
               onPickerOpenChange={setVenuePickerOpen}

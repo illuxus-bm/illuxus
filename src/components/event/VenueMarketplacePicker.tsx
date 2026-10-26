@@ -28,7 +28,12 @@ import {
   ImageIcon,
   Sparkles,
 } from "lucide-react";
-import { useVenueVendors, type VenueVendor } from "@/hooks/useVenueVendors";
+import {
+  detectCity,
+  matchesCity,
+  useVenueVendors,
+  type VenueVendor,
+} from "@/hooks/useVenueVendors";
 import {
   useVenueDetail,
   type VendorDetail,
@@ -60,10 +65,16 @@ interface Props {
     vendor: VenueVendor,
     selectedServiceIds: string[],
   ) => void;
-  /** Event date — used to hide vendors that are already booked or held for
-   *  that date. Pass the raw event.date ISO string. */
+  /** Event start — used to hide venues that are already booked or held.
+   *  Pass the raw event.date ISO string. */
   eventDate?: string | null;
-  /** Optional city seed for the location filter (usually event.location). */
+  /** Event end (event.end_date). Venues must be free on every day from
+   *  start to end; omitted = single-day event. */
+  eventEndDate?: string | null;
+  /** The event being booked, so its own accepted booking isn't a clash. */
+  eventId?: string | null;
+  /** Event location (free text). The city in it is detected against the
+   *  cities venues are listed in and used as the default city filter. */
   seedCity?: string | null;
   /** Optional CTA label so callers can differentiate first-time selection
    *  ("Send request") from re-selection after a decline ("Re-send request"). */
@@ -91,24 +102,51 @@ export function VenueMarketplacePicker({
   selectedVendorId,
   onSelect,
   eventDate,
+  eventEndDate,
+  eventId,
   seedCity,
   confirmLabel,
   submitting = false,
 }: Props) {
   const [search, setSearch] = useState("");
-  const [city, setCity] = useState(seedCity ?? "");
+  const [city, setCity] = useState("");
+  // Once the organizer edits the city box we stop overwriting it with the
+  // detected city; reset on close so the next open re-detects.
+  const [cityTouched, setCityTouched] = useState(false);
   const [mode, setMode] = useState<"list" | "detail">("list");
   const [detailVendorId, setDetailVendorId] = useState<string | null>(null);
 
+  // City filtering happens here rather than in the query so the event
+  // location can be matched against the cities venues are listed in.
   const {
-    data: vendors = [],
+    data: available = [],
     isLoading,
     isFetching,
   } = useVenueVendors({
     search: search.trim() || undefined,
-    city: city.trim() || undefined,
     eventDate: eventDate ?? null,
+    eventEndDate: eventEndDate ?? null,
+    excludeEventId: eventId ?? null,
   });
+
+  const detectedCity = useMemo(
+    () => detectCity(seedCity, available.map((v) => v.city)),
+    [seedCity, available],
+  );
+  useEffect(() => {
+    if (!open || cityTouched) return;
+    // No listed venue in the event's city: keep the raw location so the
+    // empty state says so, instead of silently showing every city.
+    setCity(detectedCity ?? seedCity?.trim() ?? "");
+  }, [open, cityTouched, detectedCity, seedCity]);
+
+  const vendors = useMemo(
+    () =>
+      city.trim()
+        ? available.filter((v) => matchesCity(v.city, city))
+        : available,
+    [available, city],
+  );
 
   const detailVendor = useMemo(
     () => vendors.find((v) => v.id === detailVendorId) ?? null,
@@ -121,6 +159,7 @@ export function VenueMarketplacePicker({
       // Reset to list on close so re-opens don't drop the user in a stale detail.
       setMode("list");
       setDetailVendorId(null);
+      setCityTouched(false);
     }
   };
 
@@ -141,17 +180,10 @@ export function VenueMarketplacePicker({
     handleClose(false);
   };
 
-  const dateLabel = useMemo(() => {
-    if (!eventDate) return null;
-    const d = new Date(eventDate);
-    if (Number.isNaN(d.getTime())) return null;
-    return d.toLocaleDateString(undefined, {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  }, [eventDate]);
+  const dateLabel = useMemo(
+    () => formatDateRange(eventDate, eventEndDate),
+    [eventDate, eventEndDate],
+  );
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -183,9 +215,12 @@ export function VenueMarketplacePicker({
                 <div className="relative">
                   <MapPin className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="City"
+                    placeholder="City (e.g. Mumbai)"
                     value={city}
-                    onChange={(e) => setCity(e.target.value)}
+                    onChange={(e) => {
+                      setCityTouched(true);
+                      setCity(e.target.value);
+                    }}
                     className="pl-8 h-9"
                   />
                 </div>
@@ -230,7 +265,14 @@ export function VenueMarketplacePicker({
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
                 ) : vendors.length === 0 ? (
-                  <EmptyState eventDateGiven={!!eventDate} />
+                  <EmptyState
+                    eventDateGiven={!!eventDate}
+                    city={city.trim() || null}
+                    onClearCity={() => {
+                      setCityTouched(true);
+                      setCity("");
+                    }}
+                  />
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {vendors.map((v) => (
@@ -263,6 +305,7 @@ export function VenueMarketplacePicker({
             confirmLabel={confirmLabel ?? "Send request"}
             submitting={submitting}
             eventDate={eventDate ?? null}
+            eventEndDate={eventEndDate ?? null}
             eventDateLabel={dateLabel}
             onBack={() => setMode("list")}
             onRequest={(v, ids) => handleRequest(v, ids)}
@@ -410,16 +453,31 @@ function VendorCard({
 // Empty state
 // ─────────────────────────────────────────────────────────────────────────────
 
-function EmptyState({ eventDateGiven }: { eventDateGiven: boolean }) {
+function EmptyState({
+  eventDateGiven,
+  city,
+  onClearCity,
+}: {
+  eventDateGiven: boolean;
+  city: string | null;
+  onClearCity: () => void;
+}) {
   return (
     <div className="text-center py-16 text-sm text-muted-foreground">
       <Building2 className="h-10 w-10 mx-auto mb-3 opacity-40" />
-      <p className="font-medium text-foreground">No venues match your filters</p>
+      <p className="font-medium text-foreground">
+        {city ? `No venues available in ${city}` : "No venues match your filters"}
+      </p>
       <p className="text-xs mt-1">
         {eventDateGiven
-          ? "Every venue we've indexed is already booked, held, or outside your city on that date. Try widening the filters."
-          : "Try clearing the filters or invite more vendors to the marketplace."}
+          ? "Every listed venue there is booked or on hold for at least one day of your event."
+          : "Try clearing the filters."}
       </p>
+      {city && (
+        <Button variant="outline" size="sm" className="mt-4" onClick={onClearCity}>
+          Show venues in all cities
+        </Button>
+      )}
     </div>
   );
 }
@@ -434,6 +492,7 @@ function VendorDetailView({
   confirmLabel,
   submitting,
   eventDate,
+  eventEndDate,
   eventDateLabel,
   onBack,
   onRequest,
@@ -443,14 +502,16 @@ function VendorDetailView({
   confirmLabel: string;
   submitting: boolean;
   eventDate: string | null;
+  eventEndDate: string | null;
   eventDateLabel: string | null;
   onBack: () => void;
   onRequest: (vendor: VenueVendor, selectedServiceIds: string[]) => void;
 }) {
   const { data: detail, isLoading } = useVenueDetail(vendor?.id ?? null);
+  // Card ids are venue ids; the calendar lives on the owning vendor.
   const { data: busyDays = [], isLoading: busyLoading } = useVendorAvailability(
-    vendor?.id ?? null,
-    { focusDate: eventDate },
+    vendor?.vendor_id ?? null,
+    { focusDate: eventEndDate ?? eventDate, venueId: vendor?.id ?? null },
   );
 
   // Local multi-select state for service checkboxes. Resets when the
@@ -466,9 +527,15 @@ function VendorDetailView({
   // Event-date availability status — dominates the top of the detail view
   // so the organizer knows immediately whether their date is safe.
   const eventDateIso = useMemo(() => toIsoDate(eventDate), [eventDate]);
+  const eventEndIso = useMemo(
+    () => toIsoDate(eventEndDate) || eventDateIso,
+    [eventEndDate, eventDateIso],
+  );
   const eventDateConflict = useMemo(
-    () => busyDays.find((d) => d.date === eventDateIso) ?? null,
-    [busyDays, eventDateIso],
+    () =>
+      busyDays.find((d) => d.date >= eventDateIso && d.date <= eventEndIso) ??
+      null,
+    [busyDays, eventDateIso, eventEndIso],
   );
 
   if (!vendor) {
@@ -572,6 +639,17 @@ function VendorDetailView({
                   {vendor.country ? `, ${vendor.country}` : ""}
                 </Badge>
               )}
+              {detail?.map_url && (
+                <a
+                  href={detail.map_url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                >
+                  <MapPin className="h-3 w-3" />
+                  Open in Maps
+                </a>
+              )}
               {detail?.years_experience && detail.years_experience > 0 && (
                 <Badge variant="secondary" className="gap-1">
                   <Sparkles className="h-3 w-3" />
@@ -598,6 +676,15 @@ function VendorDetailView({
             </div>
           </div>
 
+          {detail &&
+            (detail.address_line || detail.state || detail.pincode) && (
+              <p className="text-xs text-muted-foreground -mt-3">
+                {[detail.address_line, detail.city, detail.state, detail.pincode]
+                  .filter(Boolean)
+                  .join(", ")}
+              </p>
+            )}
+
           {/* Bio */}
           {detail?.bio && (
             <section className="space-y-2">
@@ -619,7 +706,7 @@ function VendorDetailView({
               {detail && <VenueDetailSections detail={detail} />}
               {detail && detail.media.length > 0 && (
                 <section className="space-y-2">
-                  <h3 className="text-sm font-semibold">Photos & floor plan</h3>
+                  <h3 className="text-sm font-semibold">Photos, videos & floor plan</h3>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {detail.media.slice(0, 12).map((m) => (
                       <a
@@ -629,7 +716,14 @@ function VendorDetailView({
                         rel="noreferrer noopener"
                         className="aspect-square bg-muted rounded-md overflow-hidden block group relative"
                       >
-                        {isImageUrl(m.url) ? (
+                        {m.media_kind === "video" ? (
+                          <video
+                            src={m.url}
+                            muted
+                            preload="metadata"
+                            className="w-full h-full object-cover bg-black"
+                          />
+                        ) : isImageUrl(m.url) ? (
                           <img
                             src={m.url}
                             alt={m.caption ?? ""}
@@ -671,7 +765,7 @@ function VendorDetailView({
               {detail && detail.services.length > 0 && (
                 <section className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold">Services</h3>
+                    <h3 className="text-sm font-semibold">Additional services</h3>
                     <span className="text-[11px] text-muted-foreground">
                       {selectedServiceIds.size > 0
                         ? `${selectedServiceIds.size} selected`
@@ -732,6 +826,22 @@ function VendorDetailView({
 // Service card
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Mirrors SERVICE_CATEGORIES in the venue app (useMyServices.ts). */
+const SERVICE_CATEGORY_LABEL: Record<string, string> = {
+  photography: "Photography",
+  videography: "Videography",
+  food: "Food & catering",
+  meals: "Meals",
+  beverages: "Beverages & bar",
+  decor: "Decor & florals",
+  av: "Sound, light & AV",
+  entertainment: "Entertainment",
+  accommodation: "Accommodation",
+  transport: "Transport & parking",
+  staffing: "Staff & hospitality",
+  other: "Other",
+};
+
 const UNIT_LABEL: Record<VendorService["unit"], string> = {
   per_hour: "/ hour",
   per_event: "/ event",
@@ -771,6 +881,11 @@ function ServiceCard({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h4 className="text-sm font-semibold">{service.title}</h4>
+              {service.category && (
+                <Badge variant="secondary" className="text-[10px]">
+                  {SERVICE_CATEGORY_LABEL[service.category] ?? service.category}
+                </Badge>
+              )}
               {service.is_instant_book && (
                 <Badge className="text-[10px]">Instant book</Badge>
               )}
@@ -782,7 +897,7 @@ function ServiceCard({
             )}
           </div>
           <div className="text-right shrink-0">
-            {service.quote_on_request || !service.base_price ? (
+            {!service.base_price ? (
               <span className="text-xs text-muted-foreground">Quote on request</span>
             ) : (
               <>
@@ -975,6 +1090,35 @@ function formatBusyDate(iso: string): string {
     month: "short",
     day: "numeric",
   });
+}
+
+/** "Fri, Nov 20, 2026", or "Fri, Nov 20 - Sun, Nov 22, 2026" for a
+ *  multi-day event. Null when the start date is missing / invalid. */
+function formatDateRange(
+  start: string | null | undefined,
+  end: string | null | undefined,
+): string | null {
+  if (!start) return null;
+  const s = new Date(start);
+  if (Number.isNaN(s.getTime())) return null;
+  const full: Intl.DateTimeFormatOptions = {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  };
+  const e = end ? new Date(end) : null;
+  if (!e || Number.isNaN(e.getTime()) || toIsoDate(end) <= toIsoDate(start)) {
+    return s.toLocaleDateString(undefined, full);
+  }
+  const sameYear = s.getFullYear() === e.getFullYear();
+  const startLabel = s.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  return `${startLabel} – ${e.toLocaleDateString(undefined, full)}`;
 }
 
 /** Extract calendar date (YYYY-MM-DD) from an ISO timestamp — mirrors the
