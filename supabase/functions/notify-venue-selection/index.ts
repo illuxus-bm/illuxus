@@ -22,12 +22,121 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import {
-  defaultFromAddress,
-  sendViaSmtp,
-  smtpConfigured,
-} from "../_shared/smtp.ts";
-import { buildCorsHeaders, corsJson, handlePreflight } from "../_shared/cors.ts";
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+
+// ─── Email + CORS helpers ─────────────────────────────────────────────
+// Inlined on purpose instead of importing ../_shared/smtp.ts and
+// ../_shared/cors.ts: this function is deployed by pasting index.ts into
+// the Supabase dashboard editor, which uploads only this one file, so any
+// ../_shared import fails to bundle. Keep in step with _shared/smtp.ts
+// and _shared/cors.ts when those change.
+//
+// Secrets: SMTP_HOST, SMTP_PORT (465 SSL / 587 STARTTLS), SMTP_USERNAME,
+// SMTP_PASSWORD, optional SMTP_FROM; ALLOWED_ORIGINS for extra browser
+// origins (localhost dev ports and *.vercel.app are always allowed).
+
+function smtpConfigured(): boolean {
+  return !!(Deno.env.get("SMTP_HOST") && Deno.env.get("SMTP_USERNAME") && Deno.env.get("SMTP_PASSWORD"));
+}
+
+function defaultFromAddress(displayName = "Illuxus"): string {
+  const explicit =
+    Deno.env.get("SMTP_FROM") ?? Deno.env.get("RESEND_FROM_EMAIL") ?? Deno.env.get("RESEND_FROM");
+  const from = explicit || Deno.env.get("SMTP_USERNAME") || `${displayName} <noreply@example.com>`;
+  return from.includes("<") ? from : `${displayName} <${from}>`;
+}
+
+async function sendViaSmtp(payload: {
+  from: string;
+  to: string[];
+  subject: string;
+  html: string;
+  text: string;
+  reply_to?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const port = Number(Deno.env.get("SMTP_PORT") || "465");
+  const client = new SMTPClient({
+    connection: {
+      hostname: Deno.env.get("SMTP_HOST")!,
+      port,
+      // 465 → implicit TLS. 587 / 25 → STARTTLS after EHLO.
+      tls: port === 465,
+      auth: {
+        username: Deno.env.get("SMTP_USERNAME")!,
+        password: Deno.env.get("SMTP_PASSWORD")!,
+      },
+    },
+  });
+  try {
+    await client.send({
+      from: payload.from,
+      to: payload.to,
+      subject: payload.subject,
+      content: stripTrailingWhitespace(payload.text),
+      html: stripTrailingWhitespace(payload.html),
+      ...(payload.reply_to ? { replyTo: payload.reply_to } : {}),
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err instanceof Error ? err.message : String(err)).slice(0, 500) };
+  } finally {
+    try { await client.close(); } catch { /* noop */ }
+  }
+}
+
+/** denomailer turns a line-final space into a literal "=20" in the
+ *  delivered email, so strip trailing spaces (LF or CRLF lines). */
+function stripTrailingWhitespace(body: string): string {
+  return body.replace(/[ \t]+(?=\r?$)/gm, "");
+}
+
+const DEV_ORIGINS = [
+  "http://localhost:5173",
+  "http://localhost:8080",
+  "http://localhost:8081", // illuxus-venue dev server
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:8080",
+];
+
+function buildCorsHeaders(req: Request): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-correlation-id",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin",
+  };
+  const strip = (s: string) => s.trim().replace(/\/$/, "");
+  const allowed = new Set(DEV_ORIGINS);
+  for (const o of (Deno.env.get("ALLOWED_ORIGINS") || "").split(",")) {
+    if (o.trim()) allowed.add(strip(o));
+  }
+  for (const host of [
+    Deno.env.get("PUBLIC_DOMAIN") || Deno.env.get("VITE_PUBLIC_DOMAIN"),
+    Deno.env.get("PUBLIC_PUBLISHED_HOST") || Deno.env.get("VITE_PUBLIC_PUBLISHED_HOST"),
+  ]) {
+    if (!host?.trim()) continue;
+    const h = strip(host);
+    allowed.add(/^https?:\/\//.test(h) ? h : `https://${h}`);
+  }
+  const origin = req.headers.get("Origin") ?? "";
+  const ok =
+    allowed.has(strip(origin)) ||
+    /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin);
+  headers["Access-Control-Allow-Origin"] = origin && ok ? origin : "null";
+  if (origin && ok) headers["Access-Control-Allow-Credentials"] = "true";
+  return headers;
+}
+
+function handlePreflight(req: Request, cors: Record<string, string>): Response | null {
+  return req.method === "OPTIONS" ? new Response(null, { status: 204, headers: cors }) : null;
+}
+
+function corsJson(body: unknown, init: { status?: number; cors: Record<string, string> }): Response {
+  return new Response(JSON.stringify(body), {
+    status: init.status ?? 200,
+    headers: { "Content-Type": "application/json", ...init.cors },
+  });
+}
 
 const VENDOR_PORTAL_URL =
   Deno.env.get("VENDOR_PORTAL_URL") ?? "https://vendors.illuxus.com/vendor";

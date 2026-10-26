@@ -177,8 +177,8 @@ async function sendViaSmtp(
       from: payload.from,
       to: payload.to,
       subject: payload.subject,
-      content: payload.text,
-      html: payload.html,
+      content: stripTrailingWhitespace(payload.text),
+      html: stripTrailingWhitespace(payload.html),
       ...(payload.reply_to ? { replyTo: payload.reply_to } : {}),
     });
     return { ok: true };
@@ -188,6 +188,12 @@ async function sendViaSmtp(
   } finally {
     if (client) { try { await client.close(); } catch { /* noop */ } }
   }
+}
+
+/** denomailer turns a line-final space into a literal "=20" in the
+ *  delivered email, so strip trailing spaces (LF or CRLF lines). */
+function stripTrailingWhitespace(body: string): string {
+  return body.replace(/[ \t]+(?=\r?$)/gm, "");
 }
 
 function defaultFromAddress(displayName = "Illuxus"): string {

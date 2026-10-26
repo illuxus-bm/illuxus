@@ -120,8 +120,8 @@ export async function sendViaSmtp(
       from: payload.from,
       to: payload.to,
       subject: payload.subject,
-      content: payload.text,
-      html: payload.html,
+      content: stripTrailingWhitespace(payload.text),
+      html: stripTrailingWhitespace(payload.html),
       ...(payload.reply_to ? { replyTo: payload.reply_to } : {}),
     });
     return { ok: true };
@@ -135,6 +135,19 @@ export async function sendViaSmtp(
       try { await client.close(); } catch { /* noop */ }
     }
   }
+}
+
+/**
+ * Removes spaces / tabs at the end of every line. denomailer's
+ * quoted-printable encoding turns a line-final space into "=20" and then
+ * escapes it again, so mail clients showed a literal "=20" wherever a
+ * template line ended in whitespace — typically the indented blank line
+ * left behind by an optional `${cond ? "…" : ""}` block. Line-final
+ * whitespace never affects how HTML or plain text renders.
+ */
+function stripTrailingWhitespace(body: string): string {
+  // `(?=\r?$)`: some templates live in CRLF files, so the space sits before a \r.
+  return body.replace(/[ \t]+(?=\r?$)/gm, "");
 }
 
 /**
