@@ -39,7 +39,7 @@ export default function CommunityCalendarPage() {
               onClick={() => setFilter(f)}
               className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
                 filter === f
-                  ? "bg-foreground text-background"
+                  ? "bg-primary text-primary-foreground"
                   : "bg-muted text-muted-foreground hover:text-foreground"
               }`}
             >

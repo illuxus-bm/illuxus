@@ -73,70 +73,75 @@
     --font-sans: 'Onest', 'Poppins', system-ui, -apple-system, 'Segoe UI', sans-serif;
     --font-poster: 'Bebas Neue', 'Oswald', 'Arial Narrow', Impact, sans-serif;
 
-    /* Bright, clean canvas */
-    --background: 0 0% 100%;
-    --foreground: 258 35% 11%;
+    /* "Premium & Professional" palette: violet identity and amber accent on
+       neutral canvases. Light: #FAFAFA canvas, #FFFFFF surfaces, #111827
+       text, #7E22CE violet, #D97706 amber. */
+    --background: 0 0% 98%;
+    --foreground: 221 39% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 258 35% 11%;
+    --card-foreground: 221 39% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 258 35% 11%;
+    --popover-foreground: 221 39% 11%;
 
-    --primary: 258 35% 11%;
+    /* Brand violet. `--primary-ink` is the violet as text, tuned per theme
+       for contrast; fills (`bg-primary`) keep the base value. */
+    --primary: 272 72% 47%;
     --primary-foreground: 0 0% 100%;
+    --primary-ink: 272 72% 47%;
 
-    --secondary: 258 20% 96%;
-    --secondary-foreground: 258 35% 11%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 221 39% 11%;
 
-    --muted: 258 20% 96%;
-    --muted-foreground: 258 8% 44%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 220 9% 46%;
 
-    /* Brand accent: violet. `--accent-ink` is the
-       accent as text; `--highlight` colours the emphasised words in poster
-       headlines; `--spot` is the sparing gold used on a few standout elements. */
-    --accent: 258 90% 66%;
-    --accent-foreground: 0 0% 100%;
-    --accent-ink: 263 70% 50%;
-    --highlight: 262 83% 58%;
-    --spot: 43 92% 52%;
-    --spot-foreground: 42 100% 5%;
+    /* Accent: amber, for the elements that should draw the eye. `--accent-ink`
+       is the accent as text; `--highlight` colours the emphasised words in
+       poster headlines; `--spot` is the gold used on a few standout elements. */
+    --accent: 32 95% 44%;
+    --accent-foreground: 221 39% 11%;
+    --accent-ink: 26 90% 37%;
+    --highlight: 272 72% 47%;
+    --spot: 32 95% 44%;
+    --spot-foreground: 221 39% 11%;
     --success: 142 72% 42%;
 
     /* Bright, basic primary palette */
     --brand-red: 0 90% 58%;
     --brand-pink: 330 88% 60%;
-    --brand-purple: 265 85% 60%;
+    --brand-purple: 272 72% 47%;
     --brand-blue: 220 95% 56%;
     --brand-cyan: 190 92% 48%;
     --brand-green: 142 72% 42%;
     --brand-yellow: 48 100% 52%;
-    --brand-amber: 38 96% 52%;
+    --brand-amber: 32 95% 44%;
     --brand-orange: 22 95% 56%;
 
     --destructive: 0 90% 58%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 258 14% 91%;
-    --input: 258 14% 91%;
-    --ring: 258 90% 66%;
+    --border: 220 13% 91%;
+    --input: 220 13% 88%;
+    --ring: 272 72% 47%;
 
     --radius: 0.75rem;
 
-    --chart-1: 258 90% 66%;
+    --chart-1: 272 72% 47%;
     --chart-2: 142 72% 42%;
-    --chart-3: 38 96% 52%;
-    --chart-4: 239 84% 67%;
+    --chart-3: 32 95% 44%;
+    --chart-4: 220 95% 56%;
     --chart-5: 330 88% 60%;
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 258 8% 35%;
-    --sidebar-primary: 258 35% 11%;
+    --sidebar-foreground: 220 9% 40%;
+    --sidebar-primary: 272 72% 47%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 258 20% 96%;
-    --sidebar-accent-foreground: 258 35% 11%;
-    --sidebar-border: 258 14% 91%;
-    --sidebar-ring: 258 90% 66%;
+    --sidebar-accent: 270 100% 97%;
+    --sidebar-accent-foreground: 272 72% 40%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 272 72% 47%;
   }
 
   @media (min-width: 1024px) {
@@ -146,65 +151,68 @@
   .dark {
     --float-shadow: 0 1px 2px hsl(0 0% 0% / 0.4), 0 12px 28px -14px hsl(0 0% 0% / 0.9);
     --pop-shadow: 0 2px 6px hsl(0 0% 0% / 0.45), 0 24px 48px -20px hsl(0 0% 0% / 0.95);
-    /* Deep neutral canvas, bright accents preserved */
-    --background: 258 41% 7%;
-    --foreground: 0 0% 98%;
+    /* Dark: #121212 canvas, #1E1E1E surfaces, #E5E7EB text, #9333EA violet,
+       #F59E0B amber. Violet as small text is lifted (`--primary-ink`) so it
+       stays readable on the dark canvas. */
+    --background: 0 0% 7%;
+    --foreground: 220 13% 91%;
 
-    --card: 258 32% 11%;
-    --card-foreground: 0 0% 98%;
+    --card: 0 0% 12%;
+    --card-foreground: 220 13% 91%;
 
-    --popover: 258 32% 11%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 220 13% 91%;
 
-    --primary: 0 0% 98%;
-    --primary-foreground: 258 41% 7%;
+    --primary: 271 81% 56%;
+    --primary-foreground: 0 0% 100%;
+    --primary-ink: 270 95% 75%;
 
-    --secondary: 258 26% 15%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: 0 0% 16%;
+    --secondary-foreground: 220 13% 91%;
 
-    --muted: 258 26% 15%;
-    --muted-foreground: 258 12% 66%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 218 11% 65%;
 
-    --accent: 258 90% 66%;
-    --accent-foreground: 0 0% 100%;
-    --accent-ink: 255 92% 76%;
-    --highlight: 252 95% 85%;
-    --spot: 43 92% 52%;
-    --spot-foreground: 42 100% 5%;
+    --accent: 38 92% 50%;
+    --accent-foreground: 0 0% 7%;
+    --accent-ink: 38 92% 50%;
+    --highlight: 270 95% 75%;
+    --spot: 38 92% 50%;
+    --spot-foreground: 0 0% 7%;
     --success: 142 70% 50%;
 
     /* Brighter brand tones for legibility on dark */
     --brand-red: 0 92% 64%;
     --brand-pink: 330 90% 66%;
-    --brand-purple: 265 88% 68%;
+    --brand-purple: 271 81% 56%;
     --brand-blue: 220 95% 62%;
     --brand-cyan: 190 92% 56%;
     --brand-green: 142 70% 50%;
     --brand-yellow: 48 100% 58%;
-    --brand-amber: 38 96% 58%;
+    --brand-amber: 38 92% 50%;
     --brand-orange: 22 95% 62%;
 
     --destructive: 0 80% 58%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 258 22% 20%;
-    --input: 258 22% 22%;
-    --ring: 258 90% 66%;
+    --border: 0 0% 19%;
+    --input: 0 0% 22%;
+    --ring: 271 81% 56%;
 
-    --chart-1: 258 90% 72%;
+    --chart-1: 271 81% 62%;
     --chart-2: 142 70% 50%;
-    --chart-3: 38 96% 58%;
-    --chart-4: 234 89% 74%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 220 95% 62%;
     --chart-5: 330 90% 66%;
 
-    --sidebar-background: 258 41% 6%;
-    --sidebar-foreground: 258 12% 68%;
-    --sidebar-primary: 0 0% 98%;
-    --sidebar-primary-foreground: 258 41% 7%;
-    --sidebar-accent: 258 26% 14%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 258 22% 16%;
-    --sidebar-ring: 258 90% 66%;
+    --sidebar-background: 0 0% 9%;
+    --sidebar-foreground: 218 11% 65%;
+    --sidebar-primary: 271 81% 56%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 271 30% 17%;
+    --sidebar-accent-foreground: 270 95% 82%;
+    --sidebar-border: 0 0% 16%;
+    --sidebar-ring: 271 81% 56%;
   }
 }
 
@@ -336,19 +344,19 @@
   .backstage-eyebrow { color: hsl(var(--brand-blue)); }
   .backstage-accent  { color: hsl(var(--brand-orange)); }
   .backstage-cta {
-    background: hsl(var(--foreground));
-    color: hsl(var(--background));
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
   }
-  .backstage-cta:hover { background: hsl(var(--foreground) / 0.88); }
+  .backstage-cta:hover { background: hsl(var(--primary) / 0.88); }
   .backstage-grain { background: transparent; }
 
   /* Solid CTA used across landing + dashboard */
   .playful-cta {
-    background: hsl(var(--foreground));
-    color: hsl(var(--background));
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
   }
   .playful-cta:hover {
-    background: hsl(var(--foreground) / 0.88);
+    background: hsl(var(--primary) / 0.88);
   }
   .playful-section-bg {
     background: hsl(var(--background));
@@ -357,11 +365,11 @@
     background: hsl(var(--background));
   }
   .playful-brand-mark {
-    background: hsl(var(--foreground));
+    background: hsl(var(--primary));
   }
   .playful-active-pill {
-    background: hsl(var(--secondary));
-    color: hsl(var(--foreground));
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary-ink));
     font-weight: 600;
   }
   .playful-soft-card {
@@ -570,59 +578,28 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
 }
 
 /* ─── Signed-in app shell ──────────────────────────────────────────────────
-   The dashboard look: a soft grey canvas with the header's chips floating
-   on it, and the page itself on one large white rounded panel. Inside the shell
-   the palette is neutral (no violet tint) and corners are rounder, so every
-   dashboard page picks the look up from the tokens it already uses.
-   Dialogs and menus render outside the shell and keep the base tokens. */
+   The dashboard look: a canvas a step deeper than the page, with the
+   header's chips floating on it, and the page itself on one large rounded
+   panel (`--background`) holding the cards (`--card`). The shell keeps the
+   site palette (violet primary, amber accent) and only rounds the corners
+   and sets the canvas, so every dashboard page picks the look up from the
+   tokens it already uses. Dialogs and menus render outside the shell. */
 .app-shell {
-  --shell: 60 5% 95%;
-  --background: 0 0% 100%;
-  --foreground: 0 0% 7%;
-  --card: 0 0% 100%;
-  --card-foreground: 0 0% 7%;
-  --primary: 0 0% 7%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 60 5% 96%;
-  --secondary-foreground: 0 0% 7%;
-  --muted: 60 5% 96%;
-  --muted-foreground: 0 0% 42%;
-  --border: 60 5% 92.5%;
-  --input: 60 4% 89%;
-  --ring: 0 0% 25%;
+  --shell: 240 5% 95%;
   --radius: 0.875rem;
   /* What scrolls under the header fades into the canvas colour. */
   --float-haze: hsl(var(--shell) / 0.6);
-  --sidebar-background: 60 5% 95%;
-  --sidebar-foreground: 0 0% 40%;
+  --sidebar-background: 240 5% 95%;
   --sidebar-accent: 0 0% 100%;
-  --sidebar-accent-foreground: 0 0% 7%;
-  --sidebar-border: 60 4% 89%;
-  --sidebar-ring: 0 0% 25%;
+  --sidebar-border: 220 13% 88%;
   background: hsl(var(--shell));
   color: hsl(var(--foreground));
 }
 .dark .app-shell {
-  --shell: 0 0% 5%;
-  --background: 0 0% 8%;
-  --foreground: 0 0% 98%;
-  --card: 0 0% 10.5%;
-  --card-foreground: 0 0% 98%;
-  --primary: 0 0% 98%;
-  --primary-foreground: 0 0% 7%;
-  --secondary: 0 0% 14%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 0 0% 14%;
-  --muted-foreground: 0 0% 64%;
-  --border: 0 0% 17%;
-  --input: 0 0% 19%;
-  --ring: 0 0% 80%;
-  --sidebar-background: 0 0% 5%;
-  --sidebar-foreground: 0 0% 66%;
-  --sidebar-accent: 0 0% 13%;
-  --sidebar-accent-foreground: 0 0% 98%;
+  --shell: 0 0% 4.5%;
+  --sidebar-background: 0 0% 4.5%;
+  --sidebar-accent: 271 30% 17%;
   --sidebar-border: 0 0% 15%;
-  --sidebar-ring: 0 0% 80%;
 }
 
 /* The white panel every page sits on. `overflow: clip` rounds what is
@@ -696,9 +673,9 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
 .float-chip[data-active="true"],
 .float-chip[data-active="true"]:hover,
 .float-chip-solid {
-  background: hsl(var(--foreground));
-  border-color: hsl(var(--foreground));
-  color: hsl(var(--background));
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 }
 @media (min-width: 1024px) {
   .float-header .shell-icon-btn { height: 2.5rem; width: 2.5rem; }
@@ -781,19 +758,19 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
 }
 .shell-icon-btn:hover { color: hsl(var(--foreground)); background: hsl(var(--muted)); }
 
-/* Sign-in brand panel: a deep brand tone that opens into soft green and
-   peach light at the foot, where the headline sits. */
+/* Sign-in brand panel: a deep violet tone that opens into warm amber and
+   violet light at the foot, where the headline sits. */
 .login-art {
   background:
-    radial-gradient(80% 55% at 12% 108%, hsl(140 62% 70% / 0.95), transparent 70%),
-    radial-gradient(75% 50% at 96% 104%, hsl(22 95% 76% / 0.9), transparent 68%),
-    radial-gradient(60% 40% at 50% 62%, hsl(262 60% 62% / 0.35), transparent 75%),
-    linear-gradient(170deg, hsl(258 44% 8%) 0%, hsl(258 42% 15%) 48%, hsl(262 38% 26%) 100%);
+    radial-gradient(80% 55% at 12% 108%, hsl(271 81% 62% / 0.9), transparent 70%),
+    radial-gradient(75% 50% at 96% 104%, hsl(38 92% 55% / 0.85), transparent 68%),
+    radial-gradient(60% 40% at 50% 62%, hsl(272 72% 47% / 0.35), transparent 75%),
+    linear-gradient(170deg, hsl(0 0% 7%) 0%, hsl(272 45% 13%) 48%, hsl(272 55% 22%) 100%);
 }
-.login-art h2, .login-art p { text-shadow: 0 1px 16px hsl(258 41% 7% / 0.4); }
+.login-art h2, .login-art p { text-shadow: 0 1px 16px hsl(0 0% 7% / 0.45); }
 .login-art-card {
   background: hsl(0 0% 100% / 0.92);
-  box-shadow: 0 40px 80px -30px hsl(258 60% 4% / 0.7), 0 0 0 1px hsl(0 0% 100% / 0.4);
+  box-shadow: 0 40px 80px -30px hsl(272 60% 4% / 0.7), 0 0 0 1px hsl(0 0% 100% / 0.4);
   transform: rotate(-3deg);
 }
 

@@ -84,6 +84,8 @@ interface Props {
   value: BookingBriefState;
   onChange: (patch: Partial<BookingBriefState>) => void;
   eventDate: string | null;
+  /** Event end; venues must be free from eventDate through this day. */
+  eventEndDate?: string | null;
   eventCity?: string | null;
   pickerOpen: boolean;
   onPickerOpenChange: (open: boolean) => void;
@@ -93,6 +95,7 @@ export function VenueBookingForm({
   value,
   onChange,
   eventDate,
+  eventEndDate,
   eventCity,
   pickerOpen,
   onPickerOpenChange,
@@ -111,16 +114,22 @@ export function VenueBookingForm({
   };
 
   const dateLabel = useMemo(() => {
-    if (!eventDate) return null;
-    const d = new Date(eventDate);
-    if (Number.isNaN(d.getTime())) return null;
-    return d.toLocaleDateString(undefined, {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  }, [eventDate]);
+    const fmt = (iso: string | null | undefined) => {
+      if (!iso) return null;
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return null;
+      return d.toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    };
+    const start = fmt(eventDate);
+    const end = fmt(eventEndDate);
+    if (!start) return null;
+    return end && end !== start ? `${start} – ${end}` : start;
+  }, [eventDate, eventEndDate]);
 
   return (
     <div className="space-y-6">
@@ -152,7 +161,7 @@ export function VenueBookingForm({
           </div>
 
           <div>
-            <Label className="text-[12px]">Event date</Label>
+            <Label className="text-[12px]">Event dates</Label>
             <Input
               value={dateLabel ?? ""}
               readOnly
@@ -364,6 +373,7 @@ export function VenueBookingForm({
           onChange({ vendor: v, selectedServiceIds: ids })
         }
         eventDate={eventDate ?? null}
+        eventEndDate={eventEndDate ?? null}
         seedCity={eventCity ?? null}
       />
     </div>

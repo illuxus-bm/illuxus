@@ -90,7 +90,7 @@ export function AccountMenu({
           {avatarUrl ? (
             <img src={avatarUrl} alt="" className="h-7 w-7 rounded-full object-cover" />
           ) : (
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground text-[10px] font-semibold text-background">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
               {initials}
             </span>
           )}

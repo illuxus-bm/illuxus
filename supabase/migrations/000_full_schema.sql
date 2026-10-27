@@ -6454,7 +6454,10 @@ RETURNS TABLE(
   session_count bigint
 ) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT DISTINCT
-    e.id, e.slug, e.title, e.description, e.date, e.end_date, e.location, e.venue, e.image_url, e.status,
+    e.id, e.slug, e.title, e.description, e.date, e.end_date, e.location, e.venue,
+    -- Banners live in banner_*_url; image_url is a legacy field, usually empty.
+    COALESCE(NULLIF(e.banner_landscape_url, ''), NULLIF(e.image_url, ''), NULLIF(e.banner_portrait_url, '')),
+    e.status,
     o.name,
     sp.id, sp.name, sp.photo_url, sp.company,
     (SELECT count(*) FROM sessions s WHERE s.event_id = e.id AND s.speaker_id = sp.id)

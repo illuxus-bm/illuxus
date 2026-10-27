@@ -148,24 +148,34 @@ export function useSelectVenueVendor() {
       const inserted = selection as unknown as EventVenueSelection;
 
       // Best-effort notification. The row is already saved, so a mail
-      // hiccup shouldn't turn the whole mutation red. The edge function
-      // also falls back to reading selection_id if venue_id is missing,
-      // so a pre-migration client wouldn't lose the email either.
+      // hiccup shouldn't turn the whole mutation red — but callers get
+      // `emailed: false` so they don't claim the venue admin was emailed.
+      // functions.invoke reports failures in `error` (it doesn't throw),
+      // and the function itself answers { ok: false } on SMTP errors.
+      let emailed = false;
       try {
-        await supabase.functions.invoke("notify-venue-selection", {
-          body: {
-            event_id: eventId,
-            vendor_id: vendorId,
-            venue_id: venueId ?? null,
-            selection_id: inserted.id,
+        const { data: mail, error: mailErr } = await supabase.functions.invoke(
+          "notify-venue-selection",
+          {
+            body: {
+              event_id: eventId,
+              vendor_id: vendorId,
+              venue_id: venueId ?? null,
+              selection_id: inserted.id,
+            },
           },
-        });
+        );
+        emailed = !mailErr && (mail as { ok?: boolean } | null)?.ok !== false;
+        if (!emailed) {
+          // eslint-disable-next-line no-console
+          console.warn("notify-venue-selection failed:", mailErr ?? mail);
+        }
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn("notify-venue-selection dispatch failed:", err);
       }
 
-      return inserted;
+      return { ...inserted, emailed };
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["event", vars.eventId] });

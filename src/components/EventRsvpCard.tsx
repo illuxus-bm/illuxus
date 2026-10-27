@@ -445,7 +445,7 @@ export default function EventRsvpCard({
   })();
   const barAction =
     state === "approved" && registrationId ? <a href={`/t/${registrationId}`} className={barBtn} style={accentButton}>View ticket</a>
-    : state === "declined" && organiserHref ? <a href={organiserHref} className={`${barBtn} !bg-foreground !text-background`}>Contact organiser</a>
+    : state === "declined" && organiserHref ? <a href={organiserHref} className={`${barBtn} !bg-primary !text-primary-foreground`}>Contact organiser</a>
     : state === "idle" && !isEventOver && !isFull
       ? <button type="button" onClick={toCard} className={barBtn} style={accentButton}>{isApprovalFlow ? "Request to join" : "Register"}</button>
       : <button type="button" onClick={toCard} className={`${barBtn} !bg-card !text-foreground border border-border`}>Details</button>;
@@ -566,7 +566,7 @@ export default function EventRsvpCard({
           </Button>
         ) : state === "declined" ? (
           organiserHref ? (
-            <Button asChild className="h-12 w-full rounded-[14px] bg-foreground text-[14.5px] font-semibold text-background hover:bg-foreground/90">
+            <Button asChild className="h-12 w-full rounded-[14px] bg-primary text-[14.5px] font-semibold text-primary-foreground hover:bg-primary/90">
               <a href={organiserHref}>Contact organiser</a>
             </Button>
           ) : null

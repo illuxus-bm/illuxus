@@ -534,7 +534,7 @@ export default function SponsorEventDetailPage() {
                     onClick={() => setMeet(meet === k && k !== "any" ? "any" : k)}
                     className={cn(
                       "flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[12.5px] transition-colors",
-                      meet === k ? "border-foreground bg-foreground font-semibold text-background" : "border-border font-medium text-muted-foreground hover:text-foreground",
+                      meet === k ? "border-primary bg-primary font-semibold text-primary-foreground" : "border-border font-medium text-muted-foreground hover:text-foreground",
                     )}
                   >
                     {k !== "any" && <i className={cn("h-2 w-2 rounded-full", {
@@ -562,7 +562,7 @@ export default function SponsorEventDetailPage() {
                 onClick={() => setTab(k)}
                 className={cn(
                   "flex h-[38px] shrink-0 items-center gap-2 rounded-full border pl-3.5 pr-1.5 text-[13.5px] transition-colors",
-                  tab === k ? "border-foreground bg-foreground font-semibold text-background" : "border-border font-medium text-muted-foreground hover:text-foreground",
+                  tab === k ? "border-primary bg-primary font-semibold text-primary-foreground" : "border-border font-medium text-muted-foreground hover:text-foreground",
                 )}
               >
                 {label}

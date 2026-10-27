@@ -318,7 +318,7 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
   );
 
   const chip = (active: boolean) =>
-    `shrink-0 snap-start inline-flex items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-medium transition-colors ${active ? "bg-foreground text-background border-foreground" : "bg-card border-border text-muted-foreground hover:text-foreground"}`;
+    `shrink-0 snap-start inline-flex items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-medium transition-colors ${active ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground hover:text-foreground"}`;
   const tile = (active: boolean) =>
     `rounded-lg border text-left transition-colors ${active ? "border-foreground ring-1 ring-foreground" : "border-border hover:border-foreground/40"}`;
 
@@ -462,7 +462,7 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
                       <StudioThumb spec={{ ...spec, design: d }} size={STUDIO_SIZES[0]} />
                       <span className="block mt-1.5 text-[11px] font-medium leading-tight truncate">{d.layout.name}</span>
                       <span className="block text-[10px] text-muted-foreground leading-tight truncate">{d.kit.name}</span>
-                      {design.id === d.id && <span className="absolute top-2.5 right-2.5 h-4 w-4 rounded-full bg-foreground text-background flex items-center justify-center"><Check className="h-3 w-3" /></span>}
+                      {design.id === d.id && <span className="absolute top-2.5 right-2.5 h-4 w-4 rounded-full bg-primary text-primary-foreground flex items-center justify-center"><Check className="h-3 w-3" /></span>}
                     </button>
                   ))}
                 </SoftScroll>

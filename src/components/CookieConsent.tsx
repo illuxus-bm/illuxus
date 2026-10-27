@@ -285,7 +285,7 @@ function CookieCategory({ icon, label, description, enabled, locked, lockedLabel
             onClick={() => onChange?.(!enabled)}
             className={[
               "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              enabled ? "bg-foreground" : "bg-muted-foreground/30",
+              enabled ? "bg-primary" : "bg-muted-foreground/30",
             ].join(" ")}
           >
             <span

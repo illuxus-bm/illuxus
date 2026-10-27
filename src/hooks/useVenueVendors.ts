@@ -23,8 +23,10 @@ export interface VenueVendor {
    *  in the card, expanded in the detail view. */
   tagline: string | null;
   bio: string | null;
+  /** The venue's own city (migration 108), falling back to the vendor's. */
   city: string | null;
   country: string | null;
+  address_line: string | null;
   cover_url: string | null;
   logo_url: string | null;
   rating_avg: number | null;
@@ -33,9 +35,8 @@ export interface VenueVendor {
   notify_email: boolean;
   verification_status: string | null;
   contact_email: string | null;
-  /** Cheapest active vendor_services.base_price for the venue's vendor,
-   *  kept for continuity with the old marketplace card. Null when the
-   *  vendor has no priced services. */
+  /** Cheapest active service offered at this venue (pinned to it or
+   *  vendor-wide). Null when there are no priced services. */
   starting_price: number | null;
   starting_price_unit: string | null;
   service_count: number;
@@ -55,17 +56,23 @@ export interface VenueVendor {
 }
 
 interface Filters {
+  /** City name or a full location string ("Bandra West, Mumbai, India").
+   *  Matched with `matchesCity`, so either form works. */
   city?: string;
   search?: string;
   /**
-   * When set, restrict the result to venues whose owning vendor is
-   * available on this date. A venue is treated as unavailable when
-   * the owning vendor has vendor_availability with status IN
-   * ('booked','held') on that date, OR when an accepted
-   * event_venue_selections row exists for the venue's vendor on that
-   * date.
+   * When set, restrict the result to venues free on every day from
+   * `eventDate` to `eventEndDate` (inclusive; end defaults to start).
+   * Busy = a manual / booking block in vendor_availability, or another
+   * event's accepted selection overlapping the range. Resolved by the
+   * `unavailable_venue_ids` RPC (migration 108) because RLS hides other
+   * organizations' selections from a direct read.
    */
   eventDate?: string | null;
+  eventEndDate?: string | null;
+  /** The organizer's own event, so its accepted booking doesn't count as
+   *  a clash when they re-open the picker. */
+  excludeEventId?: string | null;
 }
 
 interface VenueRow {
@@ -75,6 +82,8 @@ interface VenueRow {
   space_type: string | null;
   description: string | null;
   is_active: boolean;
+  address_line: string | null;
+  city: string | null;
   capacity_floating: number | null;
   capacity_theater: number | null;
   capacity_banquet: number | null;
@@ -94,6 +103,13 @@ interface VenueRow {
   } | null;
 }
 
+interface ServiceRow {
+  vendor_id: string;
+  venue_id: string | null;
+  base_price: number | null;
+  unit: string | null;
+}
+
 export function useVenueVendors(filters?: Filters) {
   return useQuery({
     queryKey: [
@@ -101,6 +117,8 @@ export function useVenueVendors(filters?: Filters) {
       filters?.city ?? "",
       filters?.search ?? "",
       filters?.eventDate ?? "",
+      filters?.eventEndDate ?? "",
+      filters?.excludeEventId ?? "",
     ],
     queryFn: async (): Promise<VenueVendor[]> => {
       // ─── Venues + owning vendor ───────────────────────────────────
@@ -108,6 +126,7 @@ export function useVenueVendors(filters?: Filters) {
         .from("venues" as never)
         .select(
           `id, vendor_id, name, space_type, description, is_active,
+           address_line, city,
            capacity_floating, capacity_theater, capacity_banquet,
            capacity_ushape, capacity_classroom,
            vendor:vendors!inner (
@@ -134,56 +153,33 @@ export function useVenueVendors(filters?: Filters) {
 
       let venues = (data ?? []) as VenueRow[];
 
-      // ─── Post-filter by city (search on the joined vendor) ──────
-      // PostgREST's `.ilike()` doesn't cross an embedded relation
-      // easily, so filter client-side. Small marketplace = cheap.
+      // ─── City ───────────────────────────────────────────────────
       if (filters?.city) {
-        const needle = filters.city.toLowerCase();
-        venues = venues.filter(
-          (v) =>
-            v.vendor?.city?.toLowerCase().includes(needle) ?? false,
+        const location = filters.city;
+        venues = venues.filter((v) =>
+          matchesCity(v.city ?? v.vendor?.city ?? null, location),
         );
       }
       if (venues.length === 0) return [];
 
-      // ─── Availability filter ────────────────────────────────────
-      let filteredIds = venues.map((v) => v.id);
-      const isoDate = toDateOnly(filters?.eventDate);
-      if (isoDate) {
-        const vendorIds = Array.from(
-          new Set(venues.map((v) => v.vendor_id)),
+      // ─── Availability across the whole event range ──────────────
+      const start = toDateOnly(filters?.eventDate);
+      if (start) {
+        const end = toDateOnly(filters?.eventEndDate) ?? start;
+        const { data: busy, error: busyErr } = await supabase.rpc(
+          "unavailable_venue_ids" as never,
+          {
+            p_start: start,
+            p_end: end < start ? start : end,
+            p_exclude_event_id: filters?.excludeEventId ?? null,
+          } as never,
         );
-        const [busyRes, takenRes] = await Promise.all([
-          supabase
-            .from("vendor_availability" as never)
-            .select("vendor_id, status")
-            .in("vendor_id", vendorIds)
-            .eq("date", isoDate)
-            .in("status", ["booked", "held"]),
-          supabase
-            .from("event_venue_selections" as never)
-            .select("vendor_id, event:events!inner(date)")
-            .in("vendor_id", vendorIds)
-            .eq("status", "accepted"),
-        ]);
-        const unavailableVendors = new Set<string>();
-        for (const r of (busyRes.data ?? []) as Array<{ vendor_id: string }>) {
-          unavailableVendors.add(r.vendor_id);
-        }
-        for (const r of (takenRes.data ?? []) as Array<{
-          vendor_id: string;
-          event: { date: string | null } | null;
-        }>) {
-          if (toDateOnly(r.event?.date ?? null) === isoDate) {
-            unavailableVendors.add(r.vendor_id);
-          }
-        }
-        filteredIds = venues
-          .filter((v) => !unavailableVendors.has(v.vendor_id))
-          .map((v) => v.id);
-        if (filteredIds.length === 0) return [];
-        venues = venues.filter((v) => filteredIds.includes(v.id));
+        if (busyErr) throw busyErr;
+        const busyIds = new Set((busy ?? []) as unknown as string[]);
+        venues = venues.filter((v) => !busyIds.has(v.id));
+        if (venues.length === 0) return [];
       }
+      const venueIds = venues.map((v) => v.id);
 
       // ─── Cover media ────────────────────────────────────────────
       // One extra fetch to grab every venue's cover photo. Non-cover
@@ -191,7 +187,7 @@ export function useVenueVendors(filters?: Filters) {
       const { data: mediaRows } = await supabase
         .from("venue_media" as never)
         .select("venue_id, url, is_cover")
-        .in("venue_id", filteredIds)
+        .in("venue_id", venueIds)
         .eq("is_cover", true);
       const coverByVenueId = new Map<string, string>();
       for (const m of (mediaRows ?? []) as Array<{ venue_id: string; url: string }>) {
@@ -200,42 +196,42 @@ export function useVenueVendors(filters?: Filters) {
         }
       }
 
-      // ─── Service pricing per vendor (starting price on the card) ─
+      // ─── Service pricing per venue (starting price on the card) ──
+      // A service counts for a venue when it's pinned to that venue or
+      // offered vendor-wide (venue_id null).
       const vendorIds = Array.from(new Set(venues.map((v) => v.vendor_id)));
       const { data: services } = await supabase
         .from("vendor_services" as never)
-        .select("vendor_id, base_price, unit, quote_on_request, is_active")
+        .select("vendor_id, venue_id, base_price, unit, is_active")
         .in("vendor_id", vendorIds)
         .eq("is_active", true);
+      const serviceRows = (services ?? []) as ServiceRow[];
       const priceIndex = new Map<
         string,
         { min: number | null; unit: string | null; count: number }
       >();
-      for (const svc of (services ?? []) as Array<{
-        vendor_id: string;
-        base_price: number | null;
-        unit: string | null;
-        quote_on_request: boolean;
-      }>) {
-        const bucket = priceIndex.get(svc.vendor_id) ?? {
-          min: null,
-          unit: null,
-          count: 0,
-        };
-        bucket.count += 1;
-        if (!svc.quote_on_request && typeof svc.base_price === "number" && svc.base_price > 0) {
-          if (bucket.min === null || svc.base_price < bucket.min) {
-            bucket.min = svc.base_price;
-            bucket.unit = svc.unit ?? null;
+      for (const v of venues) {
+        const bucket = { min: null as number | null, unit: null as string | null, count: 0 };
+        for (const svc of serviceRows) {
+          if (svc.vendor_id !== v.vendor_id) continue;
+          if (svc.venue_id && svc.venue_id !== v.id) continue;
+          bucket.count += 1;
+          // Prices are stored in minor units (paise / cents) by the venue app.
+          const price = svc.base_price == null ? 0 : Number(svc.base_price) / 100;
+          if (price > 0) {
+            if (bucket.min === null || price < bucket.min) {
+              bucket.min = price;
+              bucket.unit = svc.unit ?? null;
+            }
           }
         }
-        priceIndex.set(svc.vendor_id, bucket);
+        priceIndex.set(v.id, bucket);
       }
 
       // ─── Shape into VenueVendor cards ────────────────────────────
       return venues.map<VenueVendor>((v) => {
         const owner = v.vendor;
-        const priceInfo = priceIndex.get(v.vendor_id);
+        const priceInfo = priceIndex.get(v.id);
         const cap = pickMaxCapacity(v);
         return {
           id: v.id,
@@ -244,8 +240,9 @@ export function useVenueVendors(filters?: Filters) {
             ? v.description.slice(0, 140)
             : null,
           bio: v.description ?? null,
-          city: owner?.city ?? null,
+          city: v.city ?? owner?.city ?? null,
           country: owner?.country ?? null,
+          address_line: v.address_line,
           cover_url: coverByVenueId.get(v.id) ?? null,
           logo_url: owner?.logo_url ?? null,
           rating_avg: owner?.rating_avg ?? null,
@@ -267,6 +264,62 @@ export function useVenueVendors(filters?: Filters) {
     },
     staleTime: 60_000,
   });
+}
+
+// ─── City matching ──────────────────────────────────────────────────
+//
+// Organizers type locations freely ("Bandra West, Mumbai", "New Delhi,
+// India", "Bangalore") while venues store a bare city. A venue matches
+// when its city appears in the location text or the other way round,
+// after folding common alternate names onto one spelling.
+
+const CITY_ALIASES: Record<string, string> = {
+  bombay: "mumbai",
+  "new delhi": "delhi",
+  bangalore: "bengaluru",
+  calcutta: "kolkata",
+  madras: "chennai",
+  gurgaon: "gurugram",
+  poona: "pune",
+  baroda: "vadodara",
+  trivandrum: "thiruvananthapuram",
+  cochin: "kochi",
+};
+
+function normaliseCityText(text: string): string {
+  let t = ` ${text.toLowerCase().replace(/[^a-z]+/g, " ").trim()} `;
+  for (const [alias, canonical] of Object.entries(CITY_ALIASES)) {
+    t = t.split(` ${alias} `).join(` ${canonical} `);
+  }
+  return t;
+}
+
+/** True when `venueCity` is the city named in `location` (or vice versa).
+ *  Whole-word match, so "Pune" doesn't match "Punjab". */
+export function matchesCity(venueCity: string | null, location: string): boolean {
+  if (!venueCity) return false;
+  const city = normaliseCityText(venueCity);
+  const loc = normaliseCityText(location);
+  if (city.trim() === "" || loc.trim() === "") return false;
+  return loc.includes(city) || city.includes(loc);
+}
+
+/** Picks the city out of a free-text event location, given the cities
+ *  venues are listed in. Longest match wins so "Navi Mumbai" beats
+ *  "Mumbai" when both are listed. Null when none appear. */
+export function detectCity(
+  location: string | null | undefined,
+  knownCities: Array<string | null>,
+): string | null {
+  if (!location) return null;
+  let best: string | null = null;
+  for (const c of knownCities) {
+    if (!c) continue;
+    if (matchesCity(c, location) && (best === null || c.length > best.length)) {
+      best = c;
+    }
+  }
+  return best;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────

@@ -127,7 +127,7 @@ export default function EventVenueSection({ eventId }: { eventId: string }) {
       return;
     }
     try {
-      await selectVendor.mutateAsync({
+      const sent = await selectVendor.mutateAsync({
         eventId,
         // Card `id` is now a venue id (migration 106); `vendor_id` is
         // the owning business the request routes to.
@@ -138,7 +138,9 @@ export default function EventVenueSection({ eventId }: { eventId: string }) {
       });
       toast({
         title: "Request sent",
-        description: `${vendor.business_name} will be notified by email. You'll see their response here.`,
+        description: sent.emailed
+          ? `${vendor.business_name} has been notified by email. You'll see their response here.`
+          : `Saved, but the email to ${vendor.business_name} failed. They'll still see it in their venue dashboard.`,
       });
     } catch (err) {
       toast({
@@ -239,6 +241,8 @@ export default function EventVenueSection({ eventId }: { eventId: string }) {
         selectedVendorId={selection?.vendor_id ?? null}
         onSelect={handleSelect}
         eventDate={event?.date ?? null}
+        eventEndDate={event?.end_date ?? null}
+        eventId={eventId}
         seedCity={event?.location ?? null}
         submitting={selectVendor.isPending}
         confirmLabel={
@@ -261,13 +265,19 @@ function EventContextStrip({ event }: { event: EventLite | null }) {
       <div className="h-10 rounded-md bg-muted animate-pulse" aria-hidden />
     );
   }
-  const dateStr = event.date
-    ? new Date(event.date).toLocaleDateString(undefined, {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      })
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  const start = event.date ? fmt(event.date) : null;
+  const end = event.end_date ? fmt(event.end_date) : null;
+  const dateStr = start
+    ? end && end !== start
+      ? `${start} – ${end}`
+      : start
     : "Date not set";
   return (
     <div className="rounded-md border border-border bg-muted/30 px-3 py-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
@@ -618,7 +628,7 @@ function SelectionConfirmedExtras({
         )}
       </div>
       <span className="text-[12px] font-semibold shrink-0 pl-2">
-        {s.quote_on_request || !s.base_price
+        {!s.base_price
           ? "On request"
           : formatMoney(s.base_price, s.currency)}
       </span>

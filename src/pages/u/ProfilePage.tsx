@@ -124,7 +124,7 @@ export default function ProfilePage() {
               {avatarUrl ? (
                 <img loading="lazy" decoding="async" src={avatarUrl} alt="Avatar" className="h-16 w-16 rounded-full object-cover" />
               ) : (
-                <div className="h-16 w-16 rounded-full bg-foreground text-background flex items-center justify-center text-lg font-semibold">
+                <div className="h-16 w-16 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-lg font-semibold">
                   {initials}
                 </div>
               )}

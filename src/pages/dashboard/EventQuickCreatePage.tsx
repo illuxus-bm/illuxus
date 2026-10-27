@@ -140,7 +140,7 @@ export default function EventQuickCreatePage() {
     // Failure here is non-fatal — the event itself is already created.
     if (venueVendor && org?.id) {
       try {
-        await selectVenueVendor.mutateAsync({
+        const sent = await selectVenueVendor.mutateAsync({
           eventId: data.id,
           // venueVendor.id is now the venues.id after the marketplace
           // rewrite; venueVendor.vendor_id is the owning business.
@@ -162,7 +162,9 @@ export default function EventQuickCreatePage() {
         });
         toast({
           title: "Venue selected",
-          description: `${venueVendor.business_name} has been notified by email.`,
+          description: sent.emailed
+            ? `${venueVendor.business_name} has been notified by email.`
+            : `Request saved, but the email to ${venueVendor.business_name} failed. They'll still see it in their venue dashboard.`,
         });
       } catch (err) {
         // Supabase errors are plain PostgrestError objects, not Error
@@ -272,7 +274,7 @@ export default function EventQuickCreatePage() {
                   onClick={() => setEventFormat(v)}
                   className={`flex flex-col items-center gap-1 rounded-md border px-3 py-2.5 text-[12px] transition ${
                     eventFormat === v
-                      ? "border-foreground bg-foreground text-background shadow-sm"
+                      ? "border-primary bg-primary text-primary-foreground shadow-sm"
                       : "border-border bg-background hover:bg-muted/50 text-foreground"
                   }`}
                 >
@@ -418,7 +420,7 @@ export default function EventQuickCreatePage() {
                   <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Live preview</span>
                   <span
                     className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
-                      isPaid ? "bg-foreground text-background" : "bg-secondary text-foreground"
+                      isPaid ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"
                     }`}
                   >
                     {isPaid ? "Paid event" : "Free event"}
@@ -564,6 +566,7 @@ export default function EventQuickCreatePage() {
               value={brief}
               onChange={(patch) => setBrief((b) => ({ ...b, ...patch }))}
               eventDate={date || null}
+              eventEndDate={endDate || null}
               eventCity={location || null}
               pickerOpen={venuePickerOpen}
               onPickerOpenChange={setVenuePickerOpen}

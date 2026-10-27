@@ -192,7 +192,7 @@ export function WorkspaceChip() {
       {org.logo_url ? (
         <img src={org.logo_url} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover" />
       ) : (
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-foreground text-[11px] font-semibold text-background">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
           {org.name.charAt(0).toUpperCase()}
         </span>
       )}
@@ -271,7 +271,7 @@ export function SectionPills({
     cn(
       "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       active
-        ? "border-foreground bg-foreground text-background"
+        ? "border-primary bg-primary text-primary-foreground"
         : "border-border bg-card text-muted-foreground hover:text-foreground",
     );
   // One line at every width. The row scrolls sideways when it doesn't fit;

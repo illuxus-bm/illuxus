@@ -6,6 +6,7 @@ import { formatMoney, DEFAULT_EVENT_CURRENCY } from "@/lib/currency";
 import { convert, useFxRates } from "@/lib/fx";
 import { CurrencySwitcher, getStoredDisplayCurrency } from "@/components/CurrencySwitcher";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -17,7 +18,8 @@ import {
   Download, FileText, Users, DollarSign, Ticket, TrendingUp,
   CheckCircle2, Loader2, Calendar, BarChart3, Target,
   Percent, RefreshCw, ArrowUpRight, ArrowDownRight, CalendarClock,
-  FileSpreadsheet, FileDown, Award, AlertTriangle, Trophy,
+  FileSpreadsheet, FileDown, Award, AlertTriangle, Trophy, Mic, LayoutGrid, Layers,
+  Search, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
@@ -322,9 +324,377 @@ function BarList({
   );
 }
 
+type ReportView = "overview" | "speakers" | "sponsors";
+
+/** Counts rows per key, largest first. */
+function countBy<T>(rows: T[], key: (row: T) => [id: string, name: string]) {
+  const counts = new Map<string, { id: string; name: string; count: number }>();
+  for (const row of rows) {
+    const [id, name] = key(row);
+    const entry = counts.get(id) ?? { id, name, count: 0 };
+    entry.count++;
+    counts.set(id, entry);
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count);
+}
+
 const GRANULARITY_WORD = { day: "day", week: "week", month: "month" } as const;
 const BAR_ROWS = 6;
 const TABLE_ROWS = 10;
+
+// ─── Speaker & sponsor views ──────────────────────────────────────────────────
+
+interface SpeakerEventRow { id: string; title: string; total: number; attended: number; held: boolean }
+
+interface SpeakerReport {
+  people: number;
+  slots: number;
+  perEvent: SpeakerEventRow[];
+  held: (SpeakerEventRow & { rate: number })[];
+  heldSlots: number;
+  attended: number;
+  rate: number | null;
+}
+
+interface SponsorReport {
+  companies: number;
+  placements: number;
+  byTier: { id: string; name: string; count: number }[];
+  tiers: number;
+  byEvent: { id: string; name: string; count: number }[];
+}
+
+const scopeWord = (eventFilter: string) => (eventFilter === "all" ? "to any event" : "to this event");
+
+function ExportButton({ onClick, disabled }: { onClick: () => void; disabled: boolean }) {
+  return (
+    <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-[11px]" onClick={onClick} disabled={disabled}>
+      <Download className="h-3 w-3" /> Export CSV
+    </Button>
+  );
+}
+
+const matchSpeaker = (s: SpeakerAttendee, q: string) =>
+  [s.name, s.email, s.company, s.event_title].some((v) => v?.toLowerCase().includes(q));
+const matchSponsor = (s: SponsorRow, q: string) =>
+  [s.name, s.email, s.tier, s.website, s.event_title].some((v) => v?.toLowerCase().includes(q));
+
+/** Search plus fixed-size pages, so a long list doesn't stretch the page. */
+function useTablePage<T>(rows: T[], match: (row: T, q: string) => boolean) {
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? rows.filter((r) => match(r, q)) : rows;
+  }, [rows, query, match]);
+  const pages = Math.max(1, Math.ceil(filtered.length / TABLE_ROWS));
+  const current = Math.min(page, pages - 1);
+  return {
+    query,
+    search: (q: string) => { setQuery(q); setPage(0); },
+    page: current,
+    pages,
+    setPage,
+    total: filtered.length,
+    visible: filtered.slice(current * TABLE_ROWS, (current + 1) * TABLE_ROWS),
+  };
+}
+
+function TableSearch({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <div className="relative w-full sm:w-56">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        className="h-7 pl-8 text-[12px]"
+      />
+    </div>
+  );
+}
+
+function Pager({ page, pages, total, onPage }: { page: number; pages: number; total: number; onPage: (p: number) => void }) {
+  if (total <= TABLE_ROWS) return null;
+  const from = page * TABLE_ROWS + 1;
+  const to = Math.min(total, from + TABLE_ROWS - 1);
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3 text-[12px] text-muted-foreground">
+      <span className="tabular-nums">{from}–{to} of {total.toLocaleString()}</span>
+      <div className="flex items-center gap-1">
+        <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => onPage(page - 1)} disabled={page === 0} aria-label="Previous page">
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </Button>
+        <span className="px-1.5 tabular-nums">{page + 1} / {pages}</span>
+        <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => onPage(page + 1)} disabled={page >= pages - 1} aria-label="Next page">
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SpeakerView({
+  report, speakers, eventFilter, onExport,
+}: {
+  report: SpeakerReport;
+  speakers: SpeakerAttendee[];
+  eventFilter: string;
+  onExport: () => void;
+}) {
+  const maxPerEvent = Math.max(1, ...report.perEvent.map((e) => e.total));
+  const table = useTablePage(speakers, matchSpeaker);
+  return (
+    <>
+      <p className="text-[12px] text-muted-foreground">
+        Follows the event filter · check-ins count once an event has started
+      </p>
+
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatTile icon={Mic} label="Speakers" value={report.people.toLocaleString()} hint="Unique people" />
+        <StatTile
+          icon={CalendarClock} label="Assignments"
+          value={report.slots.toLocaleString()}
+          hint={`Across ${report.perEvent.length} ${report.perEvent.length === 1 ? "event" : "events"}`}
+        />
+        <StatTile
+          icon={CheckCircle2} label="Checked in"
+          value={report.attended.toLocaleString()}
+          hint={report.heldSlots > 0 ? `of ${report.heldSlots.toLocaleString()} at events held` : "No event has started"}
+        />
+        <StatTile
+          icon={Percent} label="Attendance rate"
+          value={report.rate === null ? "—" : fmtPct(report.rate)}
+          hint={`${report.held.length} ${report.held.length === 1 ? "event" : "events"} held`}
+        />
+      </div>
+
+      <div className="grid select-none grid-cols-1 gap-4 lg:grid-cols-6">
+        <Card
+          className="lg:col-span-3" icon={Target} title="Speaker attendance by event"
+          subtitle={report.held.length > BAR_ROWS ? `Top ${BAR_ROWS} of ${report.held.length} events held` : "Events that have started"}
+        >
+          {report.held.length === 0 ? (
+            <Empty className={EMPTY_H}>No event with speakers has started yet.</Empty>
+          ) : (
+            <div className={cn("flex flex-col", CHART_MIN_H)}>
+              <BarList track rows={report.held.slice(0, BAR_ROWS).map((e) => ({
+                id: e.id,
+                name: e.title,
+                value: `${Math.round(e.rate)}%`,
+                detail: `${e.attended} of ${e.total}`,
+                fraction: e.rate / 100,
+              }))} />
+            </div>
+          )}
+        </Card>
+
+        <Card
+          className="lg:col-span-3" icon={BarChart3} title="Speakers by event"
+          subtitle={report.perEvent.length > BAR_ROWS ? `Top ${BAR_ROWS} of ${report.perEvent.length}` : "Speakers assigned to each event"}
+        >
+          {report.perEvent.length === 0 ? (
+            <Empty className={EMPTY_H}>No speakers assigned {scopeWord(eventFilter)} yet.</Empty>
+          ) : (
+            <div className={cn("flex flex-col", CHART_MIN_H)}>
+              <BarList rows={report.perEvent.slice(0, BAR_ROWS).map((e) => ({
+                id: e.id,
+                name: e.title,
+                value: e.total.toLocaleString(),
+                fraction: e.total / maxPerEvent,
+              }))} />
+            </div>
+          )}
+        </Card>
+
+        <Card className="lg:col-span-6" icon={Mic} title="Speaker attendance" stackAction
+          subtitle={`${speakers.length.toLocaleString()} ${speakers.length === 1 ? "assignment" : "assignments"}`}
+          action={
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <TableSearch value={table.query} onChange={table.search} placeholder="Search speakers" />
+              <ExportButton onClick={onExport} disabled={speakers.length === 0} />
+            </div>
+          }
+        >
+          {speakers.length === 0 ? (
+            <Empty className="py-8">No speakers assigned {scopeWord(eventFilter)} yet.</Empty>
+          ) : table.total === 0 ? (
+            <Empty className="py-8">No speakers match “{table.query}”.</Empty>
+          ) : (
+            <>
+            <div className="overflow-x-auto">
+              <table className="w-full whitespace-nowrap text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <th className="py-2 pr-4 font-medium">Speaker</th>
+                    <th className="py-2 pr-4 font-medium">Company</th>
+                    <th className="py-2 pr-4 font-medium">Event</th>
+                    <th className="py-2 font-medium">Attendance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {table.visible.map((s, i) => (
+                    <tr key={`${s.event_id}-${s.email ?? s.name}-${i}`}>
+                      <td className="py-2.5 pr-4 font-medium">{s.name}</td>
+                      <td className="py-2.5 pr-4 text-muted-foreground">{s.company ?? "—"}</td>
+                      <td className="py-2.5 pr-4 text-muted-foreground">{s.event_title}</td>
+                      <td className="py-2.5">
+                        {s.checked_in ? (
+                          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-emerald-700 dark:text-emerald-400">
+                            <CheckCircle2 className="h-3 w-3" /> Checked in
+                          </span>
+                        ) : (
+                          <span className="text-[12px] text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pager page={table.page} pages={table.pages} total={table.total} onPage={table.setPage} />
+            </>
+          )}
+        </Card>
+      </div>
+    </>
+  );
+}
+
+function SponsorView({
+  report, sponsors, eventFilter, onExport,
+}: {
+  report: SponsorReport;
+  sponsors: SponsorRow[];
+  eventFilter: string;
+  onExport: () => void;
+}) {
+  const maxTier = Math.max(1, ...report.byTier.map((t) => t.count));
+  const maxEvent = Math.max(1, ...report.byEvent.map((e) => e.count));
+  const table = useTablePage(sponsors, matchSponsor);
+  return (
+    <>
+      <p className="text-[12px] text-muted-foreground">Follows the event filter</p>
+
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatTile icon={Award} label="Sponsors" value={report.companies.toLocaleString()} hint="Unique companies" />
+        <StatTile
+          icon={Ticket} label="Placements"
+          value={report.placements.toLocaleString()}
+          hint="Sponsor × event pairings"
+        />
+        <StatTile
+          icon={CalendarClock} label="Events sponsored"
+          value={report.byEvent.length.toLocaleString()}
+          hint={report.byEvent.length > 0 ? `${Math.round((report.placements / report.byEvent.length) * 10) / 10} per event on average` : undefined}
+        />
+        <StatTile
+          icon={Layers} label="Tiers"
+          value={report.tiers.toLocaleString()}
+          hint={report.byTier[0] ? `Most: ${report.byTier[0].name}` : undefined}
+        />
+      </div>
+
+      <div className="grid select-none grid-cols-1 gap-4 lg:grid-cols-6">
+        <Card
+          className="lg:col-span-3" icon={Layers} title="Sponsors by tier"
+          subtitle={report.byTier.length > BAR_ROWS ? `Top ${BAR_ROWS} of ${report.byTier.length}` : "Placements in each tier"}
+        >
+          {report.byTier.length === 0 ? (
+            <Empty className={EMPTY_H}>No sponsors attached {scopeWord(eventFilter)} yet.</Empty>
+          ) : (
+            <div className={cn("flex flex-col", CHART_MIN_H)}>
+              <BarList rows={report.byTier.slice(0, BAR_ROWS).map((t) => ({
+                id: t.id || "none",
+                name: t.name,
+                value: t.count.toLocaleString(),
+                detail: fmtPct((t.count / report.placements) * 100),
+                fraction: t.count / maxTier,
+              }))} />
+            </div>
+          )}
+        </Card>
+
+        <Card
+          className="lg:col-span-3" icon={BarChart3} title="Sponsors by event"
+          subtitle={report.byEvent.length > BAR_ROWS ? `Top ${BAR_ROWS} of ${report.byEvent.length}` : "Sponsors attached to each event"}
+        >
+          {report.byEvent.length === 0 ? (
+            <Empty className={EMPTY_H}>No sponsors attached {scopeWord(eventFilter)} yet.</Empty>
+          ) : (
+            <div className={cn("flex flex-col", CHART_MIN_H)}>
+              <BarList rows={report.byEvent.slice(0, BAR_ROWS).map((e) => ({
+                id: e.id,
+                name: e.name,
+                value: e.count.toLocaleString(),
+                fraction: e.count / maxEvent,
+              }))} />
+            </div>
+          )}
+        </Card>
+
+        <Card className="lg:col-span-6" icon={Award} title="Sponsors" stackAction
+          subtitle={`${sponsors.length.toLocaleString()} ${sponsors.length === 1 ? "placement" : "placements"}`}
+          action={
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <TableSearch value={table.query} onChange={table.search} placeholder="Search sponsors" />
+              <ExportButton onClick={onExport} disabled={sponsors.length === 0} />
+            </div>
+          }
+        >
+          {sponsors.length === 0 ? (
+            <Empty className="py-8">No sponsors attached {scopeWord(eventFilter)} yet.</Empty>
+          ) : table.total === 0 ? (
+            <Empty className="py-8">No sponsors match “{table.query}”.</Empty>
+          ) : (
+            <>
+            <div className="overflow-x-auto">
+              <table className="w-full whitespace-nowrap text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+                    <th className="py-2 pr-4 font-medium">Sponsor</th>
+                    <th className="py-2 pr-4 font-medium">Tier</th>
+                    <th className="py-2 pr-4 font-medium">Email</th>
+                    <th className="py-2 pr-4 font-medium">Website</th>
+                    <th className="py-2 font-medium">Event</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {table.visible.map((s, i) => (
+                    <tr key={`${s.event_id}-${s.email ?? s.name}-${i}`}>
+                      <td className="py-2.5 pr-4 font-medium">{s.name}</td>
+                      <td className="py-2.5 pr-4">
+                        {s.tier ? (
+                          <span className="inline-flex items-center rounded-md bg-secondary px-2 py-0.5 text-[11px] font-medium capitalize">
+                            {s.tier}
+                          </span>
+                        ) : (
+                          <span className="text-[12px] text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-4 text-muted-foreground">{s.email ?? "—"}</td>
+                      <td className="max-w-[200px] truncate py-2.5 pr-4 text-muted-foreground">
+                        {s.website ? (
+                          <a href={s.website} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                            {s.website.replace(/^https?:\/\//, "")}
+                          </a>
+                        ) : "—"}
+                      </td>
+                      <td className="py-2.5 text-muted-foreground">{s.event_title}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pager page={table.page} pages={table.pages} total={table.total} onPage={table.setPage} />
+            </>
+          )}
+        </Card>
+      </div>
+    </>
+  );
+}
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -344,6 +714,7 @@ const ReportsPage = () => {
   const [stateFilter, setStateFilter] = useState<RegState | "all">("all");
   const [range, setRange] = useState<RangeKey>("30d");
   const [trendMetric, setTrendMetric] = useState<"registrations" | "revenue">("registrations");
+  const [view, setView] = useState<ReportView>("overview");
 
   // ── Fetch ────────────────────────────────────────────────────────────────
 
@@ -427,6 +798,52 @@ const ReportsPage = () => {
     () => (eventFilter === "all" ? sponsors : sponsors.filter((s) => s.event_id === eventFilter)),
     [sponsors, eventFilter],
   );
+
+  // Attendance only counts once an event has started, the same rule as the registration check-in rate.
+  const speakerReport = useMemo(() => {
+    const nowMs = loadedAt.getTime();
+    const started = (id: string) => {
+      const ev = eventById.get(id);
+      return !!ev && new Date(ev.date).getTime() <= nowMs;
+    };
+    const byEvent = new Map<string, { id: string; title: string; total: number; attended: number; held: boolean }>();
+    for (const s of scopedSpeakers) {
+      const row = byEvent.get(s.event_id) ?? { id: s.event_id, title: s.event_title, total: 0, attended: 0, held: started(s.event_id) };
+      row.total++;
+      if (s.checked_in) row.attended++;
+      byEvent.set(s.event_id, row);
+    }
+    const perEvent = [...byEvent.values()].sort((a, b) => b.total - a.total);
+    const held = perEvent
+      .filter((e) => e.held)
+      .map((e) => ({ ...e, rate: (e.attended / e.total) * 100 }))
+      .sort((a, b) => b.rate - a.rate);
+    const heldSlots = held.reduce((n, e) => n + e.total, 0);
+    const attended = held.reduce((n, e) => n + e.attended, 0);
+    return {
+      people: new Set(scopedSpeakers.map((s) => (s.email ?? s.name).toLowerCase())).size,
+      slots: scopedSpeakers.length,
+      perEvent,
+      held,
+      heldSlots,
+      attended,
+      rate: heldSlots > 0 ? (attended / heldSlots) * 100 : null,
+    };
+  }, [scopedSpeakers, eventById, loadedAt]);
+
+  const sponsorReport = useMemo(() => {
+    const byTier = countBy(scopedSponsors, (s) => {
+      const tier = s.tier?.trim();
+      return tier ? [tier.toLowerCase(), tier.charAt(0).toUpperCase() + tier.slice(1)] : ["", "No tier"];
+    });
+    return {
+      companies: new Set(scopedSponsors.map((s) => s.name.trim().toLowerCase())).size,
+      placements: scopedSponsors.length,
+      byTier,
+      tiers: byTier.filter((t) => t.id !== "").length,
+      byEvent: countBy(scopedSponsors, (s) => [s.event_id, s.event_title]),
+    };
+  }, [scopedSponsors]);
 
   const { totals, previous, checkIn, window: period } = report;
   const periodText = periodLabel(period.start, loadedAt);
@@ -810,6 +1227,47 @@ const ReportsPage = () => {
           </div>
         ) : (
           <div className={cn("space-y-4 transition-opacity", loading && "opacity-60")}>
+            <div className="flex w-full max-w-full overflow-x-auto rounded-xl bg-muted p-1 sm:w-fit" role="group" aria-label="Report">
+              {([
+                { key: "overview", label: "Overview", icon: LayoutGrid, count: null },
+                { key: "speakers", label: "Speaker report", icon: Mic, count: speakerReport.people },
+                { key: "sponsors", label: "Sponsor report", icon: Award, count: sponsorReport.companies },
+              ] as const).map((v) => (
+                <button
+                  key={v.key}
+                  type="button"
+                  aria-pressed={view === v.key}
+                  onClick={() => setView(v.key)}
+                  className={cn(
+                    "inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors sm:flex-none",
+                    view === v.key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <v.icon className="h-3.5 w-3.5 shrink-0" />
+                  {v.label}
+                  {v.count !== null && (
+                    <span className="rounded bg-secondary px-1.5 text-[11px] tabular-nums text-muted-foreground">{v.count}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {view === "speakers" ? (
+              <SpeakerView
+                report={speakerReport}
+                speakers={scopedSpeakers}
+                eventFilter={eventFilter}
+                onExport={exportSpeakers}
+              />
+            ) : view === "sponsors" ? (
+              <SponsorView
+                report={sponsorReport}
+                sponsors={scopedSponsors}
+                eventFilter={eventFilter}
+                onExport={exportSponsors}
+              />
+            ) : (
+            <>
             <p className="text-[12px] text-muted-foreground">
               <span className="font-medium text-foreground">{periodText}</span>
               {" · "}counted by the day each person registered, in your local time
@@ -1149,98 +1607,32 @@ const ReportsPage = () => {
                 )}
               </Card>
 
-              <Card className="lg:col-span-6" icon={Target} title="Speaker attendance"
+              <Card className="lg:col-span-3" icon={Mic} title="Speakers"
                 action={
-                  <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-[11px]" onClick={exportSpeakers} disabled={scopedSpeakers.length === 0}>
-                    <Download className="h-3 w-3" /> Export CSV
+                  <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-[11px]" onClick={() => setView("speakers")}>
+                    View report <ArrowUpRight className="h-3 w-3" />
                   </Button>
                 }
               >
-                {scopedSpeakers.length === 0 ? (
-                  <Empty className="py-8">No speakers assigned {eventFilter === "all" ? "to any event" : "to this event"} yet.</Empty>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full whitespace-nowrap text-sm">
-                      <thead>
-                        <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-                          <th className="py-2 pr-4 font-medium">Speaker</th>
-                          <th className="py-2 pr-4 font-medium">Company</th>
-                          <th className="py-2 pr-4 font-medium">Event</th>
-                          <th className="py-2 font-medium">Attendance</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {scopedSpeakers.map((s, i) => (
-                          <tr key={`${s.event_id}-${s.email ?? s.name}-${i}`}>
-                            <td className="py-2.5 pr-4 font-medium">{s.name}</td>
-                            <td className="py-2.5 pr-4 text-muted-foreground">{s.company ?? "—"}</td>
-                            <td className="py-2.5 pr-4 text-muted-foreground">{s.event_title}</td>
-                            <td className="py-2.5">
-                              {s.checked_in ? (
-                                <span className="inline-flex items-center gap-1 text-[12px] font-medium text-emerald-700 dark:text-emerald-400">
-                                  <CheckCircle2 className="h-3 w-3" /> Checked in
-                                </span>
-                              ) : (
-                                <span className="text-[12px] text-muted-foreground">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                <p className="text-2xl font-semibold tracking-tight">{speakerReport.people.toLocaleString()}</p>
+                <p className="mt-1 text-[12px] text-muted-foreground">
+                  {speakerReport.slots.toLocaleString()} {speakerReport.slots === 1 ? "assignment" : "assignments"} across {speakerReport.perEvent.length} {speakerReport.perEvent.length === 1 ? "event" : "events"}
+                  {speakerReport.rate !== null && ` · ${fmtPct(speakerReport.rate)} checked in`}
+                </p>
               </Card>
 
-              <Card className="lg:col-span-6" icon={Award} title="Sponsors"
+              <Card className="lg:col-span-3" icon={Award} title="Sponsors"
                 action={
-                  <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-[11px]" onClick={exportSponsors} disabled={scopedSponsors.length === 0}>
-                    <Download className="h-3 w-3" /> Export CSV
+                  <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-[11px]" onClick={() => setView("sponsors")}>
+                    View report <ArrowUpRight className="h-3 w-3" />
                   </Button>
                 }
               >
-                {scopedSponsors.length === 0 ? (
-                  <Empty className="py-8">No sponsors attached {eventFilter === "all" ? "to any event" : "to this event"} yet.</Empty>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full whitespace-nowrap text-sm">
-                      <thead>
-                        <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-                          <th className="py-2 pr-4 font-medium">Sponsor</th>
-                          <th className="py-2 pr-4 font-medium">Tier</th>
-                          <th className="py-2 pr-4 font-medium">Email</th>
-                          <th className="py-2 pr-4 font-medium">Website</th>
-                          <th className="py-2 font-medium">Event</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {scopedSponsors.map((s, i) => (
-                          <tr key={`${s.event_id}-${s.email ?? s.name}-${i}`}>
-                            <td className="py-2.5 pr-4 font-medium">{s.name}</td>
-                            <td className="py-2.5 pr-4">
-                              {s.tier ? (
-                                <span className="inline-flex items-center rounded-md bg-secondary px-2 py-0.5 text-[11px] font-medium capitalize">
-                                  {s.tier}
-                                </span>
-                              ) : (
-                                <span className="text-[12px] text-muted-foreground">—</span>
-                              )}
-                            </td>
-                            <td className="py-2.5 pr-4 text-muted-foreground">{s.email ?? "—"}</td>
-                            <td className="max-w-[200px] truncate py-2.5 pr-4 text-muted-foreground">
-                              {s.website ? (
-                                <a href={s.website} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                                  {s.website.replace(/^https?:\/\//, "")}
-                                </a>
-                              ) : "—"}
-                            </td>
-                            <td className="py-2.5 text-muted-foreground">{s.event_title}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                <p className="text-2xl font-semibold tracking-tight">{sponsorReport.companies.toLocaleString()}</p>
+                <p className="mt-1 text-[12px] text-muted-foreground">
+                  {sponsorReport.placements.toLocaleString()} {sponsorReport.placements === 1 ? "placement" : "placements"} across {sponsorReport.byEvent.length} {sponsorReport.byEvent.length === 1 ? "event" : "events"}
+                  {sponsorReport.tiers > 0 && ` · ${sponsorReport.tiers} ${sponsorReport.tiers === 1 ? "tier" : "tiers"}`}
+                </p>
               </Card>
 
               <Card className="lg:col-span-6" icon={FileText} title="Registrations"
@@ -1255,6 +1647,8 @@ const ReportsPage = () => {
                 </p>
               </Card>
             </div>
+            </>
+            )}
           </div>
         )}
       </div>

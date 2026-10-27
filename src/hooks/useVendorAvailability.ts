@@ -34,6 +34,9 @@ export interface VendorBusyDay {
 
 interface Options {
   windowDays?: number;
+  /** Limit to one venue of the vendor: whole-business blocks still count,
+   *  blocks / selections for the vendor's other venues don't. */
+  venueId?: string | null;
   /** Optional ISO datetime — extends the visible window forward so the
    *  picker always shows the event date even when it's beyond the default
    *  90-day horizon. */
@@ -42,10 +45,10 @@ interface Options {
 
 export function useVendorAvailability(
   vendorId: string | null | undefined,
-  { windowDays = 90, focusDate = null }: Options = {},
+  { windowDays = 90, focusDate = null, venueId = null }: Options = {},
 ) {
   return useQuery({
-    queryKey: ["vendor-availability", vendorId, windowDays, focusDate ?? ""],
+    queryKey: ["vendor-availability", vendorId, venueId ?? "", windowDays, focusDate ?? ""],
     enabled: !!vendorId,
     staleTime: 60_000,
     queryFn: async (): Promise<VendorBusyDay[]> => {
@@ -55,7 +58,7 @@ export function useVendorAvailability(
       const horizon = extendHorizon(today, windowDays, focusDate);
 
       // ─── Manual blocks + confirmed booking auto-blocks ───────────────
-      const availabilityRes = await supabase
+      let availabilityQuery = supabase
         .from("vendor_availability" as never)
         .select("date, status, note")
         .eq("vendor_id", vendorId)
@@ -63,14 +66,22 @@ export function useVendorAvailability(
         .gte("date", today)
         .lte("date", horizon)
         .order("date", { ascending: true });
+      if (venueId) {
+        availabilityQuery = availabilityQuery.or(`venue_id.is.null,venue_id.eq.${venueId}`);
+      }
+      const availabilityRes = await availabilityQuery;
 
       // ─── Accepted event picks (they lock the calendar even if the
       // vendor didn't manually mark availability). ─────────────────────
-      const selectionsRes = await supabase
+      let selectionsQuery = supabase
         .from("event_venue_selections" as never)
-        .select("event:events!inner(date, title)")
+        .select("event:events!inner(date, end_date, title)")
         .eq("vendor_id", vendorId)
         .eq("status", "accepted");
+      if (venueId) {
+        selectionsQuery = selectionsQuery.or(`venue_id.is.null,venue_id.eq.${venueId}`);
+      }
+      const selectionsRes = await selectionsQuery;
 
       const busy = new Map<string, VendorBusyDay>();
 
@@ -88,18 +99,22 @@ export function useVendorAvailability(
         });
       }
 
+      // Multi-day events block every day from start to end.
       for (const row of (selectionsRes.data ?? []) as Array<{
-        event: { date: string | null; title: string | null } | null;
+        event: { date: string | null; end_date: string | null; title: string | null } | null;
       }>) {
-        const d = toIsoDate(row.event?.date ?? null);
-        if (!d) continue;
-        if (d < today || d > horizon) continue;
-        if (busy.has(d)) continue; // manual block already covers it
-        busy.set(d, {
-          date: d,
-          reason: "accepted_selection",
-          note: row.event?.title ?? null,
-        });
+        const first = toIsoDate(row.event?.date ?? null);
+        if (!first) continue;
+        const last = toIsoDate(row.event?.end_date ?? null) || first;
+        for (const d of eachDay(first, last)) {
+          if (d < today || d > horizon) continue;
+          if (busy.has(d)) continue; // manual block already covers it
+          busy.set(d, {
+            date: d,
+            reason: "accepted_selection",
+            note: row.event?.title ?? null,
+          });
+        }
       }
 
       return Array.from(busy.values()).sort((a, b) =>
@@ -119,6 +134,19 @@ function toIsoDate(input: string | Date | null | undefined): string {
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+/** Every YYYY-MM-DD from `first` to `last` inclusive (capped at a year so a
+ *  bad end date can't spin). */
+export function eachDay(first: string, last: string): string[] {
+  const out: string[] = [];
+  const d = new Date(`${first}T00:00:00`);
+  const end = new Date(`${(last < first ? first : last)}T00:00:00`);
+  while (d <= end && out.length < 366) {
+    out.push(toIsoDate(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
 }
 
 /** Push the window end past `focusDate` (plus a small buffer) so the event

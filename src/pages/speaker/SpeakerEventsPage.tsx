@@ -9,6 +9,20 @@ import { Input } from "@/components/ui/input";
 import { Calendar, MapPin, Mic, Search, Building2, ArrowLeft, ShieldAlert } from "lucide-react";
 
 type Filter = "all" | "upcoming" | "past";
+type SpeakerPortalEvent = import("@/types/portals").SpeakerPortalEvent;
+
+/**
+ * The one rule for Upcoming vs Past, shared by the tabs, the counts and the
+ * card badge so they can't disagree. Uses the END date so an in-progress
+ * multi-day event stays Upcoming until it finishes; an event with no date
+ * counts as Upcoming.
+ */
+function isEventUpcoming(event: SpeakerPortalEvent, now: Date): boolean {
+  const endIso = event.end_date || event.event_date;
+  if (!endIso) return true;
+  const end = new Date(endIso);
+  return Number.isNaN(end.getTime()) || end >= now;
+}
 
 export default function SpeakerEventsPage() {
   const { user, loading: authLoading } = useAuth();
@@ -20,17 +34,9 @@ export default function SpeakerEventsPage() {
 
   const filteredEvents = useMemo(() => {
     return events.filter((e) => {
-      // Use the event's END date so an in-progress multi-day event still
-      // shows in Upcoming until its end_date passes.
-      const endIso = e.end_date || e.event_date;
-      const endDate = endIso ? new Date(endIso) : null;
-      // Match filter
-      let matchesFilter = true;
-      if (filter === "upcoming") {
-        matchesFilter = !endDate || endDate >= now;
-      } else if (filter === "past") {
-        matchesFilter = !!endDate && endDate < now;
-      }
+      const upcoming = isEventUpcoming(e, now);
+      const matchesFilter =
+        filter === "all" || (filter === "upcoming" ? upcoming : !upcoming);
       // Match search query
       const q = query.trim().toLowerCase();
       const matchesQuery = !q ||
@@ -42,11 +48,7 @@ export default function SpeakerEventsPage() {
   }, [events, filter, query, now]);
 
   const stats = useMemo(() => {
-    const upcoming = events.filter((e) => {
-      const endIso = e.end_date || e.event_date;
-      const d = endIso ? new Date(endIso) : null;
-      return !d || d >= now;
-    }).length;
+    const upcoming = events.filter((e) => isEventUpcoming(e, now)).length;
     const past = events.length - upcoming;
     const totalSessions = events.reduce((sum, e) => sum + Number(e.session_count || 0), 0);
     return { total: events.length, upcoming, past, totalSessions };
@@ -201,15 +203,11 @@ function SpeakingEventCard({
   event,
   now,
 }: {
-  event: import("@/types/portals").SpeakerPortalEvent;
+  event: SpeakerPortalEvent;
   now: Date;
 }) {
   const eventDate = event.event_date ? new Date(event.event_date) : null;
-  // Treat in-progress events as Upcoming — only flip to Past once the
-  // end date passes.
-  const endIso = event.end_date || event.event_date;
-  const endDate = endIso ? new Date(endIso) : null;
-  const isUpcoming = !endDate || endDate >= now;
+  const isUpcoming = isEventUpcoming(event, now);
 
   return (
     <Link
