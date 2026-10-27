@@ -296,7 +296,7 @@ Deno.serve(async (req) => {
     });
 
     const textBody = [
-      `Hi ${sponsor.name || "there"},`,
+      `Hi ${sponsor.name?.trim().split(/\s+/)[0] || "there"},`,
       "",
       `${orgName} has added ${sponsor.name || "your company"} as a sponsor for "${eventTitle}".`,
       "",

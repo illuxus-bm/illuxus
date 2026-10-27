@@ -222,6 +222,19 @@ describe("1. a verified administrator can invite a team member", () => {
     expect(w.outbox[0].text).toContain("Priya Admin");
   });
 
+  it("greets an invitee with no account yet as 'there'", async () => {
+    await invite();
+    expect(w.outbox[0].text.startsWith("Hi there,\n")).toBe(true);
+    expect(w.outbox[0].html).toContain("Hi there,");
+  });
+
+  it("greets an invitee who already has an account by their first name", async () => {
+    const r = await handle({ action: "send", org_id: OTHER_ORG, email: "admin@acme.test", role: "member" }, as("u-other"));
+    expect(r.body).toMatchObject({ ok: true, email_sent: true });
+    expect(w.outbox[0].text.startsWith("Hi Priya,\n")).toBe(true);
+    expect(w.outbox[0].html).toContain("Hi Priya,");
+  });
+
   it("stores only a hash of the link's secret", async () => {
     await invite();
     expect(w.invites[0].token_hash).toBe(await sha256Hex(lastToken()));
@@ -620,6 +633,8 @@ describe("Super Admin creates an organization", () => {
     expect(inv.token_hash).toBe(await sha256Hex(lastToken()));
     expect(w.outbox[0].subject).toContain("Keka Events is ready");
     expect(w.outbox[0].text).toContain(`https://illuxus.test/invite?token=${lastToken()}`);
+    expect(w.outbox[0].text.startsWith("Hi Anita,\n")).toBe(true);
+    expect(w.outbox[0].html).toContain("Hi Anita,");
   });
 
   it("records the operation in the audit log without the link's secret", async () => {
@@ -723,6 +738,7 @@ describe("Super Admin creates an organization", () => {
     expect(w.invites).toHaveLength(1);
     expect(w.invites[0].transfer_ownership).toBe(true);
     expect(w.outbox[0].subject).toContain("is ready");
+    expect(w.outbox[0].text.startsWith("Hi Anita,\n")).toBe(true);
   });
 
   it("removes the organization when the invitation cannot be saved", async () => {

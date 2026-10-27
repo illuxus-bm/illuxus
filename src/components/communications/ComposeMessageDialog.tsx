@@ -34,6 +34,7 @@ import {
   sendWhatsApp,
 } from "@/hooks/useCommunications";
 import { applyVariables, invalidTokensForScope, type SubstitutionContext } from "@/lib/communications/substitute";
+import { withGreeting } from "@/lib/communications/greeting";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
 
 interface AttendeeOption {
@@ -107,9 +108,11 @@ export function ComposeMessageDialog({
   // can spot which ones haven't been wired for this scope.
   const [previewCtx, setPreviewCtx] = useState<SubstitutionContext>({});
 
+  // The resolver unions every type, so "custom" is sent on its own — a group
+  // left ticked beside it would mail that whole group too.
   const filter: RecipientFilter = useMemo(
     () => ({
-      types,
+      types: types.includes("custom") ? ["custom"] : types,
       ...(types.includes("custom") && customUserIds.length > 0
         ? { user_ids: customUserIds }
         : {}),
@@ -163,7 +166,8 @@ export function ComposeMessageDialog({
         whatsapp_template_variables: WhatsAppTemplateBinding | null;
       };
       setChannels(d.channels);
-      setTypes(d.recipient_filter.types ?? [defaultType]);
+      const savedTypes = d.recipient_filter.types ?? [defaultType];
+      setTypes(savedTypes.includes("custom") ? ["custom"] : savedTypes);
       setCustomUserIds(d.recipient_filter.user_ids ?? []);
       setSubject(d.subject);
       setBody(d.body_text);
@@ -349,9 +353,10 @@ export function ComposeMessageDialog({
   };
 
   const toggleType = (t: RecipientType) => {
-    setTypes((prev) =>
-      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
-    );
+    setTypes((prev) => {
+      if (prev.includes(t)) return prev.filter((x) => x !== t);
+      return t === "custom" ? ["custom"] : [...prev.filter((x) => x !== "custom"), t];
+    });
   };
 
   const toggleCustomUser = (userId: string) => {
@@ -734,6 +739,9 @@ export function ComposeMessageDialog({
                       placeholder="Write the message… use the variable buttons below to personalise per recipient."
                       className="mt-1 min-h-[140px] text-[13px] resize-y"
                     />
+                    <p className="mt-1 text-[11.5px] text-muted-foreground">
+                      Each email opens with “Hi” and the recipient's first name, unless you start with a greeting yourself.
+                    </p>
                   </div>
                   <div>
                     <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -932,7 +940,7 @@ export function ComposeMessageDialog({
                   {applyVariables(subject, previewCtx) || "(no subject)"}
                 </div>
                 <div className="text-[12px] text-muted-foreground whitespace-pre-wrap mt-1">
-                  {applyVariables(body, previewCtx) || "(empty body)"}
+                  {body.trim() ? (wantsEmail ? withGreeting(applyVariables(body, previewCtx), previewCtx.user_name) : applyVariables(body, previewCtx)) : "(empty body)"}
                 </div>
                 <div className="text-[10px] text-muted-foreground/70 mt-2 italic">
                   Sample data: {previewCtx.user_name ? `${previewCtx.user_name}` : "(unknown user)"}

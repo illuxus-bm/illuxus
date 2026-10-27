@@ -316,7 +316,7 @@ Deno.serve(async (req) => {
     });
 
     const textBody = [
-      `Hi ${speaker.name || "there"},`,
+      `Hi ${speaker.name?.trim().split(/\s+/)[0] || "there"},`,
       "",
       copy.greetingLead.replace(/<[^>]+>/g, ""),
       "",

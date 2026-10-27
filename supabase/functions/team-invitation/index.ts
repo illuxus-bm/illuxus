@@ -323,16 +323,31 @@ function escapeHtml(s: string): string {
 
 const ROLE_LABEL: Record<string, string> = { owner: "an owner", admin: "an admin", member: "a member", viewer: "a viewer" };
 
-export function buildInvitationEmail(ctx: { orgName: string; inviter: string; role: string; url: string; provisioned?: boolean }): { subject: string; html: string; text: string } {
+// Same rule as greetingName() in ../_shared/greeting.ts (this file can't import it).
+const HONORIFIC = /^(mr|mrs|ms|miss|mx|dr|prof|sir|shri|smt)\.?$/i;
+/** "Hi Sarvesh," when the invitee's name is known, else "Hi there,". */
+export function greetingLine(name?: string | null): string {
+  const words = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  while (words.length > 1 && HONORIFIC.test(words[0])) words.shift();
+  const first = words[0] && !words[0].includes("@") ? words[0] : "";
+  const shown = first === first.toLowerCase() ? first.charAt(0).toUpperCase() + first.slice(1) : first;
+  return `Hi ${shown || "there"},`;
+}
+
+type InvitationEmailContext = { orgName: string; inviter: string; role: string; url: string; provisioned?: boolean; inviteeName?: string | null };
+
+export function buildInvitationEmail(ctx: InvitationEmailContext): { subject: string; html: string; text: string } {
   if (ctx.provisioned) return buildProvisionedEmail(ctx);
   const subject = `You're invited to join ${ctx.orgName} on Illuxus`;
   const roleText = ROLE_LABEL[ctx.role] ?? "a member";
+  const hi = greetingLine(ctx.inviteeName);
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>${escapeHtml(subject)}</title></head>
 <body style="margin:0;padding:32px 16px;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
     <table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;background:#ffffff;border-radius:10px;"><tr><td style="padding:32px;">
       <p style="font-size:13px;font-weight:700;letter-spacing:.02em;color:#111827;margin:0 0 24px;">illuxus</p>
       <p style="font-size:21px;font-weight:700;color:#111827;margin:0 0 10px;">Join ${escapeHtml(ctx.orgName)}</p>
+      <p style="font-size:14px;line-height:1.6;color:#4b5563;margin:0 0 10px;">${escapeHtml(hi)}</p>
       <p style="font-size:14px;line-height:1.6;color:#4b5563;margin:0 0 22px;"><strong style="color:#111827;">${escapeHtml(ctx.inviter)}</strong> has invited you to join <strong style="color:#111827;">${escapeHtml(ctx.orgName)}</strong> on Illuxus as ${roleText}.</p>
       <a href="${escapeHtml(ctx.url)}" style="display:inline-block;background:#111827;color:#ffffff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none;">Accept invitation</a>
       <p style="font-size:12px;line-height:1.55;color:#6b7280;margin:22px 0 0;">New to Illuxus? You'll add your name, designation, mobile number and a password — that's all. This link is just for you: it works once and expires in ${INVITE_TTL_DAYS} days.</p>
@@ -341,6 +356,8 @@ export function buildInvitationEmail(ctx: { orgName: string; inviter: string; ro
   </td></tr></table>
 </body></html>`;
   const text = [
+    hi,
+    "",
     `${ctx.inviter} has invited you to join ${ctx.orgName} on Illuxus as ${roleText}.`,
     "",
     `Accept the invitation: ${ctx.url}`,
@@ -353,14 +370,16 @@ export function buildInvitationEmail(ctx: { orgName: string; inviter: string; ro
 }
 
 /** The first user of an organization Super Admin created: they will own it. */
-function buildProvisionedEmail(ctx: { orgName: string; inviter: string; url: string }): { subject: string; html: string; text: string } {
+function buildProvisionedEmail(ctx: InvitationEmailContext): { subject: string; html: string; text: string } {
   const subject = `${ctx.orgName} is ready for you on Illuxus`;
+  const hi = greetingLine(ctx.inviteeName);
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>${escapeHtml(subject)}</title></head>
 <body style="margin:0;padding:32px 16px;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
     <table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;background:#ffffff;border-radius:10px;"><tr><td style="padding:32px;">
       <p style="font-size:13px;font-weight:700;letter-spacing:.02em;color:#111827;margin:0 0 24px;">illuxus</p>
       <p style="font-size:21px;font-weight:700;color:#111827;margin:0 0 10px;">${escapeHtml(ctx.orgName)} is ready</p>
+      <p style="font-size:14px;line-height:1.6;color:#4b5563;margin:0 0 10px;">${escapeHtml(hi)}</p>
       <p style="font-size:14px;line-height:1.6;color:#4b5563;margin:0 0 22px;"><strong style="color:#111827;">${escapeHtml(ctx.inviter)}</strong> from Illuxus has set up <strong style="color:#111827;">${escapeHtml(ctx.orgName)}</strong> for you. Accept to become its owner.</p>
       <a href="${escapeHtml(ctx.url)}" style="display:inline-block;background:#111827;color:#ffffff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none;">Accept and set up your account</a>
       <p style="font-size:12px;line-height:1.55;color:#6b7280;margin:22px 0 0;">New to Illuxus? Check your details and choose a password. Already have an account? Sign in with this email to accept. This link is just for you: it works once and expires in ${INVITE_TTL_DAYS} days.</p>
@@ -369,6 +388,8 @@ function buildProvisionedEmail(ctx: { orgName: string; inviter: string; url: str
   </td></tr></table>
 </body></html>`;
   const text = [
+    hi,
+    "",
     `${ctx.inviter} from Illuxus has set up ${ctx.orgName} for you. Accept to become its owner.`,
     "",
     `Accept and set up your account: ${ctx.url}`,
@@ -415,7 +436,7 @@ export function createHandler(deps: Deps) {
   /** Puts a new link on the invitation and emails it. */
   async function issueAndSend(
     existingId: string | null, orgId: string, email: string, role: Role, by: CallerUser,
-    extra: { transfer_ownership?: boolean; prefill?: Record<string, string>; provisioned?: boolean } = {},
+    extra: { transfer_ownership?: boolean; prefill?: Record<string, string>; provisioned?: boolean; inviteeName?: string } = {},
   ): Promise<Reply> {
     const token = deps.newToken();
     const expires = new Date(deps.now().getTime() + INVITE_TTL_DAYS * 86400_000).toISOString();
@@ -427,7 +448,12 @@ export function createHandler(deps: Deps) {
 
     const orgName = (await store.orgName(orgId)) || "your team";
     const inviterName = (await store.displayName(by.id)) || by.email;
-    const mail = buildInvitationEmail({ orgName, inviter: inviterName, role, url: `${deps.origin}/invite?token=${token}`, provisioned: extra.provisioned });
+    // The invitee's name: their own profile when they already have an account,
+    // else what Super Admin typed when setting up their organization.
+    const inviteeId = await store.findUserIdByEmail(email);
+    const inviteeName = (inviteeId ? await store.displayName(inviteeId) : null)
+      || extra.prefill?.first_name || extra.inviteeName || null;
+    const mail = buildInvitationEmail({ orgName, inviter: inviterName, role, url: `${deps.origin}/invite?token=${token}`, provisioned: extra.provisioned, inviteeName });
     let emailSent = false;
     try { emailSent = (await deps.sendEmail({ to: email, ...mail })).ok; } catch { emailSent = false; }
     return reply(200, { ok: true, invitation_id: saved.id, expires_at: expires, email_sent: emailSent });
@@ -469,7 +495,7 @@ export function createHandler(deps: Deps) {
     if (inv.status !== "pending") return reply(409, { ok: false, code: "not_pending", error: "This invitation is no longer open. Send a new invitation instead." });
     if (!(await within(LIMITS.sendUser, who.user.id))) return tooMany();
     if (!ROLES.includes(inv.role as Role)) return reply(409, { ok: false, code: "invalid_role", error: "This invitation has an unknown role. Send a new invitation instead." });
-    return issueAndSend(inv.id, inv.org_id, normalizeEmail(inv.email), inv.role as Role, who.user, { provisioned: !!inv.transfer_ownership });
+    return issueAndSend(inv.id, inv.org_id, normalizeEmail(inv.email), inv.role as Role, who.user, { provisioned: !!inv.transfer_ownership, inviteeName: inv.prefill?.first_name });
   }
 
   async function lookup(raw: unknown): Promise<{ inv: InvitationRow | null; state: InvitationState }> {

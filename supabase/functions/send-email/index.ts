@@ -23,6 +23,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { defaultFromAddress, sendViaSmtp, smtpConfigured, textToHtml } from "../_shared/smtp.ts";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { withGreeting } from "../_shared/greeting.ts";
 
 interface RecipientRow {
   id: string;
@@ -131,7 +132,7 @@ Deno.serve(async (req) => {
     for (const row of rows) {
       const to = row.email!.trim().toLowerCase();
       const subject = row.rendered_subject ?? comm.subject;
-      const bodyText = row.rendered_body ?? comm.body_text;
+      const bodyText = withGreeting(row.rendered_body ?? comm.body_text, row.name, to);
       const bodyHtml = comm.body_html ?? textToHtml(bodyText);
 
       await supabase

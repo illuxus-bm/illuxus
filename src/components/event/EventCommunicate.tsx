@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { applyVariables, type SubstitutionContext } from "@/lib/communications/substitute";
+import { withGreeting } from "@/lib/communications/greeting";
 import { buildAttendeeJoinUrl } from "@/lib/attendee-link";
 
 // ─── Types — kept local so this file is self-contained ─────────────────────
@@ -67,8 +68,20 @@ const RECIPIENTS: RecipientOption[] = [
   { id: "paid",          label: "Paid attendees",       description: "Registrations with non-zero amount paid" },
   { id: "speakers",      label: "Speakers",             description: "Speakers attached to this event" },
   { id: "sponsors",      label: "Sponsors",             description: "Sponsors attached to this event" },
-  { id: "custom",        label: "Custom selection",     description: "Pick individual recipients by hand" },
+  { id: "custom",        label: "Custom selection",     description: "Only the people you pick by hand" },
 ];
+
+/**
+ * The resolver unions every ticked type, so a group left ticked next to
+ * "Custom selection" would mail that whole group too. Custom stands alone.
+ */
+function toggleRecipientType(current: RecipientType[], id: RecipientType): RecipientType[] {
+  if (current.includes(id)) return current.filter((x) => x !== id);
+  return id === "custom" ? ["custom"] : [...current.filter((x) => x !== "custom"), id];
+}
+
+const exclusiveTypes = (types: RecipientType[]): RecipientType[] =>
+  types.includes("custom") ? ["custom"] : types;
 
 // WhatsApp templates are loaded from the `whatsapp_templates` cache table at
 // runtime — the table is populated by the `whatsapp-sync-templates` edge
@@ -563,7 +576,7 @@ function ComposeDialog({
     }
     if (editing) {
       setChannels(editing.channels);
-      setRecipients(editing.recipient_filter.types);
+      setRecipients(exclusiveTypes(editing.recipient_filter.types));
       setCustomSelectedKeys(editing.recipient_filter.user_ids ?? []);
       setSubject(editing.subject);
       setBody(editing.body_text);
@@ -720,11 +733,24 @@ function ComposeDialog({
         });
       }
 
+      // A saved draft keeps the picks as user_ids and emails; map them back
+      // onto the rows, since imported people and speakers have no user_id.
+      const saved = editing?.recipient_filter;
+      if (saved?.types.includes("custom")) {
+        const ids = new Set(saved.user_ids ?? []);
+        const emails = new Set((saved.emails ?? []).map((e) => e.toLowerCase()));
+        setCustomSelectedKeys(
+          rows
+            .filter((r) => (r.user_id && ids.has(r.user_id)) || emails.has(r.email.toLowerCase()))
+            .map((r) => r.key),
+        );
+      }
+
       setAttendeeOptions(rows);
       setAttendeesLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [open, recipients, eventId, attendeeOptions.length]);
+  }, [open, recipients, eventId, attendeeOptions.length, editing]);
 
   // Resolve live recipient count whenever recipients (or custom selection) change
   useEffect(() => {
@@ -747,7 +773,7 @@ function ComposeDialog({
           .filter((e) => e.length > 0),
       ),
     );
-    const filter = { types: recipients, user_ids: selectedUserIds, emails: selectedEmails };
+    const filter = { types: exclusiveTypes(recipients), user_ids: selectedUserIds, emails: selectedEmails };
     supabaseRpc(
       "communications_resolve_recipients" as never,
       { _event_id: eventId, _filter: filter } as never,
@@ -889,7 +915,7 @@ function ComposeDialog({
           .filter((e) => e.length > 0),
       ),
     );
-    const filter = { types: recipients, user_ids: selectedUserIds, emails: selectedEmails };
+    const filter = { types: exclusiveTypes(recipients), user_ids: selectedUserIds, emails: selectedEmails };
     const waBinding = wantsWhatsapp && waTemplate ? { body: waVars } : null;
     const payload = {
       org_id: orgId,
@@ -1081,7 +1107,7 @@ function ComposeDialog({
                       <button
                         key={r.id}
                         type="button"
-                        onClick={() => setRecipients((p) => p.includes(r.id) ? p.filter((x) => x !== r.id) : [...p, r.id])}
+                        onClick={() => setRecipients((p) => toggleRecipientType(p, r.id))}
                         className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition-colors ${
                           active ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
                         }`}
@@ -1218,6 +1244,9 @@ function ComposeDialog({
                         placeholder="Write the message… use the variable buttons below to personalise per recipient."
                         className="mt-1 min-h-[140px] text-[13px] resize-y"
                       />
+                      <p className="mt-1 text-[11.5px] text-muted-foreground">
+                        Each email opens with “Hi” and the recipient's first name, unless you start with a greeting yourself.
+                      </p>
                     </div>
                     <div>
                       <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Variables</Label>
@@ -1411,7 +1440,7 @@ function ComposeDialog({
                         {applyVariables(subject, previewCtx) || "(no subject)"}
                       </div>
                       <div className="text-[12px] text-muted-foreground whitespace-pre-wrap mt-1">
-                        {applyVariables(body, previewCtx) || "(empty body)"}
+                        {body.trim() ? (wantsEmail ? withGreeting(applyVariables(body, previewCtx), previewCtx.user_name) : applyVariables(body, previewCtx)) : "(empty body)"}
                       </div>
                       <div className="text-[10px] text-muted-foreground/70 mt-2 italic">
                         Sample data:

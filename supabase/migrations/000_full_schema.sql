@@ -10115,6 +10115,25 @@ BEGIN
       JOIN sponsors s ON s.id = es.sponsor_id
      WHERE es.event_id = _event_id AND s.email IS NOT NULL
   ),
+  sponsor_contacts_set AS (
+    -- The people listed under a sponsor (sponsor_members). The compose
+    -- picker offers each of them, so a custom selection has to reach them,
+    -- not only the sponsor's own email.
+    SELECT CASE
+             WHEN m.user_id IS NULL THEN NULL
+             WHEN EXISTS (SELECT 1 FROM auth.users u WHERE u.id = m.user_id)
+               THEN m.user_id
+             ELSE NULL
+           END AS user_id,
+           COALESCE(NULLIF(trim(coalesce(m.display_name,'')), ''),
+                    NULLIF(trim(coalesce(m.first_name,'') || ' ' || coalesce(m.last_name,'')), ''),
+                    split_part(m.email,'@',1)) AS name,
+           lower(m.email) AS email,
+           NULLIF(trim(coalesce(m.mobile_country_code,'') || ' ' || coalesce(m.mobile_number,'')), '') AS phone
+      FROM event_sponsors es
+      JOIN sponsor_members m ON m.sponsor_id = es.sponsor_id
+     WHERE es.event_id = _event_id AND m.email IS NOT NULL
+  ),
   filtered_attendees AS (
     SELECT b.user_id, b.name, b.email, b.phone
       FROM base b
@@ -10156,6 +10175,14 @@ BEGIN
       FROM sponsors_set sp
      WHERE 'custom' = ANY(_types)
        AND lower(sp.email) = ANY(_emails)
+    UNION
+    SELECT sc.user_id, sc.name, sc.email, sc.phone
+      FROM sponsor_contacts_set sc
+     WHERE 'custom' = ANY(_types)
+       AND (
+            (sc.user_id IS NOT NULL AND sc.user_id = ANY(_user_ids))
+         OR (sc.email = ANY(_emails))
+       )
   ),
   all_recipients AS (
     SELECT user_id, name, email, phone FROM filtered_attendees
@@ -10179,7 +10206,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.communications_resolve_recipients(uuid, jsonb) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.communications_resolve_recipients(uuid, jsonb) IS
-  'Resolves event communication recipients. Custom selection matches by user_id OR email so imported participants without an auth account still receive the message. Auth / password state is never used as a filter — everyone with an addressable email on the registration row is eligible.';
+  'Resolves event communication recipients. Custom selection matches by user_id OR email so imported participants without an auth account still receive the message, and reaches sponsor contacts (sponsor_members) as well as the sponsor''s own email. Auth / password state is never used as a filter — everyone with an addressable email on the registration row is eligible.';
 
 
 -- ==========================================================================

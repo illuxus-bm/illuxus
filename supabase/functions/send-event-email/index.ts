@@ -42,6 +42,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { defaultFromAddress, sendViaSmtp, smtpConfigured, textToHtml } from "../_shared/smtp.ts";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+import { withGreeting } from "../_shared/greeting.ts";
 import {
   getCallerUser, getManagedEvent, isUuid, managedOrgIds, normalizeEmails, serviceClient,
 } from "../_shared/auth.ts";
@@ -53,9 +54,17 @@ const MAX_BODY = 50_000;
 /** Team invites / removal notices go to one or two people at a time. */
 const MAX_INVITE_RECIPIENTS = 5;
 
+/**
+ * `names`: lower-cased address → the person's name, for the "Hi Sarvesh,"
+ * each email opens with. Absent for mail to the support inbox, which is
+ * sent as written.
+ */
 type Resolution =
-  | { ok: true; recipients: string[]; skipped: number; fromName: string; replyTo?: string; eventEmailId?: string }
+  | { ok: true; recipients: string[]; skipped: number; fromName: string; replyTo?: string; eventEmailId?: string; names?: Map<string, string> }
   | { ok: false; status: number; error: string };
+
+const fullName = (first?: string | null, last?: string | null, name?: string | null) =>
+  [first, last].filter((p) => p?.trim()).join(" ").trim() || name?.trim() || "";
 
 /** Event mode: caller must manage the event; recipients must belong to it. */
 async function resolveEvent(
@@ -68,20 +77,29 @@ async function resolveEvent(
     .from("event_emails").select("id").eq("id", emailId).eq("event_id", eventId).maybeSingle();
   if (!emailRecord) return { ok: false, status: 403, error: "Email record not found or access denied" };
 
-  // Audience the event's organisers may email: registrants and speakers.
+  // Audience the event's organisers may email: registrants and speakers,
+  // with their names for the greeting.
   const allowed = new Set<string>();
-  const { data: regs } = await admin.from("registrations").select("email").eq("event_id", eventId);
-  for (const r of regs ?? []) {
-    const e = (r as { email?: string | null }).email?.trim().toLowerCase();
-    if (e) allowed.add(e);
+  const names = new Map<string, string>();
+  const { data: regs } = await admin
+    .from("registrations").select("email, first_name, last_name, name").eq("event_id", eventId);
+  for (const r of (regs ?? []) as { email?: string | null; first_name?: string | null; last_name?: string | null; name?: string | null }[]) {
+    const e = r.email?.trim().toLowerCase();
+    if (!e) continue;
+    allowed.add(e);
+    const n = fullName(r.first_name, r.last_name, r.name);
+    if (n && !names.has(e)) names.set(e, n);
   }
   const { data: rels } = await admin.from("event_speakers").select("speaker_id").eq("event_id", eventId);
   const speakerIds = (rels ?? []).map((r) => (r as { speaker_id: string }).speaker_id);
   if (speakerIds.length) {
-    const { data: speakers } = await admin.from("speakers").select("email").in("id", speakerIds);
-    for (const s of speakers ?? []) {
-      const e = (s as { email?: string | null }).email?.trim().toLowerCase();
-      if (e) allowed.add(e);
+    const { data: speakers } = await admin.from("speakers").select("email, name").in("id", speakerIds);
+    for (const s of (speakers ?? []) as { email?: string | null; name?: string | null }[]) {
+      const e = s.email?.trim().toLowerCase();
+      if (!e) continue;
+      allowed.add(e);
+      const n = s.name?.trim();
+      if (n && !names.has(e)) names.set(e, n);
     }
   }
   const recipients = requested.filter((e) => allowed.has(e));
@@ -95,7 +113,7 @@ async function resolveEvent(
     if (o?.name) fromName = o.name;
     if (o?.billing_email) replyTo = o.billing_email;
   }
-  return { ok: true, recipients, skipped: requested.length - recipients.length, fromName, replyTo, eventEmailId: emailId };
+  return { ok: true, recipients, skipped: requested.length - recipients.length, fromName, replyTo, eventEmailId: emailId, names };
 }
 
 /** Invite mode: only to invitees of a workspace the caller owns or administers. */
@@ -113,7 +131,7 @@ async function resolveInvite(admin: SupabaseClient, userId: string, requested: s
   if (recipients.length === 0) {
     return { ok: false, status: 403, error: "Recipient has no invitation in a workspace you manage" };
   }
-  return { ok: true, recipients, skipped: requested.length - recipients.length, fromName: "Illuxus" };
+  return { ok: true, recipients, skipped: requested.length - recipients.length, fromName: "Illuxus", names: new Map() };
 }
 
 /** Partner-invite mode: only to partners one of the caller's event links is shared with. */
@@ -135,7 +153,7 @@ async function resolvePartnerInvite(
   if (recipients.length === 0) {
     return { ok: false, status: 403, error: "Recipient has no shared link for this event" };
   }
-  return { ok: true, recipients, skipped: requested.length - recipients.length, fromName: "Illuxus" };
+  return { ok: true, recipients, skipped: requested.length - recipients.length, fromName: "Illuxus", names: new Map() };
 }
 
 /** Application mode: to the organisers of an event the caller has applied to. */
@@ -166,14 +184,28 @@ async function resolveApplication(admin: SupabaseClient, userId: string, targetE
     for (const m of managers ?? []) organiserIds.add((m as { user_id: string }).user_id);
   }
 
+  const ids = [...organiserIds];
+  const { data: profiles } = ids.length
+    ? await admin.from("profiles").select("user_id, first_name, last_name, display_name").in("user_id", ids)
+    : { data: [] };
+  const profileName = new Map(
+    ((profiles ?? []) as { user_id: string; first_name: string | null; last_name: string | null; display_name: string | null }[])
+      .map((p) => [p.user_id, fullName(p.first_name, p.last_name, p.display_name)]),
+  );
+
   const emails: string[] = [];
-  for (const id of organiserIds) {
+  const names = new Map<string, string>();
+  for (const id of ids) {
     const { data } = await admin.auth.admin.getUserById(id);
-    if (data?.user?.email) emails.push(data.user.email);
+    const email = data?.user?.email;
+    if (!email) continue;
+    emails.push(email);
+    const n = profileName.get(id);
+    if (n) names.set(email.trim().toLowerCase(), n);
   }
   const recipients = normalizeEmails(emails);
   if (recipients.length === 0) return { ok: false, status: 404, error: "No organiser emails on file" };
-  return { ok: true, recipients, skipped: 0, fromName: "Illuxus" };
+  return { ok: true, recipients, skipped: 0, fromName: "Illuxus", names };
 }
 
 Deno.serve(async (req) => {
@@ -236,13 +268,13 @@ Deno.serve(async (req) => {
       return json({ error: resolved.error }, resolved.status);
     }
 
-    const { recipients, skipped, fromName, replyTo, eventEmailId } = resolved;
+    const { recipients, skipped, fromName, replyTo, eventEmailId, names } = resolved;
     if (recipients.length === 0) {
       return json({ error: "None of the recipients belong to this event's registrants or speakers.", skipped }, 400);
     }
 
     const from = defaultFromAddress(fromName);
-    const htmlContent = textToHtml(emailBody);
+    const bodyFor = (to: string) => (names ? withGreeting(emailBody, names.get(to), to) : emailBody);
 
     if (!smtpConfigured()) {
       log.info("not delivered — SMTP not configured", { subject, recipient_count: recipients.length });
@@ -268,12 +300,13 @@ Deno.serve(async (req) => {
     const failures: string[] = [];
     let firstSmtpError: string | undefined;
     for (const to of recipients) {
+      const text = bodyFor(to);
       const result = await sendViaSmtp({
         from,
         to: [to],
         subject,
-        html: htmlContent,
-        text: emailBody,
+        html: textToHtml(text),
+        text,
         ...(replyTo ? { reply_to: replyTo } : {}),
       });
       if (!result.ok) {

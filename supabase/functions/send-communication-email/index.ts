@@ -22,6 +22,7 @@ import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger } from "../_shared/edge-logger.ts";
 import { defaultFromAddress, sendViaSmtp, smtpConfigured } from "../_shared/smtp.ts";
 import { featureNotIncluded, orgHasFeature } from "../_shared/entitlements.ts";
+import { withGreeting } from "../_shared/greeting.ts";
 
 const log = createEdgeLogger("send-communication-email");
 
@@ -151,7 +152,7 @@ Deno.serve(async (req) => {
         continue;
       }
       const subject  = row.rendered_subject ?? "";
-      const bodyText = row.rendered_body ?? "";
+      const bodyText = withGreeting(row.rendered_body ?? "", row.name, to);
       const result = await sendViaSmtp({
         from,
         to: [to],

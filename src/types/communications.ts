@@ -165,7 +165,7 @@ export const RECIPIENT_TYPE_LABELS: Record<RecipientType, { label: string; descr
   },
   custom: {
     label: "Custom selection",
-    description: "Pick individual users from the list",
+    description: "Only the people you pick from the list",
   },
   // Community-scope types
   all_members: {
