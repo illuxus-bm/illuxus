@@ -1,9 +1,9 @@
 # QA and Application Security Review
 
 **Repository:** illuxus  
-**Branch / commit:** `main` / `ad13829` (2026-10-20)  
+**Branch / commit:** `main` / `3b1cb5d` (2026-10-27)
 **Review date:** 2026-10-27  
-**Approach:** Read-only static review of application, Supabase, API, deployment, test, and documentation paths. No live services or database were accessed; no tests or builds were run.
+**Approach:** Read-only static review of all tracked source/configuration/documentation paths, plus repository inventory, production build, unit tests, lint, TypeScript checking, and production dependency audit. No live services or database were accessed.
 
 ## Executive summary
 
@@ -15,8 +15,20 @@ The codebase has several good security controls, including a shared edge-functio
 |---|---:|---|
 | Critical | 1 | Free approved tickets for paid events; capacity and revenue integrity |
 | High | 3 | 2FA bypass, unauthorized privileged messaging, unverified account provisioning |
-| Medium | 5 | Public draft/reaction access, privileged community creation, resource abuse |
-| QA / release | 3 | No CI/typecheck gate, missing CSP, manual SQL outside migration history |
+| Medium | 5 | Public draft/reaction access, unpublished OG disclosure, privileged community creation, resource abuse |
+| QA / release | 5 | Failing test, lint invocation failure, type errors, dependency advisory, missing CI/CSP/migration controls |
+
+## Validation results
+
+| Check | Result | Evidence |
+|---|---|---|
+| Production build (`npm run build`) | **PASS** | Vite completed successfully on commit `3b1cb5d`; Browserslist data is stale by approximately 16 months. |
+| Unit/integration tests (`npm test -- --run`) | **FAIL** | `src/components/layout/__tests__/gutters.test.tsx`: `SiteHeader uses SiteContainer` failed. |
+| ESLint (`npm run lint`) | **FAIL** | ESLint could not open the generated `vite.config.ts.timestamp-*.mjs` file. The lint script is not reliable in the current repository state. |
+| TypeScript (`npx tsc --noEmit -p tsconfig.app.json`) | **FAIL** | Test files contain tuple/spread and indexing errors, including `SpeakerApplicationDialog.utm-e2e.test.tsx` and `SponsorApplicationDialog.utm-e2e.test.tsx`. |
+| Production dependency audit (`npm audit --omit=dev`) | **FAIL** | High-severity `@remix-run/router` advisory affecting the declared React Router 6 dependency range; upgrade and retest before release. |
+
+The test and type-check failures are release blockers. The lint failure should also be fixed so CI can distinguish source violations from generated-file races.
 
 ## Findings
 
@@ -159,7 +171,7 @@ There is no tracked `.github/workflows` pipeline, and `package.json` has no `typ
 
 ## Review scope and limits
 
-The Git inventory contains **694 tracked files**: 684 UTF-8 text files (about 224,797 lines) and 10 binary files. I inventoried the full tree and performed broad searches plus focused source review of database policy/trigger code, service-role edge functions, auth/session flows, public event registration, public APIs, build/deployment configuration, and prior audit documents. This was **not a literal line-by-line manual review of all 684 text files**; generated assets and media were not inspected. No live Supabase policy state, production configuration, service provider, dependency advisory database, test suite, or build was checked. Findings are source-level and should be confirmed against the deployed Supabase schema and enabled function set before remediation is closed.
+The Git inventory contains **687 tracked files**: 672 text/configuration files and 15 binary assets. I inventoried the full tree and performed broad searches plus focused source review of database policy/trigger code, service-role edge functions, auth/session flows, public event registration, public APIs, build/deployment configuration, and prior audit documents. This was **not a literal manual review of every byte of generated assets and media**; those binary assets were inventory-checked but not semantically inspected. No live Supabase policy state, production configuration, or service-provider configuration was accessed. Findings are source-level and should be confirmed against the deployed Supabase schema and enabled function set before remediation is closed.
 
 ## Remediation order
 
