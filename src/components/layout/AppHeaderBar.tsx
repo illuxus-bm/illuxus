@@ -77,7 +77,10 @@ export function AppHeaderBar({
   return (
     <header
       data-scrolled={scrolled}
-      style={canvas ? ({ "--float-haze": `rgb(${canvas.r} ${canvas.g} ${canvas.b} / 0.6)` } as CSSProperties) : undefined}
+      style={canvas ? ({
+        "--float-haze": `rgb(${canvas.r} ${canvas.g} ${canvas.b} / 0.6)`,
+        "--float-haze-solid": `rgb(${canvas.r} ${canvas.g} ${canvas.b} / 0.94)`,
+      } as CSSProperties) : undefined}
       className={cn(
         "float-header app-chrome sticky top-0 z-50 flex flex-wrap items-center gap-x-2 gap-y-2.5 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-4 lg:gap-x-3 lg:px-6 lg:pb-4 lg:pt-[calc(1rem+env(safe-area-inset-top))]",
         collapsible && collapsed && "max-lg:gap-y-0",

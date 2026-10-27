@@ -258,6 +258,23 @@ function PinnedStory() {
     });
   }, []);
 
+  // Tells the scene how much of the stage the hero copy leaves free, so on a
+  // short phone the ticket stays out of the way of the buttons.
+  useEffect(() => {
+    const stickyEl = sticky.current;
+    const copy = hero.current?.firstElementChild as HTMLElement | null;
+    if (!stickyEl || !copy) return;
+    const measure = () => {
+      const height = stickyEl.clientHeight;
+      stage.heroRoom = height > 0 ? clamp01(1 - (copy.offsetTop + copy.offsetHeight) / height) : 1;
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(stickyEl);
+    observer.observe(copy);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     const move = (event: PointerEvent) => {
       stage.pointerX = (event.clientX / window.innerWidth) * 2 - 1;

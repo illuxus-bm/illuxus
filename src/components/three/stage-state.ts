@@ -9,6 +9,8 @@ export const stage = {
   /** Pointer position, -1 … 1 from the viewport centre. */
   pointerX: 0,
   pointerY: 0,
+  /** Share of the stage's height left free below the hero copy (it sits at the top below `lg`). */
+  heroRoom: 1,
 };
 
 /** Scroll-timeline slices owned by the hero and each story chapter. */

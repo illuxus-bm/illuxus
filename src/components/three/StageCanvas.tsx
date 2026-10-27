@@ -393,7 +393,14 @@ function BarLabel({ name, count, color }: { name: string; count: number; color: 
 function Scene({ theme, onReady }: { theme: StageTheme; onReady?: () => void }) {
   const palette = STAGE_PALETTES[theme];
   const { camera, size } = useThree();
-  const portrait = size.width / size.height < 0.85;
+  const aspect = size.width / size.height;
+  const portrait = aspect < 0.85;
+  // On a phone the hero copy and buttons fill most of the screen, so until the
+  // story starts the ticket sits lower and a little smaller, clear of them.
+  const heroDrop = portrait ? Math.min(0.13, Math.max(0, (0.85 - aspect) * 0.33)) : 0;
+  // Short phones: the chapter copy reaches halfway down, so the story sits lower and smaller too.
+  const short = portrait ? Math.min(1, Math.max(0, (720 - size.height) / 100)) : 0;
+  const viewOffsetY = useRef(Number.NaN);
   const geometry = useTicketGeometry();
   const hall = useMemo(() => (portrait ? buildHall(13, 22) : buildHall(20, 14)), [portrait]);
 
@@ -435,8 +442,9 @@ function Scene({ theme, onReady }: { theme: StageTheme; onReady?: () => void }) 
   // screens, towards the bottom on tall ones.
   useLayoutEffect(() => {
     const cam = camera as THREE.PerspectiveCamera;
-    if (portrait) cam.setViewOffset(size.width, size.height, 0, -size.height * 0.2, size.width, size.height);
-    else cam.setViewOffset(size.width, size.height, -size.width * 0.17, 0, size.width, size.height);
+    // Portrait: the vertical offset follows the scroll, so useFrame sets it.
+    viewOffsetY.current = Number.NaN;
+    if (!portrait) cam.setViewOffset(size.width, size.height, -size.width * 0.17, 0, size.width, size.height);
     return () => cam.clearViewOffset();
   }, [camera, portrait, size.width, size.height]);
 
@@ -466,6 +474,13 @@ function Scene({ theme, onReady }: { theme: StageTheme; onReady?: () => void }) 
     const toBars = ease(toBarsRaw);
 
     // Camera
+    if (portrait) {
+      const offsetY = -(0.2 + heroDrop * (1 - toSell) + 0.12 * short * toSell) * size.height;
+      if (!(Math.abs(offsetY - viewOffsetY.current) < 0.5)) {
+        viewOffsetY.current = offsetY;
+        (camera as THREE.PerspectiveCamera).setViewOffset(size.width, size.height, 0, offsetY, size.width, size.height);
+      }
+    }
     const poses = CAMERA[portrait ? "portrait" : "landscape"];
     const steps = [toSell, toScan, toHall, toBars];
     const { position, target } = scratch;
@@ -511,12 +526,14 @@ function Scene({ theme, onReady }: { theme: StageTheme; onReady?: () => void }) 
         scale = mix(scale, next.scale, t);
       }
       const calm = 1 - toScan;
-      group.visible = toHall < 0.999;
+      // Too little room under the hero copy: the ticket waits for the story.
+      if (portrait && stage.heroRoom < 0.24) scale *= toSell;
+      group.visible = toHall < 0.999 && scale > 0.001;
       // On tall screens the scan pose stays centred under the copy.
       const scanShift = portrait ? toScan * (1 - toHall) * -2.7 : 0;
       group.position.set(x + scanShift, y + Math.sin(time * 0.9) * 0.05 * calm, z);
       group.rotation.set(rx + py * 0.1 * drift, ry + Math.sin(time * 0.6) * 0.04 * calm + px * 0.18 * drift, rz);
-      group.scale.setScalar(Math.max(scale * (portrait ? 0.94 : 1), 0.0001));
+      group.scale.setScalar(Math.max(scale * (portrait ? 0.94 - heroDrop * 0.6 * (1 - toSell) - 0.16 * short * toSell : 1), 0.0001));
 
       tickets.current.forEach((ticket, index) => {
         if (!ticket) return;

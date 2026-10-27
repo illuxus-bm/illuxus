@@ -589,6 +589,7 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
   --radius: 0.875rem;
   /* What scrolls under the header fades into the canvas colour. */
   --float-haze: hsl(var(--shell) / 0.6);
+  --float-haze-solid: hsl(var(--shell) / 0.94);
   --sidebar-background: 240 5% 95%;
   --sidebar-accent: 0 0% 100%;
   --sidebar-border: 220 13% 88%;
@@ -658,6 +659,13 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
   transition: opacity 0.2s ease-out;
 }
 .float-header[data-scrolled="true"]::before { opacity: 1; }
+/* Phones and tablets: the pinned menu row sits right on top of cards, and a
+   thin haze lets them read through the chips, so it is nearly solid there. */
+@media (max-width: 1023px) {
+  .float-header::before {
+    background: var(--float-haze-solid, hsl(var(--background) / 0.94));
+  }
+}
 .float-chip {
   pointer-events: auto;
   background: hsl(var(--card) / 0.92);
