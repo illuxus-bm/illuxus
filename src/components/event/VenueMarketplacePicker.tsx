@@ -44,6 +44,7 @@ import {
   type VendorBusyDay,
 } from "@/hooks/useVendorAvailability";
 import { Checkbox } from "@/components/ui/checkbox";
+import { VenueMediaCarousel } from "@/components/event/VenueMediaCarousel";
 import { CalendarX2 } from "lucide-react";
 import { formatMoney } from "@/lib/currency";
 import { cn } from "@/lib/utils";
@@ -707,44 +708,7 @@ function VendorDetailView({
               {detail && detail.media.length > 0 && (
                 <section className="space-y-2">
                   <h3 className="text-sm font-semibold">Photos, videos & floor plan</h3>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {detail.media.slice(0, 12).map((m) => (
-                      <a
-                        key={m.id}
-                        href={m.url}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="aspect-square bg-muted rounded-md overflow-hidden block group relative"
-                      >
-                        {m.media_kind === "video" ? (
-                          <video
-                            src={m.url}
-                            muted
-                            preload="metadata"
-                            className="w-full h-full object-cover bg-black"
-                          />
-                        ) : isImageUrl(m.url) ? (
-                          <img
-                            src={m.url}
-                            alt={m.caption ?? ""}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground text-[10px]">
-                            <Building2 className="h-6 w-6 mb-1" />
-                            View {m.media_kind.replace(/_/g, " ")}
-                          </div>
-                        )}
-                        <Badge
-                          variant="secondary"
-                          className="absolute bottom-1 left-1 text-[9px] capitalize bg-background/80"
-                        >
-                          {m.media_kind.replace(/_/g, " ")}
-                        </Badge>
-                      </a>
-                    ))}
-                  </div>
+                  <VenueMediaCarousel media={detail.media} />
                 </section>
               )}
 
@@ -1317,8 +1281,4 @@ function policyLabel(kind: "catering" | "decor" | "alcohol", v: string): string 
     both:                 "Both allowed",
   };
   return map[v] ?? v;
-}
-
-function isImageUrl(url: string): boolean {
-  return /\.(png|jpe?g|gif|webp|avif|svg)(\?|$)/i.test(url);
 }

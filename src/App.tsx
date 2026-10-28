@@ -19,6 +19,7 @@ import { logger } from "@/lib/observability";
 import { PWAUpdatePrompt } from "@/components/pwa/PWAUpdatePrompt";
 import { PWAInstallPrompt } from "@/components/pwa/PWAInstallPrompt";
 import { CookieConsent } from "@/components/CookieConsent";
+import { SmoothCaret } from "@/components/SmoothCaret";
 import { SkipToContent } from "@/components/SkipToContent";
 // Eagerly-loaded landing & auth pages (small + needed for first paint / SEO)
 import Index from "./pages/Index.tsx";
@@ -299,6 +300,7 @@ const App = () => (
         <Sonner />
         <PWAUpdatePrompt />
         <PWAInstallPrompt />
+        <SmoothCaret />
         <BrowserRouter>
           <HistoryTracker />
           <RootErrorBoundary>

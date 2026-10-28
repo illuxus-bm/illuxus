@@ -24,6 +24,7 @@ import {
 import { VenueMarketplacePicker } from "@/components/event/VenueMarketplacePicker";
 import { EditVenueServicesDialog } from "@/components/event/EditVenueServicesDialog";
 import { useVenueDetail } from "@/hooks/useVenueDetail";
+import { VenueMediaCarousel } from "@/components/event/VenueMediaCarousel";
 import { Pencil } from "lucide-react";
 import {
   useSelectVenueVendor,
@@ -595,7 +596,7 @@ function SelectionConfirmedExtras({
       </div>
     );
   }
-  if (!detail || detail.services.length === 0) return null;
+  if (!detail || (detail.services.length === 0 && detail.media.length === 0)) return null;
 
   // Partition into "In your request" (checked) and "Also offered". If the
   // organizer never picked anything the first bucket is empty and we
@@ -637,6 +638,16 @@ function SelectionConfirmedExtras({
 
   return (
     <div className="px-4 pb-4 space-y-3">
+      {detail.media.length > 0 && (
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+            Venue photos
+          </p>
+          <VenueMediaCarousel media={detail.media} />
+        </div>
+      )}
+
+      {primaryList.length > 0 && (
       <div>
         <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
           {heading}
@@ -652,6 +663,7 @@ function SelectionConfirmedExtras({
           </p>
         )}
       </div>
+      )}
 
       {secondaryList.length > 0 && (
         <div>

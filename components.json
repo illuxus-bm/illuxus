@@ -16,5 +16,8 @@
     "ui": "@/components/ui",
     "lib": "@/lib",
     "hooks": "@/hooks"
+  },
+  "registries": {
+    "@dashboardblocks": "https://www.dashboardblocks.com/r/{style}/{name}.json"
   }
 }
