@@ -17,6 +17,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { sessionMeetsTwoFactor } from "../_shared/auth.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
 
 const log = createEdgeLogger("whatsapp-sync-templates");
@@ -88,6 +89,7 @@ Deno.serve(async (req) => {
     );
     const { data: ud } = await userClient.auth.getUser();
     if (!ud.user) return json({ error: "Not signed in", step }, 401);
+    if (!sessionMeetsTwoFactor(ud.user, authHeader.slice(7).trim())) return json({ error: "Two-factor verification required", step }, 401);
 
     const { data: membership, error: memErr } = await userClient
       .from("org_members")

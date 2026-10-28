@@ -27,9 +27,6 @@ verify_jwt = true
 [functions.send-email]
 verify_jwt = true
 
-[functions.create-participant-account]
-verify_jwt = true
-
 
 [functions.send-whatsapp]
 verify_jwt = true

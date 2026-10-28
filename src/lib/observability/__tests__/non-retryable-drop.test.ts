@@ -181,7 +181,7 @@ describe('Remote_Sink — non-retryable HTTP status drops record (REQ 6.6)', () 
     // against a regression where the classifier collapses every 4xx
     // into "drop", which would silently hide retry behaviour.
     const { client } = makeStubClient();
-    const onErrorCalls: Array<{ message: string }> = [];
+    const onErrorCalls: Array<{ message: string; fields?: unknown }> = [];
 
     const sink = createRemoteSink({
       client,

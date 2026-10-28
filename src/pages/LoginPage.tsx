@@ -13,6 +13,7 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import TwoFactorChallengeDialog from "@/components/auth/TwoFactorChallengeDialog";
+import { needsSecondFactor } from "@/lib/mfa";
 import PasswordStrengthMeter from "@/components/auth/PasswordStrengthMeter";
 import { scorePassword } from "@/lib/password-strength";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -52,9 +53,7 @@ const LoginPage = () => {
   const [agreed, setAgreed] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
   const [person, setPerson] = useState<PersonFields>(emptyPersonFields());
-  const [twoFactor, setTwoFactor] = useState<{ open: boolean; email: string; nextRoute: string }>({
-    open: false, email: "", nextRoute: "/dashboard",
-  });
+  const [twoFactorOpen, setTwoFactorOpen] = useState(false);
   // Must-change-password flow: organizer-created accounts start with phone as password
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
@@ -393,70 +392,76 @@ const LoginPage = () => {
         } else {
           toast({ title: "Error", description: error.message, variant: "destructive" });
         }
+      } else if (await needsSecondFactor()) {
+        // Two-factor is on: nothing else is loaded until the authenticator
+        // code upgrades this session (the database refuses it until then).
+        setTwoFactorOpen(true);
       } else {
-        // Look up the user's account type to route correctly
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          // Check if this is a participant account created by an organizer
-          // that needs to change their initial password (phone number).
-          const mustChange = user.user_metadata?.must_change_password === true;
-          if (mustChange) {
-            // Clear the flag and redirect to password reset
-            toast({
-              title: "Welcome! Please set a new password",
-              description: "Your account was created by an event organizer. Choose a secure password to continue.",
-            });
-            setIsForgot(false);
-            setMustChangePassword(true);
-            setLoading(false);
-            return;
-          }
-
-          const { data: profile } = await supabaseRpc("get_my_profile");
-          const p = profile as { account_type?: string; two_factor_enabled?: boolean } | null;
-
-          // Super admin check — has the platform-level `admin` role grant.
-          // We look this up directly (don't trust profile data which is org-facing).
-          // Super admins skip the organizer dashboard and land on the Control Tower.
-          const { data: adminRow } = await supabase
-            .from("user_roles")
-            .select("role")
-            .eq("user_id", user.id)
-            .eq("role", "admin")
-            .maybeSingle();
-          const isSuperAdmin = !!adminRow;
-
-          const defaultNext = isSuperAdmin
-            ? "/dashboard/admin"
-            : p?.account_type === "attendee"
-              ? "/discover"
-              : "/dashboard";
-          // Priority order:
-          //   1. invite acceptance → /dashboard with full reload so
-          //      OrgContext re-fetches memberships (the RPC just inserted
-          //      one and the existing context snapshot has no row).
-          //   2. ?next= (preserved by every auth gate when bouncing here)
-          //   3. account-type default
-          const inviteNext = await consumeInviteIfAny();
-          const next = inviteNext ?? safeNext ?? defaultNext;
-          if (p?.two_factor_enabled) {
-            // Pause and require an OTP before letting them through.
-            setTwoFactor({ open: true, email: user.email ?? email, nextRoute: next });
-          } else if (inviteNext) {
-            // Full reload guarantees the new org_members row is visible to
-            // OrgContext before the OnboardingGuard runs. SPA navigation
-            // would otherwise hit the guard with the stale empty
-            // memberships array and bounce the new member to /onboarding.
-            window.location.replace(next);
-          } else {
-            navigate(next, { replace: true });
-          }
-        } else {
-          navigate("/dashboard", { replace: true });
-        }
+        await finishSignIn();
       }
     }
     setLoading(false);
+  };
+
+  /** After a complete sign-in: password-change check, then route by account type. */
+  const finishSignIn = async () => {
+    // Look up the user's account type to route correctly
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      // Check if this is a participant account created by an organizer
+      // that needs to change their initial password (phone number).
+      const mustChange = user.user_metadata?.must_change_password === true;
+      if (mustChange) {
+        // Clear the flag and redirect to password reset
+        toast({
+          title: "Welcome! Please set a new password",
+          description: "Your account was created by an event organizer. Choose a secure password to continue.",
+        });
+        setIsForgot(false);
+        setMustChangePassword(true);
+        setLoading(false);
+        return;
+      }
+
+      const { data: profile } = await supabaseRpc("get_my_profile");
+      const p = profile as { account_type?: string } | null;
+
+      // Super admin check — has the platform-level `admin` role grant.
+      // We look this up directly (don't trust profile data which is org-facing).
+      // Super admins skip the organizer dashboard and land on the Control Tower.
+      const { data: adminRow } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .eq("role", "admin")
+        .maybeSingle();
+      const isSuperAdmin = !!adminRow;
+
+      const defaultNext = isSuperAdmin
+        ? "/dashboard/admin"
+        : p?.account_type === "attendee"
+          ? "/discover"
+          : "/dashboard";
+      // Priority order:
+      //   1. invite acceptance → /dashboard with full reload so
+      //      OrgContext re-fetches memberships (the RPC just inserted
+      //      one and the existing context snapshot has no row).
+      //   2. ?next= (preserved by every auth gate when bouncing here)
+      //   3. account-type default
+      const inviteNext = await consumeInviteIfAny();
+      const next = inviteNext ?? safeNext ?? defaultNext;
+      if (inviteNext) {
+        // Full reload guarantees the new org_members row is visible to
+        // OrgContext before the OnboardingGuard runs. SPA navigation
+        // would otherwise hit the guard with the stale empty
+        // memberships array and bounce the new member to /onboarding.
+        window.location.replace(next);
+      } else {
+        navigate(next, { replace: true });
+      }
+    } else {
+      navigate("/dashboard", { replace: true });
+    }
   };
 
   const title = verifyEmail
@@ -517,19 +522,21 @@ const LoginPage = () => {
         <div className="flex items-center justify-center px-4 py-16 sm:p-8">
       <div className="w-full max-w-sm">
         <TwoFactorChallengeDialog
-          open={twoFactor.open}
-          email={twoFactor.email}
+          open={twoFactorOpen}
           onCancel={async () => {
-            setTwoFactor((s) => ({ ...s, open: false }));
+            // A password-only session is useless with two-factor on; don't leave one behind.
+            setTwoFactorOpen(false);
             await supabase.auth.signOut();
             toast({ title: "Sign-in cancelled" });
           }}
-          onVerified={() => {
-            setTwoFactor((s) => ({ ...s, open: false }));
-            navigate(twoFactor.nextRoute, { replace: true });
+          onVerified={async () => {
+            setTwoFactorOpen(false);
+            setLoading(true);
+            await finishSignIn();
+            setLoading(false);
           }}
           title="Verify it's you"
-          description={`Enter the 6-digit code we sent to ${twoFactor.email} to finish signing in.`}
+          description="Enter the 6-digit code from your authenticator app to finish signing in."
         />
         <div className="text-center mb-7">
           <a href="/" className="inline-flex items-center gap-2 mb-6 lg:hidden" aria-label={brandName}>

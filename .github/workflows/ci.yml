@@ -1,0 +1,65 @@
+# Checks every push and pull request.
+#
+# Blocking: unit tests, the production build, and critical dependency
+# advisories — these pass today and must keep passing.
+#
+# Reported but not yet blocking: TypeScript and ESLint. Both have a backlog
+# from before this workflow existed (most type errors come from an outdated
+# src/integrations/supabase/types.ts — regenerate it with
+# `supabase gen types typescript`). Once a step is clean, delete its
+# `continue-on-error` line so it starts blocking.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same package manager and lockfile as the Vercel build.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.23
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Unit tests
+        run: bun run test
+
+      - name: Build
+        run: bun run build
+
+      # The paste-into-Dashboard copies must match the functions' real code.
+      - name: Dashboard function copies are current
+        run: |
+          bun run functions:inline
+          git diff --exit-code -- 'supabase/functions/*/dashboard-inline.ts' \
+            || (echo "Run 'npm run functions:inline' and commit the result." && exit 1)
+
+      - name: Dependency audit (critical blocks)
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Dependency audit (high, reported)
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Type check (reported)
+        continue-on-error: true
+        run: bun run typecheck
+
+      - name: Lint (reported)
+        continue-on-error: true
+        run: bun run lint

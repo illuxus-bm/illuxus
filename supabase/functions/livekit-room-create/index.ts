@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { AccessToken } from "https://esm.sh/livekit-server-sdk@2.9.7";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { sessionMeetsTwoFactor } from "../_shared/auth.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
 import { eventHasFeature, featureNotIncluded } from "../_shared/entitlements.ts";
 
@@ -22,6 +23,7 @@ Deno.serve(async (req) => {
     );
     const { data: { user } } = await supabase.auth.getUser(jwt);
     if (!user) return j({ error: "Unauthenticated" }, 401);
+    if (!sessionMeetsTwoFactor(user, jwt)) return j({ error: "Two-factor verification required" }, 401);
 
     const { data: ev } = await supabase.from("events").select("id, user_id").eq("id", event_id).maybeSingle();
     if (!ev) return j({ error: "Event not found" }, 404);

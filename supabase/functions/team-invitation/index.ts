@@ -317,6 +317,17 @@ export function invitationState(inv: Pick<InvitationRow, "status" | "expires_at"
   return Number.isFinite(expires) && expires > now.getTime() ? "pending" : "expired";
 }
 
+/** The `aal` claim of a JWT already verified by getUser (same as _shared/auth.ts tokenAal). */
+export function jwtAal(token: string): string | null {
+  try {
+    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const claims = JSON.parse(atob(payload.padEnd(payload.length + ((4 - (payload.length % 4)) % 4), "="))) as { aal?: unknown };
+    return typeof claims.aal === "string" ? claims.aal : null;
+  } catch {
+    return null;
+  }
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
@@ -716,6 +727,8 @@ export function supabaseStore(db: any): Store {
       const { data, error } = await db.auth.getUser(jwt);
       const u = data?.user;
       if (error || !u?.id || !u.email) return null;
+      // Two-factor on: a password-only session (aal1) doesn't count.
+      if ((u.factors ?? []).some((f) => f.status === "verified") && jwtAal(jwt) !== "aal2") return null;
       return { id: u.id, email: u.email, emailVerified: !!u.email_confirmed_at };
     },
     async roleInOrg(orgId, userId) {

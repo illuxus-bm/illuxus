@@ -24,6 +24,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { defaultFromAddress, sendViaSmtp, smtpConfigured, textToHtml } from "../_shared/smtp.ts";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { withGreeting } from "../_shared/greeting.ts";
+import { authorizeCommunication } from "../_shared/auth.ts";
 
 interface RecipientRow {
   id: string;
@@ -83,6 +84,10 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // Only the communication's own team (or the scheduled-send job) may send it.
+    const allowed = await authorizeCommunication(req, supabase, communication_id);
+    if (!allowed.ok) return json({ error: allowed.error }, allowed.status);
+
     const { data: commRaw, error: commErr } = await supabase
       .from("communications")
       .select("id, org_id, event_id, community_id, subject, body_text, body_html, sent_at, channels")
@@ -135,10 +140,14 @@ Deno.serve(async (req) => {
       const bodyText = withGreeting(row.rendered_body ?? comm.body_text, row.name, to);
       const bodyHtml = comm.body_html ?? textToHtml(bodyText);
 
-      await supabase
+      // Claim the row: if another run already took it, skip — each email goes once.
+      const { data: claimed } = await supabase
         .from("communication_recipients")
         .update({ email_status: "sending" })
-        .eq("id", row.id);
+        .eq("id", row.id)
+        .eq("email_status", row.email_status ?? "pending")
+        .select("id");
+      if (!claimed?.length) continue;
 
       const result = await sendViaSmtp({
         from,

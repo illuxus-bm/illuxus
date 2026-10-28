@@ -77,7 +77,14 @@ const ATTENDEE_FILES = [
     // five utm_* columns on the insert and `clearStoredUtm()` on success —
     // is untouched, and `GuestRegistrationForm` still receives `utmParams`
     // and clears the stored UTM when it succeeds.
-    hash: "d721d82fa98b08ff7453be4a3389544ddb847cc197e43df0fda73a3cf1ef73d3",
+    //
+    // Bumped again for paid events without online checkout (security review
+    // F-01, 2026-10-28). Re-audited against 6.1–6.3: a priced event's seat
+    // now starts as 'pending' (`isPaid` in the initial state and copy only).
+    // `loadStoredUtm()`, the five utm_* columns on the insert and
+    // `clearStoredUtm()` on success are untouched; the UTM lines are the
+    // same as at the previous bump.
+    hash: "5d39839f19a4178d3b1462438e94c952b04744a7a9fe1dc216a3ceec35810548",
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",
@@ -102,20 +109,29 @@ const ATTENDEE_FILES = [
     // Bumped again for meeting disputes and history (migration 054). Re-audited
     // against 6.4 and 6.6: only the meetings popover, filter and event end date
     // changed. The UTM hint and five UTM CSV columns are untouched.
-    hash: "2961abcab5eded6f03325d870c5717dd77def1d8cfbad05d672c8c6ba727bc75",
+    //
+    // Re-pinned 2026-10-28: the file changed after the previous bump without
+    // one. Re-audited against 6.4 and 6.6: compared with 638c185 its UTM
+    // lines differ only by two added comments — the `via <utm_source>` hint
+    // and the five UTM CSV columns are untouched.
+    hash: "065a95aecb98312cda1a4a6a7d9d94fa7ccef071c3263624c9993de977695cf8",
   },
   {
     path: "src/components/event/registrations/RegistrantQuickView.tsx",
-    hash: "ec06902692c6739a243aa3e37722f1e357ae9f64e8cbd35f37594e9e1b5af76c",
+    // Re-pinned 2026-10-28: the file changed without a bump. Re-audited
+    // against 6.5: its UTM lines are identical to 638c185.
+    hash: "450811526f43ee66cdb02ee2ebf65824322883ff2ec39df232cd5ebbbc687bb6",
   },
 ] as const;
 
 function fileSha256(relPath: string): string {
   const abs = resolve(process.cwd(), relPath);
-  // Hash raw bytes — matches `shasum -a 256` exactly, side-steps any
-  // UTF-8 re-encoding subtleties from string-mode reads.
+  // Hash the bytes with CRLF folded to LF, so a Windows checkout
+  // (core.autocrlf) hashes the same as the committed file. Matches
+  // `tr -d '\r' < file | shasum -a 256`.
   const content = readFileSync(abs);
-  return createHash("sha256").update(content).digest("hex");
+  const lf = Buffer.from(content.toString("latin1").replace(/\r\n/g, "\n"), "latin1");
+  return createHash("sha256").update(lf).digest("hex");
 }
 
 describe("Property 58: Attendee non-regression tripwire", () => {

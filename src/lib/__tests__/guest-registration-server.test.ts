@@ -405,4 +405,19 @@ describe("helpers", () => {
     expect(mail.html).toContain(`https://illuxus.test/e/${EVENT}/live?join=jt`);
     expect(mail.html).toContain("ILX-12345678");
   });
+
+  it("a paid event's pending place says it awaits payment and carries no ticket", () => {
+    const mail = buildConfirmationEmail({
+      event: event(EVENT, { title: "Summit", price: 500 }),
+      registration: {
+        id: "12345678-0000-4000-8000-000000000000", event_id: EVENT, email: "a@b.co", name: "Bob", first_name: "Bob", last_name: "",
+        designation: null, company: null, mobile_country_code: null, mobile_number: null, approval_status: "pending", qr_code: "qr", join_token: "jt", user_id: null,
+      },
+      origin: "https://illuxus.test", activationUrl: null,
+    });
+    expect(mail.text).toContain("Awaiting payment");
+    expect(mail.text).toContain("awaits payment confirmation by the organiser");
+    expect(mail.text).not.toContain("Ticket code");
+    expect(mail.html).not.toContain("create-qr-code");
+  });
 });

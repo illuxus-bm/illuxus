@@ -363,6 +363,23 @@ describe("8. the verified state comes only from the server", () => {
     expect(created).toEqual({ id: "new" });
     expect(calls).toEqual([{ email: "neha@acme.test", password: "Welcome2026", email_confirm: true, user_metadata: { first_name: "Neha" } }]);
   });
+
+  // A JWT whose payload is `claims` (the signature is checked by getUser, not here).
+  const jwt = (claims: Record<string, unknown>) =>
+    `h.${btoa(JSON.stringify(claims)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}.s`;
+  const storeWith = (user: Record<string, unknown>) =>
+    supabaseStore({ auth: { getUser: async () => ({ data: { user }, error: null }) } });
+  const withFactor = { id: "u1", email: "a@b.test", email_confirmed_at: "x", factors: [{ status: "verified" }] };
+
+  it("a password-only session of a user with two-factor on is not signed in", async () => {
+    expect(await storeWith(withFactor).userFromJwt(jwt({ aal: "aal1" }))).toBeNull();
+    expect(await storeWith(withFactor).userFromJwt(jwt({ aal: "aal2" }))).toEqual({ id: "u1", email: "a@b.test", emailVerified: true });
+  });
+
+  it("users without two-factor are unaffected", async () => {
+    const plain = { id: "u2", email: "c@d.test", email_confirmed_at: "x", factors: [] };
+    expect(await storeWith(plain).userFromJwt(jwt({ aal: "aal1" }))).toEqual({ id: "u2", email: "c@d.test", emailVerified: true });
+  });
 });
 
 describe("9. invalid, expired and revoked links are refused", () => {

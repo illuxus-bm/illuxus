@@ -439,11 +439,14 @@ Deno.serve(async (req) => {
     );
 
     // Query by id OR slug. When both id and slug are present, id wins.
+    // Published events only: this card is public (no sign-in) and the
+    // service role skips row security, so a draft must look like "not found".
     let query = supabase
       .from("events")
       .select(
         "id, title, slug, date, end_date, venue, location, banner_landscape_url, image_url, timezone, status, org_id",
       )
+      .eq("status", "published")
       .limit(1);
     if (id) {
       query = query.eq("id", id);

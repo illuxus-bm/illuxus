@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { AccessToken } from "https://esm.sh/livekit-server-sdk@2.9.7";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { sessionMeetsTwoFactor } from "../_shared/auth.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
 import { eventHasFeature, featureNotIncluded } from "../_shared/entitlements.ts";
 
@@ -46,7 +47,7 @@ Deno.serve(async (req) => {
     let displayName: string | null = null;
     if (jwt) {
       const { data: { user } } = await supabase.auth.getUser(jwt);
-      if (user) {
+      if (user && sessionMeetsTwoFactor(user, jwt)) {
         userId = user.id;
         userEmail = user.email ?? null;
         const { data: profile } = await supabase

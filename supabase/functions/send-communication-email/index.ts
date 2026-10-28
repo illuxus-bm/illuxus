@@ -23,6 +23,7 @@ import { createEdgeLogger } from "../_shared/edge-logger.ts";
 import { defaultFromAddress, sendViaSmtp, smtpConfigured } from "../_shared/smtp.ts";
 import { featureNotIncluded, orgHasFeature } from "../_shared/entitlements.ts";
 import { withGreeting } from "../_shared/greeting.ts";
+import { authorizeCommunication } from "../_shared/auth.ts";
 
 const log = createEdgeLogger("send-communication-email");
 
@@ -83,6 +84,11 @@ Deno.serve(async (req) => {
     }
     const supabase = createClient(supabaseUrl, serviceKey);
 
+    step = "authorize";
+    // Only the communication's own team (or the scheduled-send job) may send it.
+    const allowed = await authorizeCommunication(req, supabase, communication_id);
+    if (!allowed.ok) return json({ error: allowed.error, step }, allowed.status);
+
     step = "check-plan";
     const { data: comm } = await supabase
       .from("communications")
@@ -119,15 +125,18 @@ Deno.serve(async (req) => {
     }
 
     step = "mark-sending";
-    const ids = rows.map((r) => r.id);
-    const { error: markErr } = await supabase
+    // Claim the rows: only those still pending, so two runs never send the same email.
+    const { data: claimedRows, error: markErr } = await supabase
       .from("communication_recipients")
       .update({ email_status: "sending" })
-      .in("id", ids);
+      .in("id", rows.map((r) => r.id))
+      .eq("email_status", "pending")
+      .select("id");
     if (markErr) {
       log.error("mark-sending failed", { error_message: markErr.message, error_code: markErr.code });
       return json({ error: `Mark sending failed: ${markErr.message}`, step }, 500);
     }
+    const claimed = new Set((claimedRows ?? []).map((r) => (r as { id: string }).id));
 
     step = "smtp-send-loop";
     // SMTP relays don't support batch sends the way Resend's API does — we
@@ -141,6 +150,7 @@ Deno.serve(async (req) => {
     const now = new Date().toISOString();
 
     for (const row of rows) {
+      if (!claimed.has(row.id)) continue;
       const to = (row.email || "").trim().toLowerCase();
       if (!to) {
         await supabase

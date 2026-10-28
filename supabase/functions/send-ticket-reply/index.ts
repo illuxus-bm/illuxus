@@ -27,6 +27,18 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
+/** Two-factor on: a password-only (aal1) session doesn't count. Same rule as _shared/auth.ts. */
+function sessionMeetsTwoFactor(user: { factors?: { status: string }[] }, token: string): boolean {
+  if (!(user.factors ?? []).some((f) => f.status === "verified")) return true;
+  try {
+    const p = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return (JSON.parse(atob(p.padEnd(p.length + ((4 - (p.length % 4)) % 4), "="))) as { aal?: string }).aal === "aal2";
+  } catch {
+    return false;
+  }
+}
+
+
 // ─── Email, CORS + logging helpers ────────────────────────────────────
 // Inlined on purpose instead of importing ../_shared/smtp.ts,
 // ../_shared/cors.ts and ../_shared/edge-logger.ts: this function is
@@ -287,6 +299,9 @@ Deno.serve(async (req) => {
     const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(accessToken);
     if (userErr || !userData?.user) {
       return json({ success: false, error: "unauthenticated" }, 401);
+    }
+    if (!sessionMeetsTwoFactor(userData.user, accessToken)) {
+      return json({ success: false, error: "two_factor_required" }, 401);
     }
     const userId = userData.user.id;
 

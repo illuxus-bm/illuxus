@@ -20,6 +20,7 @@ import { PWAUpdatePrompt } from "@/components/pwa/PWAUpdatePrompt";
 import { PWAInstallPrompt } from "@/components/pwa/PWAInstallPrompt";
 import { CookieConsent } from "@/components/CookieConsent";
 import { SmoothCaret } from "@/components/SmoothCaret";
+import { SecondFactorGate } from "@/components/auth/SecondFactorGate";
 import { SkipToContent } from "@/components/SkipToContent";
 // Eagerly-loaded landing & auth pages (small + needed for first paint / SEO)
 import Index from "./pages/Index.tsx";
@@ -311,6 +312,7 @@ const App = () => (
                 <SkipToContent />
                 <LazyRouteBoundary>
                 <Suspense fallback={<FullPageLoader />}>
+                <SecondFactorGate>
                 <Routes>
                 <Route path="/" element={<RouteErrorBoundary><HomeRoute /></RouteErrorBoundary>} />
                 <Route path="/discover" element={<RouteErrorBoundary><DiscoverFeed /></RouteErrorBoundary>} />
@@ -434,6 +436,7 @@ const App = () => (
                 <Route path="/dashboard/community/*" element={<RouteErrorBoundary><DashboardCommunityRedirect /></RouteErrorBoundary>} />
                 <Route path="*" element={<RouteErrorBoundary><NotFound /></RouteErrorBoundary>} />
                 </Routes>
+                </SecondFactorGate>
                 </Suspense>
                 </LazyRouteBoundary>
                 <GlobalFooter />

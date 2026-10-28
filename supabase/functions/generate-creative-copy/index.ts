@@ -54,6 +54,18 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+/** Two-factor on: a password-only (aal1) session doesn't count. Same rule as _shared/auth.ts. */
+function sessionMeetsTwoFactor(user: { factors?: { status: string }[] }, token: string): boolean {
+  if (!(user.factors ?? []).some((f) => f.status === "verified")) return true;
+  try {
+    const p = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return (JSON.parse(atob(p.padEnd(p.length + ((4 - (p.length % 4)) % 4), "="))) as { aal?: string }).aal === "aal2";
+  } catch {
+    return false;
+  }
+}
+
+
 // ────────────────────────────────────────────────────────────────────────────
 // CORS helpers (inlined — see module doc header for why)
 // ────────────────────────────────────────────────────────────────────────────
@@ -736,6 +748,9 @@ Deno.serve(async (req: Request) => {
   if (userErr || !userData?.user) {
     rlog.warn("auth: getUser failed", { error_message: userErr?.message });
     return errorResponse(403, { error: "Not signed in", code: "auth" });
+  }
+  if (!sessionMeetsTwoFactor(userData.user, jwt)) {
+    return errorResponse(403, { error: "Two-factor verification required", code: "auth" });
   }
   const userId = userData.user.id;
 

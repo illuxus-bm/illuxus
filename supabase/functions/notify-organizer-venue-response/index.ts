@@ -29,6 +29,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+import { resolveCaller } from "../_shared/auth.ts";
 
 // ─── Email + CORS helpers ─────────────────────────────────────────────
 // Inlined on purpose instead of importing ../_shared/smtp.ts and
@@ -223,6 +224,17 @@ Deno.serve(async (req) => {
         { ok: false, error: "Selection not found" },
         { status: 404, cors },
       );
+    }
+
+    // Called by the database trigger (service role) or by the venue's own
+    // team from its inbox — nobody else.
+    const caller = await resolveCaller(req, supabase);
+    if (!caller) return corsJson({ ok: false, error: "Sign in required" }, { status: 401, cors });
+    if (caller.kind === "user") {
+      const { data: member } = await supabase
+        .from("vendor_members").select("user_id")
+        .eq("vendor_id", selection.vendor_id).eq("user_id", caller.user.id).maybeSingle();
+      if (!member) return corsJson({ ok: false, error: "This isn't your venue request" }, { status: 403, cors });
     }
 
     // Guard against out-of-order trigger retries: skip if the row moved

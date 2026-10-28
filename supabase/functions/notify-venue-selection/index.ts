@@ -23,6 +23,8 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+import { getManagedEvent, resolveCaller } from "../_shared/auth.ts";
+import { withinLimit } from "../_shared/rate-limit.ts";
 
 // ─── Email + CORS helpers ─────────────────────────────────────────────
 // Inlined on purpose instead of importing ../_shared/smtp.ts and
@@ -214,11 +216,24 @@ Deno.serve(async (req) => {
         .maybeSingle();
       selection = data as Selection | null;
     }
-    if (selection) {
-      selection_id = selection.id;
-      event_id = event_id ?? selection.event_id;
-      vendor_id = vendor_id ?? selection.vendor_id;
-      venue_id = venue_id ?? selection.venue_id ?? undefined;
+    // The saved request is the only source of truth: its event and venue,
+    // never ids the caller supplies alongside it.
+    if (!selection) {
+      return corsJson({ ok: false, error: "No venue request found to notify about" }, { status: 404, cors });
+    }
+    selection_id = selection.id;
+    event_id = selection.event_id;
+    vendor_id = selection.vendor_id;
+    venue_id = selection.venue_id ?? venue_id ?? undefined;
+
+    // Only the event's managers (or the service role) may send it.
+    const caller = await resolveCaller(req, supabase);
+    if (!caller) return corsJson({ ok: false, error: "Sign in required" }, { status: 401, cors });
+    if (caller.kind === "user" && !(await getManagedEvent(supabase, caller.user.id, selection.event_id))) {
+      return corsJson({ ok: false, error: "You don't have access to this event" }, { status: 403, cors });
+    }
+    if (!(await withinLimit(supabase, "venue_selection_email", selection.id, 5, 60 * 60 * 1000))) {
+      return corsJson({ ok: false, error: "This venue was notified several times recently. Try again later." }, { status: 429, cors });
     }
 
     if (!event_id || !vendor_id) {

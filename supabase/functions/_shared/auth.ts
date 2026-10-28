@@ -17,9 +17,66 @@ export function serviceClient(): SupabaseClient {
   );
 }
 
+/** A JWT's payload, unverified — only read claims of a token that has been checked elsewhere. */
+function tokenClaims(token: string): Record<string, unknown> {
+  try {
+    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(payload.padEnd(payload.length + ((4 - (payload.length % 4)) % 4), "="))) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+/** The `aal` claim of a JWT (already verified by getUser), or null. */
+export function tokenAal(token: string): string | null {
+  const aal = tokenClaims(token).aal;
+  return typeof aal === "string" ? aal : null;
+}
+
+const bearer = (req: Request) => (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+
+/**
+ * True for a call made with the service-role key — the database (pg_net
+ * triggers, scheduled sends) or another function. The public anon key and
+ * user tokens are not. A key other than this function's own is accepted
+ * only if the Auth admin API accepts it, so nothing rests on an unchecked
+ * claim.
+ */
+export async function isServiceCall(req: Request): Promise<boolean> {
+  const token = bearer(req);
+  if (!token) return false;
+  const own = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (own && token === own) return true;
+  const looksService = token.startsWith("sb_secret_") || tokenClaims(token).role === "service_role";
+  if (!looksService) return false;
+  try {
+    const probe = createClient(Deno.env.get("SUPABASE_URL")!, token, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { error } = await probe.auth.admin.listUsers({ page: 1, perPage: 1 });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+export type Caller = { kind: "service" } | { kind: "user"; user: User };
+
+/** Who is calling: the service role, a signed-in user, or nobody (null). */
+export async function resolveCaller(req: Request, admin: SupabaseClient): Promise<Caller | null> {
+  if (await isServiceCall(req)) return { kind: "service" };
+  const user = await getCallerUser(req, admin);
+  return user ? { kind: "user", user } : null;
+}
+
+/** A user with two-factor on has to have given the code (aal2) for this session to count. */
+export function sessionMeetsTwoFactor(user: User, token: string): boolean {
+  const hasFactor = (user.factors ?? []).some((f) => f.status === "verified");
+  return !hasFactor || tokenAal(token) === "aal2";
+}
+
 /**
  * The signed-in user making the request, or null for anonymous callers
- * (no Authorization header, the anon key, or an invalid/expired token).
+ * (no Authorization header, the anon key, or an invalid/expired token) and
+ * for a password-only session of a user who has two-factor sign-in on.
  */
 export async function getCallerUser(req: Request, admin: SupabaseClient): Promise<User | null> {
   const header = req.headers.get("Authorization") ?? "";
@@ -28,6 +85,7 @@ export async function getCallerUser(req: Request, admin: SupabaseClient): Promis
   try {
     const { data, error } = await admin.auth.getUser(token);
     if (error || !data?.user) return null;
+    if (!sessionMeetsTwoFactor(data.user, token)) return null;
     return data.user;
   } catch {
     return null;
@@ -96,6 +154,55 @@ export async function getManagedEvent(
   }
   if (await isPlatformAdmin(admin, userId)) return event;
   return null;
+}
+
+/**
+ * May the user send this communication? A platform admin; the owner or a
+ * non-viewer member of its organisation; or, for a community one, someone
+ * who moderates that community. Mirrors the `communications` RLS policies,
+ * minus read-only viewers.
+ */
+export async function canSendCommunication(
+  admin: SupabaseClient,
+  userId: string,
+  comm: { org_id: string | null; community_id: string | null },
+): Promise<boolean> {
+  if (comm.org_id) {
+    const [{ data: org }, { data: member }] = await Promise.all([
+      admin.from("organizations").select("owner_id").eq("id", comm.org_id).maybeSingle(),
+      admin.from("org_members").select("role").eq("org_id", comm.org_id).eq("user_id", userId).maybeSingle(),
+    ]);
+    if ((org as { owner_id?: string } | null)?.owner_id === userId) return true;
+    const role = (member as { role?: string } | null)?.role;
+    if (role && role !== "viewer") return true;
+  }
+  if (comm.community_id) {
+    const { data } = await admin.rpc("can_moderate_community", { _user_id: userId, _community_id: comm.community_id });
+    if (data === true) return true;
+  }
+  return isPlatformAdmin(admin, userId);
+}
+
+/**
+ * Loads a communication and checks the caller may send it: the service role
+ * (the scheduled-send job) or a user allowed by canSendCommunication.
+ */
+export async function authorizeCommunication(
+  req: Request,
+  admin: SupabaseClient,
+  communicationId: unknown,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  if (!isUuid(communicationId)) return { ok: false, status: 400, error: "communication_id is required" };
+  const caller = await resolveCaller(req, admin);
+  if (!caller) return { ok: false, status: 401, error: "Sign in required" };
+  if (caller.kind === "service") return { ok: true };
+  const { data } = await admin
+    .from("communications").select("org_id, community_id").eq("id", communicationId).maybeSingle();
+  const comm = data as { org_id: string | null; community_id: string | null } | null;
+  if (!comm || !(await canSendCommunication(admin, caller.user.id, comm))) {
+    return { ok: false, status: 403, error: "You can't send this communication" };
+  }
+  return { ok: true };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

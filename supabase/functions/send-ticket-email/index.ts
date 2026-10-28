@@ -28,6 +28,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+import { getManagedEvent, resolveCaller } from "../_shared/auth.ts";
+import { withinLimit } from "../_shared/rate-limit.ts";
 
 const log = createEdgeLogger("send-ticket-email");
 
@@ -237,7 +239,7 @@ Deno.serve(async (req) => {
     const { data: reg, error: regErr } = await supabase
       .from("registrations")
       .select(`
-        id, name, email, qr_code, approval_status,
+        id, name, email, qr_code, approval_status, event_id, user_id, created_by,
         events:event_id(
           id, title, slug, date, timezone,
           venue, location, image_url, banner_landscape_url,
@@ -254,6 +256,22 @@ Deno.serve(async (req) => {
 
     const email = (reg.email || "").trim().toLowerCase();
     if (!email) return json({ error: "Registration has no email" }, 400);
+
+    // Who may send it: the event's managers, the registrant themselves, the
+    // partner who registered them, or the service role.
+    const caller = await resolveCaller(req, supabase);
+    if (!caller) return json({ error: "Sign in required" }, 401);
+    if (caller.kind === "user") {
+      const u = caller.user;
+      const own = reg.user_id === u.id || reg.created_by === u.id || (u.email ?? "").toLowerCase() === email;
+      if (!own && !(await getManagedEvent(supabase, u.id, reg.event_id))) {
+        return json({ error: "You can't send this ticket" }, 403);
+      }
+    }
+    // A few resends an hour per registration, so it can't be used to flood an inbox.
+    if (!(await withinLimit(supabase, "ticket_email", reg.id, 5, 60 * 60 * 1000))) {
+      return json({ error: "This ticket was emailed several times recently. Try again later." }, 429);
+    }
 
     type OrgRow = { name?: string | null; logo_url?: string | null } | null;
     type EventRow = {

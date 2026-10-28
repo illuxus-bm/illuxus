@@ -20,6 +20,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger } from "../_shared/edge-logger.ts";
 import { featureNotIncluded, orgHasFeature } from "../_shared/entitlements.ts";
+import { authorizeCommunication } from "../_shared/auth.ts";
 
 const log = createEdgeLogger("send-whatsapp");
 
@@ -89,6 +90,11 @@ Deno.serve(async (req) => {
       return json({ error: "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing", step }, 500);
     }
     const supabase = createClient(supabaseUrl, serviceKey);
+
+    step = "authorize";
+    // Only the communication's own team (or the scheduled-send job) may send it.
+    const allowed = await authorizeCommunication(req, supabase, communication_id);
+    if (!allowed.ok) return json({ error: allowed.error, step }, allowed.status);
 
     step = "read-comm";
     const { data: commRaw, error: commErr } = await supabase

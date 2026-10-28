@@ -203,6 +203,8 @@ export default function EventRsvpCard({
     return () => { cancelled = true; supabase.removeChannel(channel); };
   }, [event.id]);
 
+  // There is no online checkout: a paid seat waits for the organiser to confirm payment.
+  const isPaid = Number(event.price) > 0;
   const hasCapacity = !!event.capacity && event.capacity > 0;
   const remaining = hasCapacity ? Math.max(0, (event.capacity ?? 0) - goingCount) : null;
   const isFull = hasCapacity && remaining === 0;
@@ -242,11 +244,11 @@ export default function EventRsvpCard({
     const nameFromProfile = [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
     const initial: RsvpState = isFull
       ? "waitlisted"
-      : event.requires_approval
+      : event.requires_approval || isPaid
         ? "pending"
         : "approved";
-    // The DB trigger will normalize approval_status (paid -> approved,
-    // free + requires_approval -> pending). We still send our best guess.
+    // The DB trigger has the final say on approval_status (full -> waitlisted,
+    // paid or requires_approval -> pending). We still send our best guess.
     const { data, error } = await supabase
       .from("registrations")
       .insert({
@@ -293,7 +295,7 @@ export default function EventRsvpCard({
             ? "You're going!"
             : finalState === "waitlisted"
               ? "Added to the waitlist"
-              : "Request sent",
+              : isPaid ? "Seat reserved" : "Request sent",
         description:
           finalState === "approved"
             ? hasWebinar
@@ -301,7 +303,9 @@ export default function EventRsvpCard({
               : "Your ticket is ready in My Events."
             : finalState === "waitlisted"
               ? "We'll let you know if a spot opens."
-              : "The host will let you know when you're approved.",
+              : isPaid
+                ? "The organiser will confirm it and email your ticket once your payment is received."
+                : "The host will let you know when you're approved.",
       });
 
       // Fire ticket confirmation email in the background. The registration row
@@ -391,14 +395,15 @@ export default function EventRsvpCard({
   const status: { pill: string; tone: Tone; title: string; text: string } | null =
     showGuestConfirmation && guestConfirmation ? null
     : state === "approved" ? { pill: "Confirmed", tone: "good", title: "You’re going", text: "Your seat is confirmed. Show your QR ticket at the venue desk to check in." }
+    : state === "pending" && isPaid ? { pill: "Awaiting payment", tone: "warn", title: "Seat reserved", text: "The organiser confirms your seat once your payment is received, then emails your ticket." }
     : state === "pending" ? { pill: "Pending", tone: "warn", title: "Request sent", text: "The organiser reviews every request and confirms by email." }
     : state === "waitlisted" ? { pill: "Waitlist", tone: "plain", title: "You’re on the waitlist", text: "We’ll let you know if a seat opens up." }
     : state === "declined" ? { pill: "Declined", tone: "bad", title: "Your request wasn’t approved", text: "The organiser reviews every request. If you think this is a mistake, contact them and they can take another look." }
     : isEventOver ? { pill: "Ended", tone: "plain", title: "This event has ended", text: "Registration is closed." }
     : isFull ? { pill: "Sold out", tone: "plain", title: "Sold out", text: `All ${event.capacity} tickets have been claimed.` }
     : isApprovalFlow ? { pill: "Approval required", tone: "good", title: "Request your seat", text: "The organiser reviews each request and confirms by email." }
-    : event.price && Number(event.price) > 0
-      ? { pill: formatMoney(event.price, event.currency || undefined), tone: "good", title: "Get your ticket", text: "Register below to book your seat." }
+    : isPaid
+      ? { pill: formatMoney(event.price!, event.currency || undefined), tone: "good", title: "Reserve your seat", text: "Register below to reserve a seat. The organiser confirms it once your payment is received." }
       : { pill: "Free", tone: "good", title: "Register for free", text: "Register below to save your seat." };
   const pillStyle: Record<Tone, string> = {
     good: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",

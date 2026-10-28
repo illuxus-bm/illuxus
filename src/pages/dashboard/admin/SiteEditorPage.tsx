@@ -814,10 +814,10 @@ export default function SiteEditorPage() {
   const [lastAutoSavedAt, setLastAutoSavedAt] = useState<Date | null>(null);
 
   // Load drafts from DB; fall back to live for sections without a draft.
+  // Drafts are admin-only, so they come through get_site_drafts(), not the table.
   const loadDrafts = async () => {
-    const { data } = await supabase
-      .from("site_content")
-      .select("section, content, draft_content");
+    const { data: rows } = await supabase.rpc("get_site_drafts" as never);
+    const data = rows as { section: string; content: unknown; draft_content: unknown }[] | null;
     const next: SiteContentMap = { ...liveContent };
     const draftSet = new Set<SiteSection>();
     if (data) {

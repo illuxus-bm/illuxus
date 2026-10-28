@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { AccessToken } from "https://esm.sh/livekit-server-sdk@2.9.7";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
+import { sessionMeetsTwoFactor } from "../_shared/auth.ts";
 
 Deno.serve(async (req) => {
   const corsHeaders = buildCorsHeaders(req);
@@ -12,6 +13,7 @@ Deno.serve(async (req) => {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const { data: { user } } = await supabase.auth.getUser(auth.replace("Bearer ", ""));
     if (!user) return j({ error: "Unauthenticated" }, 401);
+    if (!sessionMeetsTwoFactor(user, auth.replace("Bearer ", ""))) return j({ error: "Two-factor verification required" }, 401);
 
     const { data: session } = await supabase.from("webinar_sessions").select("id, event_id, livekit_room, egress_id").eq("id", session_id).maybeSingle();
     if (!session) return j({ error: "Not found" }, 404);

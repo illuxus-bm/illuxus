@@ -283,6 +283,23 @@ replacement for the existing Supabase migration history. Regenerate
 > newer tables (for example `event_emails`, `video_provider`). Regenerate them before relying on
 > type checking for those files.
 
+### One-off SQL for an existing database
+
+`supabase/migrations/000_full_schema.sql` is the record of the schema; a fresh database gets
+everything from it. Changes made after a database was created also ship as a
+`supabase/RUN_ME_*.sql` script to paste into the Supabase SQL Editor once. Each one is safe to run
+more than once, and its change is already in the bundle, so nothing here is outside the record:
+
+| Script | What it does | In the bundle |
+| --- | --- | --- |
+| `RUN_ME_048_plan_features.sql` | Subscription plans and feature gates | section 048 |
+| `RUN_ME_site_editor_fix.sql` | Site-editor function argument names; public reads of published content only | baseline functions; grants in section 056 |
+| `RUN_ME_speaker_event_banners.sql` | Event banner on speaker dashboard cards | `speaker_portal_events()` |
+| `RUN_ME_custom_sponsor_contacts.sql` | Custom-selection emails reach sponsor contacts | `communications_resolve_recipients()` |
+| `RUN_ME_security_fixes.sql` | Security review fixes F-01, F-02, F-05, F-06, F-08 (2026-10-28) | section 056 |
+
+They can run in any order.
+
 ### Main tables
 
 | Area | Tables |
@@ -306,7 +323,7 @@ replacement for the existing Supabase migration history. Regenerate
 | Video | `agora-token`, `livekit-token`, `livekit-room-create`, `livekit-room-end`, `livekit-go-live`, `livekit-promote`, `livekit-webhook`, `recording-start`, `recording-stop` |
 | Email | `send-email`, `send-event-email`, `send-communication-email`, `send-ticket-email`, `send-ticket-reply`, `send-speaker-invite-email`, `send-sponsor-invite-email`, `team-invitation` |
 | WhatsApp | `send-whatsapp`, `whatsapp-sync-templates`, `whatsapp-webhook` (HMAC-verified) |
-| Registration | `guest-registration` (register without an account), `create-participant-account` |
+| Registration | `guest-registration` (register without an account; participants activate their own account through a single-use emailed link) |
 | Venue | `notify-venue-selection`, `notify-organizer-venue-response` |
 | AI | `generate-creative-copy`, `generate-creative-background` (Gemini, quota-limited) |
 | Support | `submit-support-ticket` (also used for data-deletion requests) |

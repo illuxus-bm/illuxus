@@ -45,3 +45,29 @@ The review found good controls in safe same-origin redirects, HTML sanitization,
 3. Replace organizer-controlled account provisioning with verified activation.
 4. Restrict public reactions, site drafts, OG previews, community creation, and city seeding.
 5. Add CI, type checking, dependency scanning, CSP, and migration tracking.
+
+## Remediation status (2026-10-28)
+
+Fixed in code; **live only once deployed** (run `supabase/RUN_ME_security_fixes.sql`, deploy the edge functions listed below, push the frontend). SQL changes were tested against a local Postgres (PGlite) with stand-in roles and tables; edge functions were syntax-checked but not run (no Deno locally).
+
+| ID | Status | What changed |
+|---|---|---|
+| F-01 | Fixed | No online checkout exists, so a paid event's self-serve registration is `pending` until the organiser confirms payment; the QR is only issued on approval. The registrations trigger now decides status, payment and check-in for every non-organiser insert (published events only, capacity enforced with a per-event lock, a direct API insert can only register the caller). Copy on the event card and guest email says "awaiting payment". Public pages still advertise Stripe/Razorpay — product decision, not changed. |
+| F-02 | Fixed | Email-OTP dialog replaced by Supabase MFA (authenticator app), with a Settings toggle. A password-only (`aal1`) session of a user with two-factor on is refused by a PostgREST pre-request check, a RESTRICTIVE policy on every RLS table, and every edge function's caller lookup. |
+| F-03 | Fixed | All eight functions resolve the caller (service role, or a user checked against the event / communication / vendor), claim delivery rows atomically, and rate-limit ticket, invite and venue emails. `notify-venue-selection` now uses only the saved request's ids. |
+| F-04 | Fixed | `create-participant-account` removed (unused); participants activate through the single-use emailed link. Delete the deployed function too. |
+| F-05 | Fixed | Reactions only via `webinar_react()` (session members or a valid join/speaker link, allow-listed emoji, 10 per 10 s). Anonymous viewers see emoji but not who sent them. |
+| F-06 | Fixed | Public column grants exclude `draft_content`; the site editor reads drafts through admin-only `get_site_drafts()`. |
+| F-07 | Fixed | `og-event` only renders published events. |
+| F-08 | Fixed | `ensure_event_community()` is no longer executable by `anon`/`authenticated`; the owner-run triggers still create communities. |
+| F-09 | Fixed | `seed-cities` requires a platform admin or the service role and runs at most once per 30 minutes. |
+
+QA and release blockers:
+
+- **Tests** — all pass. The gutters test now checks the redesigned header; the UTM tripwire hashes line-ending-neutral and was re-pinned after re-audit.
+- **ESLint** — ignores Vite's timestamp files and the generated dashboard copies. 150 pre-existing errors remain (reported in CI, not yet blocking).
+- **TypeScript** — test files are clean. The remaining app errors come mostly from the outdated `src/integrations/supabase/types.ts`; regenerate it.
+- **Dependencies** — React Router 6.30.6, Swiper 12.2.0, and compatible audit fixes applied: 15 advisories (2 critical) → 6 (0 critical). Remaining need major upgrades: React Router 7, zod 4, exceljs.
+- **CI** — `.github/workflows/ci.yml` blocks on tests, build, current dashboard copies and critical advisories; reports types, lint and high advisories.
+- **CSP** — `Content-Security-Policy-Report-Only` added in `vercel.json`. Watch the browser console for violations, then switch it to enforcing.
+- **Manual SQL** — the security fixes are migration section 056 in the bundle; the README lists each `RUN_ME_*.sql` script and where it lives in the bundle.

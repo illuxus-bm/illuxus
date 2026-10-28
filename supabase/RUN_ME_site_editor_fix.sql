@@ -30,7 +30,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS site_content_section_key ON public.site_conten
 ALTER TABLE public.site_content ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Anyone view site_content" ON public.site_content;
 CREATE POLICY "Anyone view site_content" ON public.site_content FOR SELECT TO anon, authenticated USING (true);
-GRANT SELECT ON public.site_content TO anon, authenticated;
+-- Published columns only: drafts are for admins, via get_site_drafts()
+-- (RUN_ME_security_fixes.sql, F-06).
+REVOKE SELECT ON public.site_content FROM anon, authenticated;
+GRANT SELECT (id, section, content, published_at, created_at, updated_at) ON public.site_content TO anon, authenticated;
 
 -- Old versions (either argument order), then the ones the app calls.
 DROP FUNCTION IF EXISTS public.save_site_draft(text, jsonb);

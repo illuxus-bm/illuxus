@@ -27,6 +27,7 @@ import { publicOrigin } from "@/lib/publicUrl";
 import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 import { fetchPublicProfile, fetchPublicProfiles } from "@/lib/public-profiles";
 import { callTeamInvitation, replyError } from "@/lib/team-invitation";
+import { TwoFactorSettings } from "@/components/auth/TwoFactorSettings";
 
 type Profile = Tables<"profiles">;
 
@@ -709,6 +710,7 @@ const SettingsPage = () => {
                     <Input value={isAdmin ? "Admin" : "User"} disabled className="mt-1 h-8 text-sm bg-muted/30" />
                   </div>
                 </div>
+                <TwoFactorSettings />
                 <div className="border-t border-border pt-4">
                   <h3 className="text-[13px] font-semibold">Delete my data</h3>
                   <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">

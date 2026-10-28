@@ -10,10 +10,12 @@ function readSource(rel: string) {
 }
 
 describe("header + footer gutter parity", () => {
-  it("SiteHeader uses SiteContainer", () => {
+  // Since the 2026-10-11 redesign the public header is the dashboard's
+  // floating-chip AppHeaderBar, which sets its own edge padding.
+  it("SiteHeader uses the shared AppHeaderBar", () => {
     const src = readSource("src/components/SiteHeader.tsx");
-    expect(src).toContain('from "@/components/layout/SiteContainer"');
-    expect(src).toContain("<SiteContainer");
+    expect(src).toContain('from "@/components/layout/AppHeaderBar"');
+    expect(src).toContain("<AppHeaderBar");
     expect(src).not.toMatch(/container mx-auto/);
   });
   it("Footer uses SiteContainer", () => {

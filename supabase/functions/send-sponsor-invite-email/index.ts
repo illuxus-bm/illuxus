@@ -23,6 +23,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+import { getManagedEvent, resolveCaller } from "../_shared/auth.ts";
+import { withinLimit } from "../_shared/rate-limit.ts";
 
 const log = createEdgeLogger("send-sponsor-invite-email");
 
@@ -171,6 +173,20 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // Only the event's managers (or the service role) may send it, and only
+    // for a sponsor actually attached to this event.
+    const caller = await resolveCaller(req, supabase);
+    if (!caller) return json({ error: "Sign in required" }, 401);
+    if (caller.kind === "user" && !(await getManagedEvent(supabase, caller.user.id, event_id))) {
+      return json({ error: "You don't have access to this event" }, 403);
+    }
+    const { data: link } = await supabase.from("event_sponsors").select("event_id")
+      .eq("event_id", event_id).eq("sponsor_id", sponsor_id).maybeSingle();
+    if (!link) return json({ error: "This sponsor isn't part of the event" }, 404);
+    if (!(await withinLimit(supabase, "sponsor_invite_email", `${event_id}:${sponsor_id}`, 5, 60 * 60 * 1000))) {
+      return json({ error: "This invitation was sent several times recently. Try again later." }, 429);
+    }
 
     const [{ data: sponsor }, { data: event }] = await Promise.all([
       supabase.from("sponsors").select("id, name, email").eq("id", sponsor_id).maybeSingle(),

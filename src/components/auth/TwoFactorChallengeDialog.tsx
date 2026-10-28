@@ -11,8 +11,7 @@ import { ShieldCheck } from "lucide-react";
 
 interface Props {
   open: boolean;
-  email: string;
-  /** Called once a valid 6-digit OTP has been confirmed. */
+  /** Called once the code is accepted and the session is upgraded to aal2. */
   onVerified: () => void;
   onCancel: () => void;
   title?: string;
@@ -20,56 +19,37 @@ interface Props {
 }
 
 /**
- * Email-OTP 2FA challenge. Used both at login (after a successful password
- * sign-in) and for sensitive actions (disabling 2FA, password change).
- * Uses Supabase's built-in OTP — no extra infra needed.
+ * Authenticator-app (TOTP) challenge, through Supabase MFA. Passing it
+ * upgrades the session to `aal2`; the database and the edge functions refuse
+ * an `aal1` session of anyone who has two-factor on, so skipping this dialog
+ * gets nothing.
  */
 export default function TwoFactorChallengeDialog({
-  open, email, onVerified, onCancel, title, description,
+  open, onVerified, onCancel, title, description,
 }: Props) {
   const { toast } = useToast();
   const [code, setCode] = useState("");
-  const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [sentOnce, setSentOnce] = useState(false);
 
   useEffect(() => {
-    if (!open) {
-      setCode("");
-      setSentOnce(false);
-      return;
-    }
-    // Auto-send the first code as soon as the dialog opens.
-    void sendCode();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!open) setCode("");
   }, [open]);
-
-  const sendCode = async () => {
-    setSending(true);
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false },
-    });
-    setSending(false);
-    if (error) {
-      toast({ title: "Couldn't send code", description: error.message, variant: "destructive" });
-    } else {
-      setSentOnce(true);
-      toast({ title: "Code sent", description: `Check ${email} for a 6-digit code.` });
-    }
-  };
 
   const verify = async () => {
     if (code.length !== 6) return;
     setVerifying(true);
-    const { error } = await supabase.auth.verifyOtp({
-      email,
-      token: code,
-      type: "email",
-    });
+    const { data: factors, error: listError } = await supabase.auth.mfa.listFactors();
+    const factor = factors?.totp[0];
+    if (listError || !factor) {
+      setVerifying(false);
+      toast({ title: "Couldn't verify", description: listError?.message ?? "No authenticator is set up for this account.", variant: "destructive" });
+      return;
+    }
+    const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId: factor.id, code });
     setVerifying(false);
     if (error) {
-      toast({ title: "Invalid code", description: error.message, variant: "destructive" });
+      setCode("");
+      toast({ title: "Invalid code", description: "Check your authenticator app and try the current code.", variant: "destructive" });
       return;
     }
     onVerified();
@@ -84,36 +64,29 @@ export default function TwoFactorChallengeDialog({
           </div>
           <DialogTitle>{title ?? "Two-factor verification"}</DialogTitle>
           <DialogDescription className="text-[13px]">
-            {description ?? `Enter the 6-digit code we just sent to ${email}.`}
+            {description ?? "Enter the 6-digit code from your authenticator app."}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3">
-          <Label htmlFor="otp" className="text-[12px]">Verification code</Label>
+        <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void verify(); }}>
+          <Label htmlFor="otp" className="text-[12px]">Authenticator code</Label>
           <Input
             id="otp"
             inputMode="numeric"
             autoComplete="one-time-code"
+            autoFocus
             maxLength={6}
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
             placeholder="123456"
             className="h-10 text-center text-lg tracking-widest font-mono"
           />
-          <button
-            type="button"
-            onClick={sendCode}
-            disabled={sending}
-            className="text-[12px] text-muted-foreground hover:text-foreground disabled:opacity-60"
-          >
-            {sending ? "Sending…" : sentOnce ? "Resend code" : "Send code"}
-          </button>
-        </div>
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onCancel} className="h-9 text-[13px]">Cancel</Button>
-          <Button onClick={verify} disabled={code.length !== 6 || verifying} className="h-9 text-[13px]">
-            {verifying ? "Verifying…" : "Verify"}
-          </Button>
-        </DialogFooter>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={onCancel} className="h-9 text-[13px]">Cancel</Button>
+            <Button type="submit" disabled={code.length !== 6 || verifying} className="h-9 text-[13px]">
+              {verifying ? "Verifying…" : "Verify"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

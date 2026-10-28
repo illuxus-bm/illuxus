@@ -74,6 +74,8 @@ export interface EventRow {
   location: string | null;
   capacity: number | null;
   requires_approval: boolean | null;
+  /** Ticket price; above zero the place waits for the organiser to confirm payment. */
+  price?: number | null;
   event_format: string | null;
   banner_url: string | null;
   org_name: string | null;
@@ -261,6 +263,14 @@ const STATUS_COPY: Record<string, { label: string; color: string; heading: strin
   declined: { label: "Not approved", color: "#dc2626", heading: "Registration update", message: "the organiser was not able to approve this registration." },
 };
 
+/** A paid event's place waits for the organiser to confirm payment (there is no online checkout). */
+const PAYMENT_PENDING_COPY = {
+  label: "Awaiting payment",
+  color: "#d97706",
+  heading: "Place reserved",
+  message: "your place is reserved. The organiser will confirm it once your payment is received — this is not a ticket yet, and we'll email your ticket as soon as it is confirmed.",
+};
+
 export interface ConfirmationContext {
   event: EventRow;
   registration: RegistrationRow;
@@ -272,7 +282,8 @@ export interface ConfirmationContext {
 /** The confirmation email. The ticket (QR code) is included only once approved. */
 export function buildConfirmationEmail(ctx: ConfirmationContext): { subject: string; html: string; text: string } {
   const { event, registration: reg, origin, activationUrl } = ctx;
-  const status = STATUS_COPY[reg.approval_status] ?? STATUS_COPY.pending;
+  const awaitingPayment = reg.approval_status === "pending" && Number(event.price) > 0;
+  const status = awaitingPayment ? PAYMENT_PENDING_COPY : STATUS_COPY[reg.approval_status] ?? STATUS_COPY.pending;
   const approved = reg.approval_status === "approved";
   const title = event.title || "the event";
   const firstName = reg.first_name || reg.name.split(" ")[0] || "there";
@@ -349,7 +360,9 @@ export function buildConfirmationEmail(ctx: ConfirmationContext): { subject: str
     "",
     `${status.heading}: ${title}`,
     `Status: ${status.label}`,
-    reg.approval_status === "pending" ? "Your application is pending approval by the organiser. This is not a ticket yet." : "",
+    awaitingPayment
+      ? "Your place is reserved and awaits payment confirmation by the organiser. This is not a ticket yet."
+      : reg.approval_status === "pending" ? "Your application is pending approval by the organiser. This is not a ticket yet." : "",
     "",
     dateText ? `When: ${dateText}` : "",
     venueText ? `Where: ${venueText}` : "",
@@ -454,9 +467,9 @@ export function createHandler(deps: Deps) {
       company: input.company,
       mobile_country_code: input.mobile_country_code,
       mobile_number: input.mobile_number,
-      // The database trigger has the final say (approval-required events
-      // become 'pending' whatever is sent here).
-      approval_status: event.requires_approval ? "pending" : "approved",
+      // The database trigger has the final say: approval-required and paid
+      // events become 'pending' whatever is sent here.
+      approval_status: event.requires_approval || Number(event.price) > 0 ? "pending" : "approved",
       utm: input.utm,
     });
     if ("duplicate" in inserted) {
@@ -613,13 +626,14 @@ export function supabaseStore(db: any): Store {
     },
     async getEvent(id) {
       const { data } = await db.from("events")
-        .select("id, title, status, date, end_date, timezone, venue, location, capacity, requires_approval, event_format, image_url, banner_landscape_url, organizations:org_id(name, logo_url)")
+        .select("id, title, status, date, end_date, timezone, venue, location, capacity, requires_approval, price, event_format, image_url, banner_landscape_url, organizations:org_id(name, logo_url)")
         .eq("id", id).maybeSingle();
       if (!data) return null;
       const org = Array.isArray(data.organizations) ? data.organizations[0] : data.organizations;
       return {
         id: data.id, title: data.title, status: data.status, date: data.date, end_date: data.end_date,
         timezone: data.timezone, venue: data.venue, location: data.location, capacity: data.capacity,
+        price: data.price,
         requires_approval: data.requires_approval, event_format: data.event_format,
         banner_url: data.banner_landscape_url || data.image_url || null,
         org_name: org?.name ?? null, org_logo_url: org?.logo_url ?? null,

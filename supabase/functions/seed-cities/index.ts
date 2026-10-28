@@ -4,6 +4,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { BlobReader, ZipReader, TextWriter } from "https://deno.land/x/zipjs@v2.7.45/index.js";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+import { isPlatformAdmin, resolveCaller } from "../_shared/auth.ts";
+import { withinLimit } from "../_shared/rate-limit.ts";
 
 const log = createEdgeLogger("seed-cities");
 
@@ -64,8 +66,21 @@ Deno.serve(async (req) => {
 
     const admin = createClient(supabaseUrl, serviceKey);
 
-    // One-time seed; allow any caller. The DB is protected by RLS and the
-    // upsert is idempotent — re-running just refreshes the city list.
+    // Downloads and parses the full GeoNames archive, so only a platform
+    // admin (or the service role) may run it, and at most once per 30
+    // minutes — which also keeps two runs from overlapping.
+    const caller = await resolveCaller(req, admin);
+    const allowed = caller?.kind === "service" || (caller?.kind === "user" && await isPlatformAdmin(admin, caller.user.id));
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "Platform admins only" }), {
+        status: caller ? 403 : 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (!(await withinLimit(admin, "seed_cities", "global", 1, 30 * 60 * 1000))) {
+      return new Response(JSON.stringify({ error: "A city import ran in the last 30 minutes. Try again later." }), {
+        status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     log.info("invoked");
 
     log.info("fetching reference data");

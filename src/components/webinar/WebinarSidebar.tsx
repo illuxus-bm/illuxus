@@ -12,8 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { subscribeSessionParticipants, type SidebarParticipant } from "./participantStore";
-
-const REACTIONS = ["👏", "❤️", "🔥", "😂", "🎉", "👍"];
+import { REACTIONS, sendReaction as postReaction } from "@/lib/webinar-reactions";
 
 type Tab = "chat" | "qa" | "polls" | "requests" | "participants";
 
@@ -110,26 +109,10 @@ export function WebinarSidebar({ sessionId, isHost, canPublish, userId, activeTa
     const now = Date.now();
     if (now - lastReact.current < 400) return;
     lastReact.current = now;
-    
-    let cleanUserId: string | null = null;
-    if (userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
-      cleanUserId = userId;
-    } else if (userId && userId.startsWith("guest-")) {
-      const uuidPart = userId.slice(6);
-      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuidPart)) {
-        cleanUserId = uuidPart;
-      }
-    }
-
-    supabase.from("webinar_reactions" as any)
-      .insert({ session_id: sessionId, user_id: cleanUserId, emoji } as any)
-      .then(({ error }) => {
-        if (error) {
-          console.error("Reaction insert failed:", error);
-          toast.error(`Failed to send reaction: ${error.message}`);
-        }
-      });
-  }, [sessionId, userId]);
+    void postReaction(sessionId, emoji).then((error) => {
+      if (error) toast.error(`Failed to send reaction: ${error}`);
+    });
+  }, [sessionId]);
 
   const tabs = ([
     { key: "participants" as Tab, icon: Users, label: "People", count: counts.participants, show: true },

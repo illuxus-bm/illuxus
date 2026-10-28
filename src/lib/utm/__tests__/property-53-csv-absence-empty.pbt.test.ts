@@ -34,9 +34,8 @@ describe("Property 53: Absent UTM emits zero characters", () => {
       fc.property(fc.constantFrom<null | undefined>(null, undefined), (v) => {
         const out = escapeCsvCell(v);
         if (out !== "") return false;
-        for (const bad of FORBIDDEN_PLACEHOLDERS) {
-          if (out === bad) return false;
-        }
+        const forbidden: readonly string[] = FORBIDDEN_PLACEHOLDERS;
+        if (forbidden.includes(out)) return false;
         return true;
       }),
       { numRuns: 100 }

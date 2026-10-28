@@ -26,12 +26,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // ─── Mocks (hoisted before SUT import) ─────────────────────────────────────
 
-const insertMock = vi.fn(async () => ({ error: null }));
-const fromMock = vi.fn(() => ({ insert: insertMock }));
+const insertMock = vi.fn(async (_row: unknown) => ({ error: null }));
+const fromMock = vi.fn((_table: string) => ({ insert: insertMock }));
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    from: (...args: unknown[]) => fromMock(...args),
+    from: (table: string) => fromMock(table),
     auth: {
       getSession: vi.fn(async () => ({ data: { session: null }, error: null })),
       onAuthStateChange: vi.fn(() => ({
