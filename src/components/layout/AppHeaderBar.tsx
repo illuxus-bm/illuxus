@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { hexToRgb, perceivedLuminance } from "@/lib/theme-contrast";
 import { SidebarTrigger, useOptionalSidebar } from "@/components/ui/sidebar";
@@ -55,7 +55,11 @@ export function AppHeaderBar({
   // otherwise show as a band.
   const [scrolled, setScrolled] = useState(false);
   // Phones, on surfaces with a menu row: once the page scrolls, the top row
-  // slides away and the menu row stays pinned on its own.
+  // goes away and the menu row stays pinned on its own. The header never
+  // changes height for this — it pins itself higher (`data-pin-menu`,
+  // index.css) so the top row scrolls off with the page. Shrinking the
+  // header instead moved the page under the reader, which moved the scroll
+  // position back across the threshold, and the rows flickered.
   const [collapsed, setCollapsed] = useState(false);
   const collapsible = !!nav && !navWideOnly;
   useEffect(() => {
@@ -68,22 +72,40 @@ export function AppHeaderBar({
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // How far down the header the menu row starts, so it can pin there.
+  // Measured, because the top row is taller when its chips wrap.
+  const headerRef = useRef<HTMLElement>(null);
+  const menuRowRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    const row = menuRowRef.current;
+    if (!collapsible || !header || !row) return;
+    const measure = () => header.style.setProperty("--menu-row-top", `${row.offsetTop}px`);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [collapsible]);
+
   const canvas = canvasColor ? hexToRgb(canvasColor) : null;
+  // Fading only — no size change, so nothing below moves.
   const topRow = cn(
-    collapsible && "max-lg:transition-[max-height,opacity] max-lg:duration-200",
-    collapsible && (collapsed ? "max-lg:pointer-events-none max-lg:max-h-0 max-lg:overflow-hidden max-lg:opacity-0" : "max-lg:max-h-16"),
+    collapsible && "max-lg:transition-opacity max-lg:duration-200",
+    collapsible && collapsed && "max-lg:pointer-events-none max-lg:opacity-0",
   );
 
   return (
     <header
+      ref={headerRef}
       data-scrolled={scrolled}
+      data-pin-menu={collapsible || undefined}
       style={canvas ? ({
         "--float-haze": `rgb(${canvas.r} ${canvas.g} ${canvas.b} / 0.6)`,
         "--float-haze-solid": `rgb(${canvas.r} ${canvas.g} ${canvas.b} / 0.94)`,
       } as CSSProperties) : undefined}
       className={cn(
         "float-header app-chrome sticky top-0 z-50 flex flex-wrap items-center gap-x-2 gap-y-2.5 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-4 lg:gap-x-3 lg:px-6 lg:pb-4 lg:pt-[calc(1rem+env(safe-area-inset-top))]",
-        collapsible && collapsed && "max-lg:gap-y-0",
         className,
       )}
     >
@@ -105,7 +127,7 @@ export function AppHeaderBar({
         {leading}
       </div>
       {nav && (
-        <div className={cn("min-w-0 justify-center lg:flex", navWideOnly ? "hidden" : "order-last flex w-full lg:order-none lg:w-auto")}>
+        <div ref={menuRowRef} className={cn("min-w-0 justify-center lg:flex", navWideOnly ? "hidden" : "order-last flex w-full lg:order-none lg:w-auto")}>
           {nav}
         </div>
       )}

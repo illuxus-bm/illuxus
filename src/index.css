@@ -665,6 +665,12 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
   .float-header::before {
     background: var(--float-haze-solid, hsl(var(--background) / 0.94));
   }
+  /* With a menu row, the header pins by that row: the top row scrolls off
+     with the page and the menu row stops just under the status bar. The
+     header keeps its height, so the page never jumps (AppHeaderBar). */
+  .float-header[data-pin-menu="true"] {
+    top: calc(env(safe-area-inset-top, 0px) + 0.5rem - var(--menu-row-top, 0px));
+  }
 }
 .float-chip {
   pointer-events: auto;
