@@ -51,7 +51,7 @@
 CREATE OR REPLACE FUNCTION public.norm_text(_raw text)
 RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path = '' AS $$
   SELECT btrim(regexp_replace(
-           regexp_replace(normalize(COALESCE(_raw, ''), NFKC), '[​-‍﻿]', '', 'g'),
+           regexp_replace(normalize(COALESCE(_raw, ''), NFKC), '[\u200B-\u200D\uFEFF]', '', 'g'),
            '\s+', ' ', 'g'));
 $$;
 
@@ -59,7 +59,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.fold_text(_raw text)
 RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path = '' AS $$
   SELECT lower(regexp_replace(normalize(public.norm_text(_raw), NFKD),
-                              '[̀-ͯ᪰-᫿᷀-᷿⃐-⃿︠-︯]', '', 'g'));
+                              '[\u0300-\u036F\u1AB0-\u1AFF\u1DC0-\u1DFF\u20D0-\u20FF\uFE20-\uFE2F]', '', 'g'));
 $$;
 
 -- Address as typed apart from case and outer whitespace; null if implausible.
@@ -214,7 +214,7 @@ BEGIN
   _w := regexp_split_to_array(
           btrim(regexp_replace(
             regexp_replace(public.fold_text(_raw), '[''’`]', '', 'g'),
-            '[!-/:-@\[-`{-~ -¿‐-‧‰-⁞\s]+', ' ', 'g')),
+            '[!-/:-@\[-`{-~\u00A0-\u00BF\u2010-\u2027\u2030-\u205E\s]+', ' ', 'g')),
           ' ');
   IF _w IS NULL OR _w = ARRAY[''] THEN RETURN ''; END IF;
   WHILE array_length(_w, 1) > 1 AND _w[1] ~ '^(mr|mrs|ms|miss|mx|dr|prof|sir|shri|smt|er|adv|ca)$' LOOP
@@ -237,7 +237,7 @@ DECLARE
 BEGIN
   _k := btrim(regexp_replace(
           regexp_replace(replace(public.fold_text(_raw), '&', ' and '), '[.''’`]', '', 'g'),
-          '[!-/:-@\[-`{-~ -¿‐-‧‰-⁞\s]+', ' ', 'g'));
+          '[!-/:-@\[-`{-~\u00A0-\u00BF\u2010-\u2027\u2030-\u205E\s]+', ' ', 'g'));
   WHILE _stripped LOOP
     _stripped := false;
     FOREACH _s IN ARRAY _suffixes LOOP
@@ -772,6 +772,15 @@ END $$;
 
 
 -- ── 10. Backfill (idempotent) ─────────────────────────────────────────────────
+
+-- Keys are recomputed from what was entered, so running this script again
+-- repairs them if the matching rules change.
+UPDATE public.people SET name_key = public.person_name_key(display_name)
+ WHERE name_key IS DISTINCT FROM public.person_name_key(display_name);
+UPDATE public.companies SET name_key = public.company_name_key(name)
+ WHERE name_key IS DISTINCT FROM public.company_name_key(name);
+UPDATE public.company_aliases SET alias_key = public.company_name_key(alias)
+ WHERE alias_key IS DISTINCT FROM public.company_name_key(alias);
 
 -- Accounts with a verified address: their person, proven.
 DO $$
