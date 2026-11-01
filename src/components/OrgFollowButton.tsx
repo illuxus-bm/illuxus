@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Heart, HeartOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { loginPath } from "@/lib/safe-redirect";
 
 /** Lu.ma-style follow button that lives next to an organization's name. */
 export default function OrgFollowButton({ orgId, primaryColor }: { orgId: string; primaryColor?: string }) {
@@ -33,7 +34,7 @@ export default function OrgFollowButton({ orgId, primaryColor }: { orgId: string
 
   const toggle = async () => {
     if (!user) {
-      navigate(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+      navigate(loginPath(window.location.pathname));
       return;
     }
     setBusy(true);

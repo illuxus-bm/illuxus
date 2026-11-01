@@ -158,7 +158,7 @@ export function AccountMenu({
           <Link to="/partner"><Handshake className="mr-2 h-3.5 w-3.5" /> Partner dashboard</Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link to={settingsHref ?? (accountType === "attendee" ? "/u/me/settings" : "/dashboard/settings")}>
+          <Link to={settingsHref ?? (accountType === "attendee" && memberships.length === 0 && !isAdmin ? "/u/me/settings" : "/dashboard/settings")}>
             <SettingsIcon className="mr-2 h-3.5 w-3.5" /> Settings
           </Link>
         </DropdownMenuItem>

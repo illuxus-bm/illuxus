@@ -121,3 +121,34 @@ export function safeInternalPath(
 
   return `${resolved.pathname}${resolved.search}${resolved.hash}`;
 }
+
+/**
+ * Query parameters that carry the post-login destination. `next` is the one
+ * the app writes; `redirect` is still read because links built with it are
+ * already in people's inboxes and bookmarks.
+ */
+const DESTINATION_PARAMS = ["next", "redirect"] as const;
+
+/** The validated destination in a sign-in URL's query, or null. */
+export function postLoginDestination(
+  params: URLSearchParams,
+  origin?: string,
+): string | null {
+  for (const key of DESTINATION_PARAMS) {
+    const safe = safeInternalPath(params.get(key), origin);
+    if (safe) return safe;
+  }
+  return null;
+}
+
+/**
+ * The sign-in URL that brings the person back to `target` afterwards, or
+ * plain `/login` when there is nowhere worth returning to. Build every
+ * sign-in link with this so the destination survives sign-in, sign-up,
+ * email verification, password reset and two-factor.
+ */
+export function loginPath(target: string | null | undefined): string {
+  if (!target || !target.startsWith("/") || target.startsWith("//")) return "/login";
+  if (target === "/login" || target.startsWith("/login?")) return "/login";
+  return `/login?next=${encodeURIComponent(target)}`;
+}

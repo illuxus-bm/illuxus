@@ -14,6 +14,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { loginPath } from "@/lib/safe-redirect";
 
 type Outcome = "working" | "invalid" | "claimed" | "organiser" | "update_needed" | "error";
 
@@ -75,11 +76,11 @@ export default function AcceptInvitePage() {
 
   if (loading) return <FullPageLoader />;
   if (!token) return <Navigate to="/" replace />;
-  if (!user) return <Navigate to={`/login?redirect=${encodeURIComponent(`/sponsor/accept?token=${token}`)}`} replace />;
+  if (!user) return <Navigate to={loginPath(`/sponsor/accept?token=${token}`)} replace />;
 
   const switchAccount = async () => {
     await signOut();
-    navigate(`/login?redirect=${encodeURIComponent(`/sponsor/accept?token=${token}`)}`, { replace: true });
+    navigate(loginPath(`/sponsor/accept?token=${token}`), { replace: true });
   };
 
   if (outcome === "working") {

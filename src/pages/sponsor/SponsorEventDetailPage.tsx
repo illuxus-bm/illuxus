@@ -49,6 +49,7 @@ import {
   MEETING_STATUS_LABEL, MEETING_STATUSES, isOutcome, meetingErrorMessage,
   type MeetingState, type MeetingStatus,
 } from "@/lib/meeting-interest";
+import { loginPath } from "@/lib/safe-redirect";
 
 type Person = {
   kind: "speaker" | "attendee";
@@ -328,7 +329,7 @@ export default function SponsorEventDetailPage() {
   }, [people, tab, status, q, asc, meet]);
 
   if (authLoading) return <FullPageLoader />;
-  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(`/sponsor/events/${eventId}`)}`} replace />;
+  if (!user) return <Navigate to={loginPath(`/sponsor/events/${eventId}`)} replace />;
 
   const pages = Math.max(1, Math.ceil(rows.length / PAGE));
   const pageRows = rows.slice(page * PAGE, page * PAGE + PAGE);

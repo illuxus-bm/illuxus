@@ -23,7 +23,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { safeInternalPath } from "../safe-redirect";
+import { loginPath, postLoginDestination, safeInternalPath } from "../safe-redirect";
 
 const ORIGIN = "https://illuxus.com";
 
@@ -125,3 +125,51 @@ function safeInternationalPathWithNoBase(): string | null {
   // guard, which must be treated as "cannot validate" -> reject.
   return safeInternalPath("/dashboard", "not-a-valid-origin");
 }
+
+describe("postLoginDestination — where sign-in sends you afterwards", () => {
+  const dest = (query: string) => postLoginDestination(new URLSearchParams(query), ORIGIN);
+
+  it("reads ?next=", () => {
+    expect(dest("next=%2Fspeaker")).toBe("/speaker");
+  });
+
+  it("still reads ?redirect= from links already sent", () => {
+    expect(dest("redirect=/speaker")).toBe("/speaker");
+    expect(dest(`redirect=${encodeURIComponent("/sponsor/accept?token=abc")}`)).toBe("/sponsor/accept?token=abc");
+  });
+
+  it("prefers ?next= when both are present", () => {
+    expect(dest("redirect=/a&next=/b")).toBe("/b");
+  });
+
+  it("falls back to ?redirect= when ?next= is unsafe", () => {
+    expect(dest(`next=${encodeURIComponent("//evil.com")}&redirect=/speaker`)).toBe("/speaker");
+  });
+
+  it.each([
+    "redirect=https://evil.com",
+    "redirect=//evil.com",
+    `redirect=${encodeURIComponent("/\\evil.com")}`,
+    "redirect=%2F%5Cevil.com",
+    "",
+  ])("blocks %s", (query) => {
+    expect(dest(query)).toBeNull();
+  });
+});
+
+describe("loginPath — every sign-in link keeps its destination", () => {
+  it("round-trips through postLoginDestination", () => {
+    for (const target of ["/speaker", "/sponsor/accept?token=abc123", "/e/42/live?join=xyz", "/t/abc"]) {
+      const url = new URL(loginPath(target), ORIGIN);
+      expect(url.pathname).toBe("/login");
+      expect(postLoginDestination(url.searchParams, ORIGIN)).toBe(target);
+    }
+  });
+
+  it.each([null, undefined, "", "https://evil.com", "//evil.com", "/login", "/login?next=/x"])(
+    "gives plain /login for %s",
+    (target) => {
+      expect(loginPath(target)).toBe("/login");
+    },
+  );
+});

@@ -21,6 +21,7 @@ import { PWAInstallPrompt } from "@/components/pwa/PWAInstallPrompt";
 import { CookieConsent } from "@/components/CookieConsent";
 import { SmoothCaret } from "@/components/SmoothCaret";
 import { SecondFactorGate } from "@/components/auth/SecondFactorGate";
+import { loginPath } from "@/lib/safe-redirect";
 import { SkipToContent } from "@/components/SkipToContent";
 // Eagerly-loaded landing & auth pages (small + needed for first paint / SEO)
 import Index from "./pages/Index.tsx";
@@ -211,10 +212,7 @@ const ProfileGate = ({ children }: { children: React.ReactNode }) => {
  * redirects to external hosts via crafted query strings.
  */
 function loginRedirectFor(location: { pathname: string; search: string }): string {
-  const target = `${location.pathname}${location.search || ""}`;
-  if (!target || !target.startsWith("/") || target.startsWith("//")) return "/login";
-  if (target === "/login") return "/login";
-  return `/login?next=${encodeURIComponent(target)}`;
+  return loginPath(`${location.pathname}${location.search || ""}`);
 }
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {

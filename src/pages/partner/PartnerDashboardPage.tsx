@@ -39,6 +39,7 @@ import {
 } from "@/lib/utm/partner-access";
 import { PartnerAnalytics } from "./PartnerAnalytics";
 import { PartnerNotice as Notice, PartnerShell } from "./PartnerShell";
+import { loginPath } from "@/lib/safe-redirect";
 
 const PAGE_SIZE = 25;
 const LIVE_REFRESH_MS = 15_000;
@@ -161,7 +162,7 @@ export default function PartnerDashboardPage() {
   const [exporting, setExporting] = useState(false);
 
   if (authLoading) return <FullPageLoader />;
-  if (!user) return <Navigate to={`/login?next=${encodeURIComponent("/partner")}`} replace />;
+  if (!user) return <Navigate to={loginPath("/partner")} replace />;
 
   const refreshAll = () => {
     void qc.invalidateQueries({ queryKey: ["partner-grants"] });

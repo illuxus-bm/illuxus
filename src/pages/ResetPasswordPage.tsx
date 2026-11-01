@@ -10,6 +10,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useTheme } from "@/contexts/ThemeContext";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
+import { postLoginDestination } from "@/lib/safe-redirect";
 
 const ResetPasswordPage = () => {
   const [password, setPassword] = useState("");
@@ -42,7 +43,9 @@ const ResetPasswordPage = () => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
       toast({ title: "Password updated", description: "You can now sign in with your new password." });
-      navigate("/login");
+      // The reset link signed them in; carry on to where they were going.
+      const destination = postLoginDestination(new URLSearchParams(window.location.search));
+      navigate(destination ?? "/login");
     }
     setLoading(false);
   };

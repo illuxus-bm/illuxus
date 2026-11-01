@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { logger } from "@/lib/observability";
+import { loginPath } from "@/lib/safe-redirect";
 
 /**
  * Lu.ma-style "Subscribe" pill for an organization page.
@@ -67,7 +68,7 @@ export default function OrgSubscribeButton({
 
   const toggle = async () => {
     if (!user) {
-      navigate(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+      navigate(loginPath(window.location.pathname));
       return;
     }
     setBusy(true);

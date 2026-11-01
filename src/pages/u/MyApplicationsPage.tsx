@@ -7,6 +7,7 @@ import { FullPageLoader } from "@/components/FullPageLoader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Mic, Building2, Calendar, ClipboardList, CheckCircle2, Clock, XCircle } from "lucide-react";
 import type { ApplicationStatus, MyApplicationsSpeaker, MyApplicationsSponsor } from "@/types/applications";
+import { loginPath } from "@/lib/safe-redirect";
 
 export default function MyApplicationsPage() {
   const { user, loading: authLoading } = useAuth();
@@ -14,7 +15,7 @@ export default function MyApplicationsPage() {
   const [tab, setTab] = useState<"speaker" | "sponsor">("speaker");
 
   if (authLoading) return <FullPageLoader />;
-  if (!user) return <Navigate to="/login?redirect=/u/me/applications" replace />;
+  if (!user) return <Navigate to={loginPath("/u/me/applications")} replace />;
 
   const speakerApps = data?.speaker ?? [];
   const sponsorApps = data?.sponsor ?? [];

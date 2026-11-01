@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Users, Sparkles, Calendar, Megaphone } from "lucide-react";
 import type { Community, CommunityMember } from "@/lib/community/types";
+import { loginPath } from "@/lib/safe-redirect";
 
 /**
  * Personal "My communities" page. Mirrors the look & feel of MyEventsPage and
@@ -20,7 +21,7 @@ export default function MyCommunitiesPage() {
   const { data, isLoading } = useMyCommunities();
 
   if (authLoading) return <FullPageLoader />;
-  if (!user) return <Navigate to="/login?redirect=/u/me/communities" replace />;
+  if (!user) return <Navigate to={loginPath("/u/me/communities")} replace />;
 
   const memberships = data ?? [];
 

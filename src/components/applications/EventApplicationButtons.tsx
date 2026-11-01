@@ -7,6 +7,7 @@ import { SpeakerApplicationDialog } from "./SpeakerApplicationDialog";
 import { SponsorApplicationDialog } from "./SponsorApplicationDialog";
 import { Mic, Building2, CheckCircle2, Clock, XCircle } from "lucide-react";
 import type { ApplicationStatus } from "@/types/applications";
+import { loginPath } from "@/lib/safe-redirect";
 
 interface Props {
   eventId: string;
@@ -47,7 +48,7 @@ export function EventApplicationButtons({ eventId, eventOwnerId, speakerEnabled 
 
   const handleSpeakerClick = () => {
     if (!user) {
-      navigate(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+      navigate(loginPath(window.location.pathname));
       return;
     }
     setSpeakerOpen(true);
@@ -55,7 +56,7 @@ export function EventApplicationButtons({ eventId, eventOwnerId, speakerEnabled 
 
   const handleSponsorClick = () => {
     if (!user) {
-      navigate(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+      navigate(loginPath(window.location.pathname));
       return;
     }
     setSponsorOpen(true);

@@ -84,7 +84,13 @@ const ATTENDEE_FILES = [
     // `loadStoredUtm()`, the five utm_* columns on the insert and
     // `clearStoredUtm()` on success are untouched; the UTM lines are the
     // same as at the previous bump.
-    hash: "5d39839f19a4178d3b1462438e94c952b04744a7a9fe1dc216a3ceec35810548",
+    //
+    // Bumped again for central sign-in links (2026-11-01). Re-audited
+    // against 6.1–6.3: the guest form's `signInHref` is now built by
+    // `loginPath()` (same `/login?next=` URL as before) and the helper is
+    // imported. `handleRsvp`, `loadStoredUtm()`, the five utm_* columns on
+    // the insert and `clearStoredUtm()` on success are untouched.
+    hash: "ae847ac6b7a912112c8a30b96ca245b8c16f7c9f7682cbfd48959ae2bbf68f73",
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",

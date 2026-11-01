@@ -7,6 +7,7 @@ import SiteHeader from "@/components/SiteHeader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Calendar, MapPin, Mic, Search, Building2, ArrowLeft, ShieldAlert } from "lucide-react";
+import { loginPath } from "@/lib/safe-redirect";
 
 type Filter = "all" | "upcoming" | "past";
 type SpeakerPortalEvent = import("@/types/portals").SpeakerPortalEvent;
@@ -55,7 +56,7 @@ export default function SpeakerEventsPage() {
   }, [events, now]);
 
   if (authLoading) return <FullPageLoader />;
-  if (!user) return <Navigate to="/login?redirect=/speaker" replace />;
+  if (!user) return <Navigate to={loginPath("/speaker")} replace />;
 
   // Empty state — user has no speaker assignments
   const isEmpty = !isLoading && events.length === 0;

@@ -13,6 +13,7 @@ import { formatMoney } from "@/lib/currency";
 import { publicUrl } from "@/lib/publicUrl";
 import { GuestConfirmationPanel, GuestRegistrationForm } from "@/components/event/GuestRegistration";
 import { loadGuestConfirmation, storeGuestConfirmation, type GuestConfirmation } from "@/lib/guest-registration";
+import { loginPath } from "@/lib/safe-redirect";
 
 interface RsvpEvent {
   id: string;
@@ -583,7 +584,7 @@ export default function EventRsvpCard({
             submitLabel={registerLabel}
             accentColor={accentColor}
             utmParams={utmParams}
-            signInHref={`/login?next=${encodeURIComponent(window.location.pathname)}`}
+            signInHref={loginPath(window.location.pathname)}
             onRegistered={(confirmation, resend) => {
               setResendGuestDetails(() => resend);
               updateGuestConfirmation(confirmation);

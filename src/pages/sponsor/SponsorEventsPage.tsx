@@ -26,6 +26,7 @@ import SiteHeader from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { stripRichText } from "@/lib/markdown";
+import { loginPath } from "@/lib/safe-redirect";
 
 type PortalRow = {
   event_id: string;
@@ -124,7 +125,7 @@ export default function SponsorEventsPage() {
   }, [cards, search, tab]);
 
   if (authLoading) return <FullPageLoader />;
-  if (!user) return <Navigate to={`/login?next=${encodeURIComponent("/sponsor")}`} replace />;
+  if (!user) return <Navigate to={loginPath("/sponsor")} replace />;
 
   return (
     <div className="min-h-screen bg-background">

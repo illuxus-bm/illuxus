@@ -9,6 +9,7 @@ import {
   ExternalLink, Linkedin, Globe, Briefcase, Clock, Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { loginPath } from "@/lib/safe-redirect";
 
 export default function SpeakerEventDetailPage() {
   const { user, loading: authLoading } = useAuth();
@@ -16,7 +17,7 @@ export default function SpeakerEventDetailPage() {
   const { data, isLoading, error } = useSpeakerEventDetails(eventId);
 
   if (authLoading) return <FullPageLoader />;
-  if (!user) return <Navigate to={`/login?redirect=/speaker/events/${eventId}`} replace />;
+  if (!user) return <Navigate to={loginPath(`/speaker/events/${eventId}`)} replace />;
 
   // Access control: if RPC returns null, the user is not assigned as a speaker for this event
   if (!isLoading && !data) {

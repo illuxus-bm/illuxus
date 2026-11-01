@@ -18,7 +18,8 @@ import PasswordStrengthMeter from "@/components/auth/PasswordStrengthMeter";
 import { scorePassword } from "@/lib/password-strength";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSiteContent } from "@/hooks/useSiteContent";
-import { safeInternalPath } from "@/lib/safe-redirect";
+import { postLoginDestination } from "@/lib/safe-redirect";
+import { landingPathFor, loadLandingAccess } from "@/lib/landing";
 import { useTheme } from "@/contexts/ThemeContext";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import { ACTIVE_ORG_KEY } from "@/contexts/OrgContext";
@@ -95,7 +96,7 @@ const LoginPage = () => {
    * up. Always validated to be an in-app path before navigating to prevent
    * open redirects.
    */
-  const nextParam = searchParams.get("next");
+  // `?redirect=` from older links counts too (postLoginDestination).
   // Validated by `safeInternalPath`, which resolves the candidate against the
   // current origin instead of prefix-matching it.
   //
@@ -109,7 +110,7 @@ const LoginPage = () => {
   // link on our own domain that redirects post-authentication.
   //
   // See src/lib/safe-redirect.ts and its regression tests.
-  const safeNext = safeInternalPath(nextParam);
+  const safeNext = postLoginDestination(searchParams);
   /** True when the visitor arrived because they need to claim a ticket — we
    *  show a friendlier "sign up to claim" callout on the form. */
   const claimingTicket = !!safeNext && safeNext.startsWith("/t/");
@@ -185,11 +186,12 @@ const LoginPage = () => {
 
   /** Where the link in the verification email lands. The email also carries
    *  the code, which is the primary path; the link is a fallback. Invitees
-   *  come back to `/login?invite=<token>` so the invite is still redeemed. */
+   *  come back to `/login?invite=<token>` so the invite is still redeemed;
+   *  anyone else lands straight on the page they were heading for. */
   const signupRedirectTo = () =>
     inviteToken
       ? `${publicOrigin()}/login?invite=${encodeURIComponent(inviteToken)}`
-      : publicOrigin();
+      : `${publicOrigin()}${safeNext ?? ""}`;
 
   const startVerification = (address: string, from: "signup" | "signin") => {
     setVerifyEmail(address);
@@ -259,7 +261,7 @@ const LoginPage = () => {
 
     if (isForgot) {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${publicOrigin()}/reset-password`,
+        redirectTo: `${publicOrigin()}/reset-password${safeNext ? `?next=${encodeURIComponent(safeNext)}` : ""}`,
       });
       if (error) {
         toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -423,33 +425,20 @@ const LoginPage = () => {
         return;
       }
 
-      const { data: profile } = await supabaseRpc("get_my_profile");
-      const p = profile as { account_type?: string } | null;
-
-      // Super admin check — has the platform-level `admin` role grant.
-      // We look this up directly (don't trust profile data which is org-facing).
-      // Super admins skip the organizer dashboard and land on the Control Tower.
-      const { data: adminRow } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .eq("role", "admin")
-        .maybeSingle();
-      const isSuperAdmin = !!adminRow;
-
-      const defaultNext = isSuperAdmin
-        ? "/dashboard/admin"
-        : p?.account_type === "attendee"
-          ? "/discover"
-          : "/dashboard";
       // Priority order:
       //   1. invite acceptance → /dashboard with full reload so
       //      OrgContext re-fetches memberships (the RPC just inserted
       //      one and the existing context snapshot has no row).
       //   2. ?next= (preserved by every auth gate when bouncing here)
-      //   3. account-type default
+      //   3. the first place this person can actually reach — workspace,
+      //      portal or feed (src/lib/landing.ts), not their sign-up type
       const inviteNext = await consumeInviteIfAny();
-      const next = inviteNext ?? safeNext ?? defaultNext;
+      let next = inviteNext ?? safeNext;
+      if (!next) {
+        const { data: profile } = await supabaseRpc("get_my_profile");
+        const accountType = (profile as { account_type?: string } | null)?.account_type;
+        next = landingPathFor(await loadLandingAccess(user.id, accountType));
+      }
       if (inviteNext) {
         // Full reload guarantees the new org_members row is visible to
         // OrgContext before the OnboardingGuard runs. SPA navigation

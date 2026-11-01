@@ -13,6 +13,7 @@ import { WaitingLobby } from "@/components/webinar/WaitingLobby";
 import { uuid } from "@/lib/uuid";
 import { getWebinarProvider, type WebinarProvider } from "@/lib/webinar/provider";
 import { toast } from "sonner";
+import { loginPath } from "@/lib/safe-redirect";
 
 const WebinarStage = lazy(() =>
   import("@/components/webinar/WebinarStage").then((m) => ({ default: m.WebinarStage })),
@@ -288,7 +289,7 @@ export default function EventLivePage() {
   if (!user && !joinToken && !speakerToken) return (
     <div className="p-8 max-w-md mx-auto text-center space-y-3">
       <p>Please sign in to join the live stream.</p>
-      <Button asChild><Link to={`/login?redirect=/e/${eventId}/live`}>Sign in</Link></Button>
+      <Button asChild><Link to={loginPath(`${window.location.pathname}${window.location.search}`)}>Sign in</Link></Button>
     </div>
   );
 

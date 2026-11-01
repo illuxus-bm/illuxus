@@ -20,6 +20,7 @@ import {
   fetchPartnerGrants, isPartnerFeatureMissing, linkLabel, partnerErrorMessage, type PartnerGrant,
 } from "@/lib/utm/partner-access";
 import { PartnerNotice, PartnerShell } from "./PartnerShell";
+import { loginPath } from "@/lib/safe-redirect";
 
 const statusColor: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -65,7 +66,7 @@ export default function PartnerEventsPage() {
   }, [grants, search, tab]);
 
   if (authLoading) return <FullPageLoader />;
-  if (!user) return <Navigate to={`/login?next=${encodeURIComponent("/partner")}`} replace />;
+  if (!user) return <Navigate to={loginPath("/partner")} replace />;
 
   const err = error as { code?: string; message?: string } | null;
 
