@@ -304,6 +304,7 @@ more than once, and its change is already in the bundle, so nothing here is outs
 | `RUN_ME_company_suggestions.sql` | Company suggestions while typing: seeds companies from typed names and sponsors, `suggest_companies()` (run after 060) | section 061 |
 | `RUN_ME_invitation_prefill.sql` | Invitations reuse what the organiser entered: prefilled set-up links, profile suggestions for existing accounts (run after 060) | section 062 |
 | `RUN_ME_sponsor_contact_activation.sql` | Sponsor team members get access when they set up their account; repairs anyone stuck without it (run after 062) | section 063 |
+| `RUN_ME_intelligence_centre.sql` | Super Admin Intelligence Centre: contact and company correction, duplicate scores, merges with rollback, field history (run after 061 and 062) | section 064 |
 
 They can run in any order.
 

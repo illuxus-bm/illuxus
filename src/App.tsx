@@ -81,6 +81,7 @@ const PublicEventPage = lazyWithLog("PublicEventPage", () => import("./pages/Pub
 const AdminPanelPage = lazyWithLog("AdminPanelPage", () => import("./pages/dashboard/AdminPanelPage.tsx"));
 const SiteEditorPage = lazyWithLog("SiteEditorPage", () => import("./pages/dashboard/admin/SiteEditorPage.tsx"));
 const AuditLogPage = lazyWithLog("AuditLogPage", () => import("./pages/dashboard/admin/AuditLogPage.tsx"));
+const IntelligenceCentrePage = lazyWithLog("IntelligenceCentrePage", () => import("./pages/dashboard/admin/IntelligenceCentrePage.tsx"));
 const CommunityHubPage = lazyWithLog("CommunityHubPage", () => import("./pages/dashboard/community/CommunityHubPage.tsx"));
 const CommunityHomePage = lazyWithLog("CommunityHomePage", () => import("./pages/dashboard/community/CommunityHomePage.tsx"));
 const CommunityFeedPage = lazyWithLog("CommunityFeedPage", () => import("./pages/dashboard/community/CommunityFeedPage.tsx"));
@@ -407,6 +408,7 @@ const App = () => (
                 <Route path="/dashboard/admin" element={<RouteErrorBoundary><SuperAdminRoute><AdminPanelPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/site" element={<RouteErrorBoundary><SuperAdminRoute><SiteEditorPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/audit" element={<RouteErrorBoundary><SuperAdminRoute><AuditLogPage /></SuperAdminRoute></RouteErrorBoundary>} />
+                <Route path="/dashboard/admin/intelligence" element={<RouteErrorBoundary><SuperAdminRoute><IntelligenceCentrePage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/analytics" element={<RouteErrorBoundary><SuperAdminRoute><PlatformAnalyticsPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/tickets" element={<RouteErrorBoundary><SuperAdminRoute><SupportTicketsPage /></SuperAdminRoute></RouteErrorBoundary>} />
                 <Route path="/dashboard/admin/users" element={<RouteErrorBoundary><SuperAdminRoute><UserManagementPage /></SuperAdminRoute></RouteErrorBoundary>} />

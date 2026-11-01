@@ -8,7 +8,7 @@
 import {
   Calendar, Settings, Ticket, Megaphone, FileText, HelpCircle, CreditCard,
   Building2, Users, MoreHorizontal, ChevronsUpDown, Check, Shield, BarChart3,
-  Activity, DollarSign, Edit, ScrollText, Layers, Lock, type LucideIcon,
+  Activity, DollarSign, Edit, ScrollText, Layers, Lock, Database, type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -162,6 +162,7 @@ const adminMain: NavItem[] = [
   { title: "Analytics",     url: "/dashboard/admin/analytics",     icon: BarChart3  },
   { title: "Activity Feed", url: "/dashboard/admin/activity",      icon: Activity   },
   { title: "Organizations", url: "/dashboard/admin/organizations", icon: Building2  },
+  { title: "Intelligence",  url: "/dashboard/admin/intelligence",  icon: Database   },
   { title: "Plans",         url: "/dashboard/admin/plans",         icon: Layers     },
   { title: "Events",        url: "/dashboard/admin/events",        icon: Calendar   },
   { title: "Revenue",       url: "/dashboard/admin/revenue",       icon: DollarSign },
