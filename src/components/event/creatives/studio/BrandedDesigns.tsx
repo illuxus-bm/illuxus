@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { zipSync } from "fflate";
 import { Check, Download, ImageIcon, Images, Loader2, Mic, Handshake, Save, Sparkles, Users } from "lucide-react";
 import { toast } from "sonner";
+import { fetchEventSponsorLinks, withEventSponsorship } from "@/lib/sponsors/event-sponsorship";
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
@@ -127,10 +128,11 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
       }
       const [es, ep] = await Promise.all([
         supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
-        supabase.from("event_sponsors").select("sponsor_id, display_order").eq("event_id", eventId).order("display_order"),
+        fetchEventSponsorLinks(eventId),
       ]);
       const speakerIds = ((es.data ?? []) as { speaker_id: string }[]).map((r) => r.speaker_id);
-      const sponsorIds = ((ep.data ?? []) as { sponsor_id: string }[]).map((r) => r.sponsor_id);
+      const sponsorIds = ep.data.map((r) => r.sponsor_id);
+      const linkBySponsor = new Map(ep.data.map((l) => [l.sponsor_id, l]));
       const [sp, pa] = await Promise.all([
         speakerIds.length ? supabase.from("speakers").select("id, name, photo_url, designation, company").in("id", speakerIds) : Promise.resolve({ data: [] }),
         sponsorIds.length ? supabase.from("sponsors").select("id, name, logo_url, tier, tier_label").in("id", sponsorIds) : Promise.resolve({ data: [] }),
@@ -140,7 +142,10 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
       const ppl = byId((sp.data ?? []) as { id: string; name: string; photo_url: string | null; designation: string | null; company: string | null }[], speakerIds)
         .map((r) => ({ id: r.id, name: r.name, role: r.designation ?? "", company: r.company ?? "", photoUrl: r.photo_url }));
       const prt = byId((pa.data ?? []) as { id: string; name: string; logo_url: string | null; tier: string | null; tier_label: string | null }[], sponsorIds)
-        .map((r) => ({ id: r.id, name: r.name, tier: r.tier_label || r.tier || "", logoUrl: r.logo_url }));
+        .map((row) => {
+          const r = withEventSponsorship(row, linkBySponsor.get(row.id));
+          return { id: r.id, name: r.name, tier: r.tier_label || r.tier || "", logoUrl: r.logo_url };
+        });
       setEvent({
         title: (e.title as string) ?? "", date: (e.date as string) ?? null, timezone: (e.timezone as string) ?? null,
         venue: (e.venue as string) ?? null, location: (e.location as string) ?? null,

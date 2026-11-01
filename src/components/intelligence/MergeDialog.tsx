@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { COMPANY_FIELDS, PERSON_FIELDS, intel, mergeOptions, type Entity } from "@/lib/intelligence/admin-api";
+import { Badge } from "@/components/ui/badge";
+import { COMPANY_FIELDS, PERSON_FIELDS, confidenceBand, intel, mergeOptions, reasonLabel, type Entity } from "@/lib/intelligence/admin-api";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -13,6 +14,8 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onMerged: () => void;
+  /** The scan's confidence and reasons, when this came from a duplicate suggestion. */
+  match?: { score: number; reasons: string[] };
 }
 
 const IMPACT_LABELS: Record<string, string> = {
@@ -28,7 +31,7 @@ const IMPACT_LABELS: Record<string, string> = {
  * the merge runs in one transaction on the server (intel_merge_people /
  * intel_merge_companies) and can be rolled back from the audit history.
  */
-export function MergeDialog({ entity, ids, open, onOpenChange, onMerged }: Props) {
+export function MergeDialog({ entity, ids, open, onOpenChange, onMerged, match }: Props) {
   const [records, setRecords] = useState<Array<Record<string, unknown>>>([]);
   const [loading, setLoading] = useState(false);
   const [survivor, setSurvivor] = useState(0);
@@ -37,13 +40,15 @@ export function MergeDialog({ entity, ids, open, onOpenChange, onMerged }: Props
   const [reason, setReason] = useState("");
   const [allowDistinct, setAllowDistinct] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [consolidate, setConsolidate] = useState(true);
   const fields = entity === "person" ? PERSON_FIELDS : COMPANY_FIELDS;
 
   useEffect(() => {
     if (!open || ids.length < 2) return;
     let live = true;
     setLoading(true);
-    setChoices({}); setReason(""); setAllowDistinct(false); setImpact(null);
+    setChoices({}); setReason(""); setAllowDistinct(false); setImpact(null); setConfirming(false); setConsolidate(true);
     Promise.all(ids.map((id) => (entity === "person" ? intel.contact(id) : intel.company(id))))
       .then((details) => {
         if (!live) return;
@@ -86,6 +91,11 @@ export function MergeDialog({ entity, ids, open, onOpenChange, onMerged }: Props
       if (entity === "person") await intel.mergePeople(String(survivorRecord.id), others, changed, reason.trim());
       else await intel.mergeCompanies(String(survivorRecord.id), others, changed, reason.trim(), allowDistinct);
       toast.success(`${others.length + 1} records merged`, { description: "You can roll this back from Audit history." });
+      if (hasSponsors && consolidate) {
+        const r = await intel.consolidateSponsors(String(survivorRecord.id), reason.trim());
+        if (r.merged > 0) toast.success(`${r.merged} repeat sponsor ${r.merged === 1 ? "record" : "records"} combined`, { description: "Every event kept its own title." });
+        if (r.skipped.length > 0) toast.message("Some sponsor records stayed separate", { description: r.skipped[0].reason });
+      }
       onOpenChange(false);
       onMerged();
     } catch (e) {
@@ -95,6 +105,7 @@ export function MergeDialog({ entity, ids, open, onOpenChange, onMerged }: Props
     }
   };
 
+  const hasSponsors = entity === "company" && Number(impact?.sponsors ?? 0) > 0;
   const title = (r: Record<string, unknown>) => String((entity === "person" ? r.display_name : r.name) ?? "Unnamed");
 
   return (
@@ -105,6 +116,12 @@ export function MergeDialog({ entity, ids, open, onOpenChange, onMerged }: Props
           <DialogDescription>
             The surviving record keeps its ID; the others are folded into it and point to it. Choose the correct value for each field.
           </DialogDescription>
+          {match && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <Badge variant="secondary">{match.score}% · {confidenceBand(match.score).label}</Badge>
+              {match.reasons.map((r) => <Badge key={r} variant="outline" className="text-[11px] font-normal">{reasonLabel(r)}</Badge>)}
+            </div>
+          )}
         </DialogHeader>
 
         {loading || !survivorRecord ? (
@@ -181,6 +198,16 @@ export function MergeDialog({ entity, ids, open, onOpenChange, onMerged }: Props
               </p>
             </div>
 
+            {hasSponsors && (
+              <label className="flex items-start gap-2 rounded-md border p-3 text-[13px]">
+                <input type="checkbox" className="mt-0.5" checked={consolidate} onChange={(e) => setConsolidate(e.target.checked)} />
+                <span>
+                  Also combine each organiser's repeat sponsor records for this company.
+                  <span className="block text-[12px] text-muted-foreground">Every event keeps its title and logo. Records with different titles on one event stay separate, and each merge can be rolled back.</span>
+                </span>
+              </label>
+            )}
+
             {distinct && (
               <label className="flex items-start gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-[13px]">
                 <input type="checkbox" className="mt-0.5" checked={allowDistinct} onChange={(e) => setAllowDistinct(e.target.checked)} />
@@ -200,11 +227,23 @@ export function MergeDialog({ entity, ids, open, onOpenChange, onMerged }: Props
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
-          <Button onClick={() => void confirm()}
-                  disabled={busy || loading || !survivorRecord || accountsElsewhere || reason.trim().length < 3 || (!!distinct && !allowDistinct)}>
-            {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Merging…</> : `Merge into “${survivorRecord ? title(survivorRecord) : ""}”`}
-          </Button>
+          {confirming ? (
+            <>
+              <p className="mr-auto self-center text-[13px]">Merge {others.length} into “{survivorRecord ? title(survivorRecord) : ""}”?</p>
+              <Button variant="outline" onClick={() => setConfirming(false)} disabled={busy}>Back</Button>
+              <Button onClick={() => void confirm()} disabled={busy}>
+                {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Merging…</> : "Confirm merge"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button onClick={() => setConfirming(true)}
+                      disabled={loading || !survivorRecord || accountsElsewhere || reason.trim().length < 3 || (!!distinct && !allowDistinct)}>
+                {`Merge into “${survivorRecord ? title(survivorRecord) : ""}”`}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,11 +1,15 @@
 /**
- * The Intelligence Centre's calls (migrations 064, 065). Every function checks the
+ * The Intelligence Centre's calls (migrations 064 to 066). Every function checks the
  * Super Admin role on the server; nothing here relies on the page being
  * hidden. Errors come back as thrown Errors with the server's message.
  */
 import { supabaseRpc } from "@/lib/observability";
 
 export type Entity = "person" | "company";
+
+/** A partnership title for display: the words for a custom one, capitalised for a preset. */
+export const sponsorshipTitle = (tier: string | null | undefined, label: string | null | undefined) =>
+  tier === "custom" ? label || "Custom" : tier ? tier[0].toUpperCase() + tier.slice(1) : "—";
 
 async function call<T>(name: string, params: Record<string, unknown> = {}): Promise<T> {
   const { data, error } = await supabaseRpc<T>(name, params);
@@ -25,6 +29,9 @@ export interface Overview {
   merges: number;
   sponsors_unconnected: number;
   sponsors_repeats: number;
+  sponsor_identities: number;
+  event_sponsorships: number;
+  merge_recommendations: number;
 }
 
 export interface Page<T> { rows: T[]; total: number }
@@ -51,7 +58,21 @@ export interface CompanyRow {
 
 export interface SponsorRow {
   id: string; name: string; email: string | null; website: string | null; logo_url: string | null;
-  company_id: string | null; company: string | null; same_company: number; events: number; team: number; created_by: string | null;
+  company_id: string | null; company: string | null; same_company: number; same_owner: string[]; events: number; team: number; created_by: string | null;
+  sponsorships: Array<{ id: string; event: string; date: string | null; tier: string | null; tier_label: string | null }>;
+}
+
+export interface SponsorMergePreview {
+  records: Array<{
+    id: string; name: string; email: string | null; website: string | null; logo_url: string | null; description: string | null;
+    company: string | null; owner: string | null; created_at: string; team: number;
+    events: Array<{ event: string; date: string | null; tier: string | null; tier_label: string | null }>;
+  }>;
+  same_owner: boolean; same_company: boolean; conflicts: string[]; repeats: number;
+}
+
+export interface SponsorReviewItem {
+  kind: string; title: string; detail: string; company_id: string | null; sponsor_ids: string[]; person_ids: string[];
 }
 
 export interface HistoryEntry {
@@ -98,6 +119,16 @@ export const intel = {
     call<Page<SponsorRow>>("intel_search_sponsors", { _q: f.q ?? "", _limit: f.limit ?? 25, _offset: f.offset ?? 0, _filter: f.filter ?? "all" }),
   connectSponsor: (sponsor: string, company: string | null, reason?: string) =>
     call<void>("intel_connect_sponsor", { _sponsor: sponsor, _company: company, _reason: reason || null }),
+  sponsorMergePreview: (survivor: string, others: string[]) =>
+    call<SponsorMergePreview>("intel_sponsor_merge_preview", { _survivor: survivor, _others: others }),
+  mergeSponsors: (survivor: string, others: string[], reason: string) =>
+    call<string>("intel_merge_sponsors", { _survivor: survivor, _others: others, _reason: reason }),
+  consolidateSponsors: (company: string, reason: string) =>
+    call<{ merged: number; skipped: Array<{ reason: string }> }>("intel_consolidate_company_sponsors", { _company: company, _reason: reason }),
+  moveSponsorship: (eventSponsor: string, company: string, reason?: string) =>
+    call<string>("intel_move_sponsorship", { _event_sponsor: eventSponsor, _company: company, _reason: reason || null }),
+  sponsorReview: (kind: string | null, limit = 25, offset = 0) =>
+    call<Page<SponsorReviewItem> & { counts: Record<string, number> }>("intel_sponsor_review", { _kind: kind, _limit: limit, _offset: offset }),
   contact: (id: string) => call<Detail>("intel_contact_detail", { _id: id }),
   company: (id: string) => call<Detail>("intel_company_detail", { _id: id }),
   updateContact: (id: string, changes: Record<string, string | null>, reason?: string) =>

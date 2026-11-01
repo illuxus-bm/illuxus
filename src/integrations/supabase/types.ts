@@ -424,7 +424,10 @@ export type Database = {
           display_order: number
           event_id: string
           id: string
+          logo_url: string | null
           sponsor_id: string
+          tier: string | null
+          tier_label: string | null
           tier_override: string | null
         }
         Insert: {
@@ -432,7 +435,10 @@ export type Database = {
           display_order?: number
           event_id: string
           id?: string
+          logo_url?: string | null
           sponsor_id: string
+          tier?: string | null
+          tier_label?: string | null
           tier_override?: string | null
         }
         Update: {
@@ -440,7 +446,10 @@ export type Database = {
           display_order?: number
           event_id?: string
           id?: string
+          logo_url?: string | null
           sponsor_id?: string
+          tier?: string | null
+          tier_label?: string | null
           tier_override?: string | null
         }
         Relationships: [

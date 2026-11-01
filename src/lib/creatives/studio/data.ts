@@ -7,6 +7,7 @@
  * a creative is typed in from scratch: the organiser only edits what the
  * event already says.
  */
+import { fetchEventSponsorLinks } from "@/lib/sponsors/event-sponsorship";
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeConfig, type EventPageConfig } from "@/components/event/page-form/types";
 import { logger } from "@/lib/observability";
@@ -155,7 +156,7 @@ export async function loadStudioData(eventId: string): Promise<StudioData> {
       .eq("id", eventId)
       .single(),
     supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
-    supabase.from("event_sponsors").select("sponsor_id, display_order").eq("event_id", eventId).order("display_order"),
+    fetchEventSponsorLinks(eventId),
     supabase.from("sessions").select("title, start_time").eq("event_id", eventId).order("start_time"),
   ]);
   if (eventRes.error || !eventRes.data) {
@@ -189,7 +190,7 @@ export async function loadStudioData(eventId: string): Promise<StudioData> {
   const sponsors: StudioSponsor[] = inOrder(sponsorIds, sponsorsRes.data).map((row) => ({
     id: row.id,
     name: row.name,
-    logoUrl: row.logo_url || null,
+    logoUrl: (sponsorLinks.data ?? []).find((l) => l.sponsor_id === row.id)?.logo_url || row.logo_url || null,
   }));
 
   const origin = typeof window === "undefined" ? "" : window.location.origin;

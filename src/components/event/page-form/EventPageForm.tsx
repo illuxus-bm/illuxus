@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { fetchEventSponsorLinks, withEventSponsorship } from "@/lib/sponsors/event-sponsorship";
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
@@ -70,7 +71,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
         supabase.from("events").select("*").eq("id", eventId).single(),
         supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
         supabase.from("sessions").select("*").eq("event_id", eventId).order("start_time"),
-        supabase.from("event_sponsors").select("sponsor_id, display_order").eq("event_id", eventId).order("display_order"),
+        fetchEventSponsorLinks(eventId),
       ]);
       if (evRes.data) {
         setEvent(evRes.data as RendererEvent);
@@ -87,12 +88,13 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
         setSpeakers(sorted);
       }
       if (spRel.data?.length) {
-        const ids = spRel.data.map((s: any) => s.sponsor_id);
+        const ids = spRel.data.map((s) => s.sponsor_id);
         const { data } = await supabase.from("sponsors").select("*").in("id", ids);
         const orderMap = new Map(ids.map((id, i) => [id, i] as const));
+        const linkBySponsor = new Map(spRel.data.map((l) => [l.sponsor_id, l]));
         const sorted = ((data as RendererSponsor[]) || []).slice().sort(
           (a, b) => (orderMap.get(a.id) ?? 9999) - (orderMap.get(b.id) ?? 9999)
-        );
+        ).map((s) => withEventSponsorship(s, linkBySponsor.get(s.id)));
         setSponsors(sorted);
       }
     })();

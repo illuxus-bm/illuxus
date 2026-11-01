@@ -307,6 +307,7 @@ more than once, and its change is already in the bundle, so nothing here is outs
 | `RUN_ME_sponsor_contact_activation.sql` | Sponsor team members get access when they set up their account; repairs anyone stuck without it (run after 062) | section 063 |
 | `RUN_ME_intelligence_centre.sql` | Super Admin Intelligence Centre: contact and company correction, duplicate scores, merges with rollback, field history (run after 061 and 062) | section 064 |
 | `RUN_ME_intelligence_part2.sql` | Merged companies leave suggestions; sponsors connect to company records; server-side paging and sorting; near-identical name matching (run after 064) | section 065 |
+| `RUN_ME_sponsor_identity.sql` | Sponsor identity: per-event partnership titles and details, event-specific contacts, sponsor record merges with rollback, review queue (run after 065) | section 066 |
 
 Most can run in any order; a script says so at the top when it needs another first.
 

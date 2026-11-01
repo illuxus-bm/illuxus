@@ -67,6 +67,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FileText, Download, Loader2, Plus, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { fetchEventSponsorLinks, withEventSponsorship } from "@/lib/sponsors/event-sponsorship";
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
 
@@ -190,7 +191,7 @@ async function fetchBrochureData(eventId: string): Promise<{
       .eq("event_id", eventId)
       .order("start_time"),
     supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
-    supabase.from("event_sponsors").select("sponsor_id, display_order").eq("event_id", eventId).order("display_order"),
+    fetchEventSponsorLinks(eventId),
   ]);
 
   if (eventRes.error) {
@@ -328,14 +329,18 @@ async function fetchBrochureData(eventId: string): Promise<{
       });
     }
     const orderMap = new Map(eventSponsorLinks.map((l, i) => [l.sponsor_id, l.display_order ?? i]));
+    const linkBySponsor = new Map(eventSponsorLinks.map((l) => [l.sponsor_id, l]));
     sponsors = (sponsorRows ?? [])
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        logo_url: s.logo_url,
-        tier: s.tier,
-        display_order: orderMap.get(s.id) ?? 0,
-      }))
+      .map((row) => {
+        const s = withEventSponsorship(row, linkBySponsor.get(row.id));
+        return {
+          id: s.id,
+          name: s.name,
+          logo_url: s.logo_url,
+          tier: s.tier,
+          display_order: orderMap.get(s.id) ?? 0,
+        };
+      })
       .sort((a, b) => a.display_order - b.display_order);
   }
 

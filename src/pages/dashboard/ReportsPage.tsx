@@ -94,7 +94,7 @@ async function loadReportData(orgId: string): Promise<ReportData> {
   const titleOf = new Map(events.map((e) => [e.id, e.title]));
 
   type ESRow = { event_id: string; speakers: { name: string; email: string | null; company: string | null } | null };
-  type SpsRow = { event_id: string; sponsors: { name: string; email: string | null; tier: string | null; website: string | null } | null };
+  type SpsRow = { event_id: string; tier?: string | null; tier_label?: string | null; sponsors: { name: string; email: string | null; tier: string | null; website: string | null } | null };
 
   const [registrations, speakerLinks, sponsorLinks] = await Promise.all([
     fetchForEvents<RegRow>(eventIds, (ids, from, to) =>
@@ -104,7 +104,7 @@ async function loadReportData(orgId: string): Promise<ReportData> {
       supabase.from("event_speakers").select("event_id, speakers(name, email, company)").in("event_id", ids)
         .order("event_id").order("speaker_id").range(from, to)),
     fetchForEvents<SpsRow>(eventIds, (ids, from, to) =>
-      supabase.from("event_sponsors").select("event_id, sponsors(name, email, tier, website)").in("event_id", ids)
+      supabase.from("event_sponsors").select("event_id, tier, tier_label, sponsors(name, email, tier, website)").in("event_id", ids)
         .order("event_id").order("sponsor_id").range(from, to)),
   ]);
 
@@ -131,7 +131,7 @@ async function loadReportData(orgId: string): Promise<ReportData> {
     event_id: r.event_id,
     name: r.sponsors!.name,
     email: r.sponsors!.email,
-    tier: r.sponsors!.tier,
+    tier: r.tier === "custom" ? r.tier_label || r.tier : r.tier ?? r.sponsors!.tier,
     website: r.sponsors!.website,
     event_title: titleOf.get(r.event_id) ?? "Unknown",
   }));

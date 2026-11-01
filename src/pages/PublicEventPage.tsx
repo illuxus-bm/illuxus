@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, Link, useLocation } from "react-router-dom";
+import { fetchEventSponsorLinks, withEventSponsorship } from "@/lib/sponsors/event-sponsorship";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
@@ -133,7 +134,7 @@ const PublicEventPage = () => {
       supabase.from("events").select("*").eq("id", eid).single(),
       supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eid).order("display_order"),
       supabase.from("sessions").select("*").eq("event_id", eid).order("start_time"),
-      supabase.from("event_sponsors").select("sponsor_id, display_order").eq("event_id", eid).order("display_order"),
+      fetchEventSponsorLinks(eid),
       supabaseRpc("get_event_attendees_public", { _event_id: eid, _limit: 12 }),
     ]);
 
@@ -176,14 +177,15 @@ const PublicEventPage = () => {
       setSpeakers([]);
     }
 
-    const spRows = (spRel.data || []) as Array<{ sponsor_id: string; display_order: number }>;
+    const spRows = spRel.data || [];
     const spIds = spRows.map((s) => s.sponsor_id);
     if (spIds.length) {
       const { data } = await supabase.from("sponsors").select("*").in("id", spIds);
       const orderMap = new Map(spRows.map((r, i) => [r.sponsor_id, i]));
+      const linkBySponsor = new Map(spRows.map((r) => [r.sponsor_id, r]));
       const sorted = (data || []).slice().sort(
         (a, b) => (orderMap.get(a.id) ?? 9999) - (orderMap.get(b.id) ?? 9999)
-      );
+      ).map((s) => withEventSponsorship(s, linkBySponsor.get(s.id)));
       setSponsors(sorted as RendererSponsor[]);
     } else {
       setSponsors([]);

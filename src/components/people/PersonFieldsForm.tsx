@@ -68,9 +68,11 @@ interface Props {
   onChange: (next: PersonFields) => void;
   /** When true, hides email field (e.g. invite flows where email lives elsewhere). */
   hideEmail?: boolean;
+  /** Hides the company fields, where the company is already known (a sponsor's team). */
+  hideCompany?: boolean;
 }
 
-export default function PersonFieldsForm({ value, onChange, hideEmail }: Props) {
+export default function PersonFieldsForm({ value, onChange, hideEmail, hideCompany }: Props) {
   const set = <K extends keyof PersonFields>(k: K, v2: PersonFields[K]) => onChange({ ...value, [k]: v2 });
 
   return (
@@ -95,15 +97,17 @@ export default function PersonFieldsForm({ value, onChange, hideEmail }: Props) 
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className={hideCompany ? "" : "grid grid-cols-2 gap-2"}>
         <div>
           <Label className="text-[12px]">Designation *</Label>
           <Input value={value.designation} onChange={(e) => set("designation", e.target.value)} placeholder="e.g. CEO" />
         </div>
-        <div>
-          <Label className="text-[12px]">Company *</Label>
-          <CompanyInput value={value.company} onChange={(v) => set("company", v)} placeholder="Acme Inc." />
-        </div>
+        {!hideCompany && (
+          <div>
+            <Label className="text-[12px]">Company *</Label>
+            <CompanyInput value={value.company} onChange={(v) => set("company", v)} placeholder="Acme Inc." />
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-[120px_1fr] gap-2">
@@ -131,17 +135,19 @@ export default function PersonFieldsForm({ value, onChange, hideEmail }: Props) 
 
       <div className="pt-2 border-t border-border space-y-3">
         <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Optional</p>
-        <div className="grid grid-cols-2 gap-2">
+        <div className={hideCompany ? "" : "grid grid-cols-2 gap-2"}>
           <div>
             <Label className="text-[12px]">LinkedIn profile</Label>
             <Input value={value.linkedin_url} onChange={(e) => set("linkedin_url", e.target.value)} placeholder="https://linkedin.com/in/…" />
           </div>
-          <div>
-            <Label className="text-[12px]">Company website</Label>
-            <Input value={value.company_website} onChange={(e) => set("company_website", e.target.value)} placeholder="https://…" />
-          </div>
+          {!hideCompany && (
+            <div>
+              <Label className="text-[12px]">Company website</Label>
+              <Input value={value.company_website} onChange={(e) => set("company_website", e.target.value)} placeholder="https://…" />
+            </div>
+          )}
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        {!hideCompany && <div className="grid grid-cols-2 gap-2">
           <div>
             <Label className="text-[12px]">Employees</Label>
             <Select value={value.company_employee_count} onValueChange={(v) => set("company_employee_count", v)}>
@@ -160,7 +166,7 @@ export default function PersonFieldsForm({ value, onChange, hideEmail }: Props) 
               </SelectContent>
             </Select>
           </div>
-        </div>
+        </div>}
       </div>
     </div>
   );

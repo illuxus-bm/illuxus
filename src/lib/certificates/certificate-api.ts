@@ -160,16 +160,18 @@ export async function loadVersionDesign(versionId: string): Promise<CertificateD
 export async function loadEventPartners(eventId: string): Promise<PartnerLogoRef[]> {
   const { data, error } = await supabase
     .from("event_sponsors")
-    .select("sponsor_id, tier_override, display_order, sponsors:sponsor_id(id, name, logo_url, tier, tier_label)")
+    .select("sponsor_id, tier_override, tier, tier_label, logo_url, display_order, sponsors:sponsor_id(id, name, logo_url, tier, tier_label)")
     .eq("event_id", eventId)
     .order("display_order", { ascending: true });
   if (error) fail(error);
-  type Row = { sponsor_id: string; tier_override: string | null; sponsors: { id: string; name: string; logo_url: string | null; tier: string; tier_label: string | null } | null };
+  type Row = { sponsor_id: string; tier_override: string | null; tier?: string | null; tier_label?: string | null; logo_url?: string | null; sponsors: { id: string; name: string; logo_url: string | null; tier: string; tier_label: string | null } | null };
   return ((data ?? []) as unknown as Row[]).flatMap((r) => {
     const s = Array.isArray(r.sponsors) ? r.sponsors[0] : r.sponsors;
     if (!s) return [];
-    const logo = s.logo_url && /^https:\/\//i.test(s.logo_url) ? s.logo_url : "";
-    return [{ sponsorId: s.id, name: s.name, logoUrl: logo, tier: r.tier_override || s.tier_label || s.tier }];
+    const logoUrl = r.logo_url || s.logo_url;
+    const logo = logoUrl && /^https:\/\//i.test(logoUrl) ? logoUrl : "";
+    const title = r.tier ? r.tier_label || r.tier : s.tier_label || s.tier;
+    return [{ sponsorId: s.id, name: s.name, logoUrl: logo, tier: r.tier_override || title }];
   });
 }
 

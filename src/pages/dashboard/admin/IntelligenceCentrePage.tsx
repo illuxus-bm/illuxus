@@ -1,176 +1,118 @@
 /**
  * Super Admin — Intelligence Centre (/dashboard/admin/intelligence).
  *
- * Contacts, companies and sponsor records across Illuxus: an overview of data
- * quality, searchable records with field-level editing and history, scored
- * duplicate suggestions, side-by-side merges with an impact preview, sponsor
- * connections, a correction queue, and the audit history with rollback.
+ * Contacts, companies and sponsors across Illuxus: an overview of data quality,
+ * searchable records with field-level editing and history, scored duplicate
+ * suggestions, side-by-side merges with an impact preview, sponsor connections,
+ * data corrections, a review queue, and the audit history with rollback.
  *
  * Lists page, sort and filter on the server. Results are cached and the
- * current page stays on screen while the next one loads, and tabs stay
+ * current page stays on screen while the next one loads, and sections stay
  * mounted once visited, so nothing blanks out or loses its filters.
  *
- * Every action is a Super-Admin-only database function (migrations 064, 065)
+ * Every action is a Super-Admin-only database function (migrations 064 to 066)
  * that checks the role itself and records what it did; this page hiding
  * itself from others is not the protection.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { useSearchParams } from "react-router-dom";
-import { keepPreviousData, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsUpDown, Loader2, RefreshCw, RotateCcw, Search } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  AlertTriangle, ArrowLeft, Building2, ChevronDown, ChevronRight, ClipboardCheck, Copy, Database, GitMerge, Handshake,
+  Loader2, MoreHorizontal, RefreshCw, RotateCcw, Users,
+} from "lucide-react";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MergeDialog } from "@/components/intelligence/MergeDialog";
 import { CompanyPicker, RecordDrawer } from "@/components/intelligence/RecordDrawer";
+import { SponsorMergeDialog } from "@/components/intelligence/SponsorMergeDialog";
+import {
+  Chips, Empty, FilterSelect, KpiTile, NoData, Pager, SearchBox, SortHead, TableShell, fail, td, th, tr, useIntelQuery, usePager, type Sort,
+} from "@/components/intelligence/parts";
 import { useDebounced } from "@/hooks/useOrgPeopleSearch";
 import {
-  confidenceBand, intel, reasonLabel,
+  confidenceBand, intel, reasonLabel, sponsorshipTitle,
   type CompanyRow, type ContactRow, type Entity, type Suggestion, type SponsorRow,
 } from "@/lib/intelligence/admin-api";
 import { cn } from "@/lib/utils";
 
 const TABS = [
   ["overview", "Overview"], ["contacts", "Contacts"], ["companies", "Companies"], ["sponsors", "Sponsors"],
-  ["duplicates", "Duplicates"], ["corrections", "Corrections"], ["audit", "Audit history"],
+  ["duplicates", "Duplicate Detection"], ["merge", "Merge Centre"], ["corrections", "Data Correction"],
+  ["review", "Review Queue"], ["audit", "Audit History"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
+type MergeRequest = { entity: Entity; ids: string[]; match?: { score: number; reasons: string[] } };
 
-const fail = (e: unknown) => toast.error(e instanceof Error ? e.message : String(e));
-const select = "h-9 rounded-md border border-input bg-background px-2 text-[13px]";
-const PAGE_SIZES = [25, 50, 100];
 const DEBOUNCE_MS = 250;
-
-/** A cached read that keeps showing the last result while the next one loads. */
-function useIntelQuery<T>(key: unknown[], fn: () => Promise<T>) {
-  const query = useQuery({ queryKey: ["intel", ...key], queryFn: fn, placeholderData: keepPreviousData, retry: false, refetchOnWindowFocus: false });
-  const reported = useRef(0);
-  useEffect(() => {
-    if (query.error && query.errorUpdatedAt !== reported.current) {
-      reported.current = query.errorUpdatedAt;
-      fail(query.error);
-    }
-  }, [query.error, query.errorUpdatedAt]);
-  return query;
-}
-
-/** Page state tied to the list's filters: changing any of them returns to the first page. */
-function usePager(filterKey: string, initialSize = PAGE_SIZES[0]) {
-  const [state, setState] = useState({ key: filterKey, page: 0 });
-  const [size, setSizeState] = useState(initialSize);
-  const page = state.key === filterKey ? state.page : 0;
-  const setPage = useCallback((p: number) => setState({ key: filterKey, page: p }), [filterKey]);
-  const setSize = (s: number) => { setSizeState(s); setPage(0); };
-  return { page, size, offset: page * size, setPage, setSize };
-}
-type PagerState = ReturnType<typeof usePager>;
-
-function Pager({ pager, total, updating, label = "records", sizes = PAGE_SIZES }: { pager: PagerState; total: number; updating: boolean; label?: string; sizes?: number[] }) {
-  const { page, size, setPage, setSize } = pager;
-  const pages = Math.max(1, Math.ceil(total / size));
-  // The last rows of the last page can be merged or decided away.
-  useEffect(() => { if (!updating && page > 0 && page >= pages) setPage(pages - 1); }, [updating, page, pages, setPage]);
-  if (total === 0) return null;
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground">
-      <span className="flex items-center gap-2 tabular-nums">
-        {page * size + 1}–{Math.min((page + 1) * size, total)} of {total} {label}
-        {updating && <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Updating…</span>}
-      </span>
-      <span className="flex items-center gap-2">
-        {sizes.length > 1 && (
-          <select value={size} onChange={(e) => setSize(Number(e.target.value))} className={cn(select, "h-8")} aria-label={`${label} per page`}>
-            {sizes.map((s) => <option key={s} value={s}>{s} per page</option>)}
-          </select>
-        )}
-        <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === 0} onClick={() => setPage(page - 1)} aria-label={`Previous page of ${label}`}><ChevronLeft className="h-4 w-4" /></Button>
-        <span className="tabular-nums">Page {page + 1} of {pages}</span>
-        <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page + 1 >= pages} onClick={() => setPage(page + 1)} aria-label={`Next page of ${label}`}><ChevronRight className="h-4 w-4" /></Button>
-      </span>
-    </div>
-  );
-}
-
-function SortHead({ label, column, sort, onSort }: { label: string; column: string; sort: { column: string; dir: "asc" | "desc" }; onSort: (column: string) => void }) {
-  const active = sort.column === column;
-  const Icon = !active ? ChevronsUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
-  return (
-    <th className="px-3 py-2" aria-sort={!active ? "none" : sort.dir === "asc" ? "ascending" : "descending"}>
-      <button type="button" className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => onSort(column)}>
-        {label} <Icon className={cn("h-3 w-3", !active && "opacity-40")} />
-      </button>
-    </th>
-  );
-}
-
-/** What a list shows before it has anything to show. */
-function NoData({ query }: { query: UseQueryResult<unknown> }) {
-  if (!query.isError) return <Loading />;
-  return (
-    <div className="py-8 text-center text-[13px] text-muted-foreground">
-      This couldn't be loaded. <Button size="sm" variant="outline" className="ml-2" onClick={() => void query.refetch()}>Try again</Button>
-    </div>
-  );
-}
+const ENTITY_OPTIONS = [["person", "Contacts"], ["company", "Companies"]];
 
 export default function IntelligenceCentrePage() {
   const [params, setParams] = useSearchParams();
   const tab = (TABS.some(([t]) => t === params.get("tab")) ? params.get("tab") : "overview") as Tab;
   const go = (t: Tab, extra: Record<string, string> = {}) => setParams({ tab: t, ...extra });
   const [drawer, setDrawer] = useState<{ entity: Entity; id: string } | null>(null);
-  const [merge, setMerge] = useState<{ entity: Entity; ids: string[] } | null>(null);
+  const [merge, setMerge] = useState<MergeRequest | null>(null);
+  const [sponsorMerge, setSponsorMerge] = useState<string[] | null>(null);
   const [merges, setMerges] = useState(0);
   const queryClient = useQueryClient();
   const refresh = useCallback(() => { void queryClient.invalidateQueries({ queryKey: ["intel"] }); }, [queryClient]);
-  // A tab mounts on its first visit and then stays, hidden, so its filters and page survive.
+  // A section mounts on its first visit and then stays, hidden, so its filters and page survive.
   const visited = useRef(new Set<Tab>());
   visited.current.add(tab);
   const panel = (t: Tab, content: ReactNode) => (
-    <TabsContent value={t} forceMount hidden={tab !== t}>{visited.current.has(t) && content}</TabsContent>
+    <TabsContent value={t} forceMount hidden={tab !== t} className="mt-4">{visited.current.has(t) && content}</TabsContent>
   );
-  // A filter in the link applies only to the tab it was sent to.
+  // A filter in the link applies only to the section it was sent to.
   const linked = (t: Tab, name: string) => (tab === t ? params.get(name) : null);
   const open = (entity: Entity, id: string) => setDrawer({ entity, id });
-  const startMerge = (entity: Entity, ids: string[]) => setMerge({ entity, ids });
+  const startMerge = (entity: Entity, ids: string[], match?: MergeRequest["match"]) => setMerge({ entity, ids, match });
 
   return (
     <DashboardLayout>
-      <div className="space-y-5">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Intelligence Centre</h1>
-          <p className="text-[13px] text-muted-foreground">Contacts, companies and sponsors across Illuxus — correct, de-duplicate, merge and connect, with every change recorded.</p>
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="sm" asChild className="-ml-2 h-8">
+              <Link to="/dashboard/admin"><ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back to admin</Link>
+            </Button>
+            <div className="flex items-center gap-2">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10"><Database className="h-4 w-4 text-primary" /></div>
+              <div>
+                <h1 className="text-lg font-semibold tracking-tight">Intelligence Centre</h1>
+                <p className="text-xs text-muted-foreground">Correct, de-duplicate and connect contacts, companies and sponsors, with every change recorded</p>
+              </div>
+            </div>
+          </div>
+          <Button size="sm" variant="outline" className="h-8" onClick={refresh}><RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh</Button>
         </div>
         <Tabs value={tab} onValueChange={(v) => go(v as Tab)}>
-          <TabsList className="flex-wrap h-auto">
-            {TABS.map(([t, label]) => <TabsTrigger key={t} value={t}>{label}</TabsTrigger>)}
-          </TabsList>
+          <div className="overflow-x-auto">
+            <TabsList className="h-9 w-max">
+              {TABS.map(([t, label]) => <TabsTrigger key={t} value={t} className="text-[13px]">{label}</TabsTrigger>)}
+            </TabsList>
+          </div>
           {panel("overview", <OverviewTab go={go} />)}
           {panel("contacts", <RecordsTab entity="person" linkedFilter={linked("contacts", "filter")} merges={merges} onOpen={(id) => open("person", id)} onMerge={(ids) => startMerge("person", ids)} />)}
           {panel("companies", <RecordsTab entity="company" linkedFilter={linked("companies", "filter")} merges={merges} onOpen={(id) => open("company", id)} onMerge={(ids) => startMerge("company", ids)} />)}
-          {panel("sponsors", <SponsorsTab linkedFilter={linked("sponsors", "filter")} refresh={refresh} onOpenCompany={(id) => open("company", id)} />)}
-          {panel("duplicates", <DuplicatesTab linkedEntity={linked("duplicates", "entity") as Entity | null} refresh={refresh} onOpen={open} onMerge={startMerge} />)}
+          {panel("sponsors", <SponsorsTab linkedFilter={linked("sponsors", "filter")} refresh={refresh} onOpenCompany={(id) => open("company", id)} onMergeRecords={setSponsorMerge} />)}
+          {panel("duplicates", <DuplicatesTab linkedEntity={linked("duplicates", "entity") as Entity | null} linkedStatus={linked("duplicates", "status")} refresh={refresh} onOpen={open} onMerge={startMerge} />)}
+          {panel("merge", <MergeCentreTab refresh={refresh} onOpen={open} onMerge={startMerge} onMergeRecords={setSponsorMerge} />)}
           {panel("corrections", <CorrectionsTab refresh={refresh} onOpen={open} />)}
+          {panel("review", <ReviewTab go={go} onOpen={open} onMerge={startMerge} onMergeRecords={setSponsorMerge} />)}
           {panel("audit", <AuditTab refresh={refresh} />)}
         </Tabs>
       </div>
       {drawer && <RecordDrawer entity={drawer.entity} id={drawer.id} onClose={() => setDrawer(null)} onChanged={refresh} />}
-      {merge && <MergeDialog entity={merge.entity} ids={merge.ids} open onOpenChange={(o) => !o && setMerge(null)} onMerged={() => { setMerges((n) => n + 1); refresh(); }} />}
+      {merge && <MergeDialog entity={merge.entity} ids={merge.ids} match={merge.match} open onOpenChange={(o) => !o && setMerge(null)} onMerged={() => { setMerges((n) => n + 1); refresh(); }} />}
+      {sponsorMerge && <SponsorMergeDialog ids={sponsorMerge} onClose={() => setSponsorMerge(null)} onMerged={refresh} />}
     </DashboardLayout>
-  );
-}
-
-function Card({ label, value, hint, onClick, tone }: { label: string; value: number | string; hint?: string; onClick?: () => void; tone?: "warn" }) {
-  return (
-    <button type="button" onClick={onClick} disabled={!onClick}
-            className={cn("rounded-xl border bg-card p-4 text-left transition-colors", onClick && "hover:border-primary/50 hover:bg-muted/40", tone === "warn" && "border-amber-500/40")}>
-      <div className="text-[12px] text-muted-foreground">{label}</div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
-      {hint && <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>}
-    </button>
   );
 }
 
@@ -178,37 +120,51 @@ function OverviewTab({ go }: { go: (t: Tab, extra?: Record<string, string>) => v
   const [f, setF] = useState({ from: "", to: "", country: "", industry: "" });
   const filters = useDebounced(f, DEBOUNCE_MS);
   const query = useIntelQuery(["overview", filters], () => intel.overview(filters));
-  const data = query.data;
+  const d = query.data;
+  const loading = !d && !query.isError;
+  const attention: Array<[string, number | undefined, () => void]> = d ? [
+    ["Contacts needing verification", d.people.unverified, () => go("contacts", { filter: "unverified" })],
+    ["Incomplete contacts", d.people.incomplete, () => go("contacts", { filter: "incomplete" })],
+    ["Contacts without a company", d.people.without_company, () => go("contacts", { filter: "no_company" })],
+    ["Companies without a domain", d.companies.missing_domain, () => go("companies", { filter: "no_domain" })],
+    ["Provisional companies", d.companies.provisional, () => go("companies", { filter: "provisional" })],
+    ["Sponsors without a company", d.sponsors_unconnected, () => go("sponsors", { filter: "unconnected" })],
+    ["Repeat sponsor records", d.sponsors_repeats, () => go("sponsors", { filter: "repeats" })],
+    ["Flagged for manual review", d.flagged, () => go("duplicates", { status: "flagged" })],
+  ] : [];
   return (
-    <div className="space-y-4 pt-3">
-      <div className="flex flex-wrap items-end gap-2 text-[12px] text-muted-foreground">
-        <label>Created from<Input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} className="mt-1 h-9 w-40" /></label>
-        <label>to<Input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} className="mt-1 h-9 w-40" /></label>
-        <label>Country<Input value={f.country} onChange={(e) => setF({ ...f, country: e.target.value })} className="mt-1 h-9 w-36" placeholder="Any" /></label>
-        <label>Industry (companies)<Input value={f.industry} onChange={(e) => setF({ ...f, industry: e.target.value })} className="mt-1 h-9 w-40" placeholder="Any" /></label>
-        {query.isFetching && data && <span className="inline-flex h-9 items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Updating…</span>}
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-2 text-[11px] text-muted-foreground">
+        <label>Created from<Input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} className="mt-1 h-8 w-36 text-sm" /></label>
+        <label>to<Input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} className="mt-1 h-8 w-36 text-sm" /></label>
+        <label>Country<Input value={f.country} onChange={(e) => setF({ ...f, country: e.target.value })} className="mt-1 h-8 w-32 text-sm" placeholder="Any" /></label>
+        <label>Industry<Input value={f.industry} onChange={(e) => setF({ ...f, industry: e.target.value })} className="mt-1 h-8 w-32 text-sm" placeholder="Any" /></label>
+        {query.isFetching && d && <span className="inline-flex h-8 items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Updating…</span>}
       </div>
-      {!data ? <NoData query={query} /> : (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Card label="Data quality score" value={`${data.people.quality}%`} hint="Name, company, designation and a verified address" />
-          <Card label="Unique contacts" value={data.people.contacts} onClick={() => go("contacts")} />
-          <Card label="Unique companies" value={data.companies.companies} onClick={() => go("companies")} />
-          <Card label="Merged records" value={data.merges} onClick={() => go("audit")} />
-          <Card label="Suspected duplicate contacts" value={data.duplicate_contacts} hint="Score 60+" tone="warn" onClick={() => go("duplicates", { entity: "person" })} />
-          <Card label="Suspected duplicate companies" value={data.duplicate_companies} hint="Score 60+" tone="warn" onClick={() => go("duplicates", { entity: "company" })} />
-          <Card label="Sponsors without a company" value={data.sponsors_unconnected} hint="Not connected yet" tone="warn" onClick={() => go("sponsors", { filter: "unconnected" })} />
-          <Card label="Repeat sponsor records" value={data.sponsors_repeats} hint="Several records for one company" onClick={() => go("sponsors", { filter: "repeats" })} />
-          <Card label="Flagged for manual review" value={data.flagged} onClick={() => go("duplicates")} />
-          <Card label="Corrections awaiting review" value={data.corrections_open} hint={`${data.corrections_safe} formatting-only`} onClick={() => go("corrections")} />
-          <Card label="Contacts needing verification" value={data.people.unverified} hint="No verified email" onClick={() => go("contacts", { filter: "unverified" })} />
-          <Card label="Incomplete contacts" value={data.people.incomplete} onClick={() => go("contacts", { filter: "incomplete" })} />
-          <Card label="Contacts without a company" value={data.people.without_company} onClick={() => go("contacts", { filter: "no_company" })} />
-          <Card label="Possible wrong associations" value={data.association_suggestions} hint="Conflicting designations, missing domains" onClick={() => go("corrections")} />
-          <Card label="Companies without a domain" value={data.companies.missing_domain} onClick={() => go("companies", { filter: "no_domain" })} />
-          <Card label="Incomplete companies" value={data.companies.incomplete} onClick={() => go("companies", { filter: "incomplete" })} />
-          <Card label="Provisional companies" value={data.companies.provisional} hint="Not yet verified" onClick={() => go("companies", { filter: "provisional" })} />
-          <Card label="Contacts with a login" value={data.people.with_account} onClick={() => go("contacts", { filter: "with_account" })} />
+      {query.isError && !d ? <NoData query={query} /> : (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <KpiTile icon={Users} label="Total contacts" value={d?.people.contacts} loading={loading} hint={d && `${d.people.quality}% data quality`} onClick={() => go("contacts")} />
+          <KpiTile icon={Building2} label="Total companies" value={d?.companies.companies} loading={loading} onClick={() => go("companies")} />
+          <KpiTile icon={Handshake} label="Sponsor identities" value={d?.sponsor_identities} loading={loading} onClick={() => go("sponsors")} />
+          <KpiTile icon={ClipboardCheck} label="Event sponsorships" value={d?.event_sponsorships} loading={loading} onClick={() => go("sponsors")} />
+          <KpiTile icon={Copy} label="Potential duplicate contacts" value={d?.duplicate_contacts} loading={loading} onClick={() => go("duplicates", { entity: "person" })} />
+          <KpiTile icon={Copy} label="Potential duplicate companies" value={d?.duplicate_companies} loading={loading} onClick={() => go("duplicates", { entity: "company" })} />
+          <KpiTile icon={AlertTriangle} label="Corrections pending" value={d?.corrections_open} loading={loading} hint={d && `${d.corrections_safe} formatting-only`} onClick={() => go("corrections")} />
+          <KpiTile icon={GitMerge} label="Merge recommendations" value={d?.merge_recommendations} loading={loading} onClick={() => go("merge")} />
         </div>
+      )}
+      {attention.length > 0 && (
+        <TableShell dimmed={query.isPlaceholderData}>
+          <thead><tr className="border-b border-border bg-muted/30"><th className={th}>Needs attention</th><th className={cn(th, "w-24 text-right")}>Records</th></tr></thead>
+          <tbody>
+            {attention.map(([label, n, onClick]) => (
+              <tr key={label} className={cn(tr, "cursor-pointer hover:bg-muted/20")} onClick={onClick}>
+                <td className="px-4 py-2.5"><button type="button" className="text-left">{label}</button></td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{n}</td>
+              </tr>
+            ))}
+          </tbody>
+        </TableShell>
       )}
     </div>
   );
@@ -221,7 +177,7 @@ function RecordsTab({ entity, linkedFilter, merges, onOpen, onMerge }: {
   const [text, setText] = useState({ q: "", country: "", industry: "" });
   const typed = useDebounced(text, DEBOUNCE_MS);
   const [filter, setFilter] = useState(linkedFilter ?? "all");
-  const [sort, setSort] = useState<{ column: string; dir: "asc" | "desc" }>({ column: person ? "updated" : "entries", dir: "desc" });
+  const [sort, setSort] = useState<Sort>({ column: person ? "updated" : "entries", dir: "desc" });
   const [picked, setPicked] = useState<string[]>([]);
   useEffect(() => { if (linkedFilter) setFilter(linkedFilter); }, [linkedFilter]);
   useEffect(() => setPicked([]), [merges]);
@@ -238,80 +194,105 @@ function RecordsTab({ entity, linkedFilter, merges, onOpen, onMerge }: {
   const idOf = (r: ContactRow | CompanyRow) => ("person_id" in r ? r.person_id : r.company_id);
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const filters = person
-    ? [["all", "All contacts"], ["incomplete", "Incomplete"], ["no_company", "No company"], ["unverified", "Unverified"], ["with_account", "With a login"], ["possible_duplicate", "Possible duplicates"]]
-    : [["all", "All companies"], ["incomplete", "Incomplete"], ["no_domain", "No domain"], ["provisional", "Provisional"], ["verified", "Verified"], ["has_sponsors", "Has sponsor records"], ["possible_duplicate", "Possible duplicates"]];
+    ? [["all", "All"], ["incomplete", "Incomplete"], ["no_company", "No company"], ["unverified", "Unverified"], ["with_account", "With a login"], ["possible_duplicate", "Possible duplicates"]]
+    : [["all", "All"], ["incomplete", "Incomplete"], ["no_domain", "No domain"], ["provisional", "Provisional"], ["verified", "Verified"], ["has_sponsors", "Sponsors"], ["possible_duplicate", "Possible duplicates"]];
   const rows = query.data?.rows;
   const head = { sort, onSort };
+  const allPicked = !!rows?.length && rows.every((r) => picked.includes(idOf(r)));
 
   return (
-    <div className="space-y-3 pt-3">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[16rem] flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={text.q} onChange={(e) => setText({ ...text, q: e.target.value })} className="h-9 pl-8 text-[13px]"
-                 placeholder={person ? "Name, email, phone, company, designation, LinkedIn or ID" : "Name, alias, domain, registry ID or company ID"} />
-        </div>
-        <select value={filter} onChange={(e) => setFilter(e.target.value)} className={select} aria-label="Filter">
-          {filters.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        <Input value={text.country} onChange={(e) => setText({ ...text, country: e.target.value })} className="h-9 w-32 text-[13px]" placeholder="Country" aria-label="Country" />
-        {!person && <Input value={text.industry} onChange={(e) => setText({ ...text, industry: e.target.value })} className="h-9 w-36 text-[13px]" placeholder="Industry" aria-label="Industry" />}
-        <Button size="sm" disabled={picked.length < 2} onClick={() => onMerge(picked)}>Merge selected ({picked.length})</Button>
-        {picked.length > 0 && <Button size="sm" variant="ghost" onClick={() => setPicked([])}>Clear</Button>}
+        <SearchBox value={text.q} onChange={(q) => setText({ ...text, q })} className="w-72 max-w-full"
+                   placeholder={person ? "Name, email, phone, company or ID" : "Name, alias, domain or registry ID"} />
+        <Input value={text.country} onChange={(e) => setText({ ...text, country: e.target.value })} className="h-8 w-28 text-sm" placeholder="Country" aria-label="Country" />
+        {!person && <Input value={text.industry} onChange={(e) => setText({ ...text, industry: e.target.value })} className="h-8 w-28 text-sm" placeholder="Industry" aria-label="Industry" />}
+        <Chips value={filter} onChange={setFilter} options={filters} />
+        <span className="ml-auto flex items-center gap-2">
+          {picked.length > 0 && <Button size="sm" variant="ghost" className="h-8" onClick={() => setPicked([])}>Clear</Button>}
+          <Button size="sm" className="h-8" disabled={picked.length < 2} onClick={() => onMerge(picked)}><GitMerge className="mr-1.5 h-3.5 w-3.5" /> Merge selected ({picked.length})</Button>
+        </span>
       </div>
-      {!rows ? <NoData query={query} /> : rows.length === 0 ? <p className="py-8 text-center text-[13px] text-muted-foreground">Nothing matches.</p> : (
-        <div className={cn("overflow-x-auto rounded-lg border transition-opacity", query.isPlaceholderData && "opacity-60")}>
-          <table className="w-full text-[13px]">
-            <thead className="bg-muted/50 text-left text-[12px] text-muted-foreground">
+      {!rows ? <NoData query={query} /> : rows.length === 0 ? <Empty>Nothing matches.</Empty> : (
+        <TableShell dimmed={query.isPlaceholderData}>
+          <thead>
+            <tr className="border-b border-border bg-muted/30">
+              <th className="w-10 px-4 py-2.5">
+                <input type="checkbox" checked={allPicked} aria-label="Select this page"
+                       onChange={() => setPicked((p) => (allPicked ? p.filter((id) => !rows.some((r) => idOf(r) === id)) : [...new Set([...p, ...rows.map(idOf)])]))} />
+              </th>
               {person ? (
-                <tr><th className="w-8 px-3 py-2" /><SortHead label="Name" column="name" {...head} /><th className="px-3 py-2">Email</th><th className="px-3 py-2">Phone</th><SortHead label="Company" column="company" {...head} /><SortHead label="Designation" column="designation" {...head} /><SortHead label="Events" column="events" {...head} /><SortHead label="Updated" column="updated" {...head} /></tr>
+                <>
+                  <SortHead label="Name" column="name" {...head} /><th className={th}>Email</th><th className={cn(th, "hidden lg:table-cell")}>Phone</th>
+                  <SortHead label="Company" column="company" {...head} /><SortHead label="Designation" column="designation" {...head} className="hidden md:table-cell" />
+                  <SortHead label="Events" column="events" {...head} />
+                </>
               ) : (
-                <tr><th className="w-8 px-3 py-2" /><SortHead label="Company" column="name" {...head} /><th className="px-3 py-2">Domains</th><SortHead label="Industry" column="industry" {...head} /><th className="px-3 py-2">Country</th><SortHead label="Contacts" column="contacts" {...head} /><SortHead label="Entries" column="entries" {...head} /><th className="px-3 py-2">Status</th><SortHead label="Updated" column="updated" {...head} /></tr>
+                <>
+                  <SortHead label="Company" column="name" {...head} /><th className={cn(th, "hidden md:table-cell")}>Domains</th>
+                  <SortHead label="Industry" column="industry" {...head} className="hidden lg:table-cell" /><th className={cn(th, "hidden lg:table-cell")}>Country</th>
+                  <SortHead label="Contacts" column="contacts" {...head} /><SortHead label="Entries" column="entries" {...head} /><th className={th}>Status</th>
+                </>
               )}
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const id = idOf(r);
-                return (
-                  <tr key={id} className="cursor-pointer border-t hover:bg-muted/40" onClick={() => onOpen(id)}>
-                    <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" checked={picked.includes(id)} onChange={() => toggle(id)} aria-label="Select for merge" />
-                    </td>
-                    {"person_id" in r ? (
-                      <>
-                        <td className="px-3 py-2 font-medium">{r.display_name || "—"} {r.has_account && <Badge variant="outline" className="ml-1 text-[10px]">login</Badge>}</td>
-                        <td className="px-3 py-2">{r.email ?? "—"}</td><td className="px-3 py-2">{r.phone ?? "—"}</td>
-                        <td className="px-3 py-2">{r.company ?? "—"}</td><td className="px-3 py-2">{r.designation ?? "—"}</td>
-                        <td className="px-3 py-2 tabular-nums">{r.registrations}</td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="px-3 py-2 font-medium">{r.name}</td><td className="px-3 py-2">{r.domains.join(", ") || "—"}</td>
-                        <td className="px-3 py-2">{r.industry ?? "—"}</td><td className="px-3 py-2">{r.hq_country ?? "—"}</td>
-                        <td className="px-3 py-2 tabular-nums">{r.contacts}</td><td className="px-3 py-2 tabular-nums">{r.entry_count}</td>
-                        <td className="px-3 py-2"><Badge variant={r.verification_status === "verified" ? "default" : "outline"} className="text-[10px]">{r.verification_status}</Badge></td>
-                      </>
-                    )}
-                    <td className="px-3 py-2 text-muted-foreground">{new Date(r.updated_at).toLocaleDateString()}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+              <SortHead label="Updated" column="updated" {...head} className="hidden md:table-cell" />
+              <th className="w-10" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const id = idOf(r);
+              return (
+                <tr key={id} className={cn(tr, "cursor-pointer hover:bg-muted/20")} onClick={() => onOpen(id)}>
+                  <td className={td} onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={picked.includes(id)} onChange={() => toggle(id)} aria-label="Select for merge" />
+                  </td>
+                  {"person_id" in r ? (
+                    <>
+                      <td className={cn(td, "font-medium")}>{r.display_name || "—"} {r.has_account && <Badge variant="secondary" className="ml-1 text-[10px]">login</Badge>}</td>
+                      <td className={td}>{r.email ?? "—"}</td><td className={cn(td, "hidden lg:table-cell")}>{r.phone ?? "—"}</td>
+                      <td className={td}>{r.company ?? "—"}</td><td className={cn(td, "hidden md:table-cell")}>{r.designation ?? "—"}</td>
+                      <td className={cn(td, "tabular-nums")}>{r.registrations}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td className={cn(td, "font-medium")}>{r.name}</td><td className={cn(td, "hidden md:table-cell")}>{r.domains.join(", ") || "—"}</td>
+                      <td className={cn(td, "hidden lg:table-cell")}>{r.industry ?? "—"}</td><td className={cn(td, "hidden lg:table-cell")}>{r.hq_country ?? "—"}</td>
+                      <td className={cn(td, "tabular-nums")}>{r.contacts}</td><td className={cn(td, "tabular-nums")}>{r.entry_count}</td>
+                      <td className={td}><Badge variant={r.verification_status === "verified" ? "default" : "secondary"} className="text-[10px]">{r.verification_status}</Badge></td>
+                    </>
+                  )}
+                  <td className={cn(td, "hidden text-muted-foreground md:table-cell")}>{new Date(r.updated_at).toLocaleDateString()}</td>
+                  <td className="px-2" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild><Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Actions"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => onOpen(id)}>Open record</DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => toggle(id)}>{picked.includes(id) ? "Remove from merge" : "Add to merge"}</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </TableShell>
       )}
       <Pager pager={pager} total={query.data?.total ?? 0} updating={query.isFetching} label={person ? "contacts" : "companies"} />
     </div>
   );
 }
 
-function SponsorsTab({ linkedFilter, refresh, onOpenCompany }: { linkedFilter: string | null; refresh: () => void; onOpenCompany: (id: string) => void }) {
+function SponsorsTab({ linkedFilter, refresh, onOpenCompany, onMergeRecords }: {
+  linkedFilter: string | null; refresh: () => void; onOpenCompany: (id: string) => void; onMergeRecords: (ids: string[]) => void;
+}) {
   const [text, setText] = useState("");
   const q = useDebounced(text, DEBOUNCE_MS);
   const [filter, setFilter] = useState(linkedFilter ?? "all");
   const [picked, setPicked] = useState<string[]>([]);
-  // Which records the connect dialog is open for.
+  const [expanded, setExpanded] = useState<string | null>(null);
+  // Which records the connect dialog is open for, and which sponsorship is being moved.
   const [connecting, setConnecting] = useState<SponsorRow[] | null>(null);
+  const [moving, setMoving] = useState<{ id: string; label: string } | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (linkedFilter) setFilter(linkedFilter); }, [linkedFilter]);
   const pager = usePager(JSON.stringify([q, filter]));
@@ -334,47 +315,63 @@ function SponsorsTab({ linkedFilter, refresh, onOpenCompany }: { linkedFilter: s
     setPicked([]);
     refresh();
   };
+  const move = async (company: string | null) => {
+    if (!moving || !company) return;
+    setBusy(true);
+    try { await intel.moveSponsorship(moving.id, company); toast.success("Sponsorship moved; its title stayed with it"); setMoving(null); refresh(); }
+    catch (e) { fail(e); } finally { setBusy(false); }
+  };
 
   return (
-    <div className="space-y-3 pt-3">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[16rem] flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={text} onChange={(e) => setText(e.target.value)} className="h-9 pl-8 text-[13px]" placeholder="Sponsor name, email or website" />
-        </div>
-        <select value={filter} onChange={(e) => setFilter(e.target.value)} className={select} aria-label="Filter">
-          <option value="all">All sponsors</option><option value="unconnected">Not connected</option><option value="repeats">Repeats (same company)</option>
-        </select>
-        <Button size="sm" disabled={picked.length === 0} onClick={() => setConnecting(picked.map((id) => chosen.current.get(id)!))}>Connect selected ({picked.length})</Button>
+        <SearchBox value={text} onChange={setText} className="w-72 max-w-full" placeholder="Sponsor name, email or website" />
+        <Chips value={filter} onChange={setFilter} options={[["all", "All"], ["unconnected", "Not connected"], ["repeats", "Repeats"]]} />
+        <Button size="sm" className="ml-auto h-8" disabled={picked.length === 0} onClick={() => setConnecting(picked.map((id) => chosen.current.get(id)!))}>Connect selected ({picked.length})</Button>
       </div>
-      <p className="text-[12px] text-muted-foreground">Organisers each keep their own sponsor record with its logo, tier and team. Connecting says these records are the same company, so it appears once in Intelligence and merges carry them along. It doesn't change what organisers or event pages show.</p>
-      {!rows ? <NoData query={query} /> : rows.length === 0 ? <p className="py-8 text-center text-[13px] text-muted-foreground">Nothing here.</p> : (
-        <div className={cn("overflow-x-auto rounded-lg border transition-opacity", query.isPlaceholderData && "opacity-60")}>
-          <table className="w-full text-[13px]">
-            <thead className="bg-muted/50 text-left text-[12px] text-muted-foreground">
-              <tr><th className="w-8 px-3 py-2" /><th className="px-3 py-2">Sponsor</th><th className="px-3 py-2">Website</th><th className="px-3 py-2">Company</th><th className="px-3 py-2">Events</th><th className="px-3 py-2">Team</th><th className="px-3 py-2">Added by</th><th className="px-3 py-2" /></tr>
-            </thead>
-            <tbody>
-              {rows.map((s) => (
-                <tr key={s.id} className="border-t">
-                  <td className="px-3 py-2"><input type="checkbox" checked={picked.includes(s.id)} onChange={() => toggle(s)} aria-label={`Select ${s.name}`} /></td>
-                  <td className="px-3 py-2 font-medium">{s.name}<div className="text-[11px] font-normal text-muted-foreground">{s.email ?? ""}</div></td>
-                  <td className="px-3 py-2">{s.website ?? "—"}</td>
-                  <td className="px-3 py-2">
-                    {s.company_id ? (
-                      <button type="button" className="text-left hover:underline" onClick={() => onOpenCompany(s.company_id!)}>{s.company}</button>
-                    ) : <Badge variant="outline" className="border-amber-500/50 text-[10px]">Not connected</Badge>}
+      <p className="text-[12px] text-muted-foreground">Each row is an organiser's record of a company, with its sponsorships on separate events. Each organiser keeps their own record; records of one organiser can be combined. Open a company to see everything it holds.</p>
+      {!rows ? <NoData query={query} /> : rows.length === 0 ? <Empty>Nothing here.</Empty> : (
+        <TableShell dimmed={query.isPlaceholderData}>
+          <thead>
+            <tr className="border-b border-border bg-muted/30">
+              <th className="w-10 px-4 py-2.5" /><th className={th}>Sponsor</th><th className={th}>Company</th><th className={th}>Events</th>
+              <th className={cn(th, "hidden md:table-cell")}>Team</th><th className={cn(th, "hidden lg:table-cell")}>Added by</th><th className={cn(th, "text-right")}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((s) => (
+              <FragmentRow key={s.id}>
+                <tr className={tr}>
+                  <td className={td}><input type="checkbox" checked={picked.includes(s.id)} onChange={() => toggle(s)} aria-label={`Select ${s.name}`} /></td>
+                  <td className={cn(td, "font-medium")}>{s.name}<div className="text-[11px] font-normal text-muted-foreground">{s.website ?? s.email ?? ""}</div></td>
+                  <td className={td}>
+                    {s.company_id ? <button type="button" className="text-left hover:underline" onClick={() => onOpenCompany(s.company_id!)}>{s.company}</button>
+                      : <Badge variant="secondary" className="text-[10px]">Not connected</Badge>}
                     {s.same_company > 0 && <div className="text-[11px] text-muted-foreground">{s.same_company} other {s.same_company === 1 ? "record" : "records"} for this company</div>}
                   </td>
-                  <td className="px-3 py-2 tabular-nums">{s.events}</td>
-                  <td className="px-3 py-2 tabular-nums">{s.team}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{s.created_by ?? "—"}</td>
-                  <td className="px-3 py-2"><Button size="sm" variant="outline" onClick={() => setConnecting([s])}>{s.company_id ? "Change" : "Connect"}</Button></td>
+                  <td className={td}>
+                    <button type="button" className="inline-flex items-center gap-1 tabular-nums hover:underline" aria-expanded={expanded === s.id} aria-label={`${s.events} events of ${s.name}`} disabled={s.events === 0} onClick={() => setExpanded(expanded === s.id ? null : s.id)}>
+                      {s.events > 0 && (expanded === s.id ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />)}{s.events}
+                    </button>
+                  </td>
+                  <td className={cn(td, "hidden tabular-nums md:table-cell")}>{s.team}</td>
+                  <td className={cn(td, "hidden text-muted-foreground lg:table-cell")}>{s.created_by ?? "—"}</td>
+                  <td className={cn(td, "whitespace-nowrap text-right")}>
+                    {s.same_owner.length > 0 && <Button size="sm" variant="outline" className="mr-1.5 h-7" onClick={() => onMergeRecords([s.id, ...s.same_owner])}>Combine</Button>}
+                    <Button size="sm" variant="outline" className="h-7" onClick={() => setConnecting([s])}>{s.company_id ? "Change" : "Connect"}</Button>
+                  </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                {expanded === s.id && s.sponsorships.map((e) => (
+                  <tr key={e.id} className="border-b border-border/50 bg-muted/20 text-[12px] last:border-0">
+                    <td /><td className="px-4 py-2" colSpan={2}>{e.event}<span className="ml-2 text-muted-foreground">{e.date ? new Date(e.date).toLocaleDateString() : ""}</span></td>
+                    <td className="px-4 py-2" colSpan={3}><Badge variant="secondary" className="text-[10px]">{sponsorshipTitle(e.tier, e.tier_label)}</Badge></td>
+                    <td className="px-4 py-2 text-right"><Button size="sm" variant="ghost" className="h-7" onClick={() => setMoving({ id: e.id, label: e.event })}>Move</Button></td>
+                  </tr>
+                ))}
+              </FragmentRow>
+            ))}
+          </tbody>
+        </TableShell>
       )}
       <Pager pager={pager} total={query.data?.total ?? 0} updating={query.isFetching} label="sponsors" />
       <Dialog open={!!connecting} onOpenChange={(o) => !o && setConnecting(null)}>
@@ -386,25 +383,37 @@ function SponsorsTab({ linkedFilter, refresh, onOpenCompany }: { linkedFilter: s
           <CompanyPicker label="Connected to" current={connecting?.length === 1 ? connecting[0].company : null} busy={busy} onPick={(id) => void connect(id)} />
         </DialogContent>
       </Dialog>
+      <Dialog open={!!moving} onOpenChange={(o) => !o && setMoving(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Move this sponsorship</DialogTitle>
+            <DialogDescription>{moving?.label}. Its title, details, meetings and contacts go with it; other events stay as they are.</DialogDescription>
+          </DialogHeader>
+          <CompanyPicker label="Move to" current={null} busy={busy} onPick={(id) => void move(id)} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function DuplicatesTab({ linkedEntity, refresh, onOpen, onMerge }: {
-  linkedEntity: Entity | null; refresh: () => void; onOpen: (e: Entity, id: string) => void; onMerge: (e: Entity, ids: string[]) => void;
+const FragmentRow = ({ children }: { children: ReactNode }) => <>{children}</>;
+
+function DuplicatesTab({ linkedEntity, linkedStatus, refresh, onOpen, onMerge }: {
+  linkedEntity: Entity | null; linkedStatus: string | null; refresh: () => void; onOpen: (e: Entity, id: string) => void; onMerge: (e: Entity, ids: string[], match?: MergeRequest["match"]) => void;
 }) {
   const [entity, setEntity] = useState<Entity>(linkedEntity ?? "person");
-  const [status, setStatus] = useState("open");
-  const [minScore, setMinScore] = useState(0);
+  const [status, setStatus] = useState(linkedStatus ?? "open");
+  const [minScore, setMinScore] = useState("0");
   const [scanning, setScanning] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
   // Decided suggestions leave at once, without waiting for the list to come back.
   const [gone, setGone] = useState<string[]>([]);
   useEffect(() => { if (linkedEntity) { setEntity(linkedEntity); setStatus("open"); } }, [linkedEntity]);
+  useEffect(() => { if (linkedStatus) setStatus(linkedStatus); }, [linkedStatus]);
   const key = JSON.stringify([entity, status, minScore]);
   useEffect(() => setPicked([]), [key]);
   const pager = usePager(key);
-  const query = useIntelQuery(["duplicates", entity, status, minScore, pager.size, pager.offset], () => intel.duplicates(entity, status, minScore, pager.size, pager.offset));
+  const query = useIntelQuery(["duplicates", entity, status, minScore, pager.size, pager.offset], () => intel.duplicates(entity, status, Number(minScore), pager.size, pager.offset));
   useEffect(() => setGone([]), [query.dataUpdatedAt]);
   const pairs = query.data?.rows.filter((p) => !gone.includes(p.id));
   const different = entity === "person" ? "different_people" : "different_companies";
@@ -428,53 +437,48 @@ function DuplicatesTab({ linkedEntity, refresh, onOpen, onMerge }: {
   const allPicked = !!pairs?.length && pairs.every((p) => picked.includes(p.id));
 
   return (
-    <div className="space-y-3 pt-3">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <select value={entity} onChange={(e) => { setEntity(e.target.value as Entity); setStatus("open"); }} className={select} aria-label="Record type">
-          <option value="person">Contacts</option><option value="company">Companies</option>
-        </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className={select} aria-label="Status">
-          <option value="open">Open</option><option value="flagged">Flagged for review</option><option value="ignored">Ignored</option>
-          <option value={different}>Marked different</option>
-        </select>
-        <select value={minScore} onChange={(e) => setMinScore(Number(e.target.value))} className={select} aria-label="Confidence">
-          <option value={0}>Any confidence</option><option value={60}>Possible and above (60+)</option><option value={80}>High (80+)</option><option value={95}>Very high (95+)</option>
-        </select>
-        <Button size="sm" variant="outline" onClick={() => void scan()} disabled={scanning}>
+        <FilterSelect label="Record type" value={entity} onChange={(v) => { setEntity(v as Entity); setStatus("open"); }} options={ENTITY_OPTIONS} />
+        <FilterSelect label="Status" value={status} onChange={setStatus}
+                      options={[["open", "Open"], ["flagged", "Flagged for review"], ["ignored", "Ignored"], [different, "Marked different"]]} />
+        <FilterSelect label="Confidence" value={minScore} onChange={setMinScore}
+                      options={[["0", "Any confidence"], ["60", "Possible and above (60+)"], ["80", "High (80+)"], ["95", "Very high (95+)"]]} />
+        <Button size="sm" variant="outline" className="h-8" onClick={() => void scan()} disabled={scanning}>
           {scanning ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />} Scan for duplicates
         </Button>
         {!!pairs?.length && status !== different && (
-          <>
-            <Button size="sm" variant="outline" onClick={() => setPicked(allPicked ? [] : pairs.map((p) => p.id))}>{allPicked ? "Clear selection" : "Select this page"}</Button>
-            <Button size="sm" variant="outline" disabled={picked.length === 0} onClick={() => void decide(picked, different)}>Mark different ({picked.length})</Button>
-            <Button size="sm" variant="outline" disabled={picked.length === 0} onClick={() => void decide(picked, "ignored")}>Ignore selected ({picked.length})</Button>
-          </>
+          <span className="ml-auto flex flex-wrap gap-1.5">
+            <Button size="sm" variant="ghost" className="h-8" onClick={() => setPicked(allPicked ? [] : pairs.map((p) => p.id))}>{allPicked ? "Clear selection" : "Select this page"}</Button>
+            <Button size="sm" variant="outline" className="h-8" disabled={picked.length === 0} onClick={() => void decide(picked, different)}>Mark different ({picked.length})</Button>
+            <Button size="sm" variant="outline" className="h-8" disabled={picked.length === 0} onClick={() => void decide(picked, "ignored")}>Ignore selected ({picked.length})</Button>
+          </span>
         )}
       </div>
       <p className="text-[12px] text-muted-foreground">Scores are recommendations, not proof — shared phones can be office lines and names repeat. Nothing merges until you confirm, one pair at a time.</p>
-      {!pairs ? <NoData query={query} /> : pairs.length === 0 ? <p className="py-8 text-center text-[13px] text-muted-foreground">No suggestions here. Run a scan to look again.</p> : pairs.map((p) => {
+      {!pairs ? <NoData query={query} rows={3} /> : pairs.length === 0 ? <Empty>No suggestions here. Run a scan to look again.</Empty> : pairs.map((p) => {
         const band = confidenceBand(p.score);
         return (
-          <div key={p.id} className={cn("rounded-xl border p-3 transition-opacity", query.isPlaceholderData && "opacity-60")}>
+          <div key={p.id} className={cn("rounded-xl border border-border bg-card p-4 transition-opacity", query.isPlaceholderData && "opacity-60")}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <input type="checkbox" checked={picked.includes(p.id)} onChange={() => setPicked((x) => (x.includes(p.id) ? x.filter((i) => i !== p.id) : [...x, p.id]))} aria-label="Select this suggestion" />
-                <Badge className={cn(band.tone === "high" ? "bg-emerald-600" : band.tone === "mid" ? "bg-amber-500" : "bg-muted text-foreground")}>{p.score}% · {band.label}</Badge>
-                {p.reasons.map((r) => <Badge key={r} variant="outline" className="text-[11px]">{reasonLabel(r)}</Badge>)}
+                <Badge variant={band.tone === "high" ? "default" : "secondary"} className="text-[11px]">{p.score}% · {band.label}</Badge>
+                {p.reasons.map((r) => <Badge key={r} variant="outline" className="text-[11px] font-normal">{reasonLabel(r)}</Badge>)}
               </div>
               <div className="flex flex-wrap gap-1.5">
-                <Button size="sm" onClick={() => onMerge(entity, [p.a.id, p.b.id])}>Compare &amp; merge</Button>
-                <Button size="sm" variant="outline" onClick={() => void decide([p.id], different)}>Different</Button>
-                <Button size="sm" variant="outline" onClick={() => void decide([p.id], "ignored")}>Ignore</Button>
-                <Button size="sm" variant="outline" onClick={() => void decide([p.id], "flagged")}>Flag</Button>
+                <Button size="sm" className="h-8" onClick={() => onMerge(entity, [p.a.id, p.b.id], { score: p.score, reasons: p.reasons })}>Compare &amp; merge</Button>
+                <Button size="sm" variant="outline" className="h-8" onClick={() => void decide([p.id], different)}>Different</Button>
+                <Button size="sm" variant="outline" className="h-8" onClick={() => void decide([p.id], "ignored")}>Ignore</Button>
+                <Button size="sm" variant="outline" className="h-8" onClick={() => void decide([p.id], "flagged")}>Flag</Button>
               </div>
             </div>
-            <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
               {[p.a, p.b].map((r) => (
-                <button key={r.id} type="button" onClick={() => onOpen(entity, r.id)} className="rounded-lg border p-2.5 text-left text-[12.5px] hover:bg-muted/40">
-                  <div className="font-medium">{r.name || "—"} {r.has_account ? <Badge variant="outline" className="ml-1 text-[10px]">login</Badge> : null}</div>
+                <button key={r.id} type="button" onClick={() => onOpen(entity, r.id)} className="rounded-lg border border-border/70 p-3 text-left text-[12.5px] transition-colors hover:bg-muted/20">
+                  <div className="font-medium">{r.name || "—"} {r.has_account ? <Badge variant="secondary" className="ml-1 text-[10px]">login</Badge> : null}</div>
                   {fields.map(([k, label]) => <div key={k}><span className="text-muted-foreground">{label}: </span>{show(r[k])}</div>)}
-                  <div className="text-[11px] text-muted-foreground">Created {String(r.created_at ?? "").slice(0, 10)} · updated {String(r.updated_at ?? "").slice(0, 10)}</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">Created {String(r.created_at ?? "").slice(0, 10)} · updated {String(r.updated_at ?? "").slice(0, 10)}</div>
                 </button>
               ))}
             </div>
@@ -486,19 +490,114 @@ function DuplicatesTab({ linkedEntity, refresh, onOpen, onMerge }: {
   );
 }
 
+/** The strongest recommendations ready to compare, and the merges already made. */
+function MergeCentreTab({ refresh, onOpen, onMerge, onMergeRecords }: {
+  refresh: () => void; onOpen: (e: Entity, id: string) => void; onMerge: (e: Entity, ids: string[], match?: MergeRequest["match"]) => void; onMergeRecords: (ids: string[]) => void;
+}) {
+  const [entity, setEntity] = useState<Entity>("company");
+  const pager = usePager(entity);
+  const query = useIntelQuery(["duplicates", entity, "open", "80", pager.size, pager.offset], () => intel.duplicates(entity, "open", 80, pager.size, pager.offset));
+  const repeats = useIntelQuery(["review", "duplicate_sponsor_records"], () => intel.sponsorReview("duplicate_sponsor_records", 10, 0));
+  const rows = query.data?.rows;
+  return (
+    <div className="space-y-5">
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">Recommended merges</h2>
+          <FilterSelect label="Record type" value={entity} onChange={(v) => setEntity(v as Entity)} options={ENTITY_OPTIONS} />
+        </div>
+        {!rows ? <NoData query={query} rows={3} /> : rows.length === 0 ? <Empty>No high-confidence pairs. Lower-confidence ones are in Duplicate Detection.</Empty> : (
+          <TableShell dimmed={query.isPlaceholderData}>
+            <thead><tr className="border-b border-border bg-muted/30"><th className={th}>Records</th><th className={th}>Confidence</th><th className={cn(th, "hidden md:table-cell")}>Why</th><th className={cn(th, "text-right")} /></tr></thead>
+            <tbody>
+              {rows.map((p) => (
+                <tr key={p.id} className={tr}>
+                  <td className={td}>
+                    <button type="button" className="font-medium hover:underline" onClick={() => onOpen(entity, p.a.id)}>{p.a.name || "—"}</button>
+                    <span className="mx-1.5 text-muted-foreground">and</span>
+                    <button type="button" className="font-medium hover:underline" onClick={() => onOpen(entity, p.b.id)}>{p.b.name || "—"}</button>
+                  </td>
+                  <td className={cn(td, "whitespace-nowrap")}><Badge variant="secondary" className="text-[11px]">{p.score}% · {confidenceBand(p.score).label}</Badge></td>
+                  <td className={cn(td, "hidden text-[12px] text-muted-foreground md:table-cell")}>{p.reasons.map(reasonLabel).join(", ")}</td>
+                  <td className={cn(td, "text-right")}><Button size="sm" className="h-7" onClick={() => onMerge(entity, [p.a.id, p.b.id], { score: p.score, reasons: p.reasons })}>Compare</Button></td>
+                </tr>
+              ))}
+            </tbody>
+          </TableShell>
+        )}
+        <Pager pager={pager} total={query.data?.total ?? 0} updating={query.isFetching} label="recommendations" />
+      </section>
+      {!!repeats.data?.rows.length && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold">Repeat sponsor records</h2>
+          <TableShell>
+            <thead><tr className="border-b border-border bg-muted/30"><th className={th}>Company</th><th className={th}>Records</th><th className={cn(th, "text-right")} /></tr></thead>
+            <tbody>
+              {repeats.data.rows.map((r) => (
+                <tr key={r.sponsor_ids.join()} className={tr}>
+                  <td className={cn(td, "font-medium")}>{r.title}</td><td className={cn(td, "text-muted-foreground")}>{r.detail}</td>
+                  <td className={cn(td, "text-right")}><Button size="sm" className="h-7" onClick={() => onMergeRecords(r.sponsor_ids)}>Compare</Button></td>
+                </tr>
+              ))}
+            </tbody>
+          </TableShell>
+        </section>
+      )}
+      <MergeHistory refresh={refresh} />
+    </div>
+  );
+}
+
+function MergeHistory({ refresh }: { refresh: () => void }) {
+  const [entity, setEntity] = useState<string>("all");
+  const pager = usePager(entity, 10);
+  const query = useIntelQuery(["audit", "merges", entity, pager.offset], () => intel.audit({ entity: entity === "all" ? null : (entity as Entity), limit: 1, mergeOffset: pager.offset }));
+  const data = query.data;
+  const rollback = async (id: string) => { try { await intel.revertMerge(id); toast.success("Merge rolled back"); refresh(); } catch (e) { fail(e); } };
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">Merges</h2>
+        <FilterSelect label="Merges of" value={entity} onChange={setEntity} options={[["all", "All records"], ...ENTITY_OPTIONS, ["sponsor", "Sponsor records"]]} />
+      </div>
+      {!data ? <NoData query={query} rows={3} /> : data.merges.length === 0 ? <Empty>No merges yet.</Empty> : (
+        <TableShell dimmed={query.isPlaceholderData}>
+          <thead><tr className="border-b border-border bg-muted/30"><th className={th}>Kept</th><th className={cn(th, "hidden md:table-cell")}>Reason</th><th className={th}>When</th><th className={cn(th, "text-right")} /></tr></thead>
+          <tbody>
+            {data.merges.map((m) => (
+              <tr key={String(m.id)} className={tr}>
+                <td className={td}><span className="font-medium">{String(m.survivor ?? "—")}</span><div className="text-[11px] text-muted-foreground">{String(m.entity_type)} · {(m.merged_ids as string[]).length} folded in</div></td>
+                <td className={cn(td, "hidden text-[12px] text-muted-foreground md:table-cell")}>{m.reason ? String(m.reason) : "—"}</td>
+                <td className={cn(td, "whitespace-nowrap text-muted-foreground")}>{new Date(String(m.created_at)).toLocaleDateString()}</td>
+                <td className={cn(td, "text-right")}>
+                  {m.reverted_at ? <Badge variant="secondary" className="text-[10px]">Rolled back</Badge>
+                    : <Button size="sm" variant="outline" className="h-7" onClick={() => void rollback(String(m.id))}><RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Roll back</Button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </TableShell>
+      )}
+      <Pager pager={pager} total={data?.merges_total ?? 0} updating={query.isFetching} label="merges" sizes={[10]} />
+    </section>
+  );
+}
+
 function CorrectionsTab({ refresh, onOpen }: { refresh: () => void; onOpen: (e: Entity, id: string) => void }) {
   const [status, setStatus] = useState("open");
-  const [entity, setEntity] = useState<Entity | "">("");
-  const [kind, setKind] = useState("");
+  const [entity, setEntity] = useState("all");
+  const [kind, setKind] = useState("all");
   const [picked, setPicked] = useState<string[]>([]);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [scanning, setScanning] = useState(false);
   const [confirmAll, setConfirmAll] = useState(false);
   const [gone, setGone] = useState<string[]>([]);
+  const entityArg = entity === "all" ? null : (entity as Entity);
+  const kindArg = kind === "all" ? null : kind;
   const key = JSON.stringify([status, entity, kind]);
   useEffect(() => { setPicked([]); setConfirmAll(false); }, [key]);
   const pager = usePager(key);
-  const query = useIntelQuery(["corrections", status, entity, kind, pager.size, pager.offset], () => intel.corrections(status, entity || null, kind || null, pager.size, pager.offset));
+  const query = useIntelQuery(["corrections", status, entity, kind, pager.size, pager.offset], () => intel.corrections(status, entityArg, kindArg, pager.size, pager.offset));
   useEffect(() => setGone([]), [query.dataUpdatedAt]);
   const rows = query.data?.rows.filter((s) => !gone.includes(s.id));
   const scan = async () => {
@@ -518,137 +617,168 @@ function CorrectionsTab({ refresh, onOpen }: { refresh: () => void; onOpen: (e: 
   };
   const approveAll = async () => {
     setConfirmAll(false);
-    try { const n = await intel.approveAllSafe(entity || null, kind || null); toast.success(`${n} formatting fixes applied`); setPicked([]); refresh(); } catch (e) { fail(e); }
+    try { const n = await intel.approveAllSafe(entityArg, kindArg); toast.success(`${n} formatting fixes applied`); setPicked([]); refresh(); } catch (e) { fail(e); }
   };
   const safeRows = rows?.filter((r) => r.safe) ?? [];
   const safeTotal = query.data?.safe_total ?? 0;
 
   return (
-    <div className="space-y-3 pt-3">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className={select} aria-label="Status">
-          <option value="open">Awaiting review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="stale">Out of date</option>
-        </select>
-        <select value={entity} onChange={(e) => setEntity(e.target.value as Entity | "")} className={select} aria-label="Record type">
-          <option value="">Contacts and companies</option><option value="person">Contacts</option><option value="company">Companies</option>
-        </select>
-        <select value={kind} onChange={(e) => setKind(e.target.value)} className={select} aria-label="Kind">
-          <option value="">Every kind</option><option value="capitalisation">Capitalisation</option><option value="spacing">Spacing</option>
-          <option value="swapped_names">Swapped names</option><option value="missing">Missing details</option><option value="conflicting">Conflicting designation</option>
-          <option value="missing_domain">Missing domain</option><option value="incomplete">Incomplete</option>
-        </select>
-        <Button size="sm" variant="outline" onClick={() => void scan()} disabled={scanning}>
+        <FilterSelect label="Status" value={status} onChange={setStatus} options={[["open", "Awaiting review"], ["approved", "Approved"], ["rejected", "Rejected"], ["stale", "Out of date"]]} />
+        <FilterSelect label="Record type" value={entity} onChange={setEntity} options={[["all", "Contacts and companies"], ...ENTITY_OPTIONS]} />
+        <FilterSelect label="Kind" value={kind} onChange={setKind} options={[
+          ["all", "Every kind"], ["capitalisation", "Capitalisation"], ["spacing", "Spacing"], ["swapped_names", "Swapped names"], ["missing", "Missing details"],
+          ["conflicting", "Conflicting designation"], ["missing_domain", "Missing domain"], ["incomplete", "Incomplete"],
+        ]} />
+        <Button size="sm" variant="outline" className="h-8" onClick={() => void scan()} disabled={scanning}>
           {scanning ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />} Scan for issues
         </Button>
         {status === "open" && safeRows.length > 0 && (
-          <>
-            <Button size="sm" variant="outline" onClick={() => setPicked(picked.length === safeRows.length ? [] : safeRows.map((r) => r.id))}>
+          <span className="ml-auto flex flex-wrap gap-1.5">
+            <Button size="sm" variant="ghost" className="h-8" onClick={() => setPicked(picked.length === safeRows.length ? [] : safeRows.map((r) => r.id))}>
               {picked.length === safeRows.length ? "Clear selection" : `Select formatting fixes on this page (${safeRows.length})`}
             </Button>
-            <Button size="sm" disabled={picked.length === 0} onClick={() => void bulk()}>Approve selected ({picked.length})</Button>
+            <Button size="sm" className="h-8" disabled={picked.length === 0} onClick={() => void bulk()}>Approve selected ({picked.length})</Button>
             {confirmAll
-              ? <Button size="sm" variant="destructive" onClick={() => void approveAll()}>Confirm: approve all {safeTotal}</Button>
-              : safeTotal > safeRows.length && <Button size="sm" variant="outline" onClick={() => setConfirmAll(true)}>Approve all {safeTotal} formatting fixes</Button>}
-          </>
+              ? <Button size="sm" variant="destructive" className="h-8" onClick={() => void approveAll()}>Confirm: approve all {safeTotal}</Button>
+              : safeTotal > safeRows.length && <Button size="sm" variant="outline" className="h-8" onClick={() => setConfirmAll(true)}>Approve all {safeTotal} formatting fixes</Button>}
+          </span>
         )}
       </div>
       <p className="text-[12px] text-muted-foreground">Only formatting fixes (spacing, capitalisation) can be approved in bulk. Everything else is reviewed one at a time. Nothing changes until approved.</p>
-      {!rows ? <NoData query={query} /> : rows.length === 0 ? <p className="py-8 text-center text-[13px] text-muted-foreground">Nothing here. Run a scan to look for issues.</p> : (
-        <div className={cn("overflow-x-auto rounded-lg border transition-opacity", query.isPlaceholderData && "opacity-60")}>
-          <table className="w-full text-[13px]">
-            <thead className="bg-muted/50 text-left text-[12px] text-muted-foreground">
-              <tr><th className="w-8 px-3 py-2" /><th className="px-3 py-2">Record</th><th className="px-3 py-2">Field</th><th className="px-3 py-2">Current</th><th className="px-3 py-2">Suggested</th><th className="px-3 py-2">Why</th><th className="px-3 py-2">Confidence</th><th className="px-3 py-2" /></tr>
-            </thead>
-            <tbody>
-              {rows.map((s) => (
-                <tr key={s.id} className="border-t align-top">
-                  <td className="px-3 py-2">{s.safe && status === "open" && <input type="checkbox" checked={picked.includes(s.id)} onChange={() => setPicked((p) => p.includes(s.id) ? p.filter((x) => x !== s.id) : [...p, s.id])} aria-label="Select" />}</td>
-                  <td className="px-3 py-2"><button type="button" className="text-left font-medium hover:underline" onClick={() => onOpen(s.entity_type, s.entity_id)}>{s.label || s.entity_id.slice(0, 8)}</button><div className="text-[11px] text-muted-foreground">{s.entity_type === "person" ? "Contact" : "Company"}</div></td>
-                  <td className="px-3 py-2">{s.field}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{s.current_value ?? "—"}</td>
-                  <td className="px-3 py-2">
-                    {status === "open" ? (
-                      <Input value={edits[s.id] ?? s.suggested_value ?? ""} onChange={(e) => setEdits((x) => ({ ...x, [s.id]: e.target.value }))} className="h-8 min-w-[10rem] text-[13px]" placeholder="Enter a value" />
-                    ) : (s.suggested_value ?? "—")}
-                  </td>
-                  <td className="px-3 py-2 text-[12px]">{s.reason}{s.evidence && <div className="text-muted-foreground">{s.evidence}</div>}</td>
-                  <td className="px-3 py-2 tabular-nums">{s.confidence}%</td>
-                  <td className="px-3 py-2">
-                    {status === "open" && (
-                      <div className="flex gap-1">
-                        <Button size="sm" onClick={() => void review(s, true)} disabled={!(edits[s.id] ?? s.suggested_value)}>Approve</Button>
-                        <Button size="sm" variant="outline" onClick={() => void review(s, false)}>Reject</Button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {!rows ? <NoData query={query} /> : rows.length === 0 ? <Empty>Nothing here. Run a scan to look for issues.</Empty> : (
+        <TableShell dimmed={query.isPlaceholderData}>
+          <thead>
+            <tr className="border-b border-border bg-muted/30">
+              <th className="w-10 px-4 py-2.5" /><th className={th}>Record</th><th className={th}>Field</th><th className={th}>Current</th><th className={th}>Suggested</th>
+              <th className={cn(th, "hidden lg:table-cell")}>Why</th><th className={th}>Confidence</th><th className={th} />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((s) => (
+              <tr key={s.id} className={cn(tr, "align-top")}>
+                <td className={td}>{s.safe && status === "open" && <input type="checkbox" checked={picked.includes(s.id)} onChange={() => setPicked((p) => p.includes(s.id) ? p.filter((x) => x !== s.id) : [...p, s.id])} aria-label="Select" />}</td>
+                <td className={td}><button type="button" className="text-left font-medium hover:underline" onClick={() => onOpen(s.entity_type, s.entity_id)}>{s.label || s.entity_id.slice(0, 8)}</button><div className="text-[11px] text-muted-foreground">{s.entity_type === "person" ? "Contact" : "Company"}</div></td>
+                <td className={td}>{s.field}</td>
+                <td className={cn(td, "text-muted-foreground")}>{s.current_value ?? "—"}</td>
+                <td className={td}>
+                  {status === "open" ? (
+                    <Input value={edits[s.id] ?? s.suggested_value ?? ""} onChange={(e) => setEdits((x) => ({ ...x, [s.id]: e.target.value }))} className="h-8 min-w-[10rem] text-[13px]" placeholder="Enter a value" />
+                  ) : (s.suggested_value ?? "—")}
+                </td>
+                <td className={cn(td, "hidden text-[12px] lg:table-cell")}>{s.reason}{s.evidence && <div className="text-muted-foreground">{s.evidence}</div>}</td>
+                <td className={cn(td, "tabular-nums")}>{s.confidence}%</td>
+                <td className={td}>
+                  {status === "open" && (
+                    <div className="flex gap-1">
+                      <Button size="sm" className="h-7" onClick={() => void review(s, true)} disabled={!(edits[s.id] ?? s.suggested_value)}>Approve</Button>
+                      <Button size="sm" variant="outline" className="h-7" onClick={() => void review(s, false)}>Reject</Button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </TableShell>
       )}
       <Pager pager={pager} total={query.data?.total ?? 0} updating={query.isFetching} label="suggestions" />
     </div>
   );
 }
 
-function AuditTab({ refresh }: { refresh: () => void }) {
-  const [entity, setEntity] = useState<Entity | "">("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const events = usePager(JSON.stringify([entity, from, to]));
-  const merges = usePager(entity, 10);
-  const query = useIntelQuery(["audit", entity, from, to, events.size, events.offset, merges.offset], () => intel.audit({
-    entity: entity || null, from, to, limit: events.size, offset: events.offset, mergeOffset: merges.offset,
-  }));
-  const data = query.data;
-  const rollback = async (id: string) => { try { await intel.revertMerge(id); toast.success("Merge rolled back"); refresh(); } catch (e) { fail(e); } };
+const REVIEW_KINDS: Array<[string, string, string]> = [
+  ["duplicate_sponsor_records", "Repeat sponsor records", "One organiser has several records for one company."],
+  ["same_event_repeat", "Company twice on an event", "May be separate agreements, or one entered twice."],
+  ["contact_no_company", "Team on an unconnected sponsor", "Connect the sponsor to a company."],
+  ["contact_company_mismatch", "Contact names another company", "Check they belong on this sponsor's team."],
+  ["duplicate_contact", "Possible duplicate contacts", "Same name at one company under separate contact records."],
+  ["contact_multiple_companies", "On several companies' teams", "May be correct, for an agency or a job change."],
+  ["contact_no_person", "No contact record", "Usually an invalid email address."],
+];
+
+/** Sponsor data waiting for a person's decision. Listing it changes nothing. */
+function ReviewTab({ go, onOpen, onMerge, onMergeRecords }: {
+  go: (t: Tab, extra?: Record<string, string>) => void; onOpen: (e: Entity, id: string) => void; onMerge: (e: Entity, ids: string[]) => void; onMergeRecords: (ids: string[]) => void;
+}) {
+  const [kind, setKind] = useState("all");
+  const pager = usePager(kind);
+  const query = useIntelQuery(["review", kind, pager.size, pager.offset], () => intel.sponsorReview(kind === "all" ? null : kind, pager.size, pager.offset));
+  const rows = query.data?.rows;
+  const counts = query.data?.counts ?? {};
+  const meta = (k: string) => REVIEW_KINDS.find(([v]) => v === k);
   return (
-    <div className="space-y-5 pt-3">
-      <select value={entity} onChange={(e) => setEntity(e.target.value as Entity | "")} className={select} aria-label="Record type">
-        <option value="">Contacts and companies</option><option value="person">Contacts</option><option value="company">Companies</option>
-      </select>
-      {!data ? <NoData query={query} /> : (
-        <>
-          <section className="space-y-2">
-            <h2 className="text-sm font-semibold">Merges</h2>
-            {data.merges.length === 0 ? <p className="text-[13px] text-muted-foreground">No merges yet.</p> : data.merges.map((m) => (
-              <div key={String(m.id)} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-[13px]">
-                <div>
-                  <span className="font-medium">{String(m.survivor ?? "—")}</span>
-                  <span className="text-muted-foreground"> · {String(m.entity_type)} · {(m.merged_ids as string[]).length} folded in · {new Date(String(m.created_at)).toLocaleString()}</span>
-                  {m.reason ? <div className="text-[12px] text-muted-foreground">{String(m.reason)}</div> : null}
-                </div>
-                {m.reverted_at ? <Badge variant="outline">Rolled back</Badge> : (
-                  <Button size="sm" variant="outline" onClick={() => void rollback(String(m.id))}><RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Roll back</Button>
-                )}
-              </div>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <FilterSelect label="Kind of issue" value={kind} onChange={setKind}
+                      options={[["all", "Everything"], ...REVIEW_KINDS.map(([v, l]) => [v, `${l} (${counts[v] ?? 0})`])]} />
+        <Button size="sm" variant="ghost" className="h-8" onClick={() => go("duplicates", { status: "flagged" })}>Flagged duplicates</Button>
+      </div>
+      <p className="text-[12px] text-muted-foreground">Nothing here changes by itself. An item leaves the list once the data is put right; a real exception stays listed.</p>
+      {!rows ? <NoData query={query} /> : rows.length === 0 ? <Empty>Nothing to review.</Empty> : (
+        <TableShell dimmed={query.isPlaceholderData}>
+          <thead><tr className="border-b border-border bg-muted/30"><th className={th}>Item</th><th className={th}>Issue</th><th className={cn(th, "hidden md:table-cell")}>Detail</th><th className={cn(th, "text-right")} /></tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={`${r.kind}-${r.title}-${i}`} className={tr}>
+                <td className={cn(td, "font-medium")}>{r.title}</td>
+                <td className={td}>{meta(r.kind)?.[1] ?? r.kind}<div className="text-[11px] text-muted-foreground">{meta(r.kind)?.[2]}</div></td>
+                <td className={cn(td, "hidden text-[12px] text-muted-foreground md:table-cell")}>{r.detail}</td>
+                <td className={cn(td, "whitespace-nowrap text-right")}>
+                  {r.kind === "duplicate_sponsor_records" && <Button size="sm" className="mr-1.5 h-7" onClick={() => onMergeRecords(r.sponsor_ids)}>Compare</Button>}
+                  {r.kind === "duplicate_contact" && <Button size="sm" className="mr-1.5 h-7" onClick={() => onMerge("person", r.person_ids)}>Compare</Button>}
+                  {r.kind === "contact_no_company" && <Button size="sm" variant="outline" className="mr-1.5 h-7" onClick={() => go("sponsors", { filter: "unconnected" })}>Connect</Button>}
+                  {r.company_id && <Button size="sm" variant="ghost" className="h-7" onClick={() => onOpen("company", r.company_id!)}>Company</Button>}
+                  {r.person_ids.length === 1 && <Button size="sm" variant="ghost" className="h-7" onClick={() => onOpen("person", r.person_ids[0])}>Contact</Button>}
+                </td>
+              </tr>
             ))}
-            <Pager pager={merges} total={data.merges_total} updating={query.isFetching} label="merges" sizes={[10]} />
-          </section>
-          <section className="space-y-2">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <h2 className="text-sm font-semibold">Activity</h2>
-              <div className="flex flex-wrap items-end gap-2 text-[12px] text-muted-foreground">
-                <label>From<Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="mt-1 h-8 w-36" /></label>
-                <label>to<Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="mt-1 h-8 w-36" /></label>
-              </div>
-            </div>
-            <ol className={cn("space-y-1.5 transition-opacity", query.isPlaceholderData && "opacity-60")}>
-              {data.events.map((e) => (
-                <li key={String(e.id)} className="rounded-lg border px-3 py-2 text-[12.5px]">
-                  <div><span className="font-medium">{String(e.action).replace(/^intel\./, "").replace(/_/g, " ")}</span> <span className="text-muted-foreground">· {String(e.target_type ?? "")} {String(e.target_id ?? "").slice(0, 8)}</span></div>
-                  <div className="text-[11px] text-muted-foreground">{new Date(String(e.created_at)).toLocaleString()} · {String(e.actor ?? "system")}</div>
-                  <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap text-[11px] text-muted-foreground">{JSON.stringify(e.details, null, 0)}</pre>
-                </li>
-              ))}
-            </ol>
-            <Pager pager={events} total={data.total} updating={query.isFetching} label="events" />
-          </section>
-        </>
+          </tbody>
+        </TableShell>
       )}
+      <Pager pager={pager} total={query.data?.total ?? 0} updating={query.isFetching} label="items" />
     </div>
   );
 }
 
-const Loading = () => <p className="flex items-center justify-center gap-2 py-10 text-[13px] text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>;
+function AuditTab({ refresh }: { refresh: () => void }) {
+  const [entity, setEntity] = useState("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const pager = usePager(JSON.stringify([entity, from, to]));
+  const query = useIntelQuery(["audit", "events", entity, from, to, pager.size, pager.offset], () => intel.audit({
+    entity: entity === "all" ? null : (entity as Entity), from, to, limit: pager.size, offset: pager.offset,
+  }));
+  const data = query.data;
+  return (
+    <div className="space-y-5">
+      <MergeHistory refresh={refresh} />
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <h2 className="text-sm font-semibold">Activity</h2>
+          <div className="flex flex-wrap items-end gap-2 text-[11px] text-muted-foreground">
+            <FilterSelect label="Record type" value={entity} onChange={setEntity} options={[["all", "All records"], ...ENTITY_OPTIONS, ["sponsor", "Sponsor records"]]} />
+            <label>From<Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="mt-1 h-8 w-36 text-sm" /></label>
+            <label>to<Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="mt-1 h-8 w-36 text-sm" /></label>
+          </div>
+        </div>
+        {!data ? <NoData query={query} /> : data.events.length === 0 ? <Empty>No activity here.</Empty> : (
+          <TableShell dimmed={query.isPlaceholderData}>
+            <thead><tr className="border-b border-border bg-muted/30"><th className={th}>Action</th><th className={cn(th, "hidden lg:table-cell")}>Details</th><th className={th}>By</th><th className={th}>When</th></tr></thead>
+            <tbody>
+              {data.events.map((e) => (
+                <tr key={String(e.id)} className={cn(tr, "align-top")}>
+                  <td className={td}><span className="font-medium">{String(e.action).replace(/^intel\./, "").replace(/_/g, " ")}</span><div className="text-[11px] text-muted-foreground">{String(e.target_type ?? "")} {String(e.target_id ?? "").slice(0, 8)}</div></td>
+                  <td className={cn(td, "hidden lg:table-cell")}><pre className="max-h-20 max-w-md overflow-auto whitespace-pre-wrap text-[11px] text-muted-foreground">{JSON.stringify(e.details, null, 0)}</pre></td>
+                  <td className={cn(td, "text-muted-foreground")}>{String(e.actor ?? "system")}</td>
+                  <td className={cn(td, "whitespace-nowrap text-muted-foreground")}>{new Date(String(e.created_at)).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </TableShell>
+        )}
+        <Pager pager={pager} total={data?.total ?? 0} updating={query.isFetching} label="events" />
+      </section>
+    </div>
+  );
+}

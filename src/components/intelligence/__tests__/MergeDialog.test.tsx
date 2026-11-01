@@ -31,6 +31,11 @@ const mergeCalls = (name: string) => rpc.mock.calls.filter((c) => c[0] === name)
 const open = (entity: "person" | "company", ids = ["a", "b"], onMerged = vi.fn()) =>
   render(<MergeDialog entity={entity} ids={ids} open onOpenChange={vi.fn()} onMerged={onMerged} />);
 const mergeButton = () => screen.findByRole("button", { name: /Merge into/ });
+/** The merge button, then the confirmation it leads to. */
+const confirmMerge = async () => {
+  fireEvent.click(await mergeButton());
+  fireEvent.click(await screen.findByRole("button", { name: "Confirm merge" }));
+};
 
 describe("MergeDialog", () => {
   it("shows what will move, and needs a reason before merging", async () => {
@@ -48,7 +53,7 @@ describe("MergeDialog", () => {
     open("person", ["a", "b"], onMerged);
     fireEvent.click(await screen.findByRole("button", { name: "Chief Financial Officer" }));
     fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: "Same person" } });
-    fireEvent.click(await mergeButton());
+    await confirmMerge();
     await waitFor(() => expect(mergeCalls("intel_merge_people")).toHaveLength(1));
     expect(mergeCalls("intel_merge_people")[0][1]).toEqual({
       _survivor: "a", _others: ["b"], _choices: { designation: "Chief Financial Officer" }, _reason: "Same person",
@@ -60,7 +65,7 @@ describe("MergeDialog", () => {
     records = { a: person("a"), b: person("b", { user_id: "u1" }) };
     open("person");
     fireEvent.change(await screen.findByLabelText(/Reason/), { target: { value: "Same person" } });
-    fireEvent.click(await mergeButton());
+    await confirmMerge();
     await waitFor(() => expect(mergeCalls("intel_merge_people")).toHaveLength(1));
     expect(mergeCalls("intel_merge_people")[0][1]).toMatchObject({ _survivor: "b", _others: ["a"] });
   });
@@ -82,7 +87,7 @@ describe("MergeDialog", () => {
     expect((await mergeButton() as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(box);
     expect((await mergeButton() as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(await mergeButton());
+    await confirmMerge();
     await waitFor(() => expect(mergeCalls("intel_merge_companies")).toHaveLength(1));
     expect(mergeCalls("intel_merge_companies")[0][1]).toMatchObject({ _allow_distinct: true });
   });
@@ -99,5 +104,44 @@ describe("helpers", () => {
   it("explains reasons in words", () => {
     expect(reasonLabel("phone")).toBe("Same phone number");
     expect(reasonLabel("something_new")).toBe("something new");
+  });
+
+  it("confirms before merging, and going back merges nothing", async () => {
+    records = { a: person("a"), b: person("b") };
+    open("person");
+    fireEvent.change(await screen.findByLabelText(/Reason/), { target: { value: "Same person" } });
+    fireEvent.click(await mergeButton());
+    fireEvent.click(await screen.findByRole("button", { name: "Back" }));
+    expect(mergeCalls("intel_merge_people")).toHaveLength(0);
+    expect(await mergeButton()).toBeTruthy();
+  });
+
+  it("shows the scan's confidence and reasons", async () => {
+    records = { a: person("a"), b: person("b") };
+    render(<MergeDialog entity="person" ids={["a", "b"]} match={{ score: 95, reasons: ["phone"] }} open onOpenChange={vi.fn()} onMerged={vi.fn()} />);
+    expect(await screen.findByText(/95% · Very high/)).toBeTruthy();
+    expect(screen.getByText("Same phone number")).toBeTruthy();
+  });
+
+  it("offers to combine repeat sponsor records after a company merge, and does it", async () => {
+    records = { a: company("a"), b: company("b") };
+    impact = { sponsors: 2 };
+    open("company");
+    expect(await screen.findByText(/combine each organiser's repeat sponsor records/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: "Same company" } });
+    await confirmMerge();
+    await waitFor(() => expect(mergeCalls("intel_consolidate_company_sponsors")).toHaveLength(1));
+    expect(mergeCalls("intel_consolidate_company_sponsors")[0][1]).toEqual({ _company: "a", _reason: "Same company" });
+  });
+
+  it("leaves sponsor records alone when that's unticked", async () => {
+    records = { a: company("a"), b: company("b") };
+    impact = { sponsors: 2 };
+    open("company");
+    fireEvent.click(await screen.findByRole("checkbox", { name: /combine each organiser/ }));
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: "Same company" } });
+    await confirmMerge();
+    await waitFor(() => expect(mergeCalls("intel_merge_companies")).toHaveLength(1));
+    expect(mergeCalls("intel_consolidate_company_sponsors")).toHaveLength(0);
   });
 });

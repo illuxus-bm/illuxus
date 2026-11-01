@@ -10,7 +10,6 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical, Search, Megaphone, Download, Mail } from "lucide-react";
-import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
 import { logger, supabaseRpc } from "@/lib/observability";
 import {
   MEETING_CAUSE_LABEL, MEETING_STATUS_LABEL, historyLabel, meetingTotals,
@@ -48,6 +47,8 @@ import { useOrgSponsorSearch } from "@/hooks/useOrgPeopleSearch";
 import { publicOrigin } from "@/lib/publicUrl";
 import { CompanyInput } from "@/components/intelligence/CompanyInput";
 import { SponsorRepeatNotice } from "./SponsorRepeatNotice";
+import { SponsorshipPanel, type SponsorshipPanelTab } from "./SponsorshipPanel";
+import { fetchEventSponsorLinks, sponsorship, withEventSponsorship, type EventSponsorLink, type EventSponsorshipRow } from "@/lib/sponsors/event-sponsorship";
 
 const SponsorApplicationsPanelLazy = lazy(() =>
   import("./ApplicationsSection").then((m) => ({ default: m.SponsorApplicationsPanel })),
@@ -62,18 +63,9 @@ interface Sponsor {
   tier: string;
   tier_label: string | null;
   description: string | null;
-}
-
-interface SponsorMember {
-  id: string;
-  sponsor_id: string;
-  email: string;
-  display_name: string | null;
-  role: string;
-  invite_token: string;
-  accepted_at: string | null;
-  designation?: string | null;
-  company?: string | null;
+  /** This event's sponsorship: its link, canonical company, package, status and contacts. */
+  link?: EventSponsorLink;
+  sponsorship?: EventSponsorshipRow;
 }
 
 interface Props {
@@ -94,6 +86,10 @@ const emptySponsor = { name: "", email: "", logo_url: "", website: "", tier: "br
 
 interface TierPreset { id: string; label: string; }
 
+const SPONSORSHIP_STATUS: Record<string, string> = {
+  prospect: "Prospect", proposed: "Proposed", confirmed: "Confirmed", active: "Active", completed: "Completed", cancelled: "Cancelled",
+};
+
 export default function SponsorManagement({ eventId }: Props) {
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [assignedIds, setAssignedIds] = useState<Set<string>>(new Set());
@@ -101,9 +97,7 @@ export default function SponsorManagement({ eventId }: Props) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Sponsor | null>(null);
   const [form, setForm] = useState(emptySponsor);
-  const [teamOpen, setTeamOpen] = useState<Sponsor | null>(null);
-  const [members, setMembers] = useState<SponsorMember[]>([]);
-  const [memberForm, setMemberForm] = useState<PersonFields>(() => emptyPersonFields());
+  const [panel, setPanel] = useState<{ sponsor: Sponsor; tab: SponsorshipPanelTab } | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [orgId, setOrgId] = useState<string | null>(null);
   const [tierPresets, setTierPresets] = useState<TierPreset[]>([]);
@@ -120,18 +114,15 @@ export default function SponsorManagement({ eventId }: Props) {
     if (!user) return;
 
     // Step 1: links for this event
-    const { data: links, error: linksErr } = await supabase
-      .from("event_sponsors")
-      .select("sponsor_id, display_order")
-      .eq("event_id", eventId)
-      .order("display_order");
+    const { data: links, error: linksErr } = await fetchEventSponsorLinks(eventId);
     if (linksErr)
       logger.error("sponsor management failure", {
         kind: "event_sponsors error",
         error_message: linksErr instanceof Error ? linksErr.message : String(linksErr),
       });
 
-    const orderedIds = (links ?? []).map((a: { sponsor_id: string }) => a.sponsor_id);
+    const orderedIds = links.map((a) => a.sponsor_id);
+    const linkBySponsor = new Map(links.map((l) => [l.sponsor_id, l]));
     const ids = new Set(orderedIds);
 
     // Step 2: linked sponsors by ID (relies on permissive RLS policy)
@@ -147,7 +138,15 @@ export default function SponsorManagement({ eventId }: Props) {
           error_message: spkErr instanceof Error ? spkErr.message : String(spkErr),
         });
       const byId = new Map((rows ?? []).map((s: Sponsor) => [s.id, s] as const));
-      linkedSponsors = orderedIds.map((id) => byId.get(id)).filter(Boolean) as Sponsor[];
+      // Each sponsor as this event has it: the event's own title and logo.
+      linkedSponsors = orderedIds.flatMap((id) => {
+        const s = byId.get(id);
+        return s ? [{ ...withEventSponsorship(s, linkBySponsor.get(id)), link: linkBySponsor.get(id) }] : [];
+      });
+      // Company, package, status and contacts add to the list; without them it still works.
+      const details = await sponsorship.forEvent(eventId).catch(() => [] as EventSponsorshipRow[]);
+      const detailBySponsor = new Map(details.map((d) => [d.sponsor_id, d]));
+      linkedSponsors = linkedSponsors.map((s) => ({ ...s, sponsorship: detailBySponsor.get(s.id) }));
       const missing = orderedIds.filter((id) => !byId.has(id));
       if (missing.length) {
         logger.warn("sponsor management failure", {
@@ -272,48 +271,9 @@ export default function SponsorManagement({ eventId }: Props) {
     toast.success(enabled ? "Call for Sponsors is now open" : "Call for Sponsors is now closed");
   };
 
-  const fetchMembers = async (sponsorId: string) => {
-    const { data } = await supabase.from("sponsor_members").select("*").eq("sponsor_id", sponsorId).order("created_at");
-    setMembers((data || []) as SponsorMember[]);
-  };
-
-  const openTeam = async (s: Sponsor) => {
-    setTeamOpen(s);
-    setMemberForm({ ...emptyPersonFields(), company: s.name });
-    await fetchMembers(s.id);
-  };
-
-  const inviteMember = async () => {
-    if (!teamOpen) return;
-    const v = validatePersonFields(memberForm);
-    if (!v.ok) { toast.error(v.error); return; }
-    const { data: added, error } = await supabase.from("sponsor_members").insert({
-      sponsor_id: teamOpen.id,
-      email: memberForm.email.trim().toLowerCase(),
-      display_name: displayName(memberForm) || null,
-      title: memberForm.title,
-      first_name: memberForm.first_name.trim(),
-      last_name: memberForm.last_name.trim(),
-      designation: memberForm.designation.trim(),
-      company: memberForm.company.trim() || teamOpen.name,
-      mobile_country_code: memberForm.mobile_country_code,
-      mobile_number: memberForm.mobile_number.trim(),
-      linkedin_url: memberForm.linkedin_url.trim() || null,
-      company_website: memberForm.company_website.trim() || null,
-      company_employee_count: memberForm.company_employee_count || null,
-      industry: memberForm.industry || null,
-    }).select("id, email").single();
-    if (error) { toast.error(error.message); return; }
-    setMemberForm({ ...emptyPersonFields(), company: teamOpen.name });
-    await fetchMembers(teamOpen.id);
-    toast.success("Team member added");
-    // Their invitation goes out by email; the copy-link button stays as a fallback.
-    void sendSponsorInvite({ sponsorId: teamOpen.id, memberId: added.id, recipient: added.email });
-  };
-
   const removeMember = async (id: string) => {
-    await supabase.from("sponsor_members").delete().eq("id", id);
-    if (teamOpen) await fetchMembers(teamOpen.id);
+    const { error } = await supabase.from("sponsor_members").delete().eq("id", id);
+    if (error) toast.error(error.message);
   };
 
   const copyInvite = (token: string) => {
@@ -377,11 +337,17 @@ export default function SponsorManagement({ eventId }: Props) {
     const tierLabelToSave = form.tier === "custom" ? form.tier_label.trim() : null;
 
     if (editing) {
+      // The title belongs to this event; other events keep theirs.
+      const logoIsThisEvents = !!editing.link?.logo_url;
       const { error } = await supabase.from("sponsors").update({
-        name: form.name, email: form.email || null, logo_url: form.logo_url || null,
-        website: form.website || null, tier: form.tier, tier_label: tierLabelToSave, description: form.description || null,
+        name: form.name, email: form.email || null, ...(logoIsThisEvents ? {} : { logo_url: form.logo_url || null }),
+        website: form.website || null, description: form.description || null,
       }).eq("id", editing.id);
       if (error) { toast.error(error.message); return; }
+      const { error: linkError } = await supabase.from("event_sponsors").update({
+        tier: form.tier, tier_label: tierLabelToSave, ...(logoIsThisEvents ? { logo_url: form.logo_url || null } : {}),
+      }).eq("event_id", eventId).eq("sponsor_id", editing.id);
+      if (linkError) { toast.error(linkError.message); return; }
       toast.success("Sponsor updated");
     } else {
       const { data, error } = await supabase.from("sponsors").insert({
@@ -390,7 +356,15 @@ export default function SponsorManagement({ eventId }: Props) {
         user_id: user.id,
       }).select().single();
       if (error) { toast.error(error.message); return; }
-      await supabase.from("event_sponsors").insert({ event_id: eventId, sponsor_id: data.id });
+      const { error: linkError } = await supabase.from("event_sponsors").insert({
+        event_id: eventId, sponsor_id: data.id, tier: form.tier, tier_label: tierLabelToSave,
+      });
+      if (linkError) {
+        // Nothing is left half-made: the record only existed for this sponsorship.
+        await supabase.from("sponsors").delete().eq("id", data.id);
+        toast.error(linkError.message);
+        return;
+      }
       toast.success("Sponsor added & assigned");
       // Heads-up email — silent no-op when the sponsor has no email or
       // it's malformed. Doesn't block the dialog close.
@@ -519,10 +493,12 @@ export default function SponsorManagement({ eventId }: Props) {
     setSponsors(next);
 
     if (tierChanged) {
+      // Only this event's title changes.
       const { error } = await supabase
-        .from("sponsors")
+        .from("event_sponsors")
         .update({ tier: destTier, tier_label: destTier === "custom" ? destTierLabel : null })
-        .eq("id", sponsorId);
+        .eq("event_id", eventId)
+        .eq("sponsor_id", sponsorId);
       if (error) {
         toast.error(error.message);
         fetchData();
@@ -735,7 +711,7 @@ export default function SponsorManagement({ eventId }: Props) {
                 group={group}
                 meetings={meetings}
                 onReport={(sp) => void downloadMeetingReport(sp)}
-                onTeam={openTeam}
+                onTeam={(s, tab) => setPanel({ sponsor: s, tab: tab ?? "team" })}
                 onEdit={openEdit}
                 onDelete={handleDelete}
               />
@@ -780,41 +756,19 @@ export default function SponsorManagement({ eventId }: Props) {
         </Suspense>
       </div>
 
-      {/* Team manager dialog */}
-      <Dialog open={!!teamOpen} onOpenChange={(v) => !v && setTeamOpen(null)}>
-        <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[640px] max-h-[90vh] p-0 gap-0 overflow-hidden flex flex-col">
-          <DialogHeader className="sticky top-0 z-10 bg-background border-b px-5 sm:px-6 py-4">
-            <DialogTitle>{teamOpen?.name} · Team</DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-4 space-y-4">
-            <PersonFieldsForm value={memberForm} onChange={setMemberForm} />
-            <Button onClick={inviteMember} size="sm" className="w-full">Add team member</Button>
-            <div className="border border-border rounded-md divide-y divide-border max-h-[260px] overflow-y-auto">
-              {members.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-6">No team members yet.</p>
-              ) : members.map((m) => (
-                <div key={m.id} className="flex items-center gap-2 px-3 py-2 text-sm">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium truncate">{m.display_name || m.email}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">
-                      {m.designation ? `${m.designation} · ` : ""}{m.email}
-                    </p>
-                  </div>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${m.accepted_at ? "bg-green-500/10 text-green-600 border-green-500/20" : "bg-muted text-muted-foreground border-border"}`}>
-                    {m.accepted_at ? "Active" : "Invited"}
-                  </span>
-                  {!m.accepted_at && teamOpen && (
-                    <Button size="icon" variant="ghost" className="h-6 w-6" title="Resend invitation email" aria-label={`Resend invitation email to ${m.email}`} onClick={() => void sendSponsorInvite({ sponsorId: teamOpen.id, memberId: m.id, recipient: m.email })}><Mail className="h-3 w-3" /></Button>
-                  )}
-                  <Button size="icon" variant="ghost" className="h-6 w-6" title="Copy invite link" onClick={() => copyInvite(m.invite_token)}><Copy className="h-3 w-3" /></Button>
-                  <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => removeMember(m.id)}><X className="h-3 w-3" /></Button>
-                </div>
-              ))}
-            </div>
-            <p className="text-[11px] text-muted-foreground">Members see speakers and registered attendees for events this sponsor is attached to — without email or phone.</p>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* One sponsorship: company, this event's details, and the team */}
+      {panel && (
+        <SponsorshipPanel
+          eventSponsorId={panel.sponsor.link?.id ?? panel.sponsor.sponsorship?.event_sponsor_id ?? ""}
+          sponsorName={panel.sponsor.sponsorship?.company ?? panel.sponsor.name}
+          initialTab={panel.tab}
+          onClose={() => setPanel(null)}
+          onChanged={fetchData}
+          onInvite={sendSponsorInvite}
+          onCopyInvite={copyInvite}
+          onRemoveMember={removeMember}
+        />
+      )}
     </div>
   );
 }
@@ -916,7 +870,7 @@ function SortableTierGroup({
   group: TierGroup;
   meetings: Map<string, MeetingTotals>;
   onReport: (s: Sponsor) => void;
-  onTeam: (s: Sponsor) => void;
+  onTeam: (s: Sponsor, tab?: SponsorshipPanelTab) => void;
   onEdit: (s: Sponsor) => void;
   onDelete: (id: string) => void;
 }) {
@@ -960,7 +914,7 @@ function SortableTierGroup({
             {group.sponsors.map((s) => (
               <SortableSponsorCard
                 key={s.id} sponsor={s} group={group} meetings={meetings.get(s.id)} onReport={() => onReport(s)}
-                onTeam={() => onTeam(s)}
+                onTeam={(tab) => onTeam(s, tab)}
                 onEdit={() => onEdit(s)}
                 onDelete={() => onDelete(s.id)}
               />
@@ -979,7 +933,7 @@ function SortableSponsorCard({
   group: TierGroup;
   meetings?: MeetingTotals;
   onReport: () => void;
-  onTeam: () => void; onEdit: () => void; onDelete: () => void;
+  onTeam: (tab?: SponsorshipPanelTab) => void; onEdit: () => void; onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } = useSortable({
     id: s.id,
@@ -1041,7 +995,7 @@ function SponsorCardBody({
   sponsor: s, onTeam, onEdit, onDelete,
 }: {
   sponsor: Sponsor;
-  onTeam: () => void; onEdit: () => void; onDelete: () => void;
+  onTeam: (tab?: SponsorshipPanelTab) => void; onEdit: () => void; onDelete: () => void;
 }) {
   return (
     <>
@@ -1053,15 +1007,26 @@ function SponsorCardBody({
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="font-semibold text-sm truncate">{s.name}</p>
+        <button type="button" className="block max-w-full truncate text-left text-sm font-semibold hover:underline" onClick={() => onTeam("sponsorship")}>
+          {s.sponsorship?.company ?? s.name}
+        </button>
+        {s.sponsorship?.company && s.sponsorship.company !== s.name && <p className="truncate text-[11px] text-muted-foreground">Listed as {s.name}</p>}
         {s.website && (
           <a href={s.website} target="_blank" rel="noopener noreferrer" className="text-xs text-primary flex items-center gap-1 hover:underline truncate">
             <ExternalLink className="h-3 w-3 shrink-0" /><span className="truncate">{new URL(s.website).hostname}</span>
           </a>
         )}
+        {s.sponsorship && (
+          <p className="truncate text-[11px] text-muted-foreground">
+            {[s.sponsorship.package, SPONSORSHIP_STATUS[s.sponsorship.status] ?? s.sponsorship.status,
+              s.sponsorship.contacts.length ? `${s.sponsorship.contacts.length} ${s.sponsorship.contacts.length === 1 ? "contact" : "contacts"}` : null,
+              s.sponsorship.commercial_value != null ? `${s.sponsorship.currency ?? ""} ${Number(s.sponsorship.commercial_value).toLocaleString()}`.trim() : null,
+            ].filter(Boolean).join(" · ")}
+          </p>
+        )}
       </div>
       <div className="flex gap-1 shrink-0">
-        <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Manage team for ${s.name}`} onClick={onTeam}><UsersIcon className="h-3 w-3" /></Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Manage team for ${s.name}`} onClick={() => onTeam("team")}><UsersIcon className="h-3 w-3" /></Button>
         <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Edit ${s.name}`} onClick={onEdit}><Pencil className="h-3 w-3" /></Button>
         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label={`Delete ${s.name}`} onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>
       </div>

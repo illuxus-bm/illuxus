@@ -131,7 +131,8 @@ export function useOrgSponsorSearch(query: string, open: boolean) {
       }
       const { data, error } = await q.order("name").limit(RESULT_LIMIT);
       if (error) throw error;
-      return (data ?? []) as SponsorLite[];
+      // A record merged into another is no longer one to choose.
+      return ((data ?? []) as Array<SponsorLite & { merged_into?: string | null }>).filter((s) => !s.merged_into);
     },
   });
 }

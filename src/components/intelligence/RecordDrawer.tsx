@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { COMPANY_FIELDS, PERSON_FIELDS, intel, type CompanyRow, type Detail, type Entity, type HistoryEntry, type SponsorRow } from "@/lib/intelligence/admin-api";
+import { COMPANY_FIELDS, PERSON_FIELDS, intel, type CompanyRow, type Detail, type Entity, type HistoryEntry, type SponsorRow, sponsorshipTitle } from "@/lib/intelligence/admin-api";
 
 interface Props {
   entity: Entity;
@@ -32,6 +32,7 @@ export function RecordDrawer({ entity, id, onClose, onChanged }: Props) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [ident, setIdent] = useState({ value: "", extra: "" });
+  const [moving, setMoving] = useState<string | null>(null);
   const fields = entity === "person" ? PERSON_FIELDS : COMPANY_FIELDS;
   const record = (detail ? (entity === "person" ? detail.person : detail.company) : null) as Record<string, unknown> | null;
 
@@ -163,6 +164,45 @@ export function RecordDrawer({ entity, id, onClose, onChanged }: Props) {
                   <SponsorPicker busy={busy} connected={list("sponsors").map((s) => String(s.id))}
                                  onPick={(sponsorId) => void run(() => intel.connectSponsor(sponsorId, id), "Sponsor connected")} />
                 )}
+              </Section>
+            )}
+
+            {entity === "company" && (
+              <Section title="Event sponsorships">
+                {list("event_sponsorships").length === 0 ? <p className="text-[13px] text-muted-foreground">None.</p> : list("event_sponsorships").map((e) => (
+                  <div key={String(e.id)} className="space-y-2 rounded-md border px-2.5 py-2 text-[13px]">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <span className="font-medium">{String(e.event)}</span> · {sponsorshipTitle(e.tier as string | null, e.tier_label as string | null)}
+                        <div className="truncate text-[11px] text-muted-foreground">
+                          {[e.package, e.status, e.commercial_value != null ? `${String(e.currency ?? "")} ${Number(e.commercial_value).toLocaleString()}`.trim() : null, e.owner].filter(Boolean).map(String).join(" · ")}
+                          {(e.contacts as string[]).length > 0 ? ` · ${(e.contacts as string[]).join(", ")}` : ""}
+                        </div>
+                      </div>
+                      <Button size="sm" variant="ghost" className="shrink-0" onClick={() => setMoving(moving === e.id ? null : String(e.id))}>Move</Button>
+                    </div>
+                    {moving === e.id && (
+                      <CompanyPicker label="Move this sponsorship to" current={null} busy={busy} excludeId={id ?? undefined}
+                                     onPick={(companyId) => {
+                                       if (!companyId) return;
+                                       setMoving(null);
+                                       void run(() => intel.moveSponsorship(String(e.id), companyId, reason), "Sponsorship moved; its title stayed with it");
+                                     }} />
+                    )}
+                  </div>
+                ))}
+              </Section>
+            )}
+
+            {entity === "company" && list("sponsor_team").length > 0 && (
+              <Section title="Sponsor team members">
+                <ul className="max-h-56 space-y-1 overflow-y-auto text-[13px]">
+                  {list("sponsor_team").map((m) => (
+                    <li key={String(m.id)}>
+                      {String(m.name)} <span className="text-muted-foreground">{[m.designation, m.email].filter(Boolean).map(String).join(" · ")} · {m.accepted_at ? "active" : "invited"} · {String(m.events)} events</span>
+                    </li>
+                  ))}
+                </ul>
               </Section>
             )}
 
