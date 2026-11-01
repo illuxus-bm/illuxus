@@ -299,6 +299,7 @@ more than once, and its change is already in the bundle, so nothing here is outs
 | `RUN_ME_security_fixes.sql` | Security review fixes F-01, F-02, F-05, F-06, F-08 (2026-10-28) | section 056 |
 | `RUN_ME_recipient_lookup_access.sql` | Event and community recipient lookups no longer readable with the anon key | section 057 |
 | `RUN_ME_signup_email_verification.sql` | Sign-up can no longer mark its own email verified; registrations attach only to verified addresses | section 058 |
+| `RUN_ME_create_my_workspace.sql` | Onboarding creates the workspace, owner membership and Free subscription in one transaction | section 059 |
 
 They can run in any order.
 

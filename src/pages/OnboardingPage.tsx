@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { useOrg, PLAN_DETAILS } from "@/contexts/OrgContext";
+import { useOrg } from "@/contexts/OrgContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import {
 } from "@/lib/workspace-handle";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import { buildUpgradeRequest } from "@/lib/plans/upgrade-request";
+import { supabaseRpc } from "@/lib/observability";
 
 const PLANS = [
   {
@@ -120,45 +121,26 @@ const OnboardingPage = () => {
     if (!user || !orgName.trim()) return;
     setSaving(true);
 
-    const baseSlug = slugify(orgName);
+    // The workspace, its owner membership and its Free subscription are made
+    // together (create_my_workspace): either all three exist or nothing was
+    // saved, so trying again never leaves a second, half-made workspace.
     // Every workspace starts on Free (the database enforces this too); a paid
     // choice becomes an upgrade request the team switches on.
-    const planLimits = PLAN_DETAILS.free.limits;
+    const { data: createdId, error: orgErr } = await supabaseRpc<string>("create_my_workspace", {
+      _name: orgName.trim(),
+      _slug: `${slugify(orgName)}-${Date.now().toString(36)}`,
+      _subdomain: subdomain || null,
+    });
 
-    // Create org
-    const { data: org, error: orgErr } = await supabase
-      .from("organizations")
-      .insert({
-        name: orgName.trim(),
-        slug: baseSlug + "-" + Date.now().toString(36),
-        subdomain: subdomain || null,
-        owner_id: user.id,
-        plan: "free",
-        plan_limits: planLimits as any,
-        billing_email: user.email,
-      })
-      .select()
-      .single();
-
-    if (orgErr || !org) {
-      toast({ title: "Error", description: orgErr?.message || "Failed to create organization", variant: "destructive" });
+    if (orgErr || typeof createdId !== "string") {
+      toast({
+        title: "Error",
+        description: orgErr?.message || "We couldn't set up your workspace, so nothing was saved. Please try again.",
+        variant: "destructive",
+      });
       setSaving(false);
       return;
     }
-
-    // Add as member
-    await supabase.from("org_members").insert({
-      org_id: org.id,
-      user_id: user.id,
-      role: "owner",
-    });
-
-    // Create subscription
-    await supabase.from("subscriptions").insert({
-      org_id: org.id,
-      plan: "free",
-      status: "active",
-    });
 
     if (selectedPlan !== "free" && user.email) {
       const requested = PLANS.find((p) => p.key === selectedPlan)?.name ?? selectedPlan;
@@ -167,7 +149,7 @@ const OnboardingPage = () => {
           name: (user.user_metadata?.full_name as string | undefined) ?? user.email,
           email: user.email,
           orgName: orgName.trim(),
-          orgId: org.id,
+          orgId: createdId,
           currentPlan: "free",
           requestedPlan: requested,
           pageUrl: window.location.href,
