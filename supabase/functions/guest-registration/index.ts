@@ -153,6 +153,8 @@ export interface Store {
   pendingInvitePath(email: string): Promise<string | null>;
   /** The sponsor-contact invitation behind a link token, if any. */
   sponsorInvite(token: string): Promise<{ email: string; accepted: boolean } | null>;
+  /** Accepts a sponsor-team invitation for a just-created account (accept_sponsor_invite_as, migration 063). */
+  acceptSponsorInvite(token: string, userId: string): Promise<string>;
   insertRegistration(row: NewRegistration): Promise<{ row: RegistrationRow } | { duplicate: true } | { error: string }>;
   markConfirmationSent(registrationId: string): Promise<void>;
   findUserIdByEmail(email: string): Promise<string | null>;
@@ -636,7 +638,16 @@ export function createHandler(deps: Deps) {
     // The signup trigger attaches this email's registrations to the account;
     // this repeats it in case the trigger is missing on this database.
     await store.linkRegistrations(token!.email, created.id);
-    return reply(200, { ok: true, email: token!.email, next: safeNextPath(token!.next_path) });
+
+    // A sponsor-team invitation is accepted here, with the account — not
+    // left to the browser reaching /sponsor/accept afterwards.
+    let next = safeNextPath(token!.next_path);
+    const invite = next?.match(/^\/sponsor\/accept\?token=([0-9a-f]+)$/)?.[1];
+    if (token!.purpose === "sponsor_contact" && invite) {
+      const result = await store.acceptSponsorInvite(invite, created.id);
+      if (result === "accepted" || result === "already_yours") next = "/sponsor";
+    }
+    return reply(200, { ok: true, email: token!.email, next });
   }
 
   async function resend(body: Record<string, unknown>, ip: string): Promise<Reply> {
@@ -784,6 +795,11 @@ export function supabaseStore(db: any): Store {
     async pendingInvitePath(email) {
       const { data, error } = await db.rpc("pending_invitation_path", { _email: email });
       return error ? null : (typeof data === "string" ? data : null);
+    },
+    async acceptSponsorInvite(token, userId) {
+      const { data, error } = await db.rpc("accept_sponsor_invite_as", { _token: token, _user_id: userId });
+      // Before migration 063 this fails; the page still goes on to /sponsor/accept.
+      return error ? "unavailable" : String(data);
     },
     async sponsorInvite(token) {
       const { data } = await db.from("sponsor_members").select("email, accepted_at").eq("invite_token", token).maybeSingle();

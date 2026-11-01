@@ -39,6 +39,9 @@ interface World {
   /** Where an invited address without an account should land. */
   pending: Map<string, string>;
   sponsorInvites: Map<string, { email: string; accepted: boolean }>;
+  /** Sponsor-team invitations accepted on the server: token → user id. */
+  acceptedInvites: Map<string, string>;
+  acceptWorks: boolean;
 }
 
 function makeWorld(): World {
@@ -52,7 +55,7 @@ function makeWorld(): World {
     ]),
     registrations: [], users: new Map(), tokens: [], hits: new Map(), outbox: [],
     emailWorks: true, createUserWorks: true, now: new Date(NOW), issued: [],
-    known: new Map(), pending: new Map(), sponsorInvites: new Map(),
+    known: new Map(), pending: new Map(), sponsorInvites: new Map(), acceptedInvites: new Map(), acceptWorks: true,
   };
 }
 
@@ -80,6 +83,14 @@ function makeDeps(w: World): Deps {
     },
     async pendingInvitePath(email) { return w.pending.get(email) ?? null; },
     async sponsorInvite(token) { return w.sponsorInvites.get(token) ?? null; },
+    async acceptSponsorInvite(token, userId) {
+      if (!w.acceptWorks) return "unavailable";
+      const inv = w.sponsorInvites.get(token);
+      if (!inv) return "invalid";
+      inv.accepted = true;
+      w.acceptedInvites.set(token, userId);
+      return "accepted";
+    },
     async insertRegistration(row) {
       // Mirrors the database: one registration per email per event, and the
       // trigger decides the approval state.
@@ -520,6 +531,24 @@ describe("invitations reuse what the organiser entered", () => {
       expect(res.body).toEqual({ ok: true, status: "sent", email_hint: "c•••@spons.test" });
       expect(w.outbox.at(-1)!.to).toBe("carl@spons.test");
       expect(w.tokens.at(-1)).toMatchObject({ purpose: "sponsor_contact", next_path: `/sponsor/accept?token=${TOKEN}` });
+    });
+
+    it("gives sponsor access with the account, without depending on the browser", async () => {
+      w.sponsorInvites.set(TOKEN, { email: "carl@spons.test", accepted: false });
+      w.known.set("carl@spons.test", { first_name: "Carl", last_name: "C", designation: "BD", company: "Spons", mobile_country_code: "+91", mobile_number: "9876500222" });
+      await handle({ action: "start_invite", kind: "sponsor_contact", token: TOKEN }, "1.1.1.1");
+      const res = await handle({ action: "activate", token: lastToken(), password: "correct horse 42" }, "1.1.1.1");
+      expect(res.body).toEqual({ ok: true, email: "carl@spons.test", next: "/sponsor" });
+      expect(w.acceptedInvites.get(TOKEN)).toBe(w.users.get("carl@spons.test")!.id);
+    });
+
+    it("still sends them to accept the invitation if the server could not", async () => {
+      w.acceptWorks = false;
+      w.sponsorInvites.set(TOKEN, { email: "carl@spons.test", accepted: false });
+      w.known.set("carl@spons.test", { first_name: "Carl", last_name: "C", designation: "BD", company: "Spons", mobile_country_code: "+91", mobile_number: "9876500222" });
+      await handle({ action: "start_invite", kind: "sponsor_contact", token: TOKEN }, "1.1.1.1");
+      const res = await handle({ action: "activate", token: lastToken(), password: "correct horse 42" }, "1.1.1.1");
+      expect(res.body).toMatchObject({ ok: true, next: `/sponsor/accept?token=${TOKEN}` });
     });
 
     it("sends an existing account to sign in, and refuses used or unknown links", async () => {
