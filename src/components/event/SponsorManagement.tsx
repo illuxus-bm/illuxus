@@ -9,7 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical, Search, Megaphone, Download } from "lucide-react";
+import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical, Search, Megaphone, Download, Mail } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
 import { logger, supabaseRpc } from "@/lib/observability";
 import {
@@ -285,7 +285,7 @@ export default function SponsorManagement({ eventId }: Props) {
     if (!teamOpen) return;
     const v = validatePersonFields(memberForm);
     if (!v.ok) { toast.error(v.error); return; }
-    const { error } = await supabase.from("sponsor_members").insert({
+    const { data: added, error } = await supabase.from("sponsor_members").insert({
       sponsor_id: teamOpen.id,
       email: memberForm.email.trim().toLowerCase(),
       display_name: displayName(memberForm) || null,
@@ -300,11 +300,13 @@ export default function SponsorManagement({ eventId }: Props) {
       company_website: memberForm.company_website.trim() || null,
       company_employee_count: memberForm.company_employee_count || null,
       industry: memberForm.industry || null,
-    });
+    }).select("id, email").single();
     if (error) { toast.error(error.message); return; }
     setMemberForm({ ...emptyPersonFields(), company: teamOpen.name });
     await fetchMembers(teamOpen.id);
-    toast.success("Team member added — share their invite link");
+    toast.success("Team member added");
+    // Their invitation goes out by email; the copy-link button stays as a fallback.
+    void sendSponsorInvite({ sponsorId: teamOpen.id, memberId: added.id, recipient: added.email });
   };
 
   const removeMember = async (id: string) => {
@@ -319,52 +321,51 @@ export default function SponsorManagement({ eventId }: Props) {
   };
 
   /**
-   * Fire-and-forget rich-HTML "you've been added" email to a sponsor
-   * company. Delegated entirely to the `send-sponsor-invite-email` edge
-   * function, which loads the event + org details server-side and builds
-   * the HTML (banner, organiser block, date / venue, portal CTA) so
-   * branding stays in lock-step with the participant ticket email.
+   * Sends a sponsor invitation email through `send-sponsor-invite-email`,
+   * which builds it server-side (banner, organiser block, date / venue,
+   * portal or accept link, and a set-up link with the details filled in for
+   * someone without an account). Without `memberId` it goes to the sponsor
+   * company's email; with it, to that person on the sponsor's team.
    *
-   * Silent no-op when:
-   *   • the sponsor row has no email, or the email is malformed, or
-   *   • SMTP isn't configured (the edge function returns delivered:false
-   *     with a note — surfaced only as a debug log, not a destructive
-   *     toast, because nothing the organiser typed is wrong in that case).
+   * The organiser always hears how it went — sent, email not set up, or the
+   * reason it failed — so an address that never received anything doesn't
+   * go unnoticed. No email address: nothing is sent and nothing is said.
    */
-  const notifySponsorAdded = async (sponsor: { id: string; email: string | null; name: string }) => {
-    const recipient = normalizeEmail(sponsor.email);
+  const sendSponsorInvite = async ({ sponsorId, memberId, recipient: raw }: { sponsorId: string; memberId?: string; recipient: string | null }) => {
+    const recipient = normalizeEmail(raw);
     if (!isValidEmailFormat(recipient)) return;
+    const failed = (reason: string) => {
+      logger.warn("sponsor invite send failed", { event_id: eventId, sponsor_id: sponsorId, member_id: memberId ?? null, error_message: reason });
+      toast.error(`Invitation email to ${recipient} wasn't sent`, {
+        description: `${reason}${memberId ? " You can copy the invite link and send it yourself." : ""}`,
+      });
+    };
     try {
       const { data, error } = await supabase.functions.invoke("send-sponsor-invite-email", {
-        body: { sponsor_id: sponsor.id, event_id: eventId },
+        body: { sponsor_id: sponsorId, event_id: eventId, ...(memberId ? { member_id: memberId } : {}) },
       });
+      type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string };
       if (error) {
-        logger.warn("sponsor invite send failed", {
-          event_id: eventId,
-          sponsor_id: sponsor.id,
-          error_message: error.message,
-        });
+        // The function's own message (rate limit, SMTP error, …) is in the response body.
+        let reason = error.message || "The email service returned an error.";
+        const ctx = (error as { context?: Response }).context;
+        if (ctx && typeof ctx.text === "function") {
+          try { reason = ((JSON.parse(await ctx.text()) as R).error) || reason; } catch { /* keep generic reason */ }
+        }
+        failed(reason);
         return;
       }
-      type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string };
       const r = (data ?? null) as R | null;
-      if (r?.error) {
-        logger.warn("sponsor invite error response", {
-          event_id: eventId,
-          sponsor_id: sponsor.id,
-          error_message: r.error,
-        });
-      } else if (r?.delivered) {
-        toast.message("Sponsor invitation email sent", { description: recipient });
-      }
+      if (r?.error) { failed(r.error); return; }
+      if (r?.delivered) { toast.success("Invitation email sent", { description: recipient }); return; }
+      failed(r?.note === "SMTP not configured" ? "Email sending isn't set up for this platform." : (r?.note || "The email service didn't confirm delivery."));
     } catch (err) {
-      logger.warn("sponsor notify threw", {
-        event_id: eventId,
-        sponsor_id: sponsor.id,
-        error_message: err instanceof Error ? err.message : String(err),
-      });
+      failed(err instanceof Error ? err.message : "The email service is unreachable.");
     }
   };
+
+  const notifySponsorAdded = (sponsor: { id: string; email: string | null; name: string }) =>
+    sendSponsorInvite({ sponsorId: sponsor.id, recipient: sponsor.email });
 
   const handleSave = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -785,6 +786,9 @@ export default function SponsorManagement({ eventId }: Props) {
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${m.accepted_at ? "bg-green-500/10 text-green-600 border-green-500/20" : "bg-muted text-muted-foreground border-border"}`}>
                     {m.accepted_at ? "Active" : "Invited"}
                   </span>
+                  {!m.accepted_at && teamOpen && (
+                    <Button size="icon" variant="ghost" className="h-6 w-6" title="Resend invitation email" aria-label={`Resend invitation email to ${m.email}`} onClick={() => void sendSponsorInvite({ sponsorId: teamOpen.id, memberId: m.id, recipient: m.email })}><Mail className="h-3 w-3" /></Button>
+                  )}
                   <Button size="icon" variant="ghost" className="h-6 w-6" title="Copy invite link" onClick={() => copyInvite(m.invite_token)}><Copy className="h-3 w-3" /></Button>
                   <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => removeMember(m.id)}><X className="h-3 w-3" /></Button>
                 </div>

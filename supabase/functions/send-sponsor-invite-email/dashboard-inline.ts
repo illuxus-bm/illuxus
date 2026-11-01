@@ -339,8 +339,8 @@ function buildHtml(ctx) {
           <div style="display:inline-block;background:#7c3aed1a;color:#7c3aed;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;margin-bottom:16px;text-transform:uppercase;letter-spacing:.06em;">Sponsor invitation</div>
           <p style="font-size:22px;font-weight:700;color:#111827;margin:0 0 4px;">You're on board!</p>
           <p style="font-size:15px;color:#4b5563;margin:0 0 20px;">
-            Hi <strong>${escapeHtml(ctx.sponsorName.split(" ")[0] || ctx.sponsorName)}</strong>,
-            ${escapeHtml(ctx.orgName)} has added <strong>${escapeHtml(ctx.sponsorName)}</strong> as a sponsor for the event below.
+            Hi <strong>${escapeHtml(ctx.greetingName)}</strong>,
+            ${escapeHtml(ctx.lead)}
           </p>
           <p style="font-size:20px;font-weight:700;color:#111827;margin:0 0 4px;">${escapeHtml(ctx.eventTitle)}</p>
           ${orgBlock}
@@ -350,7 +350,7 @@ function buildHtml(ctx) {
           </table>
           <div style="text-align:center;margin:8px 0 16px;">
             <a href="${escapeHtml(ctx.setupUrl ?? ctx.portalUrl)}" style="display:inline-block;background:#7c3aed;color:#ffffff;font-size:14px;font-weight:600;padding:12px 32px;border-radius:6px;text-decoration:none;">
-              ${ctx.setupUrl ? "Set up your account \u2192" : "Open the sponsor portal \u2192"}
+              ${ctx.setupUrl ? "Set up your account \u2192" : escapeHtml(ctx.portalLabel)}
             </a>
           </div>
           <p style="font-size:13px;color:#4b5563;line-height:1.55;margin:0 0 12px;">
@@ -376,7 +376,7 @@ Deno.serve(async (req) => {
   if (preflight) return preflight;
   const json = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...cors, "Content-Type": "application/json" } });
   try {
-    const { sponsor_id, event_id } = await req.json();
+    const { sponsor_id, event_id, member_id } = await req.json();
     if (!sponsor_id || !event_id) return json({ error: "sponsor_id and event_id are required" }, 400);
     const supabase = createClient2(
       Deno.env.get("SUPABASE_URL"),
@@ -389,7 +389,7 @@ Deno.serve(async (req) => {
     }
     const { data: link } = await supabase.from("event_sponsors").select("event_id").eq("event_id", event_id).eq("sponsor_id", sponsor_id).maybeSingle();
     if (!link) return json({ error: "This sponsor isn't part of the event" }, 404);
-    if (!await withinLimit(supabase, "sponsor_invite_email", `${event_id}:${sponsor_id}`, 5, 60 * 60 * 1e3)) {
+    if (!await withinLimit(supabase, "sponsor_invite_email", `${event_id}:${sponsor_id}${member_id ? `:${member_id}` : ""}`, 5, 60 * 60 * 1e3)) {
       return json({ error: "This invitation was sent several times recently. Try again later." }, 429);
     }
     const [{ data: sponsor }, { data: event }] = await Promise.all([
@@ -404,8 +404,14 @@ Deno.serve(async (req) => {
       log.error("event not found", { event_id });
       return json({ error: "Event not found" }, 404);
     }
-    const recipient = (sponsor.email || "").trim().toLowerCase();
-    if (!recipient) return json({ ok: true, delivered: false, note: "Sponsor has no email" });
+    let member = null;
+    if (member_id) {
+      const { data } = await supabase.from("sponsor_members").select("id, email, display_name, first_name, invite_token, accepted_at").eq("id", member_id).eq("sponsor_id", sponsor_id).maybeSingle();
+      member = data;
+      if (!member) return json({ error: "That team member isn't on this sponsor" }, 404);
+    }
+    const recipient = ((member ? member.email : sponsor.email) || "").trim().toLowerCase();
+    if (!recipient) return json({ ok: true, delivered: false, note: member ? "Team member has no email" : "Sponsor has no email" });
     const org = event.organizations;
     const orgName = org?.name || "The organising team";
     const orgLogo = org?.logo_url || null;
@@ -415,15 +421,23 @@ Deno.serve(async (req) => {
     const venueText = [event.venue, event.location].filter(Boolean).join(" \xB7 ");
     const publicOrigin = Deno.env.get("PUBLIC_DOMAIN") || Deno.env.get("VITE_PUBLIC_DOMAIN") || Deno.env.get("VITE_PUBLIC_ORIGIN") || "https://illuxus.com";
     const base = publicOrigin.startsWith("http") ? publicOrigin.replace(/\/+$/, "") : `https://${publicOrigin}`;
-    const portalUrl = `${base}/sponsor`;
+    const acceptPath = member ? `/sponsor/accept?token=${encodeURIComponent(member.invite_token)}` : "/sponsor";
+    const portalUrl = `${base}${acceptPath}`;
     const { data: setupToken } = await supabase.rpc("issue_invitation_activation", {
       _email: recipient,
-      _purpose: "sponsor",
-      _next_path: "/sponsor"
+      _purpose: member ? "sponsor_contact" : "sponsor",
+      _next_path: acceptPath
     });
     const setupUrl = typeof setupToken === "string" && /^[0-9a-f]{64}$/.test(setupToken) ? `${base}/activate?token=${setupToken}` : null;
+    const sponsorName = sponsor.name || "the sponsor";
+    const memberFirst = member ? member.first_name?.trim() || member.display_name?.trim().split(/\s+/)[0] || "there" : null;
+    const greetingName = memberFirst ?? (sponsor.name?.trim().split(/\s+/)[0] || "there");
+    const lead = member ? `${orgName} has added you to ${sponsorName}'s team for the event below.` : `${orgName} has added ${sponsorName} as a sponsor for the event below.`;
     const html = buildHtml({
-      sponsorName: sponsor.name || "Sponsor",
+      sponsorName,
+      greetingName,
+      lead,
+      portalLabel: member ? "Accept the invitation \u2192" : "Open the sponsor portal \u2192",
       eventTitle,
       orgName,
       orgLogoUrl: orgLogo,
@@ -434,18 +448,18 @@ Deno.serve(async (req) => {
       setupUrl
     });
     const textBody = [
-      `Hi ${sponsor.name?.trim().split(/\s+/)[0] || "there"},`,
+      `Hi ${greetingName},`,
       "",
-      `${orgName} has added ${sponsor.name || "your company"} as a sponsor for "${eventTitle}".`,
+      lead.replace("the event below", `"${eventTitle}"`),
       "",
       dateText ? `When:  ${dateText}` : "",
       venueText ? `Where: ${venueText}` : "",
       "",
-      ...setupUrl ? [`Set up your account (your details are already filled in): ${setupUrl}`, "", "The link works once and expires in 72 hours."] : [`Open the sponsor portal: ${portalUrl}`, "", "Sign in to view event details, manage your booth, and access the lead list."],
+      ...setupUrl ? [`Set up your account (your details are already filled in): ${setupUrl}`, "", "The link works once and expires in 72 hours."] : member ? [`Accept the invitation: ${portalUrl}`, "", "Sign in with this email address to join the team."] : [`Open the sponsor portal: ${portalUrl}`, "", "Sign in to view event details, manage your booth, and access the lead list."],
       "",
       `\u2014 ${orgName}`
     ].filter((l) => l !== void 0).join("\n").replace(/\n{3,}/g, "\n\n").trim();
-    const subject = `You've been added as a sponsor for ${eventTitle}`;
+    const subject = member ? `You've been added to ${sponsorName}'s team for ${eventTitle}` : `You've been added as a sponsor for ${eventTitle}`;
     if (!smtpConfigured()) {
       log.info("sponsor invite skipped \u2014 SMTP not configured", { sponsor_id, event_id });
       return json({ ok: true, delivered: false, note: "SMTP not configured" });
@@ -456,7 +470,7 @@ Deno.serve(async (req) => {
       log.error("sponsor invite send failed", { sponsor_id, event_id, error_message: result.error });
       return json({ ok: false, error: result.error }, 500);
     }
-    log.info("sponsor invite sent", { sponsor_id, event_id, recipient });
+    log.info("sponsor invite sent", { sponsor_id, event_id, member_id: member_id ?? null, recipient });
     return json({ ok: true, delivered: true });
   } catch (err) {
     log.error("unexpected error", toErrorFields(err));
