@@ -293,6 +293,7 @@ more than once, and its change is already in the bundle, so nothing here is outs
 | Script | What it does | In the bundle |
 | --- | --- | --- |
 | `RUN_ME_048_plan_features.sql` | Subscription plans and feature gates | section 048 |
+| `RUN_ME_admin_provisioned_organizations.sql` | Columns and triggers for Super Admin creating an organisation; `org_invitations.prefill` | section 049 |
 | `RUN_ME_site_editor_fix.sql` | Site-editor function argument names; public reads of published content only | baseline functions; grants in section 056 |
 | `RUN_ME_speaker_event_banners.sql` | Event banner on speaker dashboard cards | `speaker_portal_events()` |
 | `RUN_ME_custom_sponsor_contacts.sql` | Custom-selection emails reach sponsor contacts | `communications_resolve_recipients()` |
@@ -306,7 +307,9 @@ more than once, and its change is already in the bundle, so nothing here is outs
 | `RUN_ME_sponsor_contact_activation.sql` | Sponsor team members get access when they set up their account; repairs anyone stuck without it (run after 062) | section 063 |
 | `RUN_ME_intelligence_centre.sql` | Super Admin Intelligence Centre: contact and company correction, duplicate scores, merges with rollback, field history (run after 061 and 062) | section 064 |
 
-They can run in any order.
+Most can run in any order; a script says so at the top when it needs another first.
+
+`supabase/CHECK_schema_drift.sql` is a read-only check that lists what the migrations should have created but a database doesn't have. It is generated from the bundle.
 
 ### Main tables
 
