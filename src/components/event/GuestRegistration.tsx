@@ -18,6 +18,7 @@ import {
 } from "@/lib/guest-registration";
 import { CountryCodePicker } from "@/components/people/CountryCodePicker";
 import type { UtmParams } from "@/lib/utm";
+import { CompanyInput } from "@/components/intelligence/CompanyInput";
 
 function Field({ id, label, error, children }: { id: string; label: string; error?: string; children: React.ReactNode }) {
   return (
@@ -118,7 +119,7 @@ export function GuestRegistrationForm({
       </Field>
       <div className="grid grid-cols-2 gap-2">
         <Field id="guest-company" label="Company" error={errors.company}>
-          <Input id="guest-company" autoComplete="organization" value={fields.company} onChange={(e) => set("company", e.target.value)} maxLength={160} aria-invalid={!!errors.company} className={input} />
+          <CompanyInput id="guest-company" value={fields.company} onChange={(v) => set("company", v)} maxLength={160} aria-invalid={!!errors.company} className={input} />
         </Field>
         <Field id="guest-designation" label="Designation" error={errors.designation}>
           <Input id="guest-designation" autoComplete="organization-title" value={fields.designation} onChange={(e) => set("designation", e.target.value)} maxLength={120} aria-invalid={!!errors.designation} className={input} />

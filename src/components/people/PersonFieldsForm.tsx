@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { EMPLOYEE_COUNT_OPTIONS, INDUSTRY_OPTIONS, TITLE_OPTIONS } from "@/lib/phone-country";
 import { CountryCodePicker } from "@/components/people/CountryCodePicker";
 import { z } from "zod";
+import { CompanyInput } from "@/components/intelligence/CompanyInput";
 
 export type PersonFields = {
   title: string;
@@ -101,7 +102,7 @@ export default function PersonFieldsForm({ value, onChange, hideEmail }: Props) 
         </div>
         <div>
           <Label className="text-[12px]">Company *</Label>
-          <Input value={value.company} onChange={(e) => set("company", e.target.value)} placeholder="Acme Inc." />
+          <CompanyInput value={value.company} onChange={(v) => set("company", v)} placeholder="Acme Inc." />
         </div>
       </div>
 
