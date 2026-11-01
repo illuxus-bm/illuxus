@@ -300,6 +300,7 @@ more than once, and its change is already in the bundle, so nothing here is outs
 | `RUN_ME_recipient_lookup_access.sql` | Event and community recipient lookups no longer readable with the anon key | section 057 |
 | `RUN_ME_signup_email_verification.sql` | Sign-up can no longer mark its own email verified; registrations attach only to verified addresses | section 058 |
 | `RUN_ME_create_my_workspace.sql` | Onboarding creates the workspace, owner membership and Free subscription in one transaction | section 059 |
+| `RUN_ME_identity_foundation.sql` | One record per person and per company; registrations, speakers and sponsor contacts linked; possible-duplicate queue (run after 058) | section 060 |
 
 They can run in any order.
 
