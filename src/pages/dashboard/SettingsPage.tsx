@@ -28,6 +28,7 @@ import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 import { fetchPublicProfile, fetchPublicProfiles } from "@/lib/public-profiles";
 import { callTeamInvitation, replyError } from "@/lib/team-invitation";
 import { TwoFactorSettings } from "@/components/auth/TwoFactorSettings";
+import { ProfileSuggestions } from "@/components/intelligence/ProfileSuggestions";
 
 type Profile = Tables<"profiles">;
 
@@ -433,6 +434,8 @@ const SettingsPage = () => {
             {isAttendee ? "Manage your profile and account" : "Manage your profile, team and account"}
           </p>
         </div>
+
+        <ProfileSuggestions />
 
         <div className="flex flex-col md:flex-row gap-5">
           <div className="md:w-48 shrink-0 -mx-4 md:mx-0 md:overflow-visible">

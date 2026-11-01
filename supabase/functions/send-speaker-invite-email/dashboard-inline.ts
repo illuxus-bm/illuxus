@@ -365,13 +365,13 @@ function buildHtml(ctx) {
             ${ctx.venueText ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280;vertical-align:top;">\u{1F4CD}</td><td style="padding:4px 0 4px 8px;font-size:13px;color:#374151;">${escapeHtml(ctx.venueText)}</td></tr>` : ""}
           </table>
           <div style="text-align:center;margin:8px 0 16px;">
-            <a href="${escapeHtml(ctx.portalUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;font-size:14px;font-weight:600;padding:12px 32px;border-radius:6px;text-decoration:none;">
-              Open the speaker portal \u2192
+            <a href="${escapeHtml(ctx.setupUrl ?? ctx.portalUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;font-size:14px;font-weight:600;padding:12px 32px;border-radius:6px;text-decoration:none;">
+              ${ctx.setupUrl ? "Set up your account \u2192" : "Open the speaker portal \u2192"}
             </a>
           </div>
           <p style="font-size:13px;color:#4b5563;line-height:1.55;margin:0 0 12px;">
-            Sign in to update your bio, headshot, session details, and any slides you'd like to share.
-            If you don't have an Illuxus account yet, create one using this same email \u2014 your speaker access will be linked automatically.
+            ${ctx.setupUrl ? "Your details are already filled in from this invitation \u2014 check them, choose a password, and your speaker access is ready. The link works once and expires in 72 hours." : `Sign in to update your bio, headshot, session details, and any slides you'd like to share.
+            If you don't have an Illuxus account yet, create one using this same email \u2014 your speaker access will be linked automatically.`}
           </p>
           <p style="font-size:12px;color:#9ca3af;margin:16px 0 0;text-align:center;">
             Questions? Reply to this email and the organising team will reach you.
@@ -433,6 +433,12 @@ Deno.serve(async (req) => {
     const publicOrigin = Deno.env.get("PUBLIC_DOMAIN") || Deno.env.get("VITE_PUBLIC_DOMAIN") || Deno.env.get("VITE_PUBLIC_ORIGIN") || "https://illuxus.com";
     const base = publicOrigin.startsWith("http") ? publicOrigin.replace(/\/+$/, "") : `https://${publicOrigin}`;
     const portalUrl = `${base}/speaker`;
+    const { data: setupToken } = await supabase.rpc("issue_invitation_activation", {
+      _email: recipient,
+      _purpose: "speaker",
+      _next_path: "/speaker"
+    });
+    const setupUrl = typeof setupToken === "string" && /^[0-9a-f]{64}$/.test(setupToken) ? `${base}/activate?token=${setupToken}` : null;
     const copy = copyFor(kind, orgName, speaker.name || "the speaker");
     const html = buildHtml({
       speakerName: speaker.name || "Speaker",
@@ -443,6 +449,7 @@ Deno.serve(async (req) => {
       venueText,
       bannerUrl,
       portalUrl,
+      setupUrl,
       copy
     });
     const textBody = [
@@ -453,10 +460,7 @@ Deno.serve(async (req) => {
       dateText ? `When:  ${dateText}` : "",
       venueText ? `Where: ${venueText}` : "",
       "",
-      `Open the speaker portal: ${portalUrl}`,
-      "",
-      "Sign in to update your bio, headshot, session details, and any slides.",
-      "If you don't have an Illuxus account yet, create one using this same email \u2014 your speaker access will be linked automatically.",
+      ...setupUrl ? [`Set up your account (your details are already filled in): ${setupUrl}`, "", "The link works once and expires in 72 hours."] : [`Open the speaker portal: ${portalUrl}`, "", "Sign in to update your bio, headshot, session details, and any slides."],
       "",
       `\u2014 ${orgName}`
     ].filter((l) => l !== void 0).join("\n").replace(/\n{3,}/g, "\n\n").trim();

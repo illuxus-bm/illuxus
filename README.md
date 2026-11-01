@@ -302,6 +302,7 @@ more than once, and its change is already in the bundle, so nothing here is outs
 | `RUN_ME_create_my_workspace.sql` | Onboarding creates the workspace, owner membership and Free subscription in one transaction | section 059 |
 | `RUN_ME_identity_foundation.sql` | One record per person and per company; registrations, speakers and sponsor contacts linked; possible-duplicate queue (run after 058) | section 060 |
 | `RUN_ME_company_suggestions.sql` | Company suggestions while typing: seeds companies from typed names and sponsors, `suggest_companies()` (run after 060) | section 061 |
+| `RUN_ME_invitation_prefill.sql` | Invitations reuse what the organiser entered: prefilled set-up links, profile suggestions for existing accounts (run after 060) | section 062 |
 
 They can run in any order.
 

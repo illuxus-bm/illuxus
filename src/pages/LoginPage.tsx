@@ -29,6 +29,8 @@ import PersonFieldsForm, {
   validatePersonFields,
   type PersonFields,
 } from "@/components/people/PersonFieldsForm";
+import { callGuestRegistration } from "@/lib/guest-registration";
+import { isValidEmailFormat } from "@/lib/email-format";
 
 /** Digit range accepted for the sign-up verification code. Supabase's
  *  "Email OTP Length" decides what is emailed (6–10); this project sends 8,
@@ -403,6 +405,23 @@ const LoginPage = () => {
       }
     }
     setLoading(false);
+  };
+
+  /**
+   * Someone invited (speaker, sponsor, sponsor contact, partner) who has no
+   * account yet: email them a set-up link with the details the organiser
+   * already entered. The answer is the same whatever the address, so this
+   * can't be used to find out who was invited.
+   */
+  const requestInviteSetupLink = async () => {
+    if (!isValidEmailFormat(email)) {
+      toast({ title: "Enter your email above", description: "Use the address your invitation was sent to." });
+      return;
+    }
+    const reply = await callGuestRegistration({ action: "start_invite", kind: "email", email });
+    toast(reply.body.ok === true
+      ? { title: "Check your inbox", description: "If that address has an invitation waiting, a set-up link is on its way. Your details are already filled in." }
+      : { title: "Couldn't send the link", description: "Please try again in a moment.", variant: "destructive" });
   };
 
   /** After a complete sign-in: password-change check, then route by account type. */
@@ -857,6 +876,16 @@ const LoginPage = () => {
                       </div>
                     )}
                   </>
+                )}
+                {!isSignUp && !isForgot && (
+                  <button
+                    type="button"
+                    onClick={() => void requestInviteSetupLink()}
+                    disabled={loading}
+                    className="block text-left text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Invited as a speaker, sponsor or partner? Email me a set-up link
+                  </button>
                 )}
                 {isSignUp && signUpStep === 2 && (
                   <PersonFieldsForm value={{ ...person, email }} onChange={(v) => setPerson(v)} hideEmail />

@@ -96,6 +96,8 @@ function buildHtml(ctx: {
   venueText: string;
   bannerUrl: string | null;
   portalUrl: string;
+  /** Single-use set-up link for an address with no account yet (migration 062). */
+  setupUrl: string | null;
 }): string {
   const orgBlock = `
     <table cellpadding="0" cellspacing="0" style="margin:0 auto 16px;">
@@ -135,13 +137,15 @@ function buildHtml(ctx: {
             ${ctx.venueText ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280;vertical-align:top;">📍</td><td style="padding:4px 0 4px 8px;font-size:13px;color:#374151;">${escapeHtml(ctx.venueText)}</td></tr>` : ""}
           </table>
           <div style="text-align:center;margin:8px 0 16px;">
-            <a href="${escapeHtml(ctx.portalUrl)}" style="display:inline-block;background:#7c3aed;color:#ffffff;font-size:14px;font-weight:600;padding:12px 32px;border-radius:6px;text-decoration:none;">
-              Open the sponsor portal →
+            <a href="${escapeHtml(ctx.setupUrl ?? ctx.portalUrl)}" style="display:inline-block;background:#7c3aed;color:#ffffff;font-size:14px;font-weight:600;padding:12px 32px;border-radius:6px;text-decoration:none;">
+              ${ctx.setupUrl ? "Set up your account →" : "Open the sponsor portal →"}
             </a>
           </div>
           <p style="font-size:13px;color:#4b5563;line-height:1.55;margin:0 0 12px;">
-            Sign in to view event details, manage your booth, and access the lead list.
-            If you don't have an Illuxus account yet, create one using this same email — your sponsor access will be linked automatically.
+            ${ctx.setupUrl
+              ? "Your details are already filled in from this invitation — check them, choose a password, and your sponsor access is ready. The link works once and expires in 72 hours."
+              : `Sign in to view event details, manage your booth, and access the lead list.
+            If you don't have an Illuxus account yet, create one using this same email — your sponsor access will be linked automatically.`}
           </p>
           <p style="font-size:12px;color:#9ca3af;margin:16px 0 0;text-align:center;">
             Questions? Reply to this email and the organising team will reach you.
@@ -216,6 +220,13 @@ Deno.serve(async (req) => {
       || Deno.env.get("VITE_PUBLIC_ORIGIN") || "https://illuxus.com";
     const base = publicOrigin.startsWith("http") ? publicOrigin.replace(/\/+$/, "") : `https://${publicOrigin}`;
     const portalUrl = `${base}/sponsor`;
+    // No account yet: a single-use set-up link with the details already
+    // filled in (migration 062). An existing account just signs in; before
+    // the migration this returns an error and the email is as it was.
+    const { data: setupToken } = await supabase.rpc("issue_invitation_activation", {
+      _email: recipient, _purpose: "sponsor", _next_path: "/sponsor",
+    });
+    const setupUrl = typeof setupToken === "string" && /^[0-9a-f]{64}$/.test(setupToken) ? `${base}/activate?token=${setupToken}` : null;
 
     const html = buildHtml({
       sponsorName: sponsor.name || "Sponsor",
@@ -226,6 +237,7 @@ Deno.serve(async (req) => {
       venueText,
       bannerUrl,
       portalUrl,
+      setupUrl,
     });
 
     const textBody = [
@@ -236,10 +248,9 @@ Deno.serve(async (req) => {
       dateText  ? `When:  ${dateText}`  : "",
       venueText ? `Where: ${venueText}` : "",
       "",
-      `Open the sponsor portal: ${portalUrl}`,
-      "",
-      "Sign in to view event details, manage your booth, and access the lead list.",
-      "If you don't have an Illuxus account yet, create one using this same email — your sponsor access will be linked automatically.",
+      ...(setupUrl
+        ? [`Set up your account (your details are already filled in): ${setupUrl}`, "", "The link works once and expires in 72 hours."]
+        : [`Open the sponsor portal: ${portalUrl}`, "", "Sign in to view event details, manage your booth, and access the lead list."]),
       "",
       `— ${orgName}`,
     ].filter((l) => l !== undefined).join("\n").replace(/\n{3,}/g, "\n\n").trim();

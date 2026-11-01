@@ -105,6 +105,8 @@ function buildHtml(ctx: {
   venueText: string;
   bannerUrl: string | null;
   portalUrl: string;
+  /** Single-use set-up link for an address with no account yet (migration 062). */
+  setupUrl: string | null;
   copy: ReturnType<typeof copyFor>;
 }): string {
   const orgBlock = `
@@ -145,13 +147,15 @@ function buildHtml(ctx: {
             ${ctx.venueText ? `<tr><td style="padding:4px 0;font-size:13px;color:#6b7280;vertical-align:top;">📍</td><td style="padding:4px 0 4px 8px;font-size:13px;color:#374151;">${escapeHtml(ctx.venueText)}</td></tr>` : ""}
           </table>
           <div style="text-align:center;margin:8px 0 16px;">
-            <a href="${escapeHtml(ctx.portalUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;font-size:14px;font-weight:600;padding:12px 32px;border-radius:6px;text-decoration:none;">
-              Open the speaker portal →
+            <a href="${escapeHtml(ctx.setupUrl ?? ctx.portalUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;font-size:14px;font-weight:600;padding:12px 32px;border-radius:6px;text-decoration:none;">
+              ${ctx.setupUrl ? "Set up your account →" : "Open the speaker portal →"}
             </a>
           </div>
           <p style="font-size:13px;color:#4b5563;line-height:1.55;margin:0 0 12px;">
-            Sign in to update your bio, headshot, session details, and any slides you'd like to share.
-            If you don't have an Illuxus account yet, create one using this same email — your speaker access will be linked automatically.
+            ${ctx.setupUrl
+              ? "Your details are already filled in from this invitation — check them, choose a password, and your speaker access is ready. The link works once and expires in 72 hours."
+              : `Sign in to update your bio, headshot, session details, and any slides you'd like to share.
+            If you don't have an Illuxus account yet, create one using this same email — your speaker access will be linked automatically.`}
           </p>
           <p style="font-size:12px;color:#9ca3af;margin:16px 0 0;text-align:center;">
             Questions? Reply to this email and the organising team will reach you.
@@ -229,13 +233,20 @@ Deno.serve(async (req) => {
       || Deno.env.get("VITE_PUBLIC_ORIGIN") || "https://illuxus.com";
     const base = publicOrigin.startsWith("http") ? publicOrigin.replace(/\/+$/, "") : `https://${publicOrigin}`;
     const portalUrl = `${base}/speaker`;
+    // No account yet: a single-use set-up link with the details already
+    // filled in (migration 062). An existing account just signs in; before
+    // the migration this returns an error and the email is as it was.
+    const { data: setupToken } = await supabase.rpc("issue_invitation_activation", {
+      _email: recipient, _purpose: "speaker", _next_path: "/speaker",
+    });
+    const setupUrl = typeof setupToken === "string" && /^[0-9a-f]{64}$/.test(setupToken) ? `${base}/activate?token=${setupToken}` : null;
 
     const copy = copyFor(kind, orgName, speaker.name || "the speaker");
 
     const html = buildHtml({
       speakerName: speaker.name || "Speaker",
       eventTitle, orgName, orgLogoUrl: orgLogo,
-      dateText, venueText, bannerUrl, portalUrl, copy,
+      dateText, venueText, bannerUrl, portalUrl, setupUrl, copy,
     });
 
     const textBody = [
@@ -246,10 +257,9 @@ Deno.serve(async (req) => {
       dateText  ? `When:  ${dateText}`  : "",
       venueText ? `Where: ${venueText}` : "",
       "",
-      `Open the speaker portal: ${portalUrl}`,
-      "",
-      "Sign in to update your bio, headshot, session details, and any slides.",
-      "If you don't have an Illuxus account yet, create one using this same email — your speaker access will be linked automatically.",
+      ...(setupUrl
+        ? [`Set up your account (your details are already filled in): ${setupUrl}`, "", "The link works once and expires in 72 hours."]
+        : [`Open the speaker portal: ${portalUrl}`, "", "Sign in to update your bio, headshot, session details, and any slides."]),
       "",
       `— ${orgName}`,
     ].filter((l) => l !== undefined).join("\n").replace(/\n{3,}/g, "\n\n").trim();

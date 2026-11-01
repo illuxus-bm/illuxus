@@ -202,8 +202,9 @@ export async function sendPartnerInviteEmail(
           `(source: ${share.utm_source}).\n\n` +
           `Open your Partner dashboard to see the people registered through your link, their approval and ` +
           `check-in status, and to register participants yourself:\n${partnerDashboardUrl()}\n\n` +
-          `Sign in with this email address (${share.invited_email}). If you don't have an Illuxus account yet, ` +
-          `you can create one from the same page.\n\nBest,\nThe Illuxus Team`,
+          `Sign in with this email address (${share.invited_email}). New to Illuxus? On the same page choose ` +
+          `"Invited as a speaker, sponsor or partner? Email me a set-up link" — we'll email you a link with your ` +
+          `details already filled in.\n\nBest,\nThe Illuxus Team`,
         recipient_emails: [share.invited_email],
       },
     });

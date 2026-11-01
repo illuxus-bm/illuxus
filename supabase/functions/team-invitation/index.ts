@@ -152,6 +152,8 @@ export interface Store {
   displayName(userId: string): Promise<string | null>;
   /** Throws if it cannot tell. */
   findUserIdByEmail(email: string): Promise<string | null>;
+  /** Details already held for an address — speaker or sponsor-contact records, registrations (invitation_prefill, migration 062). */
+  knownDetails(email: string): Promise<Record<string, string>>;
   findInvitation(orgId: string, email: string): Promise<InvitationRow | null>;
   findInvitationById(id: string): Promise<InvitationRow | null>;
   findInvitationByHash(tokenHash: string): Promise<InvitationRow | null>;
@@ -526,7 +528,9 @@ export function createHandler(deps: Deps) {
       ok: true, valid: true, org_name: inv!.org_name, email, role: inv!.role, expires_at: inv!.expires_at,
       account_exists: !!(await store.findUserIdByEmail(email)),
       becomes_owner: !!inv!.transfer_ownership,
-      prefill: inv!.prefill ?? {},
+      // What Illuxus already holds for the address, under what whoever set up
+      // the invitation typed. Only the holder of the emailed link sees it.
+      prefill: { ...(await store.knownDetails(email)), ...(inv!.prefill ?? {}) },
     });
   }
 
@@ -745,6 +749,16 @@ export function supabaseStore(db: any): Store {
       const { data } = await db.from("profiles").select("display_name, first_name, last_name").eq("user_id", userId).maybeSingle();
       if (!data) return null;
       return data.display_name || [data.first_name, data.last_name].filter(Boolean).join(" ").trim() || null;
+    },
+    async knownDetails(email) {
+      const { data, error } = await db.rpc("invitation_prefill", { _email: email });
+      if (error || !data || typeof data !== "object") return {};
+      const out: Record<string, string> = {};
+      for (const key of ["first_name", "last_name", "designation", "mobile_country_code", "mobile_number"]) {
+        const v = (data as Record<string, unknown>)[key];
+        if (typeof v === "string" && v) out[key] = v;
+      }
+      return out;
     },
     async findUserIdByEmail(email) {
       const { data, error } = await db.rpc("admin_user_id_by_email", { _email: email });

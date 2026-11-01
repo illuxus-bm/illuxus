@@ -38,6 +38,8 @@ interface World {
   createUserWorks: boolean;
   completeWorks: boolean;
   deleted: string[];
+  /** Details already held for an address (speaker, sponsor contact, registrations). */
+  knownDetails?: Map<string, Record<string, string>>;
 }
 
 function makeWorld(): World {
@@ -104,6 +106,7 @@ function makeStore(w: World): Store {
     async orgName(orgId) { return w.orgs.get(orgId)?.name ?? null; },
     async displayName(userId) { return userId === "u-admin" ? "Priya Admin" : null; },
     async findUserIdByEmail(email) { return userBy((u) => u.email === email.toLowerCase())?.id ?? null; },
+    async knownDetails(email) { return w.knownDetails?.get(email.toLowerCase()) ?? {}; },
     async findInvitation(orgId, email) { const i = w.invites.find((x) => x.org_id === orgId && x.email === email); return i ? toRow(w, i) : null; },
     async findInvitationById(id) { const i = w.invites.find((x) => x.id === id); return i ? toRow(w, i) : null; },
     async findInvitationByHash(hash) { const i = w.invites.find((x) => x.token_hash === hash); return i ? toRow(w, i) : null; },
@@ -780,5 +783,23 @@ describe("Super Admin creates an organization", () => {
     const again = await handle({ action: "accept", token, ...details({ first_name: "Mallory" }) }, as(null));
     expect(again.status).toBe(400);
     expect(again.body).toMatchObject({ code: "accepted" });
+  });
+});
+
+describe("the invitation page shows what Illuxus already knows", () => {
+  it("fills the new member's details from records already held, so they need not type them", async () => {
+    w.knownDetails = new Map([["neha@acme.test", { first_name: "Neha", last_name: "Iyer", designation: "Producer", mobile_country_code: "+91", mobile_number: "9876500111" }]]);
+    await invite();
+    const i = await handle({ action: "inspect", token: lastToken() }, as(null));
+    expect(i.body).toMatchObject({ valid: true, prefill: { first_name: "Neha", last_name: "Iyer", designation: "Producer", mobile_number: "9876500111" } });
+  });
+
+  it("keeps what the inviter typed over anything older", async () => {
+    w.knownDetails = new Map([["anita@keka.test", { first_name: "Ani", last_name: "Old", designation: "Analyst" }]]);
+    // The Super Admin typed a name but no designation.
+    const r = await provision({ user: { designation: "" } });
+    expect(r.body).toMatchObject({ ok: true });
+    const i = await handle({ action: "inspect", token: lastToken() }, as(null));
+    expect(i.body).toMatchObject({ prefill: { first_name: "Anita", last_name: "Rao", designation: "Analyst" } });
   });
 });

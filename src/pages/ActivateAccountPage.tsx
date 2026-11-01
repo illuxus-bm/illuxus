@@ -1,15 +1,20 @@
 /**
- * ActivateAccountPage — where the "Set Up Your Illuxus Account" link in a
- * registration confirmation email leads. The visitor chooses a password and
- * that is all: their registrations are already recorded and are attached to
- * the new account by the server.
+ * ActivateAccountPage — where every "Set up your account" link leads: the
+ * one in a registration confirmation, and the one in a speaker, sponsor,
+ * sponsor-team or partner invitation. The details Illuxus already holds are
+ * filled in; the person corrects anything wrong, adds only what is missing,
+ * chooses a password, and lands in the right place.
  *
  * The link's token is checked by the `guest-registration` edge function; it
- * works once and expires. Nothing here signs the visitor in — they continue
- * to the normal sign-in page afterwards.
+ * works once and expires. The account is always for the address the link
+ * was sent to — that address is shown but cannot be changed.
  */
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { CompanyInput } from "@/components/intelligence/CompanyInput";
+import { CountryCodePicker } from "@/components/people/CountryCodePicker";
+import { loginPath, safeInternalPath } from "@/lib/safe-redirect";
 import { CheckCircle2, Eye, EyeOff, Loader2, MailWarning } from "lucide-react";
 import PasswordStrengthMeter from "@/components/auth/PasswordStrengthMeter";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
@@ -21,9 +26,9 @@ import { callGuestRegistration, passwordFormProblem } from "@/lib/guest-registra
 
 type Phase =
   | { kind: "checking" }
-  | { kind: "ready"; email: string }
+  | { kind: "ready"; email: string; purpose: string }
   | { kind: "unusable"; reason: string; canResend: boolean }
-  | { kind: "done"; email: string }
+  | { kind: "done"; email: string; next: string | null }
   | { kind: "resent" };
 
 const REASONS: Record<string, string> = {
@@ -32,6 +37,22 @@ const REASONS: Record<string, string> = {
   expired: "This link has expired.",
   account_exists: "An account already exists for this email. Sign in, or reset your password from the sign-in page.",
 };
+
+const DETAIL_KEYS = ["first_name", "last_name", "designation", "company", "mobile_country_code", "mobile_number"] as const;
+type Details = Record<(typeof DETAIL_KEYS)[number], string>;
+const EMPTY_DETAILS = Object.fromEntries(DETAIL_KEYS.map((k) => [k, ""])) as Details;
+/** Where a guest goes when the link names nowhere else. */
+const DEFAULT_NEXT = "/u/me/events";
+
+function DetailField({ id, label, error, children }: { id: string; label: string; error?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <Label htmlFor={id} className="text-[13px]">{label}</Label>
+      <div className="mt-1.5">{children}</div>
+      {error && <p className="mt-1 text-[12px] text-destructive">{error}</p>}
+    </div>
+  );
+}
 
 const ActivateAccountPage = () => {
   const [params] = useSearchParams();
@@ -42,6 +63,12 @@ const ActivateAccountPage = () => {
   const [show, setShow] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [details, setDetails] = useState<Details>(EMPTY_DETAILS);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof Details, string>>>({});
+  const setField = (key: keyof Details, value: string) => {
+    setDetails((d) => ({ ...d, [key]: value }));
+    setFieldErrors((e) => ({ ...e, [key]: undefined }));
+  };
 
   useEffect(() => {
     let alive = true;
@@ -52,7 +79,11 @@ const ActivateAccountPage = () => {
       const reply = await callGuestRegistration({ action: "inspect", token });
       if (!alive) return;
       const b = reply.body;
-      if (b.ok === true && b.valid === true && typeof b.email === "string") setPhase({ kind: "ready", email: b.email });
+      if (b.ok === true && b.valid === true && typeof b.email === "string") {
+        const known = (b.details && typeof b.details === "object" ? b.details : {}) as Record<string, unknown>;
+        setDetails(Object.fromEntries(DETAIL_KEYS.map((k) => [k, typeof known[k] === "string" ? known[k] as string : ""])) as Details);
+        setPhase({ kind: "ready", email: b.email, purpose: typeof b.purpose === "string" ? b.purpose : "guest" });
+      }
       else if (b.ok === true) setPhase({ kind: "unusable", reason: REASONS[String(b.reason)] ?? REASONS.invalid, canResend: b.can_resend === true });
       else setPhase({ kind: "unusable", reason: typeof b.error === "string" ? b.error : "We could not check this link. Please try again.", canResend: false });
     })();
@@ -68,11 +99,25 @@ const ActivateAccountPage = () => {
     setError(problem);
     if (problem) return;
     setBusy(true);
-    const reply = await callGuestRegistration({ action: "activate", token, password });
-    setBusy(false);
+    const reply = await callGuestRegistration({ action: "activate", token, password, details });
     const b = reply.body;
-    if (b.ok === true) { setPassword(""); setConfirm(""); setPhase({ kind: "done", email: phase.email }); return; }
+    if (b.ok === true) {
+      const next = safeInternalPath(typeof b.next === "string" ? b.next : null) ?? DEFAULT_NEXT;
+      // Straight in: the account is ready and the address is proven by this link.
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email: phase.email, password });
+      setPassword(""); setConfirm("");
+      if (!signInError) { window.location.replace(next); return; }
+      setBusy(false);
+      setPhase({ kind: "done", email: phase.email, next });
+      return;
+    }
+    setBusy(false);
     const code = String(b.code ?? "");
+    if (code === "details_required") {
+      setFieldErrors((b.errors ?? {}) as Partial<Record<keyof Details, string>>);
+      setError(typeof b.error === "string" ? b.error : "Check the highlighted details.");
+      return;
+    }
     if (code === "weak_password" || code === "rate_limited" || code === "create_failed" || code === "unreachable") {
       setError(typeof b.error === "string" ? b.error : "Please try again.");
       return;
@@ -100,7 +145,7 @@ const ActivateAccountPage = () => {
       <div className="absolute top-4 right-4 z-10">
         <ThemeToggle size="sm" />
       </div>
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-md">
         <div className="text-center mb-7">
           <Link to="/" className="inline-flex items-center gap-2 mb-6" aria-label="illuxus home">
             <IlluxusWordmark height={26} ariaLabel="" />
@@ -118,9 +163,35 @@ const ActivateAccountPage = () => {
           {phase.kind === "ready" && (
             <form onSubmit={(e) => void submit(e)} className="space-y-4" noValidate>
               <p className="text-[13px] leading-relaxed text-muted-foreground">
-                Choose a password for <span className="font-medium text-foreground break-all">{phase.email}</span>. Your registrations are already
-                recorded — there is nothing else to fill in.
+                {phase.purpose === "guest"
+                  ? "Your registration is recorded. We've filled in your details from it — check them and choose a password."
+                  : "We've filled in your details from your invitation — check them, correct anything that's wrong, and choose a password."}
               </p>
+              <div>
+                <Label htmlFor="activate-email" className="text-[13px]">Email</Label>
+                <Input id="activate-email" value={phase.email} readOnly aria-readonly="true" className="mt-1.5 h-10 text-sm bg-muted/50" />
+                <p className="mt-1 text-[12px] text-muted-foreground">Your account uses the address this link was sent to.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <DetailField id="activate-first" label="First name" error={fieldErrors.first_name}>
+                  <Input id="activate-first" autoComplete="given-name" value={details.first_name} onChange={(e) => setField("first_name", e.target.value)} maxLength={80} aria-invalid={!!fieldErrors.first_name} className="h-10 text-sm" />
+                </DetailField>
+                <DetailField id="activate-last" label="Last name" error={fieldErrors.last_name}>
+                  <Input id="activate-last" autoComplete="family-name" value={details.last_name} onChange={(e) => setField("last_name", e.target.value)} maxLength={80} aria-invalid={!!fieldErrors.last_name} className="h-10 text-sm" />
+                </DetailField>
+              </div>
+              <DetailField id="activate-designation" label="Designation" error={fieldErrors.designation}>
+                <Input id="activate-designation" autoComplete="organization-title" value={details.designation} onChange={(e) => setField("designation", e.target.value)} maxLength={120} aria-invalid={!!fieldErrors.designation} className="h-10 text-sm" />
+              </DetailField>
+              <DetailField id="activate-company" label="Company" error={fieldErrors.company}>
+                <CompanyInput id="activate-company" value={details.company} onChange={(v) => setField("company", v)} maxLength={160} aria-invalid={!!fieldErrors.company} className="h-10 text-sm" />
+              </DetailField>
+              <DetailField id="activate-mobile" label="Mobile number" error={fieldErrors.mobile_country_code ?? fieldErrors.mobile_number}>
+                <div className="flex gap-2">
+                  <CountryCodePicker value={details.mobile_country_code} onChange={(dial) => setField("mobile_country_code", dial)} invalid={!!fieldErrors.mobile_country_code} className="w-[104px] shrink-0" />
+                  <Input id="activate-mobile" type="tel" inputMode="tel" autoComplete="tel-national" value={details.mobile_number} onChange={(e) => setField("mobile_number", e.target.value)} maxLength={20} aria-invalid={!!fieldErrors.mobile_number} className="h-10 text-sm min-w-0 flex-1" />
+                </div>
+              </DetailField>
               <div>
                 <Label htmlFor="activate-password" className="text-[13px]">New password</Label>
                 <div className="relative mt-1.5">
@@ -155,7 +226,7 @@ const ActivateAccountPage = () => {
               </div>
               {error && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[12.5px] text-destructive">{error}</p>}
               <Button type="submit" className="w-full h-10 text-sm font-medium" disabled={busy}>
-                {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Setting up…</> : "Set password"}
+                {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Setting up…</> : "Set up my account"}
               </Button>
             </form>
           )}
@@ -164,11 +235,10 @@ const ActivateAccountPage = () => {
             <div className="space-y-4 text-center">
               <CheckCircle2 className="mx-auto h-9 w-9 text-emerald-600" />
               <p className="text-[13px] leading-relaxed text-muted-foreground">
-                Your password is set for <span className="font-medium text-foreground break-all">{phase.email}</span>. Sign in to see your tickets and
-                manage your registrations.
+                Your account is ready for <span className="font-medium text-foreground break-all">{phase.email}</span>. Sign in to continue.
               </p>
               <Button asChild className="w-full h-10 text-sm font-medium">
-                <Link to="/login?next=%2Fu%2Fme%2Fevents">Sign in</Link>
+                <Link to={loginPath(phase.next)}>Sign in</Link>
               </Button>
             </div>
           )}

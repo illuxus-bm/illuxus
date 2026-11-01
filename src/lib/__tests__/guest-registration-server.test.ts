@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   buildConfirmationEmail, createHandler, passwordProblem, registrationReference, sanitizeUtm, sha256Hex,
   validateRegistration, TOKEN_TTL_HOURS,
-  type Deps, type EventRow, type NewRegistration, type RegistrationRow, type Store, type TokenRow,
+  type Deps, type Details, type EventRow, type NewRegistration, type RegistrationRow, type Store, type TokenRow,
 } from "../../../supabase/functions/guest-registration/index";
 
 const EVENT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -34,6 +34,11 @@ interface World {
   createUserWorks: boolean;
   now: Date;
   issued: string[];
+  /** What an organiser entered for an address (speaker, sponsor contact, …). */
+  known: Map<string, Details>;
+  /** Where an invited address without an account should land. */
+  pending: Map<string, string>;
+  sponsorInvites: Map<string, { email: string; accepted: boolean }>;
 }
 
 function makeWorld(): World {
@@ -47,6 +52,7 @@ function makeWorld(): World {
     ]),
     registrations: [], users: new Map(), tokens: [], hits: new Map(), outbox: [],
     emailWorks: true, createUserWorks: true, now: new Date(NOW), issued: [],
+    known: new Map(), pending: new Map(), sponsorInvites: new Map(),
   };
 }
 
@@ -63,7 +69,17 @@ function makeDeps(w: World): Deps {
     async getEvent(id) { return w.events.get(id) ?? null; },
     async countGoing(eventId) { return w.registrations.filter((r) => r.event_id === eventId && r.approval_status !== "declined" && r.approval_status !== "waitlisted").length; },
     async findRegistration(eventId, email) { return w.registrations.find((r) => r.event_id === eventId && r.email === email) ?? null; },
-    async latestRegistration(email) { return [...w.registrations].reverse().find((r) => r.email === email) ?? null; },
+    async prefill(email) {
+      // Mirrors invitation_prefill: the newest record wins, field by field.
+      const reg = [...w.registrations].reverse().find((r) => r.email === email);
+      const fromReg: Details = reg ? {
+        first_name: reg.first_name ?? undefined, last_name: reg.last_name ?? undefined, designation: reg.designation ?? undefined,
+        company: reg.company ?? undefined, mobile_country_code: reg.mobile_country_code ?? undefined, mobile_number: reg.mobile_number ?? undefined,
+      } : {};
+      return { ...fromReg, ...(w.known.get(email) ?? {}) };
+    },
+    async pendingInvitePath(email) { return w.pending.get(email) ?? null; },
+    async sponsorInvite(token) { return w.sponsorInvites.get(token) ?? null; },
     async insertRegistration(row) {
       // Mirrors the database: one registration per email per event, and the
       // trigger decides the approval state.
@@ -82,9 +98,12 @@ function makeDeps(w: World): Deps {
     },
     async markConfirmationSent(id) { const r = w.registrations.find((x) => x.id === id); if (r) r.confirmationSent = true; },
     async findUserIdByEmail(email) { return w.users.get(email)?.id ?? null; },
-    async replaceToken(email, registrationId, tokenHash, expiresAt) {
+    async replaceToken(email, registrationId, tokenHash, expiresAt, invite) {
       for (const t of w.tokens) if (t.email === email && !t.used_at) t.used_at = w.now.toISOString();
-      w.tokens.push({ id: `t${w.tokens.length + 1}`, email, registration_id: registrationId, token_hash: tokenHash, expires_at: expiresAt, used_at: null });
+      w.tokens.push({
+        id: `t${w.tokens.length + 1}`, email, registration_id: registrationId, token_hash: tokenHash, expires_at: expiresAt, used_at: null,
+        purpose: invite?.purpose ?? "guest", next_path: invite?.next_path ?? null,
+      });
       return true;
     },
     async findToken(tokenHash) { return w.tokens.find((t) => t.token_hash === tokenHash) ?? null; },
@@ -261,13 +280,16 @@ describe("setting up an account from the email link", () => {
 
   it("reports a good link as usable", async () => {
     const res = await handle({ action: "inspect", token: lastToken() }, "1.1.1.1");
-    expect(res.body).toEqual({ ok: true, valid: true, email: "asha.rao@example.com" });
+    expect(res.body).toEqual({
+      ok: true, valid: true, email: "asha.rao@example.com", purpose: "guest",
+      details: { first_name: "Asha", last_name: "Rao", designation: "Director", company: "Acme", mobile_country_code: "+91", mobile_number: "9876543210" },
+    });
   });
 
   it("creates the account, keeps the registration and its attribution, and makes no duplicates", async () => {
     await handle(form({ event_id: APPROVAL_EVENT }), "1.1.1.1");
     const res = await handle({ action: "activate", token: lastToken(), password: "correct horse 42" }, "1.1.1.1");
-    expect(res).toEqual({ status: 200, body: { ok: true, email: "asha.rao@example.com" } });
+    expect(res).toEqual({ status: 200, body: { ok: true, email: "asha.rao@example.com", next: null } });
 
     const user = w.users.get("asha.rao@example.com")!;
     expect(user.password).toBe("correct horse 42");
@@ -419,5 +441,102 @@ describe("helpers", () => {
     expect(mail.text).toContain("awaits payment confirmation by the organiser");
     expect(mail.text).not.toContain("Ticket code");
     expect(mail.html).not.toContain("create-qr-code");
+  });
+});
+
+describe("invitations reuse what the organiser entered", () => {
+  const SPEAKER = "priya@talks.test";
+  const known: Details = { first_name: "Priya", last_name: "Rao", designation: "VP Product", company: "Talks Inc", mobile_country_code: "+91", mobile_number: "9876500999" };
+
+  it("asks for the link to be emailed and shows the invitee their details, filled in", async () => {
+    w.known.set(SPEAKER, known);
+    w.pending.set(SPEAKER, "/speaker");
+    const ask = await handle({ action: "start_invite", kind: "email", email: "Priya@Talks.test" }, "1.1.1.1");
+    expect(ask.body).toEqual({ ok: true, message: expect.any(String) });
+    expect(w.outbox.at(-1)).toMatchObject({ to: SPEAKER, subject: "Finish setting up your Illuxus account" });
+    expect(w.tokens.at(-1)).toMatchObject({ purpose: "speaker", next_path: "/speaker" });
+
+    const look = await handle({ action: "inspect", token: lastToken() }, "1.1.1.1");
+    expect(look.body).toMatchObject({ valid: true, email: SPEAKER, purpose: "speaker", details: known });
+  });
+
+  it("creates the account with nothing typed but a password, and sends them to their portal", async () => {
+    w.known.set(SPEAKER, known);
+    w.pending.set(SPEAKER, "/speaker");
+    await handle({ action: "start_invite", kind: "email", email: SPEAKER }, "1.1.1.1");
+    const res = await handle({ action: "activate", token: lastToken(), password: "correct horse 42" }, "1.1.1.1");
+    expect(res.body).toEqual({ ok: true, email: SPEAKER, next: "/speaker" });
+    expect(w.users.get(SPEAKER)!.meta).toMatchObject({ ...known, display_name: "Priya Rao", account_type: "attendee" });
+  });
+
+  it("takes the invitee's corrections, but never their choice of address", async () => {
+    w.known.set(SPEAKER, known);
+    w.pending.set(SPEAKER, "/speaker");
+    await handle({ action: "start_invite", kind: "email", email: SPEAKER }, "1.1.1.1");
+    const res = await handle({
+      action: "activate", token: lastToken(), password: "correct horse 42", email: "someone@else.test",
+      details: { designation: "Chief Product Officer", email: "x@y.z" },
+    }, "1.1.1.1");
+    expect(res.body).toMatchObject({ ok: true, email: SPEAKER });
+    expect(w.users.has("someone@else.test")).toBe(false);
+    expect(w.users.get(SPEAKER)!.meta).toMatchObject({ designation: "Chief Product Officer", company: "Talks Inc" });
+    expect(w.users.get(SPEAKER)!.meta).not.toHaveProperty("email");
+  });
+
+  it("asks only for what is missing, and creates nothing until it is given", async () => {
+    w.known.set(SPEAKER, { first_name: "Priya", last_name: "Rao", company: "Talks Inc" });
+    w.pending.set(SPEAKER, "/speaker");
+    await handle({ action: "start_invite", kind: "email", email: SPEAKER }, "1.1.1.1");
+    const token = lastToken();
+    const missing = await handle({ action: "activate", token, password: "correct horse 42" }, "1.1.1.1");
+    expect(missing).toMatchObject({ status: 400, body: { code: "details_required" } });
+    expect(Object.keys(missing.body.errors as object).sort()).toEqual(["designation", "mobile_country_code", "mobile_number"]);
+    expect(w.users.size).toBe(0);
+    const done = await handle({
+      action: "activate", token, password: "correct horse 42",
+      details: { designation: "VP", mobile_country_code: "+91", mobile_number: "98765 00999" },
+    }, "1.1.1.1");
+    expect(done.body).toMatchObject({ ok: true });
+  });
+
+  it("answers the same way whether or not anything is waiting, and sends nothing to accounts", async () => {
+    w.pending.set(SPEAKER, "/speaker");
+    w.users.set("bob@corp.test", { id: "user-x", password: "x", meta: {} });
+    w.pending.set("bob@corp.test", "/speaker");
+    const a = await handle({ action: "start_invite", kind: "email", email: "nobody@x.test" }, "1.1.1.1");
+    const b = await handle({ action: "start_invite", kind: "email", email: "bob@corp.test" }, "1.1.1.2");
+    const c = await handle({ action: "start_invite", kind: "email", email: SPEAKER }, "1.1.1.3");
+    expect(a.body).toEqual(b.body);
+    expect(b.body).toEqual(c.body);
+    expect(w.outbox.map((m) => m.to)).toEqual([SPEAKER]);
+  });
+
+  describe("sponsor-team invitation links", () => {
+    const TOKEN = "0123456789abcdef0123456789abcdef";
+
+    it("emails a set-up link to the invited contact and lands them on the acceptance", async () => {
+      w.sponsorInvites.set(TOKEN, { email: "Carl@Spons.test", accepted: false });
+      const res = await handle({ action: "start_invite", kind: "sponsor_contact", token: TOKEN }, "1.1.1.1");
+      expect(res.body).toEqual({ ok: true, status: "sent", email_hint: "c•••@spons.test" });
+      expect(w.outbox.at(-1)!.to).toBe("carl@spons.test");
+      expect(w.tokens.at(-1)).toMatchObject({ purpose: "sponsor_contact", next_path: `/sponsor/accept?token=${TOKEN}` });
+    });
+
+    it("sends an existing account to sign in, and refuses used or unknown links", async () => {
+      w.sponsorInvites.set(TOKEN, { email: "carl@spons.test", accepted: false });
+      w.users.set("carl@spons.test", { id: "u", password: "x", meta: {} });
+      expect((await handle({ action: "start_invite", kind: "sponsor_contact", token: TOKEN }, "1.1.1.1")).body).toEqual({ ok: true, status: "sign_in" });
+      w.sponsorInvites.set(TOKEN, { email: "carl@spons.test", accepted: true });
+      expect((await handle({ action: "start_invite", kind: "sponsor_contact", token: TOKEN }, "1.1.1.1")).body).toEqual({ ok: true, status: "accepted" });
+      expect((await handle({ action: "start_invite", kind: "sponsor_contact", token: "f".repeat(32) }, "1.1.1.1")).body).toEqual({ ok: true, status: "invalid" });
+      expect(w.outbox).toHaveLength(0);
+    });
+  });
+
+  it("never follows a next path to another site", async () => {
+    const { safeNextPath } = await import("../../../supabase/functions/guest-registration/index");
+    expect(safeNextPath("/speaker")).toBe("/speaker");
+    expect(safeNextPath("/sponsor/accept?token=abc")).toBe("/sponsor/accept?token=abc");
+    for (const bad of ["//evil.com", "https://evil.com", "/\\evil.com", "javascript:alert(1)", null]) expect(safeNextPath(bad)).toBeNull();
   });
 });

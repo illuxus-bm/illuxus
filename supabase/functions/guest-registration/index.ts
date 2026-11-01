@@ -15,6 +15,17 @@
  *   activate  { token, password }  → creates the account for the link's email.
  *   resend    { token } | { event_id, email }
  *             → emails a fresh activation link. Always answers the same way.
+ *   start_invite { kind: "sponsor_contact", token } | { kind: "email", email }
+ *             → emails a set-up link to someone invited (sponsor contact,
+ *               speaker, sponsor, partner) who has no account yet.
+ *
+ * ── Invitations reuse what is already known ────────────────────────────────
+ *   The same single-use link also serves invitations (migration 062): the
+ *   speaker, sponsor and partner invitation emails carry one. `inspect`
+ *   returns the details Illuxus already holds for the address (only to the
+ *   holder of a link that was emailed to it), so the page shows them filled
+ *   in; `activate` takes the person's corrections, creates the account for
+ *   the link's address — never another — and says where to go next.
  *
  * ── How identity is kept straight ──────────────────────────────────────────
  *   • A guest registration is an ordinary `registrations` row with `user_id`
@@ -105,7 +116,15 @@ export interface TokenRow {
   registration_id: string | null;
   expires_at: string;
   used_at: string | null;
+  /** Why the link exists: a guest registration or an invitation (migration 062). */
+  purpose?: string | null;
+  /** Where the person goes once the account exists. */
+  next_path?: string | null;
 }
+
+/** Profile details already held for an address (invitation_prefill). */
+export const DETAIL_KEYS = ["title", "first_name", "last_name", "designation", "company", "mobile_country_code", "mobile_number", "linkedin_url"] as const;
+export type Details = Partial<Record<(typeof DETAIL_KEYS)[number], string>>;
 
 export interface NewRegistration {
   event_id: string;
@@ -128,12 +147,17 @@ export interface Store {
   getEvent(id: string): Promise<EventRow | null>;
   countGoing(eventId: string): Promise<number>;
   findRegistration(eventId: string, email: string): Promise<RegistrationRow | null>;
-  latestRegistration(email: string): Promise<RegistrationRow | null>;
+  /** What is already known about the person behind this address. */
+  prefill(email: string): Promise<Details>;
+  /** Where an invited address with no account should land, or null if nothing awaits it. */
+  pendingInvitePath(email: string): Promise<string | null>;
+  /** The sponsor-contact invitation behind a link token, if any. */
+  sponsorInvite(token: string): Promise<{ email: string; accepted: boolean } | null>;
   insertRegistration(row: NewRegistration): Promise<{ row: RegistrationRow } | { duplicate: true } | { error: string }>;
   markConfirmationSent(registrationId: string): Promise<void>;
   findUserIdByEmail(email: string): Promise<string | null>;
   /** Stores a new token for the email and retires any earlier unused ones. */
-  replaceToken(email: string, registrationId: string | null, tokenHash: string, expiresAt: string): Promise<boolean>;
+  replaceToken(email: string, registrationId: string | null, tokenHash: string, expiresAt: string, invite?: { purpose: string; next_path: string | null }): Promise<boolean>;
   findToken(tokenHash: string): Promise<TokenRow | null>;
   /** Marks the token used. False when someone else used it first. */
   claimToken(id: string, at: string): Promise<boolean>;
@@ -235,6 +259,36 @@ export function passwordProblem(password: unknown): string | null {
   if (!/[a-zA-Z]/.test(password) || !/\d/.test(password)) return "Use a mix of letters and numbers.";
   return null;
 }
+
+/**
+ * The details an account is created with: what is already known, with the
+ * person's corrections on top. The same fields are required as for a
+ * complete profile, so nobody is sent on to fill them in again.
+ */
+export function mergeDetails(known: Details, corrections: unknown): { ok: true; value: Details } | { ok: false; errors: Record<string, string> } {
+  const given = corrections && typeof corrections === "object" ? corrections as Record<string, unknown> : {};
+  const limits: Record<(typeof DETAIL_KEYS)[number], number> = {
+    title: 20, first_name: 80, last_name: 80, designation: 120, company: 160, mobile_country_code: 6, mobile_number: 20, linkedin_url: 300,
+  };
+  const value: Details = {};
+  for (const key of DETAIL_KEYS) {
+    const typed = typeof given[key] === "string" ? clean(given[key], limits[key]) : null;
+    const v = typed !== null ? typed : clean(known[key], limits[key]);
+    if (v) value[key] = key === "mobile_number" ? v.replace(/[\s()-]/g, "") : v;
+  }
+  const errors: Record<string, string> = {};
+  if (!value.first_name) errors.first_name = "Enter your first name.";
+  if (!value.last_name) errors.last_name = "Enter your last name.";
+  if (!value.designation) errors.designation = "Enter your designation.";
+  if (!value.company) errors.company = "Enter your company.";
+  if (!/^\+\d{1,4}$/.test(value.mobile_country_code ?? "")) errors.mobile_country_code = "Choose a country code.";
+  if (!/^\d{6,15}$/.test(value.mobile_number ?? "")) errors.mobile_number = "Enter a valid mobile number.";
+  return Object.keys(errors).length ? { ok: false, errors } : { ok: true, value };
+}
+
+/** Only in-app paths are followed after activation. */
+export const safeNextPath = (p: unknown): string | null =>
+  typeof p === "string" && /^\/[A-Za-z0-9/_?=&.%-]*$/.test(p) && !p.startsWith("//") ? p : null;
 
 export function isEventOver(event: Pick<EventRow, "date" | "end_date">, now: Date): boolean {
   const ts = new Date(event.end_date || event.date || "").getTime();
@@ -398,6 +452,23 @@ export function buildActivationEmail(activationUrl: string): { subject: string; 
   return { subject, html, text };
 }
 
+export function buildInvitationSetupEmail(activationUrl: string): { subject: string; html: string; text: string } {
+  const subject = "Finish setting up your Illuxus account";
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><title>${subject}</title></head>
+<body style="margin:0;padding:32px 16px;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+    <table width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border-radius:10px;"><tr><td style="padding:32px;text-align:center;">
+      <p style="font-size:20px;font-weight:700;color:#111827;margin:0 0 8px;">You've been invited to Illuxus</p>
+      <p style="font-size:14px;line-height:1.55;color:#4b5563;margin:0 0 20px;">Your details are already filled in from your invitation. Check them, choose a password, and you're in.</p>
+      <a href="${escapeHtml(activationUrl)}" style="display:inline-block;background:#111827;color:#ffffff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none;">Set Up Your Account</a>
+      <p style="font-size:11px;color:#9ca3af;margin:16px 0 0;">This link works once and expires in ${TOKEN_TTL_HOURS} hours. If you weren't expecting it, you can ignore this email.</p>
+    </td></tr></table>
+  </td></tr></table>
+</body></html>`;
+  const text = `You've been invited to Illuxus. Your details are already filled in — check them and choose a password: ${activationUrl}\n\nThis link works once and expires in ${TOKEN_TTL_HOURS} hours. If you weren't expecting it, you can ignore this email.`;
+  return { subject, html, text };
+}
+
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 const reply = (status: number, body: Record<string, unknown>): Reply => ({ status, body });
@@ -408,11 +479,11 @@ export function createHandler(deps: Deps) {
   const within = async (limit: Limit, key: string) => store.allow(limit[0], await sha256Hex(key), limit[1], limit[2]);
 
   /** A fresh activation link for the email — or null if it already has an account. */
-  async function issueActivation(email: string, registrationId: string | null): Promise<string | null> {
+  async function issueActivation(email: string, registrationId: string | null, invite?: { purpose: string; next_path: string | null }): Promise<string | null> {
     if (await store.findUserIdByEmail(email)) return null;
     const token = deps.newToken();
     const expires = new Date(deps.now().getTime() + TOKEN_TTL_HOURS * 3600_000).toISOString();
-    const stored = await store.replaceToken(email, registrationId, await sha256Hex(token), expires);
+    const stored = await store.replaceToken(email, registrationId, await sha256Hex(token), expires, invite);
     return stored ? `${deps.origin}/activate?token=${token}` : null;
   }
 
@@ -512,7 +583,13 @@ export function createHandler(deps: Deps) {
     const token = /^[0-9a-f]{64}$/.test(raw) ? await store.findToken(await sha256Hex(raw)) : null;
     const problem = tokenProblem(token);
     if (problem) return reply(200, { ok: true, valid: false, reason: problem, can_resend: problem === "expired" });
-    return reply(200, { ok: true, valid: true, email: token!.email });
+    // Only the holder of a link emailed to this address gets here, so they
+    // see what is known about themselves — nothing about anyone else.
+    return reply(200, {
+      ok: true, valid: true, email: token!.email,
+      purpose: token!.purpose ?? "guest",
+      details: await store.prefill(token!.email),
+    });
   }
 
   async function activate(body: Record<string, unknown>, ip: string): Promise<Reply> {
@@ -527,6 +604,11 @@ export function createHandler(deps: Deps) {
     const problem = tokenProblem(token);
     if (problem) return reply(400, { ok: false, code: problem, error: TOKEN_ERRORS[problem], can_resend: problem === "expired" });
 
+    // What Illuxus already holds, with the person's corrections on top. The
+    // address is the link's; any email in the request is ignored.
+    const details = mergeDetails(await store.prefill(token!.email), body.details);
+    if ("errors" in details) return reply(400, { ok: false, code: "details_required", errors: details.errors, error: "Check the highlighted details." });
+
     // The link was issued for an email with no account. If one exists now, it
     // belongs to whoever created it — this link must not touch it.
     if (await store.findUserIdByEmail(token!.email)) {
@@ -540,14 +622,8 @@ export function createHandler(deps: Deps) {
       return reply(400, { ok: false, code: "used", error: TOKEN_ERRORS.used });
     }
 
-    const reg = await store.latestRegistration(token!.email);
-    const meta: Record<string, string> = { account_type: "attendee" };
-    if (reg) {
-      for (const key of ["first_name", "last_name", "designation", "company", "mobile_country_code", "mobile_number"] as const) {
-        if (reg[key]) meta[key] = reg[key] as string;
-      }
-      meta.display_name = reg.name;
-    }
+    const meta: Record<string, string> = { account_type: "attendee", ...(details.value as Record<string, string>) };
+    meta.display_name = `${details.value.first_name} ${details.value.last_name}`.trim();
 
     const created = await store.createUser(token!.email, body.password as string, meta);
     if ("error" in created) {
@@ -560,7 +636,7 @@ export function createHandler(deps: Deps) {
     // The signup trigger attaches this email's registrations to the account;
     // this repeats it in case the trigger is missing on this database.
     await store.linkRegistrations(token!.email, created.id);
-    return reply(200, { ok: true, email: token!.email });
+    return reply(200, { ok: true, email: token!.email, next: safeNextPath(token!.next_path) });
   }
 
   async function resend(body: Record<string, unknown>, ip: string): Promise<Reply> {
@@ -595,8 +671,53 @@ export function createHandler(deps: Deps) {
     return same;
   }
 
+  /**
+   * An invited person without an account asks for their set-up link, which
+   * is emailed to the invited address — the link proves they own it.
+   *   { kind: "sponsor_contact", token }  from a sponsor-team invitation link
+   *   { kind: "email", email }            anyone invited (speaker, sponsor,
+   *                                       partner, sponsor contact); always
+   *                                       the same answer
+   */
+  async function startInvite(body: Record<string, unknown>, ip: string): Promise<Reply> {
+    if (!(await within(LIMITS.resendIp, ip))) return tooMany();
+
+    if (body.kind === "sponsor_contact") {
+      const raw = typeof body.token === "string" ? body.token : "";
+      if (!/^[0-9a-f]{16,64}$/.test(raw)) return reply(200, { ok: true, status: "invalid" });
+      const invite = await store.sponsorInvite(raw);
+      if (!invite) return reply(200, { ok: true, status: "invalid" });
+      if (invite.accepted) return reply(200, { ok: true, status: "accepted" });
+      const email = normalizeEmail(invite.email);
+      // An existing account signs in and accepts; nothing about it changes.
+      if (await store.findUserIdByEmail(email)) return reply(200, { ok: true, status: "sign_in" });
+      if (!(await within(LIMITS.resendEmail, email))) return tooMany();
+      const url = await issueActivation(email, null, { purpose: "sponsor_contact", next_path: `/sponsor/accept?token=${raw}` });
+      if (!url) return reply(500, { ok: false, code: "save_failed", error: "We could not prepare your link. Please try again." });
+      const sent = await deps.sendEmail({ to: email, ...buildInvitationSetupEmail(url) });
+      if (!sent.ok) return reply(502, { ok: false, code: "email_failed", error: "We could not send the email. Please try again." });
+      const [local, domain] = email.split("@");
+      return reply(200, { ok: true, status: "sent", email_hint: `${local.slice(0, 1)}•••@${domain}` });
+    }
+
+    const same = reply(200, { ok: true, message: "If that address has an invitation waiting, a set-up link is on its way." });
+    const email = normalizeEmail(body.email);
+    if (!EMAIL_RE.test(email)) return same;
+    if (!(await within(LIMITS.resendEmail, email))) return same;
+    if (await store.findUserIdByEmail(email)) return same;
+    const next = safeNextPath(await store.pendingInvitePath(email));
+    if (!next) return same;
+    const purpose = next.startsWith("/sponsor/accept") ? "sponsor_contact" : next === "/partner" ? "partner" : next === "/speaker" ? "speaker" : "sponsor";
+    const url = await issueActivation(email, null, { purpose, next_path: next });
+    if (url) {
+      try { await deps.sendEmail({ to: email, ...buildInvitationSetupEmail(url) }); } catch { /* same answer either way */ }
+    }
+    return same;
+  }
+
   return async function handle(body: Record<string, unknown>, ip: string): Promise<Reply> {
     switch (body.action) {
+      case "start_invite": return startInvite(body, ip);
       case "register": return register(body, ip);
       case "inspect": return inspect(body, ip);
       case "activate": return activate(body, ip);
@@ -648,9 +769,25 @@ export function supabaseStore(db: any): Store {
       const { data } = await db.from("registrations").select(REG_COLUMNS).eq("event_id", eventId).ilike("email", email.replace(/[\\%_]/g, "\\$&")).limit(1).maybeSingle();
       return data ?? null;
     },
-    async latestRegistration(email) {
-      const { data } = await db.from("registrations").select(REG_COLUMNS).ilike("email", email.replace(/[\\%_]/g, "\\$&")).order("created_at", { ascending: false }).limit(1).maybeSingle();
-      return data ?? null;
+    async prefill(email) {
+      const { data, error } = await db.rpc("invitation_prefill", { _email: email });
+      if (!error && data && typeof data === "object") return data as Details;
+      // Before migration 062: the newest registration, as this used to do.
+      const { data: reg } = await db.from("registrations").select(REG_COLUMNS).ilike("email", email.replace(/[\\%_]/g, "\\$&")).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (!reg) return {};
+      const out: Details = {};
+      for (const key of ["first_name", "last_name", "designation", "company", "mobile_country_code", "mobile_number"] as const) {
+        if (reg[key]) out[key] = reg[key];
+      }
+      return out;
+    },
+    async pendingInvitePath(email) {
+      const { data, error } = await db.rpc("pending_invitation_path", { _email: email });
+      return error ? null : (typeof data === "string" ? data : null);
+    },
+    async sponsorInvite(token) {
+      const { data } = await db.from("sponsor_members").select("email, accepted_at").eq("invite_token", token).maybeSingle();
+      return data ? { email: String(data.email), accepted: !!data.accepted_at } : null;
     },
     async insertRegistration(row) {
       const { utm, ...fields } = row;
@@ -670,14 +807,18 @@ export function supabaseStore(db: any): Store {
       if (error) return "unknown";
       return (data as string | null) ?? null;
     },
-    async replaceToken(email, registrationId, tokenHash, expiresAt) {
+    async replaceToken(email, registrationId, tokenHash, expiresAt, invite) {
       const now = new Date().toISOString();
       await db.from("account_activation_tokens").update({ used_at: now }).eq("email", email).is("used_at", null);
-      const { error } = await db.from("account_activation_tokens").insert({ email, registration_id: registrationId, token_hash: tokenHash, expires_at: expiresAt });
+      const { error } = await db.from("account_activation_tokens").insert({
+        email, registration_id: registrationId, token_hash: tokenHash, expires_at: expiresAt,
+        ...(invite ? { purpose: invite.purpose, next_path: invite.next_path } : {}),
+      });
       return !error;
     },
     async findToken(tokenHash) {
-      const { data } = await db.from("account_activation_tokens").select("id, email, registration_id, expires_at, used_at").eq("token_hash", tokenHash).maybeSingle();
+      // "*": purpose and next_path exist only after migration 062.
+      const { data } = await db.from("account_activation_tokens").select("*").eq("token_hash", tokenHash).maybeSingle();
       return data ?? null;
     },
     async claimToken(id, at) {
