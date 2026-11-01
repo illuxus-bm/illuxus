@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { COMPANY_FIELDS, PERSON_FIELDS, intel, type CompanyRow, type Detail, type Entity, type HistoryEntry } from "@/lib/intelligence/admin-api";
+import { COMPANY_FIELDS, PERSON_FIELDS, intel, type CompanyRow, type Detail, type Entity, type HistoryEntry, type SponsorRow } from "@/lib/intelligence/admin-api";
 
 interface Props {
   entity: Entity;
@@ -150,6 +150,22 @@ export function RecordDrawer({ entity, id, onClose, onChanged }: Props) {
               </Section>
             )}
 
+            {entity === "company" && (
+              <Section title="Sponsor records">
+                <p className="text-[12px] text-muted-foreground">Sponsor records connected to this company. Each organiser keeps their own record; connecting only says they are the same company.</p>
+                {list("sponsors").map((s) => (
+                  <div key={String(s.id)} className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-[13px]">
+                    <span className="min-w-0 truncate">{String(s.name)} <span className="text-[11px] text-muted-foreground">{String(s.events ?? 0)} events{s.website ? ` · ${String(s.website)}` : ""}</span></span>
+                    <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => intel.connectSponsor(String(s.id), null), "Disconnected")}>Disconnect</Button>
+                  </div>
+                ))}
+                {!record.merged_into && (
+                  <SponsorPicker busy={busy} connected={list("sponsors").map((s) => String(s.id))}
+                                 onPick={(sponsorId) => void run(() => intel.connectSponsor(sponsorId, id), "Sponsor connected")} />
+                )}
+              </Section>
+            )}
+
             <Related entity={entity} detail={detail} />
 
             <Section title="History">
@@ -177,7 +193,7 @@ export function RecordDrawer({ entity, id, onClose, onChanged }: Props) {
 }
 
 /** Finds a company record and sets it, or clears the current one. */
-function CompanyPicker({ label, current, busy, excludeId, onPick }: {
+export function CompanyPicker({ label, current, busy, excludeId, onPick }: {
   label: string; current: string | null; busy: boolean; excludeId?: string; onPick: (companyId: string | null) => void;
 }) {
   const [q, setQ] = useState("");
@@ -186,7 +202,7 @@ function CompanyPicker({ label, current, busy, excludeId, onPick }: {
     if (q.trim().length < 2) { setRows([]); return; }
     let live = true;
     const t = window.setTimeout(() => {
-      intel.searchCompanies(q).then((r) => { if (live) setRows(r.filter((c) => c.company_id !== excludeId).slice(0, 6)); }).catch(() => { if (live) setRows([]); });
+      intel.searchCompanies({ q, limit: 7 }).then((r) => { if (live) setRows(r.rows.filter((c) => c.company_id !== excludeId).slice(0, 6)); }).catch(() => { if (live) setRows([]); });
     }, 250);
     return () => { live = false; window.clearTimeout(t); };
   }, [q, excludeId]);
@@ -204,6 +220,37 @@ function CompanyPicker({ label, current, busy, excludeId, onPick }: {
               <button type="button" disabled={busy} className="w-full px-2.5 py-1.5 text-left hover:bg-muted"
                       onClick={() => { onPick(c.company_id); setQ(""); }}>
                 {c.name} <span className="text-[11px] text-muted-foreground">{c.domains.join(", ")} · {c.verification_status}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Finds a sponsor record to connect to this company. */
+function SponsorPicker({ busy, connected, onPick }: { busy: boolean; connected: string[]; onPick: (sponsorId: string) => void }) {
+  const [q, setQ] = useState("");
+  const [rows, setRows] = useState<SponsorRow[]>([]);
+  useEffect(() => {
+    if (q.trim().length < 2) { setRows([]); return; }
+    let live = true;
+    const t = window.setTimeout(() => {
+      intel.sponsors({ q, limit: 10 }).then((r) => { if (live) setRows(r.rows); }).catch(() => { if (live) setRows([]); });
+    }, 250);
+    return () => { live = false; window.clearTimeout(t); };
+  }, [q]);
+  const shown = rows.filter((s) => !connected.includes(s.id)).slice(0, 6);
+  return (
+    <div>
+      <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search sponsors to connect" aria-label="Search for a sponsor to connect" className="h-8 text-[13px]" />
+      {shown.length > 0 && (
+        <ul className="mt-1 divide-y rounded-md border text-[13px]">
+          {shown.map((s) => (
+            <li key={s.id}>
+              <button type="button" disabled={busy} className="w-full px-2.5 py-1.5 text-left hover:bg-muted" onClick={() => { onPick(s.id); setQ(""); }}>
+                {s.name} <span className="text-[11px] text-muted-foreground">{s.company ? `now: ${s.company}` : "not connected"}{s.created_by ? ` · ${s.created_by}` : ""}</span>
               </button>
             </li>
           ))}

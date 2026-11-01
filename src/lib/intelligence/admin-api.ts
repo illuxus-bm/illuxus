@@ -1,5 +1,5 @@
 /**
- * The Intelligence Centre's calls (migration 064). Every function checks the
+ * The Intelligence Centre's calls (migrations 064, 065). Every function checks the
  * Super Admin role on the server; nothing here relies on the page being
  * hidden. Errors come back as thrown Errors with the server's message.
  */
@@ -23,7 +23,19 @@ export interface Overview {
   corrections_safe: number;
   association_suggestions: number;
   merges: number;
+  sponsors_unconnected: number;
+  sponsors_repeats: number;
 }
+
+export interface Page<T> { rows: T[]; total: number }
+
+export interface ListQuery {
+  q?: string; filter?: string; limit?: number; offset?: number;
+  sort?: string; dir?: "asc" | "desc"; country?: string; industry?: string;
+}
+
+/** Search functions report the total on each row; a page past the end has none. */
+const paged = <T extends { total: number }>(rows: T[] | null): Page<T> => ({ rows: rows ?? [], total: rows?.[0]?.total ?? 0 });
 
 export interface ContactRow {
   person_id: string; display_name: string | null; first_name: string | null; last_name: string | null;
@@ -35,6 +47,11 @@ export interface CompanyRow {
   company_id: string; name: string; website: string | null; industry: string | null; hq_country: string | null;
   verification_status: string; source: string; contacts: number; entry_count: number; domains: string[];
   created_at: string; updated_at: string; total: number;
+}
+
+export interface SponsorRow {
+  id: string; name: string; email: string | null; website: string | null; logo_url: string | null;
+  company_id: string | null; company: string | null; same_company: number; events: number; team: number; created_by: string | null;
 }
 
 export interface HistoryEntry {
@@ -56,13 +73,31 @@ export interface DuplicatePair {
 
 export type Detail = Record<string, unknown> & { history: HistoryEntry[]; suggestions: Suggestion[] };
 
+/** Start of a yyyy-mm-dd day in the viewer's time zone; `days` later for an inclusive end date. */
+function dayStart(day?: string, days = 0): string | null {
+  if (!day) return null;
+  const d = new Date(`${day}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
+
 export const intel = {
   overview: (f: { from?: string | null; to?: string | null; country?: string | null; industry?: string | null } = {}) =>
     call<Overview>("intel_overview", { _from: f.from || null, _to: f.to || null, _country: f.country || null, _industry: f.industry || null }),
-  searchContacts: (q: string, filter = "all", offset = 0) =>
-    call<ContactRow[]>("intel_search_contacts", { _q: q, _limit: 50, _offset: offset, _filter: filter }),
-  searchCompanies: (q: string, filter = "all", offset = 0) =>
-    call<CompanyRow[]>("intel_search_companies", { _q: q, _limit: 50, _offset: offset, _filter: filter }),
+  searchContacts: (f: ListQuery = {}) =>
+    call<ContactRow[]>("intel_search_contacts", {
+      _q: f.q ?? "", _limit: f.limit ?? 25, _offset: f.offset ?? 0, _filter: f.filter ?? "all",
+      _sort: f.sort ?? "updated", _dir: f.dir ?? "desc", _country: f.country || null,
+    }).then(paged),
+  searchCompanies: (f: ListQuery = {}) =>
+    call<CompanyRow[]>("intel_search_companies", {
+      _q: f.q ?? "", _limit: f.limit ?? 25, _offset: f.offset ?? 0, _filter: f.filter ?? "all",
+      _sort: f.sort ?? "entries", _dir: f.dir ?? "desc", _country: f.country || null, _industry: f.industry || null,
+    }).then(paged),
+  sponsors: (f: ListQuery = {}) =>
+    call<Page<SponsorRow>>("intel_search_sponsors", { _q: f.q ?? "", _limit: f.limit ?? 25, _offset: f.offset ?? 0, _filter: f.filter ?? "all" }),
+  connectSponsor: (sponsor: string, company: string | null, reason?: string) =>
+    call<void>("intel_connect_sponsor", { _sponsor: sponsor, _company: company, _reason: reason || null }),
   contact: (id: string) => call<Detail>("intel_contact_detail", { _id: id }),
   company: (id: string) => call<Detail>("intel_company_detail", { _id: id }),
   updateContact: (id: string, changes: Record<string, string | null>, reason?: string) =>
@@ -75,10 +110,12 @@ export const intel = {
     call<void>("intel_company_identifier", { _id: id, _op: op, _value: value, _kind: kind || null, _reason: null }),
   refreshDuplicates: (entity: Entity) =>
     call<number>(entity === "person" ? "intel_refresh_person_duplicates" : "intel_refresh_company_duplicates"),
-  duplicates: (entity: Entity, status = "open", minScore = 0) =>
-    call<DuplicatePair[]>("intel_duplicate_queue", { _entity: entity, _status: status, _min_score: minScore, _limit: 200 }),
+  duplicates: (entity: Entity, status = "open", minScore = 0, limit = 25, offset = 0) =>
+    call<Page<DuplicatePair>>("intel_duplicate_queue", { _entity: entity, _status: status, _min_score: minScore, _limit: limit, _offset: offset }),
   setDuplicateStatus: (entity: Entity, id: string, status: string) =>
     call<void>("intel_set_duplicate_status", { _entity: entity, _id: id, _status: status, _reason: null }),
+  setDuplicateStatuses: (entity: Entity, ids: string[], status: string) =>
+    call<number>("intel_set_duplicate_statuses", { _entity: entity, _ids: ids, _status: status, _reason: null }),
   mergePreview: (entity: Entity, survivor: string, others: string[]) =>
     call<Record<string, number | boolean>>("intel_merge_preview", { _entity: entity, _survivor: survivor, _others: others }),
   mergePeople: (survivor: string, others: string[], choices: Record<string, string | null>, reason: string) =>
@@ -88,14 +125,17 @@ export const intel = {
   revertMerge: (id: string) => call<void>("intel_revert_merge", { _merge: id, _reason: null }),
   revertChange: (id: string) => call<void>("intel_revert_change", { _history: id, _reason: null }),
   generateCorrections: () => call<number>("intel_generate_corrections"),
-  corrections: (status = "open", entity: Entity | null = null, kind: string | null = null) =>
-    call<Suggestion[]>("intel_corrections", { _status: status, _entity: entity, _kind: kind, _limit: 500 }),
+  corrections: (status = "open", entity: Entity | null = null, kind: string | null = null, limit = 25, offset = 0) =>
+    call<Page<Suggestion> & { safe_total: number }>("intel_corrections", { _status: status, _entity: entity, _kind: kind, _limit: limit, _offset: offset }),
   reviewCorrection: (id: string, approve: boolean, value?: string | null) =>
     call<string>("intel_review_correction", { _id: id, _approve: approve, _value: value ?? null, _reason: null }),
   bulkApproveSafe: (ids: string[]) => call<number>("intel_bulk_approve_safe", { _ids: ids }),
-  audit: (f: { entity?: Entity | null; action?: string | null } = {}) =>
-    call<{ events: Array<Record<string, unknown>>; merges: Array<Record<string, unknown>> }>("intel_audit_history", {
-      _entity: f.entity || null, _entity_id: null, _action: f.action || null, _from: null, _to: null, _limit: 300,
+  approveAllSafe: (entity: Entity | null = null, kind: string | null = null) =>
+    call<number>("intel_approve_all_safe", { _entity: entity, _kind: kind }),
+  audit: (f: { entity?: Entity | null; action?: string | null; from?: string; to?: string; limit?: number; offset?: number; mergeOffset?: number } = {}) =>
+    call<{ events: Array<Record<string, unknown>>; total: number; merges: Array<Record<string, unknown>>; merges_total: number }>("intel_audit_history", {
+      _entity: f.entity || null, _entity_id: null, _action: f.action || null, _from: dayStart(f.from), _to: dayStart(f.to, 1),
+      _limit: f.limit ?? 25, _offset: f.offset ?? 0, _merge_offset: f.mergeOffset ?? 0,
     }),
 };
 
@@ -126,7 +166,7 @@ const REASONS: Record<string, string> = {
   phone: "Same phone number", linkedin: "Same LinkedIn profile", same_name: "Same name", swapped_name: "First and last name swapped",
   same_company: "Same company", same_designation: "Same designation", name_company: "Same name at the same company",
   verified_email_same_account: "Address verified by the same account", alias: "Name is another's alias",
-  initials: "Name is the other's initials", different_domains: "Different website domains",
+  initials: "Name is the other's initials", different_domains: "Different website domains", similar_name: "Nearly the same name",
 };
 export const reasonLabel = (r: string) => REASONS[r] ?? r.replace(/_/g, " ");
 

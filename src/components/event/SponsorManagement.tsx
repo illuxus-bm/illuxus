@@ -46,6 +46,8 @@ import {
 } from "./sponsor-dnd";
 import { useOrgSponsorSearch } from "@/hooks/useOrgPeopleSearch";
 import { publicOrigin } from "@/lib/publicUrl";
+import { CompanyInput } from "@/components/intelligence/CompanyInput";
+import { SponsorRepeatNotice } from "./SponsorRepeatNotice";
 
 const SponsorApplicationsPanelLazy = lazy(() =>
   import("./ApplicationsSection").then((m) => ({ default: m.SponsorApplicationsPanel })),
@@ -420,7 +422,7 @@ export default function SponsorManagement({ eventId }: Props) {
       const { error } = await supabase.from("event_sponsors").insert({
         event_id: eventId, sponsor_id: sponsorId, display_order: nextOrder,
       });
-      if (error) { toast.error(error.message); return; }
+      if (error) { toast.error(error.message); return false; }
       toast.success("Sponsor assigned to event");
       // Heads-up email for the newly-assigned sponsor company. Look up
       // the row from the cached `sponsors` list (the picker uses the
@@ -431,6 +433,7 @@ export default function SponsorManagement({ eventId }: Props) {
       }
     }
     fetchData();
+    return true;
   };
 
   const handleDelete = async (id: string) => {
@@ -546,7 +549,21 @@ export default function SponsorManagement({ eventId }: Props) {
               <DialogTitle>{editing ? "Edit Sponsor" : "Add New Sponsor"}</DialogTitle>
             </DialogHeader>
             <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-4 space-y-3">
-              <div><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+              <div><Label>Name *</Label><CompanyInput value={form.name} onChange={(name) => setForm({ ...form, name })} /></div>
+              {!editing && (
+                <SponsorRepeatNotice
+                  name={form.name}
+                  website={form.website}
+                  assignedIds={assignedIds}
+                  onUse={(existing) => {
+                    setOpen(false);
+                    setForm(emptySponsor);
+                    void handleAssign(existing.id).then((assigned) => {
+                      if (assigned) void notifySponsorAdded({ id: existing.id, email: existing.email, name: existing.name });
+                    });
+                  }}
+                />
+              )}
               <div>
                 <Label>Tier</Label>
                 <Select

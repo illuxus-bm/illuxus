@@ -65,7 +65,7 @@ const RESULT_LIMIT = 50;
  * Debounce a string by `ms` milliseconds. Returns the latest value
  * after the user stops changing it.
  */
-function useDebounced<T>(value: T, ms: number): T {
+export function useDebounced<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
     const t = setTimeout(() => setDebounced(value), ms);

@@ -18,7 +18,7 @@ interface Props {
 const IMPACT_LABELS: Record<string, string> = {
   registrations: "Event registrations", events: "Events", speaker_records: "Speaker records", sponsor_contacts: "Sponsor-team records",
   emails: "Email addresses", phones: "Phone numbers", affiliations: "Company affiliations", contacts: "Contacts",
-  sponsorships: "Sponsorship records", subsidiaries: "Subsidiaries", domains: "Domains", identifiers: "Registry identifiers",
+  sponsors: "Sponsor records", sponsorships: "Sponsorship records", subsidiaries: "Subsidiaries", domains: "Domains", identifiers: "Registry identifiers",
 };
 
 /**
