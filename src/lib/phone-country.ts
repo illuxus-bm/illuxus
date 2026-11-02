@@ -91,12 +91,19 @@ export function detectCountryFromIp(): Promise<string | null> {
       if (cached !== null) return cached || null;
     } catch { /* storage unavailable */ }
     try {
-      const res = await fetch("/api/geo", { signal: AbortSignal.timeout(3000), headers: { Accept: "application/json" } });
-      const body = res.ok ? ((await res.json()) as { country?: unknown }) : null;
+      // AbortSignal.timeout is missing before Safari 16 and Chrome 103.
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 3000);
+      const res = await fetch("/api/geo", { signal: ctrl.signal, headers: { Accept: "application/json" } }).finally(() => clearTimeout(timer));
+      if (!res.ok) throw new Error(`geo ${res.status}`);
+      const body = (await res.json()) as { country?: unknown };
       const country = typeof body?.country === "string" && /^[A-Z]{2}$/.test(body.country) ? body.country : null;
       try { window.sessionStorage.setItem(GEO_CACHE_KEY, country ?? ""); } catch { /* ignore */ }
       return country;
     } catch {
+      // A failed request (offline, slow network) isn't remembered, so the
+      // next form asks again.
+      geoRequest = null;
       return null;
     }
   })();
