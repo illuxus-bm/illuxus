@@ -9,15 +9,15 @@ vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), err
 import { SharedDataTable } from "../SharedDataTable";
 
 const fields = [
-  { key: "full_name", label: "Full name", contact: false }, { key: "designation", label: "Designation", contact: false },
+  { key: "full_name", label: "Full name", contact: false }, { key: "participant_type", label: "Type", contact: false }, { key: "designation", label: "Designation", contact: false },
   { key: "company", label: "Company", contact: false }, { key: "email", label: "Email", contact: true },
   { key: "mobile", label: "Mobile", contact: true }, { key: "linkedin_url", label: "LinkedIn", contact: true },
   { key: "attendance", label: "Attendance", contact: false }, { key: "industry", label: "Industry", contact: false },
   { key: "contact_permission", label: "Contact permission", contact: false },
 ];
 const rows = [
-  { full_name: "Pat Kumar", designation: "CFO", company: "Acme", email: "pat@acme.test", mobile: "+91 9876500011", attendance: "Attended", industry: "Banking", contact_permission: "Given" },
-  { full_name: "Kept Private", designation: "CTO", company: "Acme", attendance: "Did not attend", contact_permission: "Not given" },
+  { full_name: "Pat Kumar", participant_type: "Speaker", designation: "CFO", company: "Acme", email: "pat@acme.test", mobile: "+91 9876500011", attendance: "Attended", industry: "Banking", contact_permission: "Given" },
+  { full_name: "Kept Private", participant_type: "Attendee", designation: "CTO", company: "Acme", attendance: "Did not attend", contact_permission: "Not given" },
 ];
 
 beforeEach(() => {
@@ -46,13 +46,20 @@ describe("SharedDataTable", () => {
     await waitFor(() => expect(calls("shared_dataset_rows").at(-1)?.[1]).toMatchObject({ _offset: 25 }));
   });
 
-  it("searches and filters on the server", async () => {
+  it("searches, and filters by type and attendance from dropdowns", async () => {
     open();
     await screen.findByText("Pat Kumar");
-    fireEvent.click(screen.getByRole("button", { name: "With mobile" }));
-    await waitFor(() => expect(calls("shared_dataset_rows").at(-1)?.[1]).toMatchObject({ _filter: "with_mobile", _offset: 0 }));
+    expect(screen.queryByText("With contact details")).toBeNull();
     fireEvent.change(screen.getByLabelText("Name, company, designation, email or mobile"), { target: { value: "98765" } });
-    await waitFor(() => expect(calls("shared_dataset_rows").at(-1)?.[1]).toMatchObject({ _q: "98765" }));
+    await waitFor(() => expect(calls("shared_dataset_rows").at(-1)?.[1]).toMatchObject({ _q: "98765", _type: "all", _filter: "all" }));
+    expect(screen.getByRole("combobox", { name: "Type" })).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Attendance" })).toBeTruthy();
+  });
+
+  it("tags each person Speaker or Attendee", async () => {
+    open();
+    expect(await screen.findByText("Speaker")).toBeTruthy();
+    expect(screen.getByText("Attendee")).toBeTruthy();
   });
 
   it("sorts by a column", async () => {

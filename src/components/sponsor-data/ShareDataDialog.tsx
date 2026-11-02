@@ -129,7 +129,8 @@ export function ShareDataDialog({ eventSponsorId, onClose, onChanged }: Props) {
             ) : null}
 
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <Stat label="Eligible participants" value={p.eligible} hint="Approved, not cancelled" />
+              <Stat label="Speakers and attendees" value={p.eligible}
+                    hint={p.speakers !== undefined ? `${p.speakers.toLocaleString()} speakers · ${(p.attendees ?? 0).toLocaleString()} attendees` : "Approved, not cancelled"} />
               <Stat label="With email" value={p.with_email} />
               <Stat label="With mobile" value={p.with_mobile} />
               <Stat label="With both" value={p.with_both} />
@@ -146,7 +147,7 @@ export function ShareDataDialog({ eventSponsorId, onClose, onChanged }: Props) {
                 ))}
               </div>
               <p className="text-[11.5px] text-muted-foreground">
-                Not collected by the registration form, so not shared: {p.not_collected.join(", ")}.
+                People from sponsors (sponsor tickets and sponsor teams) are left out. Not collected by the registration form, so not shared: {p.not_collected.join(", ")}.
               </p>
             </section>
 

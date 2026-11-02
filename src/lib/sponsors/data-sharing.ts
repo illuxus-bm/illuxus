@@ -17,7 +17,7 @@ export interface ShareSummary {
 export interface SharePreview {
   event: { id: string; title: string; date: string | null; end_date: string | null; ended: boolean };
   sponsor: { id: string; name: string; title: string | null; title_label: string | null };
-  eligible: number;
+  eligible: number; speakers?: number; attendees?: number;
   with_email: number; with_mobile: number; with_both: number; without_contact: number;
   fields: ShareField[]; not_collected: string[];
   current: ShareSummary | null;
@@ -51,9 +51,10 @@ export const dataSharing = {
   history: (eventSponsorId: string) => call<ShareHistoryEntry[]>("organizer_sponsor_share_history", { _event_sponsor: eventSponsorId }),
   received: () => call<ReceivedShare[]>("sponsor_shared_datasets"),
   info: (shareId: string) => call<ShareInfo>("shared_dataset_info", { _share: shareId }),
-  rows: (shareId: string, f: { q?: string; filter?: string; sort?: string; dir?: "asc" | "desc"; limit?: number; offset?: number }) =>
+  rows: (shareId: string, f: { q?: string; filter?: string; type?: string; sort?: string; dir?: "asc" | "desc"; limit?: number; offset?: number }) =>
     call<ShareRowsPage>("shared_dataset_rows", {
       _share: shareId, _q: f.q ?? "", _filter: f.filter ?? "all", _sort: f.sort ?? "full_name", _dir: f.dir ?? "asc", _limit: f.limit ?? 25, _offset: f.offset ?? 0,
+      _type: f.type ?? "all",
     }),
   export: (shareId: string) => call<{ fields: ShareField[]; rows: ShareRow[] }>("shared_dataset_export", { _share: shareId }),
 };

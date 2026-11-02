@@ -438,7 +438,10 @@ export default function SponsorEventDetailPage() {
         <div className="md:mt-2 md:flex md:items-center md:gap-6">
           <div className="flex min-w-0 flex-1 items-center gap-3.5">
             {image
-              ? <img src={image} alt="" className="h-[68px] w-[68px] shrink-0 rounded-[14px] object-cover md:h-[84px] md:w-[84px]" />
+              ? <img src={image} alt=""
+                     className={cn("shrink-0 rounded-[14px] border border-border bg-muted object-cover",
+                                   // A wide banner keeps its shape; only a square image is shown square.
+                                   event?.banner_landscape_url ? "aspect-[16/9] h-[68px] md:h-[84px]" : "h-[68px] w-[68px] md:h-[84px] md:w-[84px]")} />
               : <span className="flex h-[68px] w-[68px] shrink-0 items-center justify-center rounded-[14px] bg-muted md:h-[84px] md:w-[84px]"><Users className="h-6 w-6 text-muted-foreground" /></span>}
             <div className="flex min-w-0 flex-col gap-0.5">
               <span className="inline-flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">

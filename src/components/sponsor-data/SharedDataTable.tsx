@@ -5,13 +5,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Chips, Empty, NoData, Pager, SearchBox, SortHead, TableShell, td, tr, useIntelQuery, usePager, type Sort } from "@/components/intelligence/parts";
+import { Empty, FilterSelect, NoData, Pager, SearchBox, SortHead, TableShell, td, tr, useIntelQuery, usePager, type Sort } from "@/components/intelligence/parts";
 import { useDebounced } from "@/hooks/useOrgPeopleSearch";
 import { dataSharing, formatShareValue, toCsv, type ShareField, type ShareRow } from "@/lib/sponsors/data-sharing";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_COLUMNS = ["full_name", "designation", "company", "email", "mobile", "linkedin_url", "attendance", "registered_at"];
-const FILTERS = [["all", "All"], ["with_contact", "With contact details"], ["with_email", "With email"], ["with_mobile", "With mobile"], ["attended", "Attended"], ["not_attended", "Didn't attend"]];
+const DEFAULT_COLUMNS = ["full_name", "participant_type", "designation", "company", "email", "mobile", "linkedin_url", "attendance"];
+const ATTENDANCE = [["all", "All attendance"], ["attended", "Attended"], ["not_attended", "Didn't attend"]];
+const TYPES = [["all", "Speakers and attendees"], ["speaker", "Speakers"], ["attendee", "Attendees"]];
 
 /** Email, mobile and LinkedIn as working links; everything else as text. */
 function Value({ field, row }: { field: string; row: ShareRow }) {
@@ -23,6 +24,12 @@ function Value({ field, row }: { field: string; row: ShareRow }) {
     return <a href={v} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{field === "linkedin_url" ? "Profile" : v.replace(/^https?:\/\//i, "")}</a>;
   }
   if (field === "attendance") return <Badge variant={v === "Attended" ? "default" : "secondary"} className="text-[10px]">{v}</Badge>;
+  if (field === "participant_type") {
+    return (
+      <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold",
+                          v === "Speaker" ? "bg-blue-500/10 text-blue-600 dark:text-blue-300" : "bg-muted text-muted-foreground")}>{v}</span>
+    );
+  }
   return <>{v}</>;
 }
 
@@ -34,13 +41,14 @@ export function SharedDataTable({ shareId, canExport, fileName }: { shareId: str
   const [text, setText] = useState("");
   const q = useDebounced(text, 250);
   const [filter, setFilter] = useState("all");
+  const [type, setType] = useState("all");
   const [sort, setSort] = useState<Sort>({ column: "full_name", dir: "asc" });
   const [shown, setShown] = useState<string[]>(DEFAULT_COLUMNS);
   const [open, setOpen] = useState<ShareRow | null>(null);
   const [exporting, setExporting] = useState(false);
-  const pager = usePager(JSON.stringify([q, filter, sort]));
-  const query = useIntelQuery(["shared-rows", shareId, q, filter, sort, pager.size, pager.offset],
-    () => dataSharing.rows(shareId, { q, filter, sort: sort.column, dir: sort.dir, limit: pager.size, offset: pager.offset }));
+  const pager = usePager(JSON.stringify([q, filter, type, sort]));
+  const query = useIntelQuery(["shared-rows", shareId, q, filter, type, sort, pager.size, pager.offset],
+    () => dataSharing.rows(shareId, { q, filter, type, sort: sort.column, dir: sort.dir, limit: pager.size, offset: pager.offset }));
   const fields = query.data?.fields ?? [];
   const columns = useMemo(() => fields.filter((f) => shown.includes(f.key)), [fields, shown]);
   const onSort = (column: string) => setSort((s) => (s.column === column ? { column, dir: s.dir === "asc" ? "desc" : "asc" } : { column, dir: "asc" }));
@@ -72,10 +80,13 @@ export function SharedDataTable({ shareId, canExport, fileName }: { shareId: str
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <SearchBox value={text} onChange={setText} className="w-72 max-w-full" placeholder="Name, company, designation, email or mobile" />
-        <Chips label="Show" value={filter} onChange={setFilter} options={FILTERS} />
-        <span className="ml-auto flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+        <SearchBox value={text} onChange={setText} className="w-full lg:max-w-sm lg:flex-1" placeholder="Name, company, designation, email or mobile" />
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterSelect label="Type" value={type} onChange={setType} options={TYPES} />
+          <FilterSelect label="Attendance" value={filter} onChange={setFilter} options={ATTENDANCE} />
+        </div>
+        <span className="flex flex-wrap items-center gap-2 lg:ml-auto">
           <DropdownMenu>
             <DropdownMenuTrigger asChild><Button variant="outline" className="h-10 rounded-xl"><Columns3 className="mr-1.5 h-4 w-4" /> Columns</Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">

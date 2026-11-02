@@ -35,7 +35,7 @@ describe("ShareDataDialog", () => {
   it("names the sponsor and event and counts what would be shared", async () => {
     open();
     expect(await screen.findByText(/ABC Technologies · Platinum Partner · CFO Connect Mumbai/)).toBeTruthy();
-    for (const [label, n] of [["Eligible participants", "120"], ["With email", "88"], ["With mobile", "80"], ["With both", "78"], ["Without contact details", "32"]]) {
+    for (const [label, n] of [["Speakers and attendees", "120"], ["With email", "88"], ["With mobile", "80"], ["With both", "78"], ["Without contact details", "32"]]) {
       expect(screen.getByText(label).parentElement?.textContent).toContain(n);
     }
   });
