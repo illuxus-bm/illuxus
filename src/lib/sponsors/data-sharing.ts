@@ -15,9 +15,9 @@ export interface ShareSummary {
 }
 
 export interface SharePreview {
-  event: { id: string; title: string; date: string | null; end_date: string | null; ended: boolean; asks_consent: boolean };
+  event: { id: string; title: string; date: string | null; end_date: string | null; ended: boolean };
   sponsor: { id: string; name: string; title: string | null; title_label: string | null };
-  eligible: number; with_permission: number; without_permission: number;
+  eligible: number;
   with_email: number; with_mobile: number; with_both: number; without_contact: number;
   fields: ShareField[]; not_collected: string[];
   current: ShareSummary | null;
@@ -43,10 +43,8 @@ async function call<T>(name: string, params: Record<string, unknown> = {}): Prom
 
 export const dataSharing = {
   preview: (eventSponsorId: string) => call<SharePreview>("organizer_sponsor_share_preview", { _event_sponsor: eventSponsorId }),
-  share: (eventSponsorId: string, o: { beforeEnd: boolean; allowExport: boolean; includeWithoutPermission: boolean }) =>
-    call<string>("organizer_share_sponsor_data", {
-      _event_sponsor: eventSponsorId, _share_before_end: o.beforeEnd, _allow_export: o.allowExport, _include_without_permission: o.includeWithoutPermission,
-    }),
+  share: (eventSponsorId: string, o: { beforeEnd: boolean; allowExport: boolean }) =>
+    call<string>("organizer_share_sponsor_data", { _event_sponsor: eventSponsorId, _share_before_end: o.beforeEnd, _allow_export: o.allowExport }),
   revoke: (shareId: string, reason?: string) => call<void>("organizer_revoke_sponsor_data", { _share: shareId, _reason: reason || null }),
   statusForEvent: (eventId: string) =>
     call<Array<{ event_sponsor_id: string; sponsor_id: string; share: ShareSummary | null }>>("organizer_sponsor_share_status", { _event: eventId }),

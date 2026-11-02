@@ -9,9 +9,9 @@ vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), err
 import { ShareDataDialog } from "../ShareDataDialog";
 
 const preview = (over: Record<string, unknown> = {}) => ({
-  event: { id: "e1", title: "CFO Connect Mumbai", date: "2026-01-10", end_date: null, ended: true, asks_consent: false },
+  event: { id: "e1", title: "CFO Connect Mumbai", date: "2026-01-10", end_date: null, ended: true },
   sponsor: { id: "s1", name: "ABC Technologies", title: "custom", title_label: "Platinum Partner" },
-  eligible: 120, with_permission: 90, without_permission: 30, with_email: 88, with_mobile: 80, with_both: 78, without_contact: 32,
+  eligible: 120, with_email: 88, with_mobile: 80, with_both: 78, without_contact: 32,
   fields: [{ key: "full_name", label: "Full name", contact: false }, { key: "email", label: "Email", contact: true }, { key: "mobile", label: "Mobile", contact: true }],
   not_collected: ["Department", "Country"], current: null, ...over,
 });
@@ -40,10 +40,12 @@ describe("ShareDataDialog", () => {
     }
   });
 
-  it("says plainly whose contact details aren't shared, and what isn't collected", async () => {
+  it("shares email and mobile, with no setting to leave anyone out", async () => {
     open();
-    expect(await screen.findByText(/haven't given permission to share contact details with sponsors/)).toBeTruthy();
-    expect(screen.getByText(/Not collected by the registration form/).textContent).toContain("Department, Country");
+    expect(await screen.findByText(/Not collected by the registration form/)).toBeTruthy();
+    expect(screen.queryByText(/permission/i)).toBeNull();
+    expect(screen.getByText("Email")).toBeTruthy();
+    expect(screen.getByText("Mobile")).toBeTruthy();
   });
 
   it("shares on confirmation with the chosen options", async () => {
@@ -51,7 +53,7 @@ describe("ShareDataDialog", () => {
     fireEvent.click(await screen.findByRole("switch", { name: "Allow download" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm & Share Data" }));
     await waitFor(() => expect(calls("organizer_share_sponsor_data")).toHaveLength(1));
-    expect(calls("organizer_share_sponsor_data")[0][1]).toEqual({ _event_sponsor: "es1", _share_before_end: false, _allow_export: false, _include_without_permission: true });
+    expect(calls("organizer_share_sponsor_data")[0][1]).toEqual({ _event_sponsor: "es1", _share_before_end: false, _allow_export: false });
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
   });
 

@@ -140,9 +140,6 @@ export function SharedDataTable({ shareId, canExport, fileName }: { shareId: str
                   </div>
                 ))}
               </dl>
-              {open.contact_permission === "Not given" && (
-                <p className="text-[12px] text-muted-foreground">This participant didn't give permission to share their contact details with sponsors.</p>
-              )}
             </div>
           )}
         </SheetContent>

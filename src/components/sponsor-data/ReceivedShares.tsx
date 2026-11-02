@@ -23,7 +23,7 @@ export function ReceivedShares() {
       </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {data.map((d) => (
-          <Link key={d.id} to={`/sponsor/data/${d.id}`} className="group flex flex-col rounded-2xl border border-border bg-card p-4 transition-colors hover:bg-muted/30">
+          <Link key={d.id} to={`/sponsor/events/${d.event_id}#shared-data`} className="group flex flex-col rounded-2xl border border-border bg-card p-4 transition-colors hover:bg-muted/30">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="truncate font-semibold">{d.event}</p>

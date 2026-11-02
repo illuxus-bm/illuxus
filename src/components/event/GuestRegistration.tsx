@@ -138,7 +138,7 @@ export function GuestRegistrationForm({
       >
         I agree to the <LegalLink to="/terms">Terms</LegalLink>, <LegalLink to="/refunds">Refund Policy</LegalLink>{" "}
         and <LegalLink to="/privacy">Privacy Policy</LegalLink>, and to my registration details being shared with
-        the event organiser.
+        the event organiser and the event's sponsors.
       </ConsentCheckbox>
 
       {formError && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[12.5px] text-destructive">{formError}</p>}

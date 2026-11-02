@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, History, Loader2, ShieldCheck, Table2 } from "lucide-react";
+import { CheckCircle2, History, Loader2, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,8 +33,7 @@ function Stat({ label, value, hint }: { label: string; value: number; hint?: str
 
 /**
  * Sharing one event's participant list with one sponsor. Shows what would be
- * shared before anything is, and the versions shared so far. Contact details go
- * only for participants who gave permission at registration.
+ * shared before anything is, and the versions shared so far.
  */
 export function ShareDataDialog({ eventSponsorId, onClose, onChanged }: Props) {
   const queryClient = useQueryClient();
@@ -43,7 +42,6 @@ export function ShareDataDialog({ eventSponsorId, onClose, onChanged }: Props) {
   const history = useQuery({ queryKey: ["share-history", eventSponsorId], queryFn: () => dataSharing.history(eventSponsorId), retry: false });
   const [beforeEnd, setBeforeEnd] = useState(false);
   const [allowExport, setAllowExport] = useState(true);
-  const [includeAll, setIncludeAll] = useState(true);
   const [busy, setBusy] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const [reason, setReason] = useState("");
@@ -60,7 +58,7 @@ export function ShareDataDialog({ eventSponsorId, onClose, onChanged }: Props) {
   const share = async () => {
     setBusy(true);
     try {
-      await dataSharing.share(eventSponsorId, { beforeEnd, allowExport, includeWithoutPermission: includeAll });
+      await dataSharing.share(eventSponsorId, { beforeEnd, allowExport });
       toast.success(current ? "Updated data shared" : "Data shared", { description: "The sponsor's team can see it in their dashboard now." });
       refresh();
     } catch (e) {
@@ -135,38 +133,24 @@ export function ShareDataDialog({ eventSponsorId, onClose, onChanged }: Props) {
               <Stat label="With email" value={p.with_email} />
               <Stat label="With mobile" value={p.with_mobile} />
               <Stat label="With both" value={p.with_both} />
-              <Stat label="Without contact details" value={p.without_contact} hint="Missing, or no permission" />
-              <Stat label="Gave permission" value={p.with_permission} hint={`${p.without_permission.toLocaleString()} didn't`} />
+              <Stat label="Without contact details" value={p.without_contact} hint="No email or mobile given" />
             </div>
-
-            {p.without_permission > 0 && (
-              <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[12.5px]">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                <div className="space-y-1">
-                  <p><strong>{p.without_permission.toLocaleString()}</strong> {p.without_permission === 1 ? "participant hasn't" : "participants haven't"} given permission to share contact details with sponsors. Their email, mobile and LinkedIn are not shared.</p>
-                </div>
-              </div>
-            )}
 
             <section className="space-y-2">
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Fields shared</p>
               <div className="flex flex-wrap gap-1.5">
                 {p.fields.map((f) => (
                   <Badge key={f.key} variant="secondary" className="text-[11px] font-normal">
-                    {f.label}{f.contact && <ShieldCheck className="ml-1 h-3 w-3 text-emerald-600" aria-label="With permission only" />}
+                    {f.label}
                   </Badge>
                 ))}
               </div>
               <p className="text-[11.5px] text-muted-foreground">
-                <ShieldCheck className="mr-1 inline h-3 w-3 text-emerald-600" />only for participants who gave permission. Not collected by the registration form, so not shared: {p.not_collected.join(", ")}.
+                Not collected by the registration form, so not shared: {p.not_collected.join(", ")}.
               </p>
             </section>
 
             <section className="space-y-2.5 rounded-xl border border-border p-3">
-              <label className="flex items-center justify-between gap-3">
-                <span><span className="font-medium">Include participants without permission</span><span className="block text-[12px] text-muted-foreground">Name, company, designation and attendance only, as sponsors already see.</span></span>
-                <Switch checked={includeAll} onCheckedChange={setIncludeAll} aria-label="Include participants without permission" />
-              </label>
               <label className="flex items-center justify-between gap-3">
                 <span><span className="font-medium">Allow download</span><span className="block text-[12px] text-muted-foreground">Let the sponsor's team export CSV and Excel files.</span></span>
                 <Switch checked={allowExport} onCheckedChange={setAllowExport} aria-label="Allow download" />

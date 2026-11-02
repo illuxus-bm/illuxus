@@ -98,7 +98,9 @@ We share personal data with the following categories of recipients, each bound b
 
 (a) Event organisers — when you register for an event, the organiser receives the data necessary to manage your registration (name, email, ticket type, custom-question answers, dietary/accessibility flags you provide, check-in status).
 
-(b) Sub-processors — Illuxus's current list of material sub-processors is:
+(b) Event sponsors — when you register for an event, the organiser may share your registration details with that event's sponsors: your name, email address, mobile number, LinkedIn profile, company, designation, company details you provide, registration date and attendance. Sponsors receive this only for the events they sponsor, to follow up with you about the event and their offerings. Each sponsor is responsible for how it uses the data it receives; you can ask a sponsor to stop contacting you, and ask the organiser or Illuxus to stop sharing your details with sponsors of future events.
+
+(c) Sub-processors — Illuxus's current list of material sub-processors is:
    • Stripe Payments India Private Limited (India) and Stripe Inc. (USA / Ireland) — international card payments.
    • Razorpay Software Private Limited (Bengaluru, India) — domestic UPI, cards, netbanking.
    • Supabase Inc. (USA — data hosted in AWS ap-south-1 Mumbai by default) — database, storage, authentication.
@@ -112,11 +114,11 @@ We share personal data with the following categories of recipients, each bound b
 
 The current sub-processor list with addresses and data categories is available on request at privacy@illuxus.com. We update this Privacy Policy and notify enterprise customers at least 30 days before adding a new material sub-processor.
 
-(c) Professional advisors — auditors, lawyers, and tax advisors, bound by professional confidentiality.
+(d) Professional advisors — auditors, lawyers, and tax advisors, bound by professional confidentiality.
 
-(d) Government, regulators and courts — where disclosure is required by law (Section 91 CrPC, Section 69/69A IT Act, court orders, FIU-IND requests, GST authorities, Income Tax authorities). We notify affected users where lawfully permitted.
+(e) Government, regulators and courts — where disclosure is required by law (Section 91 CrPC, Section 69/69A IT Act, court orders, FIU-IND requests, GST authorities, Income Tax authorities). We notify affected users where lawfully permitted.
 
-(e) Successor entities — in connection with a merger, acquisition, financing, or sale of all or part of our business, with appropriate confidentiality safeguards.`,
+(f) Successor entities — in connection with a merger, acquisition, financing, or sale of all or part of our business, with appropriate confidentiality safeguards.`,
   },
   {
     title: "6. Categories of personal data and statutory retention periods",
@@ -437,7 +439,7 @@ export default function PrivacyPage() {
         <p className="text-sm font-medium text-primary mb-3 uppercase tracking-widest">Legal</p>
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-3">Privacy Policy</h1>
         <p className="text-muted-foreground text-[14px]">
-          Last updated: 20 June 2026 · Effective: 20 June 2026 · Version 3.0
+          Last updated: 2 November 2026 · Effective: 2 November 2026 · Version 3.1
         </p>
       </section>
 

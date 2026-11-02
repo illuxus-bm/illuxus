@@ -64,8 +64,9 @@ describe("SharedDataTable", () => {
 
   it("opens a participant's full details", async () => {
     open();
-    fireEvent.click(await screen.findByText("Kept Private"));
-    expect(await screen.findByText(/didn't give permission to share their contact details/)).toBeTruthy();
+    fireEvent.click(await screen.findByText("Pat Kumar"));
+    expect(await screen.findByRole("link", { name: /Email/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Call/ }).getAttribute("href")).toBe("tel:+919876500011");
   });
 
   it("offers downloads only when allowed", async () => {

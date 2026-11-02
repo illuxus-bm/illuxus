@@ -90,7 +90,12 @@ const ATTENDEE_FILES = [
     // `loginPath()` (same `/login?next=` URL as before) and the helper is
     // imported. `handleRsvp`, `loadStoredUtm()`, the five utm_* columns on
     // the insert and `clearStoredUtm()` on success are untouched.
-    hash: "ae847ac6b7a912112c8a30b96ca245b8c16f7c9f7682cbfd48959ae2bbf68f73",
+    //
+    // Bumped again for sharing with sponsors (2026-11-02). Re-audited against
+    // 6.1–6.3: only the agreement wording changed, adding "and the event's
+    // sponsors". `handleRsvp`, `loadStoredUtm()`, the five utm_* columns on
+    // the insert and `clearStoredUtm()` on success are untouched.
+    hash: "d87023d80afde22d83bff11e35e374d91605e7962a278d05cc8a947cdc36fb79",
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",

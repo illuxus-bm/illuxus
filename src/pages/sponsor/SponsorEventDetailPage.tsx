@@ -30,6 +30,7 @@
  * is in an append-only history both sides can see.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { EventSharedData } from "@/components/sponsor-data/EventSharedData";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -512,6 +513,9 @@ export default function SponsorEventDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* Participant data the organiser shared with this sponsor */}
+        {eventId && <EventSharedData eventId={eventId} />}
 
         {/* Participants */}
         <div className="mb-3 mt-7 md:mt-9">

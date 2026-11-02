@@ -606,7 +606,7 @@ export default function EventRsvpCard({
             >
               I agree to the <LegalLink to="/terms">Terms</LegalLink>, <LegalLink to="/refunds">Refund Policy</LegalLink>{" "}
               and <LegalLink to="/privacy">Privacy Policy</LegalLink>, and to my registration details being shared with
-              the event organiser.
+              the event organiser and the event's sponsors.
             </ConsentCheckbox>
           )}
           <Button
