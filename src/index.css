@@ -51,6 +51,11 @@
   }
 }
 
+/* The text cursor in the brand colour. The browser places it, so it is always where the typing is. */
+input, textarea, [contenteditable="true"] {
+  caret-color: hsl(var(--primary));
+}
+
 @layer base {
   :root {
     /* App header height: the row of floating chips with its padding, plus the

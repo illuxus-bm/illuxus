@@ -171,7 +171,8 @@ BEGIN
   UPDATE sponsor_data_shares SET status = 'superseded' WHERE event_sponsor_id = l.id AND status = 'active';
 
   CREATE TEMP TABLE IF NOT EXISTS _share_people (person_id uuid, data jsonb) ON COMMIT DROP;
-  DELETE FROM _share_people;
+  -- Supabase refuses a DELETE without a WHERE clause, so it says which rows: all of them.
+  DELETE FROM _share_people WHERE true;
   INSERT INTO _share_people SELECT * FROM public._sponsor_share_people(l.event_id, _ended);
 
   INSERT INTO sponsor_data_shares (id, event_sponsor_id, event_id, sponsor_id, company_id, version, allow_export, includes_without_permission,

@@ -256,7 +256,8 @@ const EventsPage = () => {
       let matchesTime = true;
 
       if (timeFilter === "upcoming") {
-        matchesTime = endOrStart >= now || e.status === "draft";
+        // Drafts aren't upcoming until they're published; they're under Pending.
+        matchesTime = endOrStart >= now && e.status !== "draft" && e.status !== "pending";
       } else if (timeFilter === "past") {
         matchesTime = endOrStart < now && e.status !== "draft" && e.status !== "cancelled";
       } else if (timeFilter === "pending") {
