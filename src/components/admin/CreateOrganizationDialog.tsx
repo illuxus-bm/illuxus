@@ -157,7 +157,8 @@ export function CreateOrganizationDialog({ open, onOpenChange, onCreated }: {
     setError(
       reply.status === 404 || b.code === "unreachable" || (b.code === "invalid" && b.error === "Unknown action.")
         ? "Organization creation isn't available yet: the team-invitation function needs redeploying (and migration 049 applying)."
-        : replyError(reply, "We could not create the organization. Please try again."),
+        : replyError(reply, "We could not create the organization. Please try again.")
+          + (typeof b.detail === "string" && b.detail ? ` (Reason: ${b.detail})` : ""),
     );
   };
 

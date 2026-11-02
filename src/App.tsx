@@ -113,6 +113,7 @@ const SponsorEventsPage = lazyWithLog("SponsorEventsPage", () => import("./pages
 const PartnerEventsPage = lazyWithLog("PartnerEventsPage", () => import("./pages/partner/PartnerEventsPage.tsx"));
 const PartnerDashboardPage = lazyWithLog("PartnerDashboardPage", () => import("./pages/partner/PartnerDashboardPage.tsx"));
 const SponsorEventDetailPage = lazyWithLog("SponsorEventDetailPage", () => import("./pages/sponsor/SponsorEventDetailPage.tsx"));
+const SponsorSharedDataPage = lazyWithLog("SponsorSharedDataPage", () => import("./pages/sponsor/SponsorSharedDataPage.tsx"));
 const SponsorAcceptInvitePage = lazyWithLog("SponsorAcceptInvitePage", () => import("./pages/sponsor/AcceptInvitePage.tsx"));
 const SpeakerEventsPage = lazyWithLog("SpeakerEventsPage", () => import("./pages/speaker/SpeakerEventsPage.tsx"));
 const SpeakerEventDetailPage = lazyWithLog("SpeakerEventDetailPage", () => import("./pages/speaker/SpeakerEventDetailPage.tsx"));
@@ -385,6 +386,7 @@ const App = () => (
                 <Route path="/partner" element={<RouteErrorBoundary><PartnerEventsPage /></RouteErrorBoundary>} />
                 <Route path="/partner/:accessId" element={<RouteErrorBoundary><PartnerDashboardPage /></RouteErrorBoundary>} />
                 <Route path="/sponsor/events/:eventId" element={<RouteErrorBoundary><SponsorEventDetailPage /></RouteErrorBoundary>} />
+                <Route path="/sponsor/data/:shareId" element={<RouteErrorBoundary><SponsorSharedDataPage /></RouteErrorBoundary>} />
                 <Route path="/sponsor/accept" element={<RouteErrorBoundary><SponsorAcceptInvitePage /></RouteErrorBoundary>} />
                 <Route path="/speaker" element={<RouteErrorBoundary><SpeakerEventsPage /></RouteErrorBoundary>} />
                 <Route path="/speaker/events/:eventId" element={<RouteErrorBoundary><SpeakerEventDetailPage /></RouteErrorBoundary>} />

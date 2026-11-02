@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical, Search, Megaphone, Download, Mail } from "lucide-react";
+import { Plus, Pencil, Trash2, Award, ExternalLink, Users as UsersIcon, Copy, X, GripVertical, Search, Megaphone, Download, Mail, Share2 } from "lucide-react";
 import { logger, supabaseRpc } from "@/lib/observability";
 import {
   MEETING_CAUSE_LABEL, MEETING_STATUS_LABEL, historyLabel, meetingTotals,
@@ -44,6 +44,8 @@ import {
 } from "./sponsor-dnd";
 import { publicOrigin } from "@/lib/publicUrl";
 import { AddSponsorDialog } from "./AddSponsorDialog";
+import { ShareDataDialog } from "@/components/sponsor-data/ShareDataDialog";
+import { dataSharing, type ShareSummary } from "@/lib/sponsors/data-sharing";
 import { SponsorshipPanel, type SponsorshipPanelTab } from "./SponsorshipPanel";
 import { fetchEventSponsorLinks, sponsorship, withEventSponsorship, type EventSponsorLink, type EventSponsorshipRow } from "@/lib/sponsors/event-sponsorship";
 
@@ -63,6 +65,8 @@ interface Sponsor {
   /** This event's sponsorship: its link, canonical company, package, status and contacts. */
   link?: EventSponsorLink;
   sponsorship?: EventSponsorshipRow;
+  /** The latest participant data shared with this sponsor for this event. */
+  share?: ShareSummary | null;
 }
 
 interface Props {
@@ -93,6 +97,7 @@ export default function SponsorManagement({ eventId }: Props) {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [sharing, setSharing] = useState<string | null>(null);
   const [editing, setEditing] = useState<Sponsor | null>(null);
   const [form, setForm] = useState(emptySponsor);
   const [panel, setPanel] = useState<{ sponsor: Sponsor; tab: SponsorshipPanelTab } | null>(null);
@@ -144,7 +149,10 @@ export default function SponsorManagement({ eventId }: Props) {
       // Company, package, status and contacts add to the list; without them it still works.
       const details = await sponsorship.forEvent(eventId).catch(() => [] as EventSponsorshipRow[]);
       const detailBySponsor = new Map(details.map((d) => [d.sponsor_id, d]));
-      linkedSponsors = linkedSponsors.map((s) => ({ ...s, sponsorship: detailBySponsor.get(s.id) }));
+      // Shared participant data, per sponsorship. Without the database update the tiles just don't show it.
+      const shares: Awaited<ReturnType<typeof dataSharing.statusForEvent>> = await dataSharing.statusForEvent(eventId).catch(() => []);
+      const shareBySponsor = new Map(shares.map((x) => [x.sponsor_id, x.share]));
+      linkedSponsors = linkedSponsors.map((s) => ({ ...s, sponsorship: detailBySponsor.get(s.id), share: shareBySponsor.get(s.id) ?? null }));
       const missing = orderedIds.filter((id) => !byId.has(id));
       if (missing.length) {
         logger.warn("sponsor management failure", {
@@ -164,7 +172,7 @@ export default function SponsorManagement({ eventId }: Props) {
     // Step 4: org tier presets
     const { data: ev } = await supabase
       .from("events")
-      .select("org_id, sponsor_applications_enabled")
+      .select("*")
       .eq("id", eventId)
       .maybeSingle();
 
@@ -645,6 +653,7 @@ export default function SponsorManagement({ eventId }: Props) {
                 meetings={meetings}
                 onReport={(sp) => void downloadMeetingReport(sp)}
                 onTeam={(s, tab) => setPanel({ sponsor: s, tab: tab ?? "team" })}
+                onShare={(s) => { const id = s.link?.id ?? s.sponsorship?.event_sponsor_id; if (id) setSharing(id); }}
                 onEdit={openEdit}
                 onDelete={handleDelete}
               />
@@ -668,6 +677,10 @@ export default function SponsorManagement({ eventId }: Props) {
           })() : null}
         </DragOverlay>
       </DndContext>
+
+      {sharing && (
+        <ShareDataDialog eventSponsorId={sharing} onClose={() => setSharing(null)} onChanged={fetchData} />
+      )}
 
       {adding && (
         <AddSponsorDialog
@@ -724,12 +737,13 @@ type TierGroup = {
 };
 
 function SortableTierGroup({
-  group, meetings, onReport, onTeam, onEdit, onDelete,
+  group, meetings, onReport, onTeam, onShare, onEdit, onDelete,
 }: {
   group: TierGroup;
   meetings: Map<string, MeetingTotals>;
   onReport: (s: Sponsor) => void;
   onTeam: (s: Sponsor, tab?: SponsorshipPanelTab) => void;
+  onShare: (s: Sponsor) => void;
   onEdit: (s: Sponsor) => void;
   onDelete: (id: string) => void;
 }) {
@@ -774,6 +788,7 @@ function SortableTierGroup({
               <SortableSponsorCard
                 key={s.id} sponsor={s} group={group} meetings={meetings.get(s.id)} onReport={() => onReport(s)}
                 onTeam={(tab) => onTeam(s, tab)}
+                onShare={() => onShare(s)}
                 onEdit={() => onEdit(s)}
                 onDelete={() => onDelete(s.id)}
               />
@@ -786,12 +801,13 @@ function SortableTierGroup({
 }
 
 function SortableSponsorCard({
-  sponsor: s, group, meetings, onReport, onTeam, onEdit, onDelete,
+  sponsor: s, group, meetings, onReport, onTeam, onShare, onEdit, onDelete,
 }: {
   sponsor: Sponsor;
   group: TierGroup;
   meetings?: MeetingTotals;
   onReport: () => void;
+  onShare: () => void;
   onTeam: (tab?: SponsorshipPanelTab) => void; onEdit: () => void; onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } = useSortable({
@@ -821,13 +837,38 @@ function SortableSponsorCard({
         >
           <GripVertical className="h-4 w-4" />
         </button>
-        <SponsorCardBody sponsor={s} onTeam={onTeam} onEdit={onEdit} onDelete={onDelete} />
+        <SponsorCardBody sponsor={s} onTeam={onTeam} onShare={onShare} onEdit={onEdit} onDelete={onDelete} />
       </div>
-      <p className="text-xs text-muted-foreground mt-2 line-clamp-2 min-h-[2.25rem]">
+      {/* Exactly two lines tall, so no part of a third shows. */}
+      <p className="text-xs leading-4 text-muted-foreground mt-2 line-clamp-2 min-h-8">
         {s.description || ""}
       </p>
       <MeetingLine meetings={meetings} onReport={onReport} />
+      <ShareLine share={s.share} onShare={onShare} />
     </div>
+  );
+}
+
+/** Whether this event's participant data has gone to this sponsor, with the way to share it. */
+function ShareLine({ share, onShare }: { share?: ShareSummary | null; onShare: () => void }) {
+  const active = share?.status === "active" ? share : null;
+  return (
+    <p className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-border pt-2 text-[11.5px] text-muted-foreground" aria-label="Data sharing">
+      <button type="button" onClick={onShare} className="order-last ml-auto inline-flex items-center gap-1 font-medium text-primary hover:underline">
+        <Share2 className="h-3 w-3" /> {active ? "Manage" : "Share data"}
+      </button>
+      {active ? (
+        <>
+          <span className="flex items-center gap-1 font-medium text-foreground"><i className="h-1.5 w-1.5 rounded-full bg-green-500" />Data shared</span>
+          <span><b className="font-semibold text-foreground tabular-nums">{active.record_count.toLocaleString()}</b> records</span>
+          <span><b className="font-semibold text-foreground tabular-nums">{active.with_email.toLocaleString()}</b> email</span>
+          <span><b className="font-semibold text-foreground tabular-nums">{active.with_mobile.toLocaleString()}</b> mobile</span>
+          <span>{new Date(active.shared_at).toLocaleDateString()}</span>
+        </>
+      ) : (
+        <span className="font-medium text-foreground">{share?.status === "revoked" ? "Data access revoked" : "Data not shared"}</span>
+      )}
+    </p>
   );
 }
 
@@ -851,9 +892,10 @@ function MeetingLine({ meetings: m, onReport }: { meetings?: MeetingTotals; onRe
 }
 
 function SponsorCardBody({
-  sponsor: s, onTeam, onEdit, onDelete,
+  sponsor: s, onTeam, onShare, onEdit, onDelete,
 }: {
   sponsor: Sponsor;
+  onShare?: () => void;
   onTeam: (tab?: SponsorshipPanelTab) => void; onEdit: () => void; onDelete: () => void;
 }) {
   return (
@@ -869,7 +911,7 @@ function SponsorCardBody({
         <button type="button" className="block max-w-full truncate text-left text-sm font-semibold hover:underline" onClick={() => onTeam("sponsorship")}>
           {s.sponsorship?.company ?? s.name}
         </button>
-        {s.sponsorship?.company && s.sponsorship.company !== s.name && <p className="truncate text-[11px] text-muted-foreground">Listed as {s.name}</p>}
+        {s.sponsorship?.company && s.sponsorship.company.trim().toLowerCase() !== s.name.trim().toLowerCase() && <p className="truncate text-[11px] text-muted-foreground">Listed as {s.name}</p>}
         {s.website && (
           <a href={s.website} target="_blank" rel="noopener noreferrer" className="text-xs text-primary flex items-center gap-1 hover:underline truncate">
             <ExternalLink className="h-3 w-3 shrink-0" /><span className="truncate">{new URL(s.website).hostname}</span>
@@ -886,6 +928,7 @@ function SponsorCardBody({
       </div>
       <div className="flex gap-1 shrink-0">
         <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Manage team for ${s.name}`} onClick={() => onTeam("team")}><UsersIcon className="h-3 w-3" /></Button>
+        {onShare && <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Share data with ${s.name}`} title="Share data" onClick={onShare}><Share2 className="h-3 w-3" /></Button>}
         <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Edit ${s.name}`} onClick={onEdit}><Pencil className="h-3 w-3" /></Button>
         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label={`Delete ${s.name}`} onClick={onDelete}><Trash2 className="h-3 w-3" /></Button>
       </div>
@@ -911,7 +954,7 @@ function SponsorCardView({ sponsor: s, dragging = false }: { sponsor: Sponsor; d
           <p className="font-semibold text-sm truncate">{s.name}</p>
         </div>
       </div>
-      <p className="text-xs text-muted-foreground mt-2 line-clamp-2 min-h-[2.25rem]">
+      <p className="text-xs leading-4 text-muted-foreground mt-2 line-clamp-2 min-h-8">
         {s.description || ""}
       </p>
     </div>

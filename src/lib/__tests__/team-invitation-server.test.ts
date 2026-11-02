@@ -637,6 +637,16 @@ const provision = (over: { org?: Record<string, unknown>; user?: Record<string, 
 const newOrgId = () => [...w.orgs.keys()].find((id) => id !== ORG && id !== OTHER_ORG)!;
 
 describe("Super Admin creates an organization", () => {
+  it("says why when the database refuses the organization", async () => {
+    const deps = makeDeps(w);
+    const failing = createHandler({ ...deps, store: { ...deps.store, createOrganization: async () => ({ error: "duplicate key value violates unique constraint \"subscriptions_org_id_key\"" }) } });
+    const r = await failing({ action: "admin_create_org", org: { name: "Keka Events", subdomain: "keka", plan: "free", plan_limits: BUSINESS },
+      user: { first_name: "Anita", last_name: "Rao", email: "anita@keka.test" } }, as("u-super"));
+    expect(r.status).toBe(500);
+    expect(r.body).toMatchObject({ code: "create_failed", detail: expect.stringContaining("subscriptions_org_id_key") });
+    expect(w.invites).toHaveLength(0);
+  });
+
   it("creates the organization, its subscription and an owner invitation, and emails it", async () => {
     const r = await provision();
     expect(r.status).toBe(200);

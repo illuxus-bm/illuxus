@@ -310,6 +310,7 @@ more than once, and its change is already in the bundle, so nothing here is outs
 | `RUN_ME_sponsor_identity.sql` | Sponsor identity: per-event partnership titles and details, event-specific contacts, sponsor record merges with rollback, review queue (run after 065) | section 066 |
 | `RUN_ME_sponsor_consolidation.sql` | One sponsor record per company within an organisation: combining across teammates, a single add-sponsor function, one row per company for Super Admin (run after 066) | section 067 |
 | `RUN_ME_sponsor_add_details.sql` | Adding a sponsor brings the company's website and its already-public logo (run after 067) | section 068 |
+| `RUN_ME_sponsor_data_sharing.sql` | Share Data: per-sponsorship participant data sharing with versions, revoke, access log; contact details only with recorded participant permission (run after 066) | section 069 |
 
 Most can run in any order; a script says so at the top when it needs another first.
 

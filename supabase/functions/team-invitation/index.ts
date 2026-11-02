@@ -653,7 +653,9 @@ export function createHandler(deps: Deps) {
     });
     if ("error" in created) {
       if (created.conflict) return reply(409, { ok: false, code: "subdomain_taken", errors: { "org.subdomain": "This URL is already used by another organization." }, error: "This URL is already used by another organization." });
-      return reply(500, { ok: false, code: "create_failed", error: "We could not create the organization. Nothing was saved; please try again." });
+      // Only Super Admin gets here, so the database's own reason is shown to help fix it.
+      console.error("admin_create_org: organization not created", created.error);
+      return reply(500, { ok: false, code: "create_failed", error: "We could not create the organization. Nothing was saved; please try again.", detail: created.error });
     }
 
     const prefill: Record<string, string> = { first_name: first.first_name, last_name: first.last_name };
@@ -663,7 +665,8 @@ export function createHandler(deps: Deps) {
     if (sent.body.ok !== true) {
       // No organization without its invitation: undo, so a retry starts clean.
       await store.deleteOrganization(created.id);
-      return reply(500, { ok: false, code: "create_failed", error: "We could not save the invitation, so the organization was not created. Please try again." });
+      console.error("admin_create_org: invitation not saved", sent.body.error);
+      return reply(500, { ok: false, code: "create_failed", error: "We could not save the invitation, so the organization was not created. Please try again.", detail: sent.body.error });
     }
 
     const result = {
@@ -835,7 +838,8 @@ export function supabaseStore(db: any): Store {
       const { data, error } = await db.from("organizations").insert(org).select("id").single();
       if (error || !data) return { error: error?.message ?? "not created", conflict: error?.code === "23505" };
       // Same records public signup makes: the organization and its subscription.
-      const { error: subError } = await db.from("subscriptions").insert({ org_id: data.id, plan: org.plan, status: "active" });
+      // Upsert: a database that already adds the subscription when an organization is created would otherwise refuse a second one.
+      const { error: subError } = await db.from("subscriptions").upsert({ org_id: data.id, plan: org.plan, status: "active" }, { onConflict: "org_id" });
       if (subError) {
         await db.from("organizations").delete().eq("id", data.id);
         return { error: subError.message };
