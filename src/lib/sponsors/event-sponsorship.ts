@@ -84,6 +84,16 @@ export interface NewContact {
   mobile_country_code?: string; mobile_number?: string; linkedin_url?: string; role_label?: string;
 }
 
+export interface SponsorOptionRecord {
+  sponsor_id: string; name: string; company_id: string | null; company: string | null; website: string | null; email: string | null;
+  logo_url: string | null; tier: string | null; tier_label: string | null; events: number; on_event: boolean;
+}
+export interface SponsorOptionCompany { company_id: string; name: string; website: string | null; verified: boolean }
+export interface SponsorOptions { records: SponsorOptionRecord[]; companies: SponsorOptionCompany[]; exact: boolean }
+export interface AddedSponsor {
+  event_sponsor_id: string; sponsor_id: string; name: string; email: string | null; company_id: string | null; company: string | null; created: boolean;
+}
+
 async function call<T>(name: string, params: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabaseRpc<T>(name, params);
   if (error) throw new Error((error as { message?: string }).message || "Request failed");
@@ -91,6 +101,16 @@ async function call<T>(name: string, params: Record<string, unknown>): Promise<T
 }
 
 export const sponsorship = {
+  /** The organisation's sponsors and known companies, to add to this event. */
+  options: (eventId: string, q: string) => call<SponsorOptions>("organizer_sponsor_options", { _event: eventId, _q: q, _limit: 12 }),
+  /** Reuses the organisation's record for that company, or makes one. */
+  addToEvent: (eventId: string, f: {
+    sponsorId?: string; companyId?: string; name?: string; tier: string; tierLabel: string | null;
+    email?: string; website?: string; logo_url?: string; description?: string;
+  }) => call<AddedSponsor>("organizer_add_event_sponsor", {
+    _event: eventId, _sponsor: f.sponsorId ?? null, _company: f.companyId ?? null, _name: f.name ?? null, _tier: f.tier, _tier_label: f.tierLabel,
+    _email: f.email || null, _website: f.website || null, _logo_url: f.logo_url || null, _description: f.description || null,
+  }),
   forEvent: (eventId: string) => call<EventSponsorshipRow[]>("organizer_event_sponsorships", { _event: eventId }),
   detail: (id: string) => call<SponsorshipDetail>("organizer_sponsorship_detail", { _event_sponsor: id }),
   update: (id: string, changes: Record<string, unknown>) => call<void>("organizer_update_sponsorship", { _event_sponsor: id, _changes: changes }),

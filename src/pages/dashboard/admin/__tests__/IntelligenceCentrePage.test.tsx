@@ -20,10 +20,11 @@ const responses: Record<string, unknown> = {
   intel_overview: OVERVIEW,
   intel_search_contacts: [{ person_id: "p1", display_name: "Aman Shaikh", email: "aman@abc.test", phone: "+919876511111", company: "ABC", designation: "CFO", has_account: true, registrations: 2, updated_at: "2026-10-01", total: 60 }],
   intel_search_companies: [{ company_id: "c1", name: "Tata Consultancy Services", domains: ["tcs.test"], industry: null, hq_country: "India", contacts: 3, entry_count: 9, verification_status: "provisional", updated_at: "2026-10-01", total: 1 }],
-  intel_search_sponsors: { total: 2, rows: [
-    { id: "sp1", name: "Acme", email: null, website: "https://acme.test", company_id: "c1", company: "Acme Ltd", same_company: 1, same_owner: ["sp9"], events: 2, team: 1, created_by: "org@x.test",
-      sponsorships: [{ id: "es1", event: "CFO Connect Mumbai", date: "2026-01-01", tier: "platinum", tier_label: null }, { id: "es2", event: "HR Circle", date: "2026-02-01", tier: "custom", tier_label: "Knowledge Partner" }] },
-    { id: "sp2", name: "Globex", email: null, website: null, company_id: null, company: null, same_company: 0, same_owner: [], events: 0, team: 0, created_by: "org@x.test", sponsorships: [] },
+  intel_sponsor_companies: { total: 2, combinable: 4, rows: [
+    { key: "c1", company_id: "c1", name: "Acme Ltd", record_count: 3, domains: ["acme.test"], organisations: 2, team: 1, combine_sets: [["sp1", "sp9"]],
+      records: [{ id: "sp1", name: "Acme", email: null, website: "https://acme.test", owner: "org@x.test", events: 1, team: 1 }, { id: "sp9", name: "Acme Pvt", email: null, website: null, owner: "mate@x.test", events: 1, team: 0 }],
+      sponsorships: [{ id: "es1", event: "CFO Connect Mumbai", date: "2026-01-01", tier: "platinum", tier_label: null, sponsor_id: "sp1", owner: "org@x.test" }, { id: "es2", event: "HR Circle", date: "2026-02-01", tier: "custom", tier_label: "Knowledge Partner", sponsor_id: "sp9", owner: "mate@x.test" }] },
+    { key: "sp2", company_id: null, name: "Globex", record_count: 1, domains: [], organisations: 1, team: 0, combine_sets: [], records: [{ id: "sp2", name: "Globex", email: null, website: null, owner: "org@x.test", events: 0, team: 0 }], sponsorships: [] },
   ] },
   intel_sponsor_review: { total: 1, counts: { duplicate_sponsor_records: 1 }, rows: [{ kind: "duplicate_sponsor_records", title: "Acme Ltd", detail: "2 records from org@x.test", company_id: "c1", sponsor_ids: ["sp1", "sp9"], person_ids: [] }] },
   intel_sponsor_merge_preview: { same_owner: true, same_company: true, conflicts: [], repeats: 0, records: [{ id: "sp1", name: "Acme", company: "Acme Ltd", team: 1, events: [{ event: "CFO Connect Mumbai", tier: "platinum", tier_label: null }] }, { id: "sp9", name: "Acme Pvt", company: "Acme Ltd", team: 0, events: [{ event: "HR Circle", tier: "custom", tier_label: "Knowledge Partner" }] }] },
@@ -114,33 +115,49 @@ describe("Intelligence Centre", () => {
     expect(within(screen.getByRole("tabpanel")).getByRole("button", { name: "Incomplete" }).getAttribute("aria-pressed")).toBe("true");
     expect(callsTo("intel_search_contacts").length).toBe(before);
   });
-  it("sponsors: shows connections and connects an unconnected record", async () => {
+  it("sponsors: one row per company, with each event's own title under it", async () => {
+    openTab("sponsors");
+    expect(await screen.findByText("Acme Ltd")).toBeTruthy();
+    expect(screen.getByText("· 2 organisations")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "2 events and records of Acme Ltd" }));
+    expect(await screen.findByText("Knowledge Partner")).toBeTruthy();
+    expect(screen.getByText("Platinum")).toBeTruthy();
+    expect(screen.getByText("Acme Pvt")).toBeTruthy();
+  });
+  it("sponsors: connects a record with no company", async () => {
     rpc.mockImplementation(async (name: string) => ({
       data: name === "intel_search_companies" ? [{ company_id: "c9", name: "Globex Corporation", domains: [], verification_status: "verified", total: 1 }] : responses[name] ?? null,
       error: null,
     }));
     openTab("sponsors");
-    expect(await screen.findByText("Acme Ltd")).toBeTruthy();
-    expect(screen.getByText("1 other record for this company")).toBeTruthy();
-    expect(screen.getByText("Not connected", { selector: "div" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "2 events of Acme" }));
-    expect(await screen.findByText("Knowledge Partner")).toBeTruthy();
-    expect(screen.getByText("Platinum")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect" }));
     fireEvent.change(await screen.findByLabelText("Search for Connected to"), { target: { value: "glob" } });
     fireEvent.click(await screen.findByRole("button", { name: /Globex Corporation/ }));
     await waitFor(() => expect(callsTo("intel_connect_sponsor").at(-1)?.[1]).toMatchObject({ _sponsor: "sp2", _company: "c9" }));
   });
   it("sponsors: combining shows each record's events and titles, and confirms first", async () => {
     openTab("sponsors");
-    fireEvent.click(await screen.findByRole("button", { name: "Combine" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Combine 2" }));
     expect(await screen.findByText("Combine sponsor records")).toBeTruthy();
-    expect(await screen.findByText("Knowledge Partner")).toBeTruthy();
+    expect((await screen.findAllByText("Knowledge Partner")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: "Same company" } });
     fireEvent.click(screen.getByRole("button", { name: "Combine records" }));
     expect(callsTo("intel_merge_sponsors")).toHaveLength(0);
     fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(callsTo("intel_merge_sponsors").at(-1)?.[1]).toMatchObject({ _survivor: "sp1", _others: ["sp9"] }));
+  });
+  it("sponsors: Combine all asks first, and reports what it left", async () => {
+    const { toast } = await import("sonner");
+    rpc.mockImplementation(async (name: string) => ({
+      data: name === "intel_combine_all_sponsor_repeats" ? { merged: 3, skipped: [{ name: "Dual Co", reason: "different titles" }] } : responses[name] ?? null,
+      error: null,
+    }));
+    openTab("sponsors");
+    fireEvent.click(await screen.findByRole("button", { name: /Combine all repeats \(4\)/ }));
+    expect(callsTo("intel_combine_all_sponsor_repeats")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm: combine 4" }));
+    await waitFor(() => expect(callsTo("intel_combine_all_sponsor_repeats")).toHaveLength(1));
+    await waitFor(() => expect(toast.message).toHaveBeenCalledWith("1 left for you to review", expect.anything()));
   });
   it("sponsors: moving a sponsorship goes to the chosen company", async () => {
     rpc.mockImplementation(async (name: string) => ({
@@ -148,8 +165,8 @@ describe("Intelligence Centre", () => {
       error: null,
     }));
     openTab("sponsors");
-    fireEvent.click(await screen.findByRole("button", { name: "2 events of Acme" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "Move" }))[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "2 events and records of Acme Ltd" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Move CFO Connect Mumbai" }));
     fireEvent.change(await screen.findByLabelText("Search for Move to"), { target: { value: "right" } });
     fireEvent.click(await screen.findByRole("button", { name: /Right Co/ }));
     await waitFor(() => expect(callsTo("intel_move_sponsorship").at(-1)?.[1]).toMatchObject({ _event_sponsor: "es1", _company: "c9" }));

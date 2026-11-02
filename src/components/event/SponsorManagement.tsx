@@ -4,8 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
@@ -43,10 +42,8 @@ import {
   reorderGroups as reorderGroupsPure,
   moveSponsorToTier as moveSponsorToTierPure,
 } from "./sponsor-dnd";
-import { useOrgSponsorSearch } from "@/hooks/useOrgPeopleSearch";
 import { publicOrigin } from "@/lib/publicUrl";
-import { CompanyInput } from "@/components/intelligence/CompanyInput";
-import { SponsorRepeatNotice } from "./SponsorRepeatNotice";
+import { AddSponsorDialog } from "./AddSponsorDialog";
 import { SponsorshipPanel, type SponsorshipPanelTab } from "./SponsorshipPanel";
 import { fetchEventSponsorLinks, sponsorship, withEventSponsorship, type EventSponsorLink, type EventSponsorshipRow } from "@/lib/sponsors/event-sponsorship";
 
@@ -95,6 +92,7 @@ export default function SponsorManagement({ eventId }: Props) {
   const [assignedIds, setAssignedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Sponsor | null>(null);
   const [form, setForm] = useState(emptySponsor);
   const [panel, setPanel] = useState<{ sponsor: Sponsor; tab: SponsorshipPanelTab } | null>(null);
@@ -329,85 +327,36 @@ export default function SponsorManagement({ eventId }: Props) {
   const notifySponsorAdded = (sponsor: { id: string; email: string | null; name: string }) =>
     sendSponsorInvite({ sponsorId: sponsor.id, recipient: sponsor.email });
 
-  const handleSave = async () => {
+  /** A custom title becomes one of the organisation's reusable ones. */
+  const rememberTitle = async (title: string | null) => {
+    if (!title || !orgId || tierPresets.some((p) => p.label.toLowerCase() === title.toLowerCase())) return;
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (user) await supabase.from("org_sponsor_tiers").insert({ org_id: orgId, label: title, created_by: user.id });
+  };
+
+  const handleSave = async () => {
+    if (!editing) return;
     if (!form.name.trim()) { toast.error("Name is required"); return; }
     if (form.tier === "custom" && !form.tier_label.trim()) { toast.error("Custom tier name is required"); return; }
     const tierLabelToSave = form.tier === "custom" ? form.tier_label.trim() : null;
 
-    if (editing) {
-      // The title belongs to this event; other events keep theirs.
-      const logoIsThisEvents = !!editing.link?.logo_url;
-      const { error } = await supabase.from("sponsors").update({
-        name: form.name, email: form.email || null, ...(logoIsThisEvents ? {} : { logo_url: form.logo_url || null }),
-        website: form.website || null, description: form.description || null,
-      }).eq("id", editing.id);
-      if (error) { toast.error(error.message); return; }
-      const { error: linkError } = await supabase.from("event_sponsors").update({
-        tier: form.tier, tier_label: tierLabelToSave, ...(logoIsThisEvents ? { logo_url: form.logo_url || null } : {}),
-      }).eq("event_id", eventId).eq("sponsor_id", editing.id);
-      if (linkError) { toast.error(linkError.message); return; }
-      toast.success("Sponsor updated");
-    } else {
-      const { data, error } = await supabase.from("sponsors").insert({
-        name: form.name, email: form.email || null, logo_url: form.logo_url || null,
-        website: form.website || null, tier: form.tier, tier_label: tierLabelToSave, description: form.description || null,
-        user_id: user.id,
-      }).select().single();
-      if (error) { toast.error(error.message); return; }
-      const { error: linkError } = await supabase.from("event_sponsors").insert({
-        event_id: eventId, sponsor_id: data.id, tier: form.tier, tier_label: tierLabelToSave,
-      });
-      if (linkError) {
-        // Nothing is left half-made: the record only existed for this sponsorship.
-        await supabase.from("sponsors").delete().eq("id", data.id);
-        toast.error(linkError.message);
-        return;
-      }
-      toast.success("Sponsor added & assigned");
-      // Heads-up email — silent no-op when the sponsor has no email or
-      // it's malformed. Doesn't block the dialog close.
-      void notifySponsorAdded({ id: data.id, email: form.email || null, name: form.name });
-    }
+    // The title belongs to this event; other events keep theirs.
+    const logoIsThisEvents = !!editing.link?.logo_url;
+    const { error } = await supabase.from("sponsors").update({
+      name: form.name, email: form.email || null, ...(logoIsThisEvents ? {} : { logo_url: form.logo_url || null }),
+      website: form.website || null, description: form.description || null,
+    }).eq("id", editing.id);
+    if (error) { toast.error(error.message); return; }
+    const { error: linkError } = await supabase.from("event_sponsors").update({
+      tier: form.tier, tier_label: tierLabelToSave, ...(logoIsThisEvents ? { logo_url: form.logo_url || null } : {}),
+    }).eq("event_id", eventId).eq("sponsor_id", editing.id);
+    if (linkError) { toast.error(linkError.message); return; }
+    toast.success("Sponsor updated");
     setOpen(false);
     setEditing(null);
     setForm(emptySponsor);
-    // Save custom tier as a reusable org-level preset
-    if (form.tier === "custom" && tierLabelToSave && orgId) {
-      const exists = tierPresets.some(
-        (p) => p.label.toLowerCase() === tierLabelToSave.toLowerCase()
-      );
-      if (!exists) {
-        await supabase
-          .from("org_sponsor_tiers")
-          .insert({ org_id: orgId, label: tierLabelToSave, created_by: user.id });
-      }
-    }
+    await rememberTitle(tierLabelToSave);
     fetchData();
-  };
-
-  const handleAssign = async (sponsorId: string) => {
-    if (assignedIds.has(sponsorId)) {
-      await supabase.from("event_sponsors").delete().eq("event_id", eventId).eq("sponsor_id", sponsorId);
-      toast.success("Sponsor removed from event");
-    } else {
-      const nextOrder = sponsors.length;
-      const { error } = await supabase.from("event_sponsors").insert({
-        event_id: eventId, sponsor_id: sponsorId, display_order: nextOrder,
-      });
-      if (error) { toast.error(error.message); return false; }
-      toast.success("Sponsor assigned to event");
-      // Heads-up email for the newly-assigned sponsor company. Look up
-      // the row from the cached `sponsors` list (the picker uses the
-      // same dataset) so we don't need an extra round-trip.
-      const sponsor = sponsors.find((s) => s.id === sponsorId);
-      if (sponsor) {
-        void notifySponsorAdded({ id: sponsor.id, email: sponsor.email, name: sponsor.name });
-      }
-    }
-    fetchData();
-    return true;
   };
 
   const handleDelete = async (id: string) => {
@@ -516,30 +465,14 @@ export default function SponsorManagement({ eventId }: Props) {
           <h2 className="text-xl font-bold">Sponsors</h2>
           <p className="text-sm text-muted-foreground">{sponsors.length} sponsors assigned to this event</p>
         </div>
+        <Button size="sm" onClick={() => setAdding(true)}><Plus className="h-4 w-4 mr-1" /> Add Sponsor</Button>
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditing(null); setForm(emptySponsor); } }}>
-          <DialogTrigger asChild>
-            <Button size="sm"><Plus className="h-4 w-4 mr-1" /> Add Sponsor</Button>
-          </DialogTrigger>
           <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-[520px] max-h-[90vh] p-0 gap-0 overflow-hidden flex flex-col">
             <DialogHeader className="sticky top-0 z-10 bg-background border-b px-5 sm:px-6 py-4">
-              <DialogTitle>{editing ? "Edit Sponsor" : "Add New Sponsor"}</DialogTitle>
+              <DialogTitle>Edit Sponsor</DialogTitle>
             </DialogHeader>
             <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-4 space-y-3">
-              <div><Label>Name *</Label><CompanyInput value={form.name} onChange={(name) => setForm({ ...form, name })} /></div>
-              {!editing && (
-                <SponsorRepeatNotice
-                  name={form.name}
-                  website={form.website}
-                  assignedIds={assignedIds}
-                  onUse={(existing) => {
-                    setOpen(false);
-                    setForm(emptySponsor);
-                    void handleAssign(existing.id).then((assigned) => {
-                      if (assigned) void notifySponsorAdded({ id: existing.id, email: existing.email, name: existing.name });
-                    });
-                  }}
-                />
-              )}
+              <div><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
               <div>
                 <Label>Tier</Label>
                 <Select
@@ -599,7 +532,7 @@ export default function SponsorManagement({ eventId }: Props) {
               <div><Label>Description</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} /></div>
             </div>
             <div className="sticky bottom-0 bg-background border-t px-5 sm:px-6 py-3">
-              <Button onClick={handleSave} className="w-full">{editing ? "Update" : "Create & Assign"}</Button>
+              <Button onClick={handleSave} className="w-full">Update</Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -736,12 +669,20 @@ export default function SponsorManagement({ eventId }: Props) {
         </DragOverlay>
       </DndContext>
 
-      {/* Add existing sponsor — searchable popover that fetches up to 50
-          matches per query via the org-wide search hook. */}
-      <AssignSponsorPopover
-        excludeIds={assignedIds}
-        onAssign={handleAssign}
-      />
+      {adding && (
+        <AddSponsorDialog
+          eventId={eventId}
+          tiers={TIERS}
+          presets={tierPresets}
+          onClose={() => setAdding(false)}
+          onAdded={(added, customTitle) => {
+            void rememberTitle(customTitle);
+            fetchData();
+            // Heads-up email; silent when the sponsor has no address.
+            void notifySponsorAdded({ id: added.sponsor_id, email: added.email, name: added.name });
+          }}
+        />
+      )}
 
       {/* Sponsor applications — review and approve companies that applied via
           the public event page. Lives here (instead of a top-level "Applications"
@@ -769,88 +710,6 @@ export default function SponsorManagement({ eventId }: Props) {
           onRemoveMember={removeMember}
         />
       )}
-    </div>
-  );
-}
-
-function AssignSponsorPopover({
-  excludeIds, onAssign,
-}: {
-  excludeIds: Set<string>;
-  onAssign: (sponsorId: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-
-  // Server-side search: debounced + 50-row limit, fires only when open.
-  const { data: results = [], isLoading } = useOrgSponsorSearch(query, open);
-  const filtered = (results as Sponsor[]).filter((s) => !excludeIds.has(s.id));
-
-  return (
-    <div className="border-t border-border pt-4">
-      <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setQuery(""); }}>
-        <PopoverTrigger asChild>
-          <Button variant="outline" size="sm" className="gap-1.5">
-            <Award className="h-3.5 w-3.5" />
-            Add existing sponsor
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-80 p-0">
-          <div className="p-2 border-b border-border">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search by name, tier, email…"
-                className="pl-8 h-8 text-[13px]"
-                autoFocus
-              />
-            </div>
-          </div>
-          <div className="max-h-72 overflow-y-auto">
-            {isLoading ? (
-              <p className="text-[12px] text-muted-foreground text-center py-6">
-                Searching…
-              </p>
-            ) : filtered.length === 0 ? (
-              <p className="text-[12px] text-muted-foreground text-center py-6">
-                {query.trim() ? "No sponsors match." : "No sponsors yet — add one with the button above."}
-              </p>
-            ) : (
-              <div className="py-1">
-                {filtered.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => { onAssign(s.id); setOpen(false); setQuery(""); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/50 transition-colors text-left"
-                  >
-                    {s.logo_url ? (
-                      <img loading="lazy" decoding="async" src={s.logo_url} alt={s.name} className="h-6 w-6 rounded object-contain bg-white shrink-0 border border-border" />
-                    ) : (
-                      <div className="h-6 w-6 rounded bg-muted flex items-center justify-center text-[10px] font-semibold text-muted-foreground shrink-0">
-                        {s.name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-medium truncate">{s.name}</p>
-                      <p className="text-[11px] text-muted-foreground truncate capitalize">
-                        {s.tier_label || s.tier}
-                      </p>
-                    </div>
-                    <Plus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  </button>
-                ))}
-              </div>
-            )}
-            {filtered.length === 50 && !query.trim() && (
-              <p className="text-[10px] text-muted-foreground text-center py-2 border-t border-border">
-                Showing first 50 — type to search the rest
-              </p>
-            )}
-          </div>
-        </PopoverContent>
-      </Popover>
     </div>
   );
 }

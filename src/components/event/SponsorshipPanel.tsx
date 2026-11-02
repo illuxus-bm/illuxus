@@ -4,6 +4,7 @@ import { Building2, Copy, Loader2, Mail, Plus, Search, Trash2, UserCheck } from 
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -270,8 +271,8 @@ function TeamTab({ data, eventSponsorId, onChanged, onInvite, onCopyInvite, onRe
       {mode === "existing" && (
         <div className="space-y-2 rounded-xl border border-border bg-card p-4">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} className="h-8 pl-8 text-[13px]" placeholder="Name, email, phone or designation" aria-label="Search company contacts" />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} className="h-10 rounded-xl border-transparent bg-muted/60 pl-10 text-sm focus-visible:bg-background" placeholder="Name, email, phone or designation" aria-label="Search company contacts" />
           </div>
           {(known.data ?? []).length === 0
             ? <p className="py-3 text-center text-muted-foreground">{known.isFetching ? "Searching…" : "No company contacts found."}</p>
@@ -321,7 +322,7 @@ function AssignmentRow({ member, onSet }: { member: SponsorshipDetail["team"][nu
   return (
     <div className="flex items-center gap-2 text-[12px]">
       <label className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
-        <input type="checkbox" checked={member.assigned} onChange={(e) => void onSet(member.id, e.target.checked, role.trim() || null)} />
+        <Checkbox checked={member.assigned} onCheckedChange={(checked) => void onSet(member.id, checked === true, role.trim() || null)} />
         On this event
       </label>
       {member.assigned && (

@@ -202,7 +202,7 @@ export function MergeDialog({ entity, ids, open, onOpenChange, onMerged, match }
               <label className="flex items-start gap-2 rounded-md border p-3 text-[13px]">
                 <input type="checkbox" className="mt-0.5" checked={consolidate} onChange={(e) => setConsolidate(e.target.checked)} />
                 <span>
-                  Also combine each organiser's repeat sponsor records for this company.
+                  Also combine each organisation's repeat sponsor records for this company.
                   <span className="block text-[12px] text-muted-foreground">Every event keeps its title and logo. Records with different titles on one event stay separate, and each merge can be rolled back.</span>
                 </span>
               </label>

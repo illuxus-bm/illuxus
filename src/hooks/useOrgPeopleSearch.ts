@@ -47,17 +47,6 @@ export interface SpeakerLite {
   industry: string | null;
 }
 
-export interface SponsorLite {
-  id: string;
-  name: string;
-  email: string | null;
-  logo_url: string | null;
-  website: string | null;
-  tier: string;
-  tier_label: string | null;
-  description: string | null;
-}
-
 const DEBOUNCE_MS = 250;
 const RESULT_LIMIT = 50;
 
@@ -112,27 +101,3 @@ export function useOrgSpeakerSearch(query: string, open: boolean) {
   });
 }
 
-/**
- * Search sponsors visible to the signed-in organiser. Returns up to 50
- * rows ordered by name. Empty query returns the first 50.
- */
-export function useOrgSponsorSearch(query: string, open: boolean) {
-  const debounced = useDebounced(query, DEBOUNCE_MS);
-  return useQuery<SponsorLite[]>({
-    queryKey: ["org-sponsor-search", debounced.trim()],
-    enabled: open,
-    staleTime: 30_000,
-    queryFn: async () => {
-      let q = supabase.from("sponsors").select("*");
-      const trimmed = debounced.trim();
-      if (trimmed) {
-        const pat = ilikePattern(trimmed);
-        q = q.or(`name.ilike.${pat},email.ilike.${pat},website.ilike.${pat}`);
-      }
-      const { data, error } = await q.order("name").limit(RESULT_LIMIT);
-      if (error) throw error;
-      // A record merged into another is no longer one to choose.
-      return ((data ?? []) as Array<SponsorLite & { merged_into?: string | null }>).filter((s) => !s.merged_into);
-    },
-  });
-}

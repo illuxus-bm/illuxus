@@ -15,9 +15,9 @@ interface Props {
 }
 
 /**
- * Combines one organiser's sponsor records for a company. Shows each record's
+ * Combines an organisation's sponsor records for a company. Shows each record's
  * events and titles first; every event keeps its own. The server refuses records of
- * different organisers, or with different titles on one event.
+ * different organisations, or with different titles on one event.
  */
 export function SponsorMergeDialog({ ids, onClose, onMerged }: Props) {
   const [survivor, setSurvivor] = useState(ids[0]);
@@ -81,7 +81,7 @@ export function SponsorMergeDialog({ ids, onClose, onMerged }: Props) {
             {blocked && (
               <p className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-[13px] text-destructive">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                {!preview.same_owner ? "These belong to different organisers, who each edit their own record. They stay separate, connected to one company."
+                {!preview.same_owner ? "These belong to different organisations. A sponsor's team sees every event of its record, so they stay separate, under one company."
                   : !preview.same_company ? "Connect these records to the same company first."
                   : `Different titles on ${preview.conflicts.join(", ")}. Those may be separate agreements, so these records stay separate.`}
               </p>

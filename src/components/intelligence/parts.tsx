@@ -1,10 +1,10 @@
 /**
- * The Intelligence Centre's building blocks, in the same style as the other
- * Super Admin pages: KPI tiles, bordered tables, filter chips, pagers.
+ * The Intelligence Centre's building blocks, matching the Events and Reports
+ * pages: stat tiles, filled search, segmented filters, period picker, tables.
  */
 import { useCallback, useEffect, useRef, useState, type ElementType, type ReactNode } from "react";
 import { keepPreviousData, useQuery, type UseQueryResult } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsUpDown, Loader2, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsUpDown, Inbox, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,9 +13,11 @@ import { cn } from "@/lib/utils";
 
 export const fail = (e: unknown) => toast.error(e instanceof Error ? e.message : String(e));
 export const PAGE_SIZES = [25, 50, 100];
-export const th = "text-left font-medium text-muted-foreground px-4 py-2.5";
-export const td = "px-4 py-3";
-export const tr = "border-b border-border/50 last:border-0";
+export const th = "px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground";
+export const td = "px-4 py-2.5";
+export const tr = "border-b border-border last:border-0";
+/** A text filter beside the search box. */
+export const filterInput = "h-10 rounded-xl border-transparent bg-muted/60 text-sm focus-visible:bg-background";
 
 /** A cached read that keeps showing the last result while the next one loads. */
 export function useIntelQuery<T>(key: unknown[], fn: () => Promise<T>) {
@@ -55,7 +57,7 @@ export function Pager({ pager, total, updating, label = "records", sizes = PAGE_
       </span>
       <span className="flex items-center gap-2">
         {sizes.length > 1 && (
-          <FilterSelect label={`${label} per page`} value={String(size)} onChange={(v) => setSize(Number(v))} options={sizes.map((s) => [String(s), `${s} per page`])} />
+          <FilterSelect small label={`${label} per page`} value={String(size)} onChange={(v) => setSize(Number(v))} options={sizes.map((s) => [String(s), `${s} per page`])} />
         )}
         <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === 0} onClick={() => setPage(page - 1)} aria-label={`Previous page of ${label}`}><ChevronLeft className="h-4 w-4" /></Button>
         <span className="tabular-nums">Page {page + 1} of {pages}</span>
@@ -72,7 +74,7 @@ export function SortHead({ label, column, sort, onSort, className }: { label: st
   const Icon = !active ? ChevronsUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
   return (
     <th className={cn(th, className)} aria-sort={!active ? "none" : sort.dir === "asc" ? "ascending" : "descending"}>
-      <button type="button" className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => onSort(column)}>
+      <button type="button" className="inline-flex items-center gap-1 font-medium uppercase tracking-wide hover:text-foreground" onClick={() => onSort(column)}>
         {label} <Icon className={cn("h-3 w-3", !active && "opacity-40")} />
       </button>
     </th>
@@ -84,8 +86,8 @@ export const Skeleton = ({ className = "" }: { className?: string }) => <div cla
 /** The bordered table every admin page uses. */
 export function TableShell({ dimmed, children }: { dimmed?: boolean; children: ReactNode }) {
   return (
-    <div className={cn("overflow-hidden rounded-xl border border-border bg-card transition-opacity", dimmed && "opacity-60")}>
-      <div className="overflow-x-auto"><table className="w-full text-[13px]">{children}</table></div>
+    <div className={cn("overflow-hidden rounded-2xl border border-border bg-card transition-opacity", dimmed && "opacity-60")}>
+      <div className="overflow-x-auto"><table className="w-full text-sm">{children}</table></div>
     </div>
   );
 }
@@ -94,7 +96,7 @@ export function TableShell({ dimmed, children }: { dimmed?: boolean; children: R
 export function NoData({ query, rows = 6 }: { query: UseQueryResult<unknown>; rows?: number }) {
   if (query.isError) {
     return (
-      <div className="rounded-xl border border-border bg-card py-8 text-center text-[13px] text-muted-foreground">
+      <div className="rounded-lg border border-dashed border-border py-10 text-center text-[13px] text-muted-foreground">
         This couldn't be loaded. <Button size="sm" variant="outline" className="ml-2 h-8" onClick={() => void query.refetch()}>Try again</Button>
       </div>
     );
@@ -103,41 +105,56 @@ export function NoData({ query, rows = 6 }: { query: UseQueryResult<unknown>; ro
 }
 
 export const Empty = ({ children }: { children: ReactNode }) => (
-  <div className="rounded-xl border border-border bg-card py-8 text-center text-[13px] text-muted-foreground">{children}</div>
+  <div className="rounded-lg border border-dashed border-border py-10 text-center">
+    <Inbox className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
+    <p className="text-[13px] text-muted-foreground">{children}</p>
+  </div>
 );
 
 export function KpiTile({ icon: Icon, label, value, hint, onClick, loading }: { icon: ElementType; label: string; value: number | string | undefined; hint?: string; onClick?: () => void; loading?: boolean }) {
   return (
     <button type="button" onClick={onClick} disabled={!onClick}
-            className={cn("flex h-full flex-col items-start justify-start gap-1.5 rounded-xl border border-border bg-card p-4 text-left transition-colors", onClick && "hover:bg-muted/20")}>
-      <div className="flex items-center gap-2">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
-      </div>
-      {loading ? <Skeleton className="h-8 w-20" /> : <p className="text-2xl font-bold tabular-nums tracking-tight">{value ?? "—"}</p>}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+            className={cn("block h-full w-full rounded-2xl border border-border bg-card p-4 text-left transition-colors", onClick && "hover:bg-muted/30")}>
+      <span className="flex items-center justify-between gap-2">
+        <span className="text-[12px] font-medium text-muted-foreground">{label}</span>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground"><Icon className="h-4 w-4" /></span>
+      </span>
+      {loading ? <Skeleton className="mt-2 h-7 w-20" /> : <span className="mt-2 block text-[28px] font-medium leading-none tracking-tight tabular-nums">{typeof value === "number" ? value.toLocaleString() : value ?? "—"}</span>}
+      <span className="mt-1.5 block truncate text-[12px] text-muted-foreground">{hint ?? "\u00A0"}</span>
     </button>
   );
 }
 
-export function Chips({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: string[][] }) {
+/** The segmented control the Events and Reports pages filter with. */
+export function Chips({ value, onChange, options, label = "Filter" }: { value: string; onChange: (v: string) => void; options: string[][]; label?: string }) {
   return (
-    <div className="flex flex-wrap items-center gap-1">
-      {options.map(([v, label]) => (
+    <div className="flex max-w-full overflow-x-auto rounded-xl bg-muted p-1" role="group" aria-label={label}>
+      {options.map(([v, text]) => (
         <button key={v} type="button" aria-pressed={value === v} onClick={() => onChange(v)}
-                className={cn("rounded border px-2.5 py-1 text-[12px] transition-colors", value === v ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted")}>
-          {label}
+                className={cn("h-8 shrink-0 whitespace-nowrap rounded-lg px-3 text-[13px] font-medium transition-colors", value === v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+          {text}
         </button>
       ))}
     </div>
   );
 }
 
-export function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[][] }) {
+export const PERIODS = [["all", "All time"], ["7d", "7 days"], ["30d", "30 days"], ["90d", "90 days"], ["ytd", "This year"]];
+
+/** The first day of a period, as yyyy-mm-dd; empty for all time. */
+export function periodStart(period: string, today = new Date()): string {
+  const d = new Date(today);
+  if (period === "ytd") d.setMonth(0, 1);
+  else if (period === "7d" || period === "30d" || period === "90d") d.setDate(d.getDate() - (Number(period.slice(0, -1)) - 1));
+  else return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export function FilterSelect({ label, value, onChange, options, small }: { label: string; value: string; onChange: (v: string) => void; options: string[][]; small?: boolean }) {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger aria-label={label} className="h-8 w-auto gap-2 text-[12px]"><SelectValue /></SelectTrigger>
-      <SelectContent>{options.map(([v, l]) => <SelectItem key={v} value={v} className="text-[12px]">{l}</SelectItem>)}</SelectContent>
+      <SelectTrigger aria-label={label} className={cn("w-auto gap-2 text-[13px]", small ? "h-8" : "h-10 rounded-xl")}><SelectValue /></SelectTrigger>
+      <SelectContent>{options.map(([v, l]) => <SelectItem key={v} value={v} className="text-[13px]">{l}</SelectItem>)}</SelectContent>
     </Select>
   );
 }
@@ -145,8 +162,8 @@ export function FilterSelect({ label, value, onChange, options }: { label: strin
 export function SearchBox({ value, onChange, placeholder, className }: { value: string; onChange: (v: string) => void; placeholder: string; className?: string }) {
   return (
     <div className={cn("relative", className)}>
-      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} aria-label={placeholder} className="h-8 w-full pl-8 text-sm" />
+      <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} aria-label={placeholder} className={cn(filterInput, "w-full pl-10")} />
     </div>
   );
 }

@@ -127,7 +127,7 @@ describe("helpers", () => {
     records = { a: company("a"), b: company("b") };
     impact = { sponsors: 2 };
     open("company");
-    expect(await screen.findByText(/combine each organiser's repeat sponsor records/)).toBeTruthy();
+    expect(await screen.findByText(/combine each organisation's repeat sponsor records/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: "Same company" } });
     await confirmMerge();
     await waitFor(() => expect(mergeCalls("intel_consolidate_company_sponsors")).toHaveLength(1));
@@ -138,7 +138,7 @@ describe("helpers", () => {
     records = { a: company("a"), b: company("b") };
     impact = { sponsors: 2 };
     open("company");
-    fireEvent.click(await screen.findByRole("checkbox", { name: /combine each organiser/ }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: /combine each organisation/ }));
     fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: "Same company" } });
     await confirmMerge();
     await waitFor(() => expect(mergeCalls("intel_merge_companies")).toHaveLength(1));

@@ -1,5 +1,5 @@
 /**
- * The Intelligence Centre's calls (migrations 064 to 066). Every function checks the
+ * The Intelligence Centre's calls (migrations 064 to 067). Every function checks the
  * Super Admin role on the server; nothing here relies on the page being
  * hidden. Errors come back as thrown Errors with the server's message.
  */
@@ -62,6 +62,14 @@ export interface SponsorRow {
   sponsorships: Array<{ id: string; event: string; date: string | null; tier: string | null; tier_label: string | null }>;
 }
 
+export interface SponsorCompanyRow {
+  key: string; company_id: string | null; name: string; record_count: number; domains: string[]; organisations: number; team: number;
+  records: Array<{ id: string; name: string; email: string | null; website: string | null; owner: string | null; events: number; team: number }>;
+  /** Sets of records that can become one. Records outside them belong to other organisations. */
+  combine_sets: string[][];
+  sponsorships: Array<{ id: string; event: string; date: string | null; tier: string | null; tier_label: string | null; sponsor_id: string; owner: string | null }>;
+}
+
 export interface SponsorMergePreview {
   records: Array<{
     id: string; name: string; email: string | null; website: string | null; logo_url: string | null; description: string | null;
@@ -119,6 +127,10 @@ export const intel = {
     call<Page<SponsorRow>>("intel_search_sponsors", { _q: f.q ?? "", _limit: f.limit ?? 25, _offset: f.offset ?? 0, _filter: f.filter ?? "all" }),
   connectSponsor: (sponsor: string, company: string | null, reason?: string) =>
     call<void>("intel_connect_sponsor", { _sponsor: sponsor, _company: company, _reason: reason || null }),
+  sponsorCompanies: (f: ListQuery = {}) =>
+    call<Page<SponsorCompanyRow> & { combinable: number }>("intel_sponsor_companies", { _q: f.q ?? "", _limit: f.limit ?? 25, _offset: f.offset ?? 0, _filter: f.filter ?? "all" }),
+  combineAllSponsorRepeats: (reason?: string) =>
+    call<{ merged: number; skipped: Array<{ name: string; reason: string }> }>("intel_combine_all_sponsor_repeats", { _reason: reason || null }),
   sponsorMergePreview: (survivor: string, others: string[]) =>
     call<SponsorMergePreview>("intel_sponsor_merge_preview", { _survivor: survivor, _others: others }),
   mergeSponsors: (survivor: string, others: string[], reason: string) =>
