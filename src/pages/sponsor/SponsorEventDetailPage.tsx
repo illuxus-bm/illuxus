@@ -31,10 +31,12 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EventSharedData } from "@/components/sponsor-data/EventSharedData";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { dataSharing, type ReceivedShare } from "@/lib/sponsors/data-sharing";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowDown, ArrowLeft, CheckCircle2, ChevronRight, Eye, Lock, Mic, Search, User, Users, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, CalendarCheck, CheckCircle2, ChevronRight, Eye, Lock, Mic, Search, User, Users, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
@@ -310,6 +312,18 @@ export default function SponsorEventDetailPage() {
     };
   }, [people]);
 
+  // Once the organiser shares the participant data, it replaces the list below.
+  const { data: received = [] } = useQuery<ReceivedShare[]>({
+    queryKey: ["sponsor-received-shares"],
+    queryFn: () => dataSharing.received().catch(() => []),
+    enabled: !!user,
+    staleTime: 30_000,
+  });
+  const shared = received.some((d) => d.event_id === eventId);
+  const [meetingsOpen, setMeetingsOpen] = useState(false);
+  const meetingPeople = useMemo(() => people.filter((p) => meetingOf(p))
+    .sort((a, b) => a.name.localeCompare(b.name)), [people]);
+
   const meetingCounts = useMemo(() => {
     const c: Record<MeetingStatus | "marked" | "disputed", number> = { marked: 0, interested: 0, arranged: 0, met: 0, not_met: 0, cancelled: 0, disputed: 0 };
     for (const p of people) {
@@ -517,9 +531,15 @@ export default function SponsorEventDetailPage() {
           </div>
         </div>
 
+        {shared && (
+          <MeetingsTile counts={meetingCounts} onOpen={() => setMeetingsOpen(true)} />
+        )}
+
         {/* Participant data the organiser shared with this sponsor */}
         {eventId && <EventSharedData eventId={eventId} />}
 
+        {/* The live participant list, until the organiser shares the data */}
+        {!shared && (<>
         {/* Participants */}
         <div className="mb-3 mt-7 md:mt-9">
           <h2 className="text-[19px] font-bold tracking-tight md:text-[22px]">Participants</h2>
@@ -698,7 +718,52 @@ export default function SponsorEventDetailPage() {
             )}
           </>
         )}
+        </>)}
       </main>
+
+      {/* Meetings with this sponsor, in a pop-up once the data is shared */}
+      <Dialog open={meetingsOpen} onOpenChange={setMeetingsOpen}>
+        <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Meetings</DialogTitle>
+            <DialogDescription className="text-[12px]">
+              {meetingCounts.marked} marked · {meetingCounts.met} met · {meetingCounts.arranged} arranged · {meetingCounts.not_met} not met
+            </DialogDescription>
+          </DialogHeader>
+          {meetingPeople.length === 0 ? (
+            <p className="py-8 text-center text-[13px] text-muted-foreground">No meetings marked for this event.</p>
+          ) : (
+            <ul className="divide-y divide-border rounded-2xl border border-border">
+              {meetingPeople.map((p) => {
+                const m = meetingOf(p)!;
+                const when = m.met_at ?? m.scheduled_at;
+                return (
+                  <li key={`${p.kind}-${p.id}`}>
+                    <button type="button" onClick={() => { setMeetingsOpen(false); setOpenId(p.id); }}
+                            className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40">
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2">
+                          <span className="truncate font-medium">{p.name}</span>
+                          <span className={cn("inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[11px] font-semibold",
+                                              p.kind === "speaker" ? "bg-blue-500/10 text-blue-600 dark:text-blue-300" : "bg-muted text-muted-foreground")}>
+                            {p.kind === "speaker" ? "Speaker" : "Attendee"}
+                          </span>
+                        </span>
+                        <span className="block truncate text-[12px] text-muted-foreground">
+                          {[p.designation, p.company, when ? new Date(when).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : null, m.location].filter(Boolean).join(" · ")}
+                        </span>
+                        {m.note && <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">{m.note}</span>}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[12px] font-semibold">{MEETING_STATUS_LABEL[m.status]}</span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Person details: a side panel, or a bottom sheet on phones */}
       <div
@@ -839,5 +904,33 @@ function Fact({ label, value, wide = false }: { label: string; value: string; wi
       <small className="mb-0.5 block text-[11.5px] text-muted-foreground">{label}</small>
       <b className="text-[14px] font-semibold">{value}</b>
     </div>
+  );
+}
+
+/** The sponsor's meetings at a glance, opening the full list. */
+function MeetingsTile({ counts, onOpen }: { counts: Record<string, number>; onOpen: () => void }) {
+  const items: Array<[string, number, string]> = [
+    ["Met", counts.met, "bg-green-500"], ["Arranged", counts.arranged, "bg-blue-500"],
+    ["Not met", counts.not_met, "bg-red-500"], ["Interested", counts.interested, "bg-muted-foreground/60"],
+  ];
+  return (
+    <button type="button" onClick={onOpen}
+            className="mt-7 flex w-full flex-col gap-4 rounded-2xl border border-border bg-card p-5 text-left transition-colors hover:bg-muted/30 md:mt-9 md:flex-row md:items-center">
+      <span className="flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground"><CalendarCheck className="h-5 w-5" /></span>
+        <span>
+          <span className="block text-[15px] font-semibold">Meetings</span>
+          <span className="block text-[12.5px] text-muted-foreground">{counts.marked} marked with this sponsor</span>
+        </span>
+      </span>
+      <span className="flex flex-wrap gap-x-5 gap-y-1.5 md:ml-auto">
+        {items.map(([label, n, dot]) => (
+          <span key={label} className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+            <i className={cn("h-2 w-2 rounded-full", dot)} />{label} <b className="font-semibold tabular-nums text-foreground">{n}</b>
+          </span>
+        ))}
+      </span>
+      <span className="inline-flex items-center gap-1 text-[13px] font-medium text-primary">View meetings <ChevronRight className="h-4 w-4" /></span>
+    </button>
   );
 }

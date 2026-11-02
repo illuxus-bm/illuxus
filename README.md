@@ -313,6 +313,7 @@ more than once, and its change is already in the bundle, so nothing here is outs
 | `RUN_ME_sponsor_data_sharing.sql` | Share Data: per-sponsorship participant data sharing with versions, revoke, access log; contact details only with recorded participant permission (run after 066) | section 069 |
 | `RUN_ME_sponsor_data_sharing_contacts.sql` | Shares carry email, mobile and LinkedIn for every participant, matching the updated Privacy Policy and registration wording (run after 069) | section 070 |
 | `RUN_ME_sponsor_data_sharing_people.sql` | Shares hold speakers and attendees only, marked as which, with type and attendance filters (run after 070) | section 071 |
+| `RUN_ME_sponsor_data_sharing_speakers.sql` | Shares include every listed speaker, leave out sponsors' contact emails, and drop the raw ticket type (run after 071) | section 072 |
 
 Most can run in any order; a script says so at the top when it needs another first.
 
