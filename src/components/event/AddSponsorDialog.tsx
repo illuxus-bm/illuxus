@@ -60,7 +60,10 @@ export function AddSponsorDialog({ eventId, tiers, presets, onClose, onAdded }: 
       setTier(choice.record.tier);
       setLabel(choice.record.tier_label ?? "");
     }
-    if (choice?.kind === "company" && choice.company.website) setDetails((d) => ({ ...d, website: choice.company.website ?? "" }));
+    // What is on record comes along: a known company's, or what a sponsor's company has.
+    if (choice?.kind === "record") setDetails({ email: choice.record.email ?? "", website: choice.record.website ?? "", logo_url: choice.record.logo_url ?? "", description: "" });
+    if (choice?.kind === "company") setDetails({ email: "", website: choice.company.website ?? "", logo_url: choice.company.logo_url ?? "", description: "" });
+    if (choice?.kind === "new") setDetails({ email: "", website: "", logo_url: "", description: "" });
   }, [choice]);
 
   const name = choice?.kind === "record" ? choice.record.name : choice?.kind === "company" ? choice.company.name : choice?.name ?? "";
@@ -76,7 +79,7 @@ export function AddSponsorDialog({ eventId, tiers, presets, onClose, onAdded }: 
         companyId: choice.kind === "company" ? choice.company.company_id : undefined,
         name: choice.kind === "new" ? choice.name : undefined,
         tier, tierLabel: tier === "custom" ? label.trim() : null,
-        ...(choice.kind === "record" ? {} : details),
+        ...details,
       });
       toast.success(added.created ? `${added.name} added` : `${added.name} added from your sponsors`);
       onAdded(added, tier === "custom" ? label.trim() : null);
@@ -138,7 +141,9 @@ export function AddSponsorDialog({ eventId, tiers, presets, onClose, onAdded }: 
                     {companies.map((c) => (
                       <li key={c.company_id}>
                         <button type="button" onClick={() => setChoice({ kind: "company", company: c })} className="flex w-full items-center gap-3 px-5 py-2 text-left transition-colors hover:bg-muted/50 sm:px-6">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted"><Building2 className="h-4 w-4 text-muted-foreground" /></span>
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
+                            {c.logo_url ? <img src={c.logo_url} alt="" loading="lazy" className="h-full w-full object-contain" /> : <Building2 className="h-4 w-4 text-muted-foreground" />}
+                          </span>
                           <span className="min-w-0 flex-1">
                             <span className="flex items-center gap-1 truncate text-[13px] font-medium">{c.name}{c.verified && <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-primary" aria-label="Verified" />}</span>
                             {c.website && <span className="block truncate text-[11px] text-muted-foreground">{c.website}</span>}
@@ -174,6 +179,7 @@ export function AddSponsorDialog({ eventId, tiers, presets, onClose, onAdded }: 
                 </span>
                 <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1" onClick={() => setChoice(null)}><ArrowLeft className="h-3.5 w-3.5" /> Change</Button>
               </div>
+              {choice.kind === "new" && <p className="text-[12px] text-muted-foreground">This company isn't on record yet, so add its website and logo here.</p>}
               <div>
                 <Label>Partnership title on this event</Label>
                 <Select value={presetSelected ? `preset:${label}` : tier}
@@ -195,14 +201,19 @@ export function AddSponsorDialog({ eventId, tiers, presets, onClose, onAdded }: 
                   <Input id="add-sponsor-title" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Knowledge Partner" maxLength={40} />
                 </div>
               )}
+              <div>
+                <Label htmlFor="add-sponsor-website">Website</Label>
+                {choice.kind === "record" && choice.record.has_website
+                  ? <p id="add-sponsor-website" className="mt-1 truncate text-[13px] text-muted-foreground">{details.website}</p>
+                  : <Input id="add-sponsor-website" value={details.website} onChange={(e) => setDetails({ ...details, website: e.target.value })} placeholder="https://…" />}
+              </div>
+              <div>
+                <Label>Logo{choice.kind === "record" ? " on this event" : ""}</Label>
+                <div className="mt-1.5"><SponsorLogoUploader value={details.logo_url} onChange={(url) => setDetails({ ...details, logo_url: url || "" })} /></div>
+              </div>
               {choice.kind !== "record" && (
                 <>
                   <div><Label htmlFor="add-sponsor-email">Email</Label><Input id="add-sponsor-email" type="email" value={details.email} onChange={(e) => setDetails({ ...details, email: e.target.value })} /></div>
-                  <div><Label htmlFor="add-sponsor-website">Website</Label><Input id="add-sponsor-website" value={details.website} onChange={(e) => setDetails({ ...details, website: e.target.value })} placeholder="https://…" /></div>
-                  <div>
-                    <Label>Logo</Label>
-                    <div className="mt-1.5"><SponsorLogoUploader value={details.logo_url} onChange={(url) => setDetails({ ...details, logo_url: url || "" })} /></div>
-                  </div>
                   <div><Label htmlFor="add-sponsor-description">Description</Label><Textarea id="add-sponsor-description" rows={3} value={details.description} onChange={(e) => setDetails({ ...details, description: e.target.value })} /></div>
                 </>
               )}

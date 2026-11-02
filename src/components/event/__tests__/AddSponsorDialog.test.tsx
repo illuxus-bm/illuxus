@@ -6,7 +6,7 @@ const rpc = vi.fn();
 vi.mock("@/lib/observability", () => ({ supabaseRpc: (...args: unknown[]) => rpc(...args) }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), message: vi.fn() }) }));
-vi.mock("../SponsorLogoUploader", () => ({ default: () => <div>logo uploader</div> }));
+vi.mock("../SponsorLogoUploader", () => ({ default: ({ value }: { value: string }) => <div>logo: {value || "none"}</div> }));
 
 import { AddSponsorDialog } from "../AddSponsorDialog";
 
@@ -56,17 +56,43 @@ describe("AddSponsorDialog", () => {
     expect(screen.queryByLabelText("Email")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add to this event" }));
     await waitFor(() => expect(calls("organizer_add_event_sponsor")).toHaveLength(1));
-    expect(calls("organizer_add_event_sponsor")[0][1]).toMatchObject({ _event: "e1", _sponsor: "sp1", _company: null, _name: null, _tier: "gold", _email: null });
+    expect(calls("organizer_add_event_sponsor")[0][1]).toMatchObject({ _event: "e1", _sponsor: "sp1", _company: null, _name: null, _tier: "gold", _website: "https://kdk.test" });
     await waitFor(() => expect(onAdded).toHaveBeenCalled());
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("a known company fills in its website and is sent by id", async () => {
+  it("a known company fills in its website and logo, and is sent by id", async () => {
+    options = { records: [], companies: [{ company_id: "c2", name: "KDK Motors", website: "https://kdkmotors.test", logo_url: "https://l/kdk.png", verified: true }], exact: false };
     open();
     fireEvent.click(await screen.findByRole("button", { name: /KDK Motors/ }));
     expect(((await screen.findByLabelText("Website")) as HTMLInputElement).value).toBe("https://kdkmotors.test");
+    expect(await screen.findByText("logo: https://l/kdk.png")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add to this event" }));
-    await waitFor(() => expect(calls("organizer_add_event_sponsor")[0][1]).toMatchObject({ _company: "c2", _sponsor: null, _website: "https://kdkmotors.test" }));
+    await waitFor(() => expect(calls("organizer_add_event_sponsor")[0][1]).toMatchObject({ _company: "c2", _sponsor: null, _website: "https://kdkmotors.test", _logo_url: "https://l/kdk.png" }));
+  });
+
+  it("an existing sponsor shows its website and logo", async () => {
+    options = { records: [record({ logo_url: "https://l/own.png", has_website: true })], companies: [], exact: false };
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: /K\.D\.K\. Software/ }));
+    expect(await screen.findByText("https://kdk.test")).toBeTruthy();
+    expect(screen.getByText("logo: https://l/own.png")).toBeTruthy();
+  });
+
+  it("a sponsor missing a website can be given one, offering the company's", async () => {
+    options = { records: [record({ website: "https://fromcompany.test", has_website: false })], companies: [], exact: false };
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: /K\.D\.K\. Software/ }));
+    expect(((await screen.findByLabelText("Website")) as HTMLInputElement).value).toBe("https://fromcompany.test");
+  });
+
+  it("asks for a new company's website and logo, as none is on record", async () => {
+    options = { records: [], companies: [], exact: false };
+    open();
+    search("Fresh Name Ltd");
+    fireEvent.click(await screen.findByRole("button", { name: /Add "Fresh Name Ltd" as a new company/ }));
+    expect(await screen.findByText(/isn't on record yet/)).toBeTruthy();
+    expect(screen.getByText("logo: none")).toBeTruthy();
   });
 
   it("offers a new company only for a name that isn't already an option", async () => {

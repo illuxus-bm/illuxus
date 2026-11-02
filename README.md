@@ -309,6 +309,7 @@ more than once, and its change is already in the bundle, so nothing here is outs
 | `RUN_ME_intelligence_part2.sql` | Merged companies leave suggestions; sponsors connect to company records; server-side paging and sorting; near-identical name matching (run after 064) | section 065 |
 | `RUN_ME_sponsor_identity.sql` | Sponsor identity: per-event partnership titles and details, event-specific contacts, sponsor record merges with rollback, review queue (run after 065) | section 066 |
 | `RUN_ME_sponsor_consolidation.sql` | One sponsor record per company within an organisation: combining across teammates, a single add-sponsor function, one row per company for Super Admin (run after 066) | section 067 |
+| `RUN_ME_sponsor_add_details.sql` | Adding a sponsor brings the company's website and its already-public logo (run after 067) | section 068 |
 
 Most can run in any order; a script says so at the top when it needs another first.
 

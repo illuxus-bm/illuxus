@@ -63,13 +63,18 @@ export function SmoothCaret() {
     let savedCaretColor = "";
     let frame = 0;
     let jump = false;
-    const resize = typeof ResizeObserver === "undefined"
-      ? { observe() {}, disconnect() {} }
-      : new ResizeObserver(() => schedule());
+    let lastLeft = 0;
+    let lastTop = 0;
 
-    const place = () => {
-      frame = 0;
+    /**
+     * Runs every frame while a field has focus. A field can move or change with
+     * no event to say so: a dialog animating in, content loading above it, a
+     * value set by code. Measuring once would leave the caret behind.
+     */
+    const track = () => {
+      frame = requestAnimationFrame(track);
       if (!input) return;
+      if (!input.isConnected || !eligible(input)) { release(); return; }
       const s = getComputedStyle(input);
       const r = input.getBoundingClientRect();
       const left = r.left + parseFloat(s.borderLeftWidth) + parseFloat(s.paddingLeft);
@@ -90,13 +95,16 @@ export function SmoothCaret() {
       const hit = document.elementFromPoint(Math.min(caretX, right - 1), r.top + r.height / 2);
       const visible = start === end && inside && !!hit && (hit === input || input.contains(hit));
 
+      // Only typing glides. When the field itself moves, the caret moves with it.
+      const moved = r.left !== lastLeft || r.top !== lastTop;
+      lastLeft = r.left;
+      lastTop = r.top;
       x.set(caretX);
-      if (jump) { springX.jump(caretX); jump = false; }
+      if (jump || moved) { springX.jump(caretX); jump = false; }
       y.set(caretY);
       height.set(h);
       opacity.set(visible ? 1 : 0);
     };
-    const schedule = () => { if (!frame) frame = requestAnimationFrame(place); };
 
     // Where the last pointer press landed: a click into an email field's
     // text puts the caret somewhere it won't report.
@@ -110,11 +118,9 @@ export function SmoothCaret() {
     };
 
     const release = () => {
+      if (frame) { cancelAnimationFrame(frame); frame = 0; }
       if (!input) return;
       input.style.caretColor = savedCaretColor;
-      input.removeEventListener("input", schedule);
-      input.removeEventListener("scroll", schedule);
-      resize.disconnect();
       input = null;
       opacity.set(0);
     };
@@ -128,35 +134,23 @@ export function SmoothCaret() {
       input = target;
       savedCaretColor = input.style.caretColor;
       input.style.caretColor = "transparent";
-      input.addEventListener("input", schedule);
-      input.addEventListener("scroll", schedule);
-      resize.observe(input);
       jump = true; // appear at the caret, don't fly in from the last field
-      schedule();
+      frame = requestAnimationFrame(track);
     };
     const onFocusOut = (e: FocusEvent) => { if (e.target === input) release(); };
-    const onSelection = () => { if (input && document.activeElement === input) schedule(); };
 
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
-    document.addEventListener("selectionchange", onSelection);
-    window.addEventListener("scroll", schedule, true);
-    window.addEventListener("resize", schedule);
-    void document.fonts?.ready.then(schedule);
     if (document.activeElement) onFocusIn({ target: document.activeElement } as unknown as FocusEvent);
 
     return () => {
       release();
-      if (frame) cancelAnimationFrame(frame);
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
-      document.removeEventListener("selectionchange", onSelection);
-      window.removeEventListener("scroll", schedule, true);
-      window.removeEventListener("resize", schedule);
     };
   }, [x, springX, y, height, opacity]);
 

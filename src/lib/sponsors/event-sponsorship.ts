@@ -85,10 +85,10 @@ export interface NewContact {
 }
 
 export interface SponsorOptionRecord {
-  sponsor_id: string; name: string; company_id: string | null; company: string | null; website: string | null; email: string | null;
+  sponsor_id: string; name: string; company_id: string | null; company: string | null; website: string | null; has_website?: boolean; email: string | null;
   logo_url: string | null; tier: string | null; tier_label: string | null; events: number; on_event: boolean;
 }
-export interface SponsorOptionCompany { company_id: string; name: string; website: string | null; verified: boolean }
+export interface SponsorOptionCompany { company_id: string; name: string; website: string | null; logo_url?: string | null; verified: boolean }
 export interface SponsorOptions { records: SponsorOptionRecord[]; companies: SponsorOptionCompany[]; exact: boolean }
 export interface AddedSponsor {
   event_sponsor_id: string; sponsor_id: string; name: string; email: string | null; company_id: string | null; company: string | null; created: boolean;
