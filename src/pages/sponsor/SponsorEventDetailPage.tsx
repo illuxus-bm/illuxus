@@ -299,7 +299,26 @@ export default function SponsorEventDetailPage() {
   useEffect(() => setPage(0), [tab, status, q, meet]);
   useEffect(() => setNoteDraft(null), [openId]);
 
+  // The same counts as the organiser's analytics. Without the database update, worked out from the list.
+  const { data: counts } = useQuery({
+    queryKey: ["sponsor-event-counts", eventId],
+    enabled: !!user && !!eventId,
+    refetchInterval: 15_000,
+    queryFn: async () => {
+      const { data, error } = await supabaseRpc("sponsor_event_counts" as never, { _eid: eventId } as never);
+      return error ? null : (data as unknown as {
+        registered: number; checked_in: number; speakers: number; speakers_checked_in: number; attendees: number; attendees_checked_in: number;
+      });
+    },
+  });
+
   const stats = useMemo(() => {
+    if (counts) {
+      return {
+        all: counts.registered, speakers: counts.speakers, attendees: counts.attendees,
+        inAll: counts.checked_in, inSpk: counts.speakers_checked_in, inAtt: counts.attendees_checked_in,
+      };
+    }
     const speakers = people.filter((p) => p.kind === "speaker");
     const attendees = people.filter((p) => p.kind === "attendee");
     return {
@@ -310,7 +329,7 @@ export default function SponsorEventDetailPage() {
       inSpk: speakers.filter((p) => p.checked_in).length,
       inAtt: attendees.filter((p) => p.checked_in).length,
     };
-  }, [people]);
+  }, [people, counts]);
 
   // Once the organiser shares the participant data, it replaces the list below.
   const { data: received = [] } = useQuery<ReceivedShare[]>({
@@ -493,7 +512,7 @@ export default function SponsorEventDetailPage() {
         {/* Stats */}
         <div className="mt-3.5 grid grid-cols-2 gap-2.5 md:mt-6 md:grid-cols-4 md:gap-3.5">
           <Kpi icon={<Users className="h-[15px] w-[15px]" />} label="Registered" value={stats.all} sub="Everyone on the list" />
-          <Kpi icon={<Mic className="h-[15px] w-[15px]" />} label="Speakers" value={stats.speakers} sub={`${pct(stats.speakers, stats.all)}% of registrations`} />
+          <Kpi icon={<Mic className="h-[15px] w-[15px]" />} label="Speakers" value={stats.speakers} sub="On the line-up" />
           <Kpi icon={<User className="h-[15px] w-[15px]" />} label="Attendees" value={stats.attendees} sub={`${pct(stats.attendees, stats.all)}% of registrations`} />
           <Kpi
             icon={<CheckCircle2 className="h-[15px] w-[15px]" />} label="Checked in" value={stats.inAll} ok
@@ -525,8 +544,8 @@ export default function SponsorEventDetailPage() {
               <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-muted-foreground/40" />Attendees <b className="font-semibold text-foreground">{stats.attendees}</b> · {pct(stats.attendees, stats.all)}%</span>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <div className="rounded-[14px] bg-muted/60 px-3 py-2.5"><small className="mb-0.5 block text-[11.5px] text-muted-foreground">Still to arrive</small><b className="text-[17px] font-semibold">{stats.all - stats.inAll}</b></div>
-              <div className="rounded-[14px] bg-muted/60 px-3 py-2.5"><small className="mb-0.5 block text-[11.5px] text-muted-foreground">Check-in opens</small><b className="text-[17px] font-semibold">{opensAt}</b></div>
+              <div className="rounded-[14px] bg-muted/60 px-3 py-2.5"><small className="mb-0.5 block text-[11.5px] text-muted-foreground">{over ? "Didn't arrive" : "Still to arrive"}</small><b className="text-[17px] font-semibold">{stats.all - stats.inAll}</b></div>
+              <div className="rounded-[14px] bg-muted/60 px-3 py-2.5"><small className="mb-0.5 block text-[11.5px] text-muted-foreground">{over ? "Attended" : "Check-in opens"}</small><b className="text-[17px] font-semibold">{over ? `${pct(stats.inAll, stats.all)}%` : opensAt}</b></div>
             </div>
           </div>
         </div>
