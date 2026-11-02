@@ -6,9 +6,10 @@
  */
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Building2, Check, Layout, Loader2, Lock, Palette } from "lucide-react";
+import { Building2, Check, Layout, Loader2, Lock, Palette, Users } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import BrandKitPanel from "@/components/organization/BrandKitPanel";
+import TeamPanel from "@/components/organization/TeamPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,7 @@ const OrgPageForm = lazy(() => import("@/components/event/page-builder/OrgPageFo
 
 const TABS = [
   { id: "details", label: "Details", icon: Building2 },
+  { id: "team", label: "Team", icon: Users },
   { id: "brand", label: "Brand kit", icon: Palette },
   { id: "landing", label: "Landing page", icon: Layout },
 ] as const;
@@ -91,7 +93,7 @@ const OrganizationPage = () => {
             )}
             <div className="min-w-0">
               <h1 className="truncate text-lg font-semibold tracking-tight">{org.name}</h1>
-              <p className="text-[13px] text-muted-foreground">Organization details, brand kit and landing page</p>
+              <p className="text-[13px] text-muted-foreground">Organization details, team, brand kit and landing page</p>
             </div>
           </div>
           <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0" role="tablist" aria-label="Organization">
@@ -172,6 +174,8 @@ const OrganizationPage = () => {
             </div>
           </div>
         )}
+
+        {tab === "team" && <div className="max-w-[900px]"><TeamPanel org={org} /></div>}
 
         {tab === "brand" && user && <BrandKitPanel orgId={org.id} userId={user.id} canEdit={canManage} />}
 

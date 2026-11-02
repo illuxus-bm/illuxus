@@ -816,7 +816,7 @@ https://illuxus.com/checkout/<event-id>`}</code></pre>
         body: (
           <>
             <p>
-              From <em>Settings → Team</em>, invite teammates by email and assign a role (Admin, Editor, Viewer).
+              From <em>Organization → Team</em>, invite teammates by email and assign a role (Admin, Editor, Viewer).
               Invitations expire in 7 days. Members can be removed any time — their authored content is preserved
               and reassigned to the workspace.
             </p>

@@ -36,7 +36,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "How do I invite team members to my organization?",
-    a: "Go to Settings → Team tab. Click 'Invite', enter the teammate's email and choose a role (Admin / Member / Viewer). They will receive an invitation they can accept.",
+    a: "Go to Organization → Team tab. Click 'Invite', enter the teammate's email and choose a role (Admin / Member / Viewer). They will receive an invitation they can accept.",
   },
   {
     q: "Can I customise my event's landing page?",
