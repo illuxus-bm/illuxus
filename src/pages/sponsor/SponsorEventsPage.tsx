@@ -27,7 +27,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { stripRichText } from "@/lib/markdown";
 import { loginPath } from "@/lib/safe-redirect";
-import { ReceivedShares } from "@/components/sponsor-data/ReceivedShares";
 
 type PortalRow = {
   event_id: string;
@@ -145,8 +144,6 @@ export default function SponsorEventsPage() {
           <h1 className="text-2xl font-bold">Sponsored events</h1>
           <p className="text-muted-foreground text-sm">Events where you've been added as a sponsor</p>
         </div>
-
-        <ReceivedShares />
 
         {isLoading ? (
           <div className="text-center py-12 text-muted-foreground">Loading events...</div>

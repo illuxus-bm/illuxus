@@ -131,7 +131,10 @@ const ATTENDEE_FILES = [
     path: "src/components/event/registrations/RegistrantQuickView.tsx",
     // Re-pinned 2026-10-28: the file changed without a bump. Re-audited
     // against 6.5: its UTM lines are identical to 638c185.
-    hash: "450811526f43ee66cdb02ee2ebf65824322883ff2ec39df232cd5ebbbc687bb6",
+    // Bumped for the name heading (2026-11-02). Re-audited against 6.5: only
+    // the heading changed, leaving out a title of "Prefer not to say". The five
+    // labelled UTM_Field values in the detail drawer are untouched.
+    hash: "0cddfeb41bf3ba3c45a097c4127f6f1677e850a7a0c3685e78fb74f1f6a70e9d",
   },
 ] as const;
 

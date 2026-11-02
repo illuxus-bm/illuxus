@@ -166,7 +166,9 @@ export default function RegistrantQuickView({
   const isRegistration = source === "registration";
   const isSponsor = source === "sponsor";
 
-  const fullName = [draft.title, draft.first_name, draft.last_name].filter(Boolean).join(" ").trim()
+  // "Prefer not to say" is an answer about the title, not part of the name.
+  const title = draft.title === "Prefer not to say" ? null : draft.title;
+  const fullName = [title, draft.first_name, draft.last_name].filter(Boolean).join(" ").trim()
     || draft.display_name || draft.name || row.name;
 
   const update = (patch: Partial<FullRecord>) => {
