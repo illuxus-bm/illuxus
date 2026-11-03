@@ -59,15 +59,9 @@
         transition: opacity 420ms ease, visibility 420ms ease;
         will-change: opacity;
         opacity: 1;
-        animation: splash-enter 600ms ease both;
       }
       #illuxus-splash.is-leaving { opacity: 0; pointer-events: none; }
       #illuxus-splash.is-leaving .splash-card { transform: translateY(-6px) scale(0.985); }
-
-      @keyframes splash-enter {
-        from { opacity: 0; }
-        to   { opacity: 1; }
-      }
 
       /* Decorative orbs that drift behind the logo */
       #illuxus-splash::before,
@@ -267,12 +261,13 @@
     <meta name="twitter:image" content="https://illuxus.com/og-image.png" />
     <meta name="twitter:image:alt" content="illuxus — events, communities, and webinars" />
 
-    <!-- Preconnect to upstream hosts so first paint is faster -->
-    <link rel="preconnect" href="https://illuxus.com" />
+    <!-- Preconnect to upstream hosts so first paint is faster. The Supabase
+         host comes from the build env so it always matches the project the
+         app actually talks to (it fetches site_content on every first load). -->
+    <link rel="preconnect" href="%VITE_SUPABASE_URL%" crossorigin />
+    <link rel="dns-prefetch" href="%VITE_SUPABASE_URL%" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preconnect" href="https://dcfygmgjqldvynbvmwdy.supabase.co" crossorigin />
-    <link rel="dns-prefetch" href="https://dcfygmgjqldvynbvmwdy.supabase.co" />
     <!-- Payment + analytics + session-replay endpoints used post-consent. -->
     <link rel="dns-prefetch" href="https://js.stripe.com" />
     <link rel="dns-prefetch" href="https://checkout.stripe.com" />
@@ -282,8 +277,51 @@
     <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
     <link rel="dns-prefetch" href="https://www.clarity.ms" />
 
-    <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=Bebas+Neue&family=Poppins:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&family=Comfortaa:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <!-- Fonts.
+         The two UI faces (Onest = --font-sans, Bebas Neue = --font-poster) are
+         self-hosted and preloaded so they are ready before React's first
+         render: no render-blocking third-party stylesheet, and no layout shift
+         when the hero's poster headline swaps from its fallback.
+         The remaining families are only used by editors / creative tools, so
+         that stylesheet loads without blocking render. -->
+    <link rel="preload" href="/fonts/onest-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/bebas-neue-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <style>
+      @font-face {
+        font-family: 'Onest';
+        font-style: normal;
+        font-weight: 400 800;
+        font-display: swap;
+        src: url(/fonts/onest-latin-ext.woff2) format('woff2');
+        unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'Onest';
+        font-style: normal;
+        font-weight: 400 800;
+        font-display: swap;
+        src: url(/fonts/onest-latin.woff2) format('woff2');
+        unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Bebas Neue';
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url(/fonts/bebas-neue-latin-ext.woff2) format('woff2');
+        unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'Bebas Neue';
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url(/fonts/bebas-neue-latin.woff2) format('woff2');
+        unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+    </style>
+    <link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&family=Comfortaa:wght@400;500;600;700&display=swap" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&family=Comfortaa:wght@400;500;600;700&display=swap" /></noscript>
 
     <!-- Structured data: Organization (LocalBusiness) + WebSite + SoftwareApplication +
          BreadcrumbList. The runtime SiteHead component injects
@@ -430,16 +468,17 @@
     <div id="illuxus-splash" role="status" aria-label="Loading illuxus">
       <div class="splash-card">
         <div class="splash-logo">
-          <!-- Default: light.svg (navy mark) for light backgrounds.
-               Swapped to dark.svg (white mark) immediately if dark theme is active. -->
-          <img id="splash-wordmark" src="/illuxus-wordmark-light.svg" alt="illuxus" />
+          <!-- light.svg (navy mark) for light backgrounds, dark.svg (white
+               mark) for dark ones. The src is set once by the script below
+               rather than swapped after the fact, so only one file downloads.
+               This logo is the page's first large paint, hence high priority. -->
+          <img id="splash-wordmark" alt="illuxus" width="166" height="48" fetchpriority="high" decoding="async" />
           <script>
             (function(){
               var wm = document.getElementById('splash-wordmark');
-              if (wm && window.__splashTheme === 'dark') wm.src = '/illuxus-wordmark-dark.svg';
+              if (wm) wm.src = window.__splashTheme === 'dark' ? '/illuxus-wordmark-dark.svg' : '/illuxus-wordmark-light.svg';
             })();
-          </script>
-        </div>
+          </script>        </div>
         <p class="splash-tagline">
           Events you'll <strong>remember</strong>
         </p>

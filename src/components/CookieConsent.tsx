@@ -5,6 +5,7 @@ import { Cookie, ChevronDown, ChevronUp, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { globalPrivacyControl } from "@/hooks/useCookieConsent";
 import { logger } from "@/lib/observability";
+import { OPEN_COOKIE_SETTINGS_EVENT } from "@/components/cookie-settings";
 
 const STORAGE_KEY = "illuxus:cookie-consent";
 
@@ -39,13 +40,7 @@ function saveDecision(d: ConsentDecision) {
   }
 }
 
-/** Fired to reopen the banner so a choice can be reviewed or changed. */
-const OPEN_EVENT = "illuxus:open-cookie-settings";
-
-/** Reopens the cookie banner — wired to the "Cookie settings" footer link. */
-export function openCookieSettings(): void {
-  window.dispatchEvent(new Event(OPEN_EVENT));
-}
+const OPEN_EVENT = OPEN_COOKIE_SETTINGS_EVENT;
 
 /**
  * Cookie consent banner.

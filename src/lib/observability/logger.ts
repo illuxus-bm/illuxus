@@ -28,7 +28,7 @@ import { isProd as readIsProd } from './env-mode';
 import { OfflineQueue } from './offline-queue';
 import { safeRedact } from './redaction';
 import { consoleSink } from './sinks/console';
-import { createRemoteSink } from './sinks/remote';
+import type { CreateRemoteSinkOptions } from './sinks/remote';
 import {
   LEVEL_RANK,
   type LogLevel,
@@ -211,7 +211,7 @@ function doInit(): void {
   // Remote sink wired with the queue, opt-out callback, and an
   // onError sink that surfaces `warn 'remote sink rejected record'`
   // through the logger itself (REQ 6.6).
-  remoteSink = createRemoteSink({
+  remoteSink = createDeferredRemoteSink({
     queue: offlineQueue,
     getPrivacyOptOut,
     onError: (message, fields) => {
@@ -224,6 +224,58 @@ function doInit(): void {
   });
 
   installFlushListeners();
+}
+
+/** Records held while the remote sink loads; matches the boot buffer's scale. */
+const DEFERRED_REMOTE_MAX = 50;
+
+/**
+ * Stand-in for the Remote_Sink while its module — and the Sentry SDK it
+ * pulls in — loads as a separate chunk, keeping both out of the entry bundle
+ * every visitor downloads. Records emitted meanwhile are held and handed to
+ * the real sink once it exists; its per-emit opt-out recheck still applies.
+ */
+function createDeferredRemoteSink(opts: CreateRemoteSinkOptions): Sink {
+  let real: Sink | null = null;
+  let pending: LogRecord[] = [];
+
+  import('./sinks/remote')
+    .then(({ createRemoteSink }) => {
+      real = createRemoteSink(opts);
+      const held = pending;
+      pending = [];
+      for (const record of held) {
+        try {
+          const result = real.emit(record);
+          if (result && typeof (result as Promise<void>).catch === 'function') {
+            (result as Promise<void>).catch(() => {
+              /* REQ 4.2 */
+            });
+          }
+        } catch {
+          /* REQ 4.1 — sinks must never throw */
+        }
+      }
+    })
+    .catch(() => {
+      // Chunk failed to load (offline, stale deploy): drop what we held.
+      pending = [];
+    });
+
+  return {
+    name: 'remote',
+    emit(record) {
+      if (real) return real.emit(record);
+      if (pending.length < DEFERRED_REMOTE_MAX) pending.push(record);
+    },
+    flushBeacon() {
+      real?.flushBeacon?.();
+    },
+    close() {
+      pending = [];
+      return real?.close?.() ?? Promise.resolve();
+    },
+  };
 }
 
 function installFlushListeners(): void {

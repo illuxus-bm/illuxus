@@ -18,7 +18,6 @@ import RouteErrorBoundary from "@/lib/observability/boundaries/RouteErrorBoundar
 import { logger } from "@/lib/observability";
 import { PWAUpdatePrompt } from "@/components/pwa/PWAUpdatePrompt";
 import { PWAInstallPrompt } from "@/components/pwa/PWAInstallPrompt";
-import { CookieConsent } from "@/components/CookieConsent";
 import { SecondFactorGate } from "@/components/auth/SecondFactorGate";
 import { loginPath } from "@/lib/safe-redirect";
 import { SkipToContent } from "@/components/SkipToContent";
@@ -27,10 +26,10 @@ import { MobileTabBar } from "@/components/native/MobileTabBar";
 import { OfflineBanner } from "@/components/native/OfflineBanner";
 import { useAppMode, useAppTabBar } from "@/hooks/useAppChrome";
 import { isNativeApp } from "@/lib/native/platform";
-// Eagerly-loaded landing & auth pages (small + needed for first paint / SEO)
+// Only the landing page is in the entry bundle (needed for first paint / SEO).
+// Login and 404 are split out below so the homepage doesn't download their
+// form, validation and OTP code.
 import Index from "./pages/Index.tsx";
-import NotFound from "./pages/NotFound.tsx";
-import LoginPage from "./pages/LoginPage.tsx";
 
 /**
  * Wraps a lazy() loader with structured logger diagnostics so we can see in
@@ -54,6 +53,13 @@ function lazyWithLog<T extends { default: React.ComponentType<any> }>(
 }
 // Everything else is code-split so the initial bundle stays light and route
 // transitions show the global loading screen instead of a frozen UI.
+const LoginPage = lazyWithLog("LoginPage", () => import("./pages/LoginPage.tsx"));
+const NotFound = lazyWithLog("NotFound", () => import("./pages/NotFound.tsx"));
+// The cookie banner is never part of the first paint; split out so its
+// animation library stays out of the entry bundle.
+const CookieConsent = lazyWithLog("CookieConsent", () =>
+  import("@/components/CookieConsent").then((m) => ({ default: m.CookieConsent })),
+);
 const ResetPasswordPage = lazyWithLog("ResetPasswordPage", () => import("./pages/ResetPasswordPage.tsx"));
 const ActivateAccountPage = lazyWithLog("ActivateAccountPage", () => import("./pages/ActivateAccountPage.tsx"));
 const InviteAcceptPage = lazyWithLog("InviteAcceptPage", () => import("./pages/InviteAcceptPage.tsx"));
@@ -529,7 +535,11 @@ function GlobalCookieConsent() {
     return null;
   }
 
-  return <CookieConsent />;
+  return (
+    <Suspense fallback={null}>
+      <CookieConsent />
+    </Suspense>
+  );
 }
 
 /**

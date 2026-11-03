@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { prefersReducedMotion } from "@/components/landing/motion";
+import { prefersReducedMotion, whenPageIdle } from "@/components/landing/motion";
 
 function headerOffset() {
   const header = document.querySelector("header");
@@ -21,7 +21,9 @@ export function useSmoothScroll() {
     let cancelled = false;
     let teardown = () => {};
 
-    import("lenis").then(({ default: Lenis }) => {
+    // Smooth scrolling is an enhancement: start it after the page has loaded
+    // so its chunk and per-frame loop stay out of the initial render.
+    const cancelIdle = whenPageIdle(() => import("lenis").then(({ default: Lenis }) => {
       if (cancelled) return;
       const lenis = new Lenis({ autoRaf: true, lerp: 0.1, anchors: { offset: -headerOffset() } });
 
@@ -37,10 +39,11 @@ export function useSmoothScroll() {
         observer.disconnect();
         lenis.destroy();
       };
-    });
+    }));
 
     return () => {
       cancelled = true;
+      cancelIdle();
       teardown();
     };
   }, []);

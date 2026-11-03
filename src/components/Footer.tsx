@@ -1,4 +1,4 @@
-import { openCookieSettings } from "@/components/CookieConsent";
+import { openCookieSettings } from "@/components/cookie-settings";
 import { Link } from "react-router-dom";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { SiteContainer } from "@/components/layout/SiteContainer";
@@ -61,9 +61,9 @@ const Footer = () => {
 
           {f.columns.map((col, ci) => (
             <div key={`${col.title}-${ci}`}>
-              <h4 className="eyebrow !text-[11px] text-foreground mb-4">
+              <h2 className="eyebrow !text-[11px] text-foreground mb-4">
                 {col.title}
-              </h4>
+              </h2>
               <ul className="space-y-2">
                 {col.links.map((link, li) => (
                   <li key={`${link.label}-${li}`}>

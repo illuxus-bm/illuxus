@@ -47,13 +47,15 @@ export function IlluxusWordmark({
     variant === "auto" ? (theme === "dark" ? "dark" : "light") : variant;
   const src = resolvedVariant === "dark" ? SRC_DARK : SRC_LIGHT;
 
-  // The wordmark's intrinsic ratio is 660 / 160 ≈ 4.125. We let height drive
-  // the layout and CSS auto-scales width via `width: auto`.
+  // The wordmark's intrinsic ratio is 2400 / 693 ≈ 3.46. Height drives the
+  // layout and CSS auto-scales width via `width: auto`; the width attribute
+  // lets the browser reserve the box before the SVG arrives.
   return (
     <img
       src={src}
       alt={ariaLabel}
       aria-hidden={ariaLabel ? undefined : true}
+      width={Math.round((height * 2400) / 693)}
       height={height}
       style={{ height, width: "auto" }}
       className={className}

@@ -14,8 +14,11 @@ import TwoFactorChallengeDialog from "@/components/auth/TwoFactorChallengeDialog
 export function SecondFactorGate({ children }: { children: ReactNode }) {
   const { session, signOut, refreshProfile } = useAuth();
   const { pathname } = useLocation();
-  const [state, setState] = useState<"checking" | "pending" | "ok">("checking");
   const token = session?.access_token ?? null;
+  // Signed-out visitors have nothing to check: render the page on the very
+  // first frame instead of an empty one (which painted the footer alone and
+  // then shoved it down — a large layout shift on every cold load).
+  const [state, setState] = useState<"checking" | "pending" | "ok">(() => (token ? "checking" : "ok"));
 
   useEffect(() => {
     let live = true;

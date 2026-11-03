@@ -6,7 +6,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { SiteContainer } from "@/components/layout/SiteContainer";
 import { PillLink, PosterTitle, Reveal } from "@/components/landing/primitives";
 import { CheckinCard, DoorCard, PaperTicket, SourcesCard, TiersCard } from "@/components/landing/StoryCards";
-import { clamp01, ease, onScrollFrame, prefersReducedMotion, span, useNearViewport, windowed } from "@/components/landing/motion";
+import { clamp01, ease, onScrollFrame, prefersReducedMotion, span, useEngaged, useNearViewport, windowed } from "@/components/landing/motion";
 import { CHECKED_IN_SHARE, STAGE_WINDOWS, stage } from "@/components/three/stage-state";
 
 // three.js is heavy, so the WebGL stage ships in its own chunk and only loads
@@ -207,6 +207,10 @@ function PinnedStory() {
   const fills = useRef<Partial<Record<ChapterId, HTMLSpanElement | null>>>({});
   const [sceneReady, setSceneReady] = useState(false);
   const active = useNearViewport(track, "10% 0px 10% 0px");
+  // The CSS floor carries the first paint; the WebGL stage fades in over it
+  // once the visitor starts interacting (or shortly after load), so loading
+  // three.js and compiling shaders never delays the first render or click.
+  const loadStage = useEngaged();
 
   useEffect(() => {
     const show = (el: HTMLElement | null | undefined, opacity: number, shift: number) => {
@@ -303,9 +307,11 @@ function PinnedStory() {
           style={{ opacity: sceneReady ? 1 : 0 }}
         >
           <StageBoundary>
-            <Suspense fallback={null}>
-              <StageCanvas theme={theme} active={active} onReady={() => setSceneReady(true)} />
-            </Suspense>
+            {loadStage && (
+              <Suspense fallback={null}>
+                <StageCanvas theme={theme} active={active} onReady={() => setSceneReady(true)} />
+              </Suspense>
+            )}
           </StageBoundary>
         </div>
 

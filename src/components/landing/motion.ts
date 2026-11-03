@@ -33,6 +33,60 @@ export function usePrefersReducedMotion() {
   return reduced;
 }
 
+/**
+ * Runs `callback` once the page has finished loading and the main thread is
+ * idle, so optional extras (the WebGL stage, smooth scrolling) never compete
+ * with the first paint or first interaction. Returns a cancel function.
+ */
+export function whenPageIdle(callback: () => void): () => void {
+  let cancelled = false;
+  let idleId: number | undefined;
+  let timerId: number | undefined;
+  const run = () => {
+    if (cancelled) return;
+    if (typeof window.requestIdleCallback === "function") {
+      idleId = window.requestIdleCallback(() => !cancelled && callback(), { timeout: 2500 });
+    } else {
+      timerId = window.setTimeout(() => !cancelled && callback(), 200);
+    }
+  };
+  if (document.readyState === "complete") run();
+  else window.addEventListener("load", run, { once: true });
+  return () => {
+    cancelled = true;
+    window.removeEventListener("load", run);
+    if (idleId !== undefined) window.cancelIdleCallback?.(idleId);
+    if (timerId !== undefined) window.clearTimeout(timerId);
+  };
+}
+
+const ENGAGEMENT_EVENTS = ["pointermove", "pointerdown", "wheel", "scroll", "keydown", "touchstart"] as const;
+
+/**
+ * True once the visitor first interacts with the page, or `fallbackMs` after
+ * it has loaded and gone idle, whichever is sooner. For heavy extras (the
+ * WebGL stage) whose start-up work would otherwise block the first click.
+ */
+export function useEngaged(fallbackMs = 3500) {
+  const [engaged, setEngaged] = useState(false);
+  useEffect(() => {
+    if (engaged) return;
+    const engage = () => setEngaged(true);
+    const opts = { passive: true, once: true, capture: true } as const;
+    for (const type of ENGAGEMENT_EVENTS) window.addEventListener(type, engage, opts);
+    let timer: number | undefined;
+    const cancelIdle = whenPageIdle(() => {
+      timer = window.setTimeout(engage, fallbackMs);
+    });
+    return () => {
+      for (const type of ENGAGEMENT_EVENTS) window.removeEventListener(type, engage, opts);
+      cancelIdle();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [engaged, fallbackMs]);
+  return engaged;
+}
+
 /** True once the element has scrolled into view (and stays true). */
 export function useInView<T extends Element>(ref: RefObject<T>, rootMargin = "0px 0px -8% 0px") {
   const [inView, setInView] = useState(false);

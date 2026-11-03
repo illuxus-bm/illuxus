@@ -313,7 +313,7 @@ const Index = () => {
         ogType="website"
         jsonLd={HOME_JSON_LD}
       />
-      <main className="relative z-10">
+      <main id="main-content" className="relative z-10">
         <HeroSection />
         <TestimonialsSection />
         <FeaturesSection />

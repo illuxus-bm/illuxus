@@ -60,7 +60,7 @@ export function CinemaReel() {
           <ol className="flex gap-6 md:pb-3">
             {BEATS.map((item, i) => (
               <li key={item.label} className="flex items-baseline gap-2">
-                <span className={`poster text-[18px] transition-colors ${i === beat ? "text-accent" : "text-foreground/25"}`}>
+                <span className={`poster text-[18px] transition-colors ${i === beat ? "text-accent" : "text-muted-foreground"}`}>
                   {String(i + 1).padStart(2, "0")}
                 </span>
                 <span className={`eyebrow whitespace-nowrap transition-colors ${i === beat ? "text-foreground" : "text-muted-foreground"}`}>
