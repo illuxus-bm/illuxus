@@ -72,6 +72,29 @@ function seoPrerender(): Plugin {
   };
 }
 
+/**
+ * Loads the app stylesheet without blocking first paint. The splash screen in
+ * `index.html` is styled inline, so it can paint before this CSS arrives; it
+ * stays up until the stylesheet has applied (see `appStylesApplied` in
+ * `src/main.tsx`), so the app itself is never seen unstyled.
+ */
+function nonBlockingAppCss(): Plugin {
+  return {
+    name: "illuxus-non-blocking-app-css",
+    apply: "build",
+    transformIndexHtml: {
+      order: "post",
+      handler: (html) =>
+        html.replace(
+          /<link rel="stylesheet" crossorigin href="(\/assets\/[^"]+\.css)">/g,
+          (_tag, href: string) =>
+            `<link rel="preload" as="style" crossorigin href="${href}" data-app-css onload="this.onload=null;this.rel='stylesheet'">` +
+            `<noscript><link rel="stylesheet" crossorigin href="${href}"></noscript>`,
+        ),
+    },
+  };
+}
+
 function resolveBuildSha(): string {
   try {
     return execSync("git rev-parse --short HEAD", {
@@ -121,6 +144,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
+      nonBlockingAppCss(),
       !isNativeApp && seoPrerender(),
       // PWA / service-worker layer.
       //

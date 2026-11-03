@@ -232,14 +232,16 @@ const DEFERRED_REMOTE_MAX = 50;
 /**
  * Stand-in for the Remote_Sink while its module — and the Sentry SDK it
  * pulls in — loads as a separate chunk, keeping both out of the entry bundle
- * every visitor downloads. Records emitted meanwhile are held and handed to
- * the real sink once it exists; its per-emit opt-out recheck still applies.
+ * every visitor downloads. The chunk is fetched once the page has loaded so
+ * it doesn't compete with first paint. Records emitted meanwhile are held and
+ * handed to the real sink once it exists; its per-emit opt-out recheck still
+ * applies.
  */
 function createDeferredRemoteSink(opts: CreateRemoteSinkOptions): Sink {
   let real: Sink | null = null;
   let pending: LogRecord[] = [];
 
-  import('./sinks/remote')
+  const load = () => import('./sinks/remote')
     .then(({ createRemoteSink }) => {
       real = createRemoteSink(opts);
       const held = pending;
@@ -261,6 +263,12 @@ function createDeferredRemoteSink(opts: CreateRemoteSinkOptions): Sink {
       // Chunk failed to load (offline, stale deploy): drop what we held.
       pending = [];
     });
+
+  if (typeof document === 'undefined' || document.readyState === 'complete') {
+    void load();
+  } else {
+    globalThis.addEventListener('load', () => void load(), { once: true });
+  }
 
   return {
     name: 'remote',

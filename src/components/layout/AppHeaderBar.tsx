@@ -71,9 +71,18 @@ export function AppHeaderBar({
       setScrolled(window.scrollY > 4);
       setCollapsed(window.scrollY > 24);
     };
-    onScroll();
+    // Read the restored scroll position after the first frame has been laid
+    // out; reading it during mount forced a full-page layout (~150 ms).
+    let timer: number | undefined;
+    const frame = requestAnimationFrame(() => {
+      timer = window.setTimeout(onScroll, 0);
+    });
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   // How far down the header the menu row starts, so it can pin there.

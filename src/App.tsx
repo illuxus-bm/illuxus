@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { BrowserRouter, Route, Routes, Navigate, useParams, useLocation } from "react-router-dom";
 import { HistoryTracker } from "@/lib/app-back";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -30,6 +30,7 @@ import { isNativeApp } from "@/lib/native/platform";
 // Login and 404 are split out below so the homepage doesn't download their
 // form, validation and OTP code.
 import Index from "./pages/Index.tsx";
+import { whenPageIdle } from "@/components/landing/motion";
 
 /**
  * Wraps a lazy() loader with structured logger diagnostics so we can see in
@@ -512,6 +513,10 @@ function GlobalFooter() {
  */
 function GlobalCookieConsent() {
   const { pathname } = useLocation();
+  // Shown once the page has loaded so the banner (and its animation library)
+  // never competes with first paint.
+  const [ready, setReady] = useState(false);
+  useEffect(() => whenPageIdle(() => setReady(true)), []);
 
   const suppressed = [
     "/dashboard",
@@ -534,6 +539,8 @@ function GlobalCookieConsent() {
   if (suppressed.some((p) => pathname === p || pathname.startsWith(p))) {
     return null;
   }
+
+  if (!ready) return null;
 
   return (
     <Suspense fallback={null}>

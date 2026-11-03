@@ -34,21 +34,41 @@ root.render(<App />);
  * out via the .is-leaving class transition and is removed from the DOM after
  * the transition completes.
  */
-const MIN_SPLASH_MS = 600;
-const SPLASH_FADE_MS = 500;
+const SPLASH_FADE_MS = 200;
+/** Never hold the splash longer than this waiting for the stylesheet. */
+const APP_CSS_TIMEOUT_MS = 4000;
+
+/**
+ * Resolves once the app stylesheet has applied. In production it loads
+ * without blocking first paint (see `nonBlockingAppCss` in vite.config.ts):
+ * a `rel="preload"` link that switches itself to a stylesheet on load. In
+ * dev there are no such links and this resolves at once.
+ */
+function appStylesApplied(): Promise<void> {
+  const links = Array.from(document.querySelectorAll<HTMLLinkElement>("link[data-app-css]"));
+  return Promise.all(
+    links.map(
+      (link) =>
+        new Promise<void>((resolve) => {
+          if (link.sheet) return resolve();
+          // `load` fires once for the preload and again when the sheet applies.
+          link.addEventListener("load", () => link.sheet && resolve());
+          link.addEventListener("error", () => resolve());
+          window.setTimeout(resolve, APP_CSS_TIMEOUT_MS);
+        }),
+    ),
+  ).then(() => undefined);
+}
+
 const splashEl = document.getElementById("illuxus-splash");
 if (splashEl) {
-  const startedAt = performance.now();
   const dismiss = () => {
-    const elapsed = performance.now() - startedAt;
-    const wait = Math.max(0, MIN_SPLASH_MS - elapsed);
+    splashEl.classList.add("is-leaving");
     window.setTimeout(() => {
-      splashEl.classList.add("is-leaving");
-      window.setTimeout(() => {
-        splashEl.parentNode?.removeChild(splashEl);
-      }, SPLASH_FADE_MS);
-    }, wait);
+      splashEl.parentNode?.removeChild(splashEl);
+    }, SPLASH_FADE_MS);
   };
-  // Wait two frames so React's first paint lands before we fade out
-  requestAnimationFrame(() => requestAnimationFrame(dismiss));
+  // Leave once the app is styled and React's first paint has landed (two
+  // frames), so the page underneath is never seen half-built.
+  void appStylesApplied().then(() => requestAnimationFrame(() => requestAnimationFrame(dismiss)));
 }
