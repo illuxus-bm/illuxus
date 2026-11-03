@@ -1280,6 +1280,7 @@ export default function UtmAnalyticsPage({
         eventSlug={eventSlug}
         orgSlug={orgSlug}
         initial={linkDialog.initial}
+        existing={savedLinks}
         onSaved={handleLinkSaved}
       />
       <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }}>

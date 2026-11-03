@@ -43,7 +43,7 @@ const FIELD = "h-11 sm:h-9 text-base sm:text-[13px]";
 const LABEL = "text-[12px] sm:text-[11px]";
 
 export function UtmLinkDialog({
-  open, onOpenChange, eventId, eventSlug, orgSlug, initial, onSaved,
+  open, onOpenChange, eventId, eventSlug, orgSlug, initial, existing = [], onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -52,6 +52,8 @@ export function UtmLinkDialog({
   orgSlug?: string | null;
   /** Prefill to edit an existing link; omit to create a new one. */
   initial?: UtmLinkDraft | null;
+  /** The event's saved links, so a new link can't silently replace one of them. */
+  existing?: UtmLinkDraft[];
   onSaved?: () => void;
 }) {
   const editing = !!initial;
@@ -82,6 +84,16 @@ export function UtmLinkDialog({
   const identityChanged = editing && initial && (
     initial.utm_source !== v.utm_source || initial.utm_medium !== v.utm_medium || initial.utm_campaign !== v.utm_campaign
   );
+  // Source + medium + campaign identify a saved link, and saving upserts on
+  // them — so a new link with the same three would overwrite that one.
+  const clash = (!editing || identityChanged)
+    ? existing.find((l) =>
+        l.utm_source === v.utm_source.trim() && l.utm_medium === v.utm_medium.trim() && l.utm_campaign === v.utm_campaign.trim())
+    : undefined;
+  // Content alone doesn't separate links (or their analytics), so offer to
+  // fold it into the campaign — e.g. one link per team member.
+  const contentSlug = (v.utm_content ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const suggestedCampaign = clash && contentSlug ? `${v.utm_campaign.trim()}-${contentSlug}` : null;
 
   // Keep any custom value of an edited link selectable.
   const sources = withExtras(UTM_SOURCES, [v.utm_source]);
@@ -89,7 +101,7 @@ export function UtmLinkDialog({
 
   const sharing = partnerEmail.trim() !== "";
   const saveAndCopy = async () => {
-    if (!valid || saving) return;
+    if (!valid || saving || clash) return;
     if (sharing && !isEmail(partnerEmail)) {
       toast.error("Check the partner's email", { description: "Enter a valid email address, or clear the field to save without sharing." });
       return;
@@ -196,7 +208,26 @@ export function UtmLinkDialog({
             </div>
           </div>
 
-          {identityChanged && (
+          {clash && (
+            <div className="text-[12px] sm:text-[11px] text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2 space-y-2">
+              <p>
+                You already have a link with this source, medium and campaign
+                {clash.label ? <> (“{clash.label}”)</> : null}. Use a different campaign name for a separate link,
+                or edit the existing one. Content and term alone don't make a link separate.
+              </p>
+              {suggestedCampaign && (
+                <Button
+                  type="button" size="sm" variant="outline"
+                  className="h-9 sm:h-7 text-[12px] sm:text-[11px] max-w-full"
+                  onClick={() => set({ utm_campaign: suggestedCampaign })}
+                >
+                  <span className="truncate">Use campaign “{suggestedCampaign}”</span>
+                </Button>
+              )}
+            </div>
+          )}
+
+          {identityChanged && !clash && (
             <p className="text-[12px] sm:text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2">
               Changing source, medium or campaign creates a new link. Clicks and registrations already
               recorded stay with the original link.
@@ -242,7 +273,7 @@ export function UtmLinkDialog({
 
         <div className="shrink-0 border-t border-border sm:border-0 bg-background px-4 sm:px-6 py-3 sm:py-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
           <Button variant="outline" className="h-11 sm:h-9 text-[14px] sm:text-[13px]" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button onClick={saveAndCopy} disabled={!valid || saving} className="h-11 sm:h-9 gap-1.5 text-[14px] sm:text-[13px]">
+          <Button onClick={saveAndCopy} disabled={!valid || saving || !!clash} className="h-11 sm:h-9 gap-1.5 text-[14px] sm:text-[13px]">
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             {saving ? "Saving…" : sharing ? "Save, copy & share" : copied ? "Copied" : editing ? "Save changes & copy" : "Save & copy link"}
           </Button>
