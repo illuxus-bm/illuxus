@@ -7,9 +7,8 @@
  *  3. KPI strip    (clicks, registrations, conversion, checked in)
  *  4. Charts       (registrations by source; top campaigns)
  *  5. Funnel + source breakdown
- *  6. Table        (sortable; registration counts open the leads pop-up;
- *                   copy / edit per link)
- *  7. Saved links  (copy / edit / delete)
+ *  6. Saved links  (each link's clicks, registrations — which open the leads
+ *                   pop-up — check-ins and conversion; copy / edit / delete)
  *
  * Data:
  *  • All time  — the `event_utm_summary` RPC.
@@ -44,9 +43,7 @@ import {
   Copy,
   ExternalLink,
   Download,
-  ChevronUp,
   ChevronDown,
-  ChevronsUpDown,
   Filter,
   X,
   Link2,
@@ -135,8 +132,6 @@ interface DeleteTarget {
   saved: UtmLink | null;
 }
 
-type SortKey = "utm_source" | "utm_medium" | "utm_campaign" | "clicks" | "registrations" | "checked_in" | "conversion_rate";
-type SortDir = "asc" | "desc";
 
 type DateRange = "7d" | "30d" | "90d" | "all";
 
@@ -159,6 +154,9 @@ const isMissingFunction = (e: { code?: string; message?: string }) =>
 
 /** Conversion can exceed 100% when clicks were under-recorded; cap what we show. */
 const capPct = (n: number) => Math.min(100, Math.max(0, n));
+
+const convClassOf = (conv: number) =>
+  conv >= 10 ? "text-emerald-500" : conv >= 5 ? "text-amber-500" : "text-muted-foreground";
 
 /* ─── KPI Card ───────────────────────────────────────────────────────────── */
 
@@ -292,155 +290,153 @@ function SourceLeaderboard({ rows }: { rows: UtmRow[] }) {
   );
 }
 
-/* ─── Sortable Table Header ──────────────────────────────────────────────── */
-
-function SortableHeader({
-  col, label, sort, dir, onSort, align = "left",
-}: {
-  col: SortKey;
-  label: string;
-  sort: SortKey;
-  dir: SortDir;
-  onSort: (col: SortKey) => void;
-  align?: "left" | "right";
-}) {
-  const active = sort === col;
-  const Icon = active ? (dir === "asc" ? ChevronUp : ChevronDown) : ChevronsUpDown;
-  return (
-    <th
-      className={`px-4 py-2.5 font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors ${align === "right" ? "text-right" : "text-left"}`}
-      onClick={() => onSort(col)}
-    >
-      <span className={`inline-flex items-center gap-1 ${align === "right" ? "flex-row-reverse" : ""}`}>
-        {label}
-        <Icon className={`h-3 w-3 ${active ? "text-foreground" : "text-muted-foreground/50"}`} />
-      </span>
-    </th>
-  );
-}
-
 /* ─── Saved Links section ────────────────────────────────────────────────── */
 
+/** A link's numbers for the selected period. */
+interface LinkStats {
+  clicks: number;
+  registrations: number;
+  checked_in: number;
+  conversion_rate: number;
+}
+
 function SavedLinksSection({
-  savedRows,
-  analyticsRows,
+  links,
+  total,
+  statsFor,
+  rangeLabel,
+  emptyMessage,
   urlFor,
+  onOpenRegs,
   onEdit,
   onDelete,
 }: {
-  savedRows: UtmLink[];
-  analyticsRows: UtmRow[];
+  /** The saved links to show (already narrowed by the page's filters). */
+  links: UtmLink[];
+  /** How many saved links the event has in all. */
+  total: number;
+  statsFor: (link: UtmLink) => LinkStats;
+  rangeLabel: string | null;
+  emptyMessage: string;
   /** The link's current URL (rebuilt from its values, not the copy stored when it was saved). */
   urlFor: (link: UtmLink) => string;
+  onOpenRegs: (link: UtmLink) => void;
   onEdit: (link: UtmLink) => void;
   /** Ask to delete the link (the page shows the confirmation). */
   onDelete: (link: UtmLink) => void;
 }) {
-
-  // Enrich saved links with click+reg data from analytics rows
-  const enriched = savedRows.map((link) => {
-    const row = analyticsRows.find((r) => sameLink(r, link));
-    const hasData = !!(row && (Number(row.clicks) > 0 || Number(row.registrations) > 0));
-    return {
-      ...link,
-      has_data:      hasData,
-      clicks:        Number(row?.clicks ?? 0),
-      registrations: Number(row?.registrations ?? 0),
-    };
-  });
-
   const copyUrl = (url: string) => {
     navigator.clipboard.writeText(url)
       .then(() => toast.success("Copied"))
       .catch(() => toast.error("Could not copy"));
   };
 
-  if (enriched.length === 0) return null;
-
   return (
     <div className="border border-border rounded-xl bg-card overflow-hidden">
       <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center gap-2">
         <Link2 className="h-3.5 w-3.5 text-accent" />
         <h3 className="text-sm font-semibold">Saved UTM links</h3>
-        <span className="ml-auto text-[11px] text-muted-foreground">{enriched.length} link{enriched.length !== 1 ? "s" : ""}</span>
+        <span className="ml-auto text-[11px] text-muted-foreground">
+          {links.length === total ? total : `${links.length} of ${total}`} link{total !== 1 ? "s" : ""}{rangeLabel ? ` · ${rangeLabel}` : ""}
+        </span>
       </div>
 
-      <div className="divide-y divide-border">
-        {enriched.map((link) => (
-          <div key={link.id} className="p-4 space-y-2">
-            {/* Label row */}
-            <div className="flex items-start gap-2 justify-between">
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-semibold truncate">
-                  {link.label || (
-                    <span className="text-muted-foreground font-normal italic">No label</span>
-                  )}
-                </p>
-                {/* UTM params pill row */}
-                <div className="flex flex-wrap gap-1.5 mt-1.5">
-                  {[
-                    { k: "source",   v: link.utm_source },
-                    { k: "medium",   v: link.utm_medium },
-                    { k: "campaign", v: link.utm_campaign },
-                    ...(link.utm_content ? [{ k: "content", v: link.utm_content }] : []),
-                    ...(link.utm_term    ? [{ k: "term",    v: link.utm_term }]    : []),
-                  ].map(({ k, v }) => (
-                    <span key={k} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-muted border border-border font-mono">
-                      <span className="text-muted-foreground">{k}:</span>{v}
-                    </span>
-                  ))}
+      {links.length === 0 ? (
+        <p className="py-10 px-4 text-center text-[13px] text-muted-foreground">{emptyMessage}</p>
+      ) : (
+        <div className="divide-y divide-border">
+          {links.map((link) => {
+            const st = statsFor(link);
+            const conv = capPct(st.conversion_rate);
+            return (
+              <div key={link.id} className="p-4 space-y-3">
+                <div className="flex flex-col lg:flex-row lg:items-start gap-3 lg:justify-between">
+                  {/* Label + UTM values */}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-semibold truncate">
+                      {link.label || (
+                        <span className="text-muted-foreground font-normal italic">No label</span>
+                      )}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {[
+                        { k: "source",   v: link.utm_source },
+                        { k: "medium",   v: link.utm_medium },
+                        { k: "campaign", v: link.utm_campaign },
+                        ...(link.utm_content ? [{ k: "content", v: link.utm_content }] : []),
+                        ...(link.utm_term    ? [{ k: "term",    v: link.utm_term }]    : []),
+                      ].map(({ k, v }) => (
+                        <span key={k} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-muted border border-border font-mono max-w-full">
+                          <span className="text-muted-foreground">{k}:</span><span className="truncate">{v}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Numbers — registrations open the leads pop-up */}
+                  <div className="grid grid-cols-4 gap-2 text-center lg:w-[360px] shrink-0">
+                    <div className="rounded-lg bg-muted/50 py-2">
+                      <p className="text-[15px] font-semibold tabular-nums">{st.clicks.toLocaleString()}</p>
+                      <p className="text-[10px] text-muted-foreground">Clicks</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={st.registrations === 0}
+                      onClick={() => onOpenRegs(link)}
+                      className="rounded-lg bg-emerald-500/10 py-2 disabled:bg-muted/50 enabled:hover:bg-emerald-500/20"
+                      title={st.registrations > 0 ? "View these registrations" : undefined}
+                      aria-label={`View ${st.registrations} registrations`}
+                    >
+                      <p className={`text-[15px] font-semibold tabular-nums ${st.registrations > 0 ? "text-emerald-700 dark:text-emerald-400 underline decoration-dotted underline-offset-4" : ""}`}>
+                        {st.registrations.toLocaleString()}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">Registered</p>
+                    </button>
+                    <div className="rounded-lg bg-muted/50 py-2">
+                      <p className="text-[15px] font-semibold tabular-nums">{st.checked_in.toLocaleString()}</p>
+                      <p className="text-[10px] text-muted-foreground">Checked in</p>
+                    </div>
+                    <div className="rounded-lg bg-muted/50 py-2">
+                      <p className={`text-[15px] font-semibold tabular-nums ${convClassOf(conv)}`}>{conv.toFixed(1)}%</p>
+                      <p className="text-[10px] text-muted-foreground">Conv.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* URL row */}
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 min-w-0 text-[10px] font-mono bg-muted rounded px-2 py-1.5 truncate border border-border text-muted-foreground">
+                    {urlFor(link)}
+                  </code>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 sm:h-7 sm:w-7 shrink-0" onClick={() => copyUrl(urlFor(link))} title="Copy" aria-label="Copy link">
+                    <Copy className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 sm:h-7 sm:w-7 shrink-0" asChild title="Open">
+                    <a href={urlFor(link)} target="_blank" rel="noopener noreferrer" aria-label="Open link">
+                      <ExternalLink className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
+                    </a>
+                  </Button>
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" className="h-8 sm:h-7 px-2.5 text-[11px] gap-1" onClick={() => onEdit(link)}>
+                    <Pencil className="h-3 w-3" /> Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 sm:h-7 px-2.5 text-[11px] text-destructive hover:bg-destructive/10 hover:text-destructive gap-1 ml-auto"
+                    onClick={() => onDelete(link)}
+                  >
+                    <Trash2 className="h-3 w-3" /> Delete
+                  </Button>
                 </div>
               </div>
-
-              {/* Stats */}
-              <div className="shrink-0 flex items-center gap-3 text-[11px] text-muted-foreground">
-                {link.has_data ? (
-                  <>
-                    <span className="flex items-center gap-1">
-                      <MousePointerClick className="h-3 w-3" />{link.clicks}
-                    </span>
-                    <span className="flex items-center gap-1 text-emerald-600 font-medium">
-                      <Users className="h-3 w-3" />{link.registrations}
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-[10px] bg-muted px-2 py-0.5 rounded-full">No data yet</span>
-                )}
-              </div>
-            </div>
-
-            {/* URL row */}
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-[10px] font-mono bg-muted rounded px-2 py-1.5 truncate border border-border text-muted-foreground">
-                {urlFor(link)}
-              </code>
-              <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => copyUrl(urlFor(link))} title="Copy">
-                <Copy className="h-3 w-3" />
-              </Button>
-              <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" asChild title="Open">
-                <a href={urlFor(link)} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              </Button>
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center gap-2 pt-0.5">
-              <Button size="sm" variant="outline" className="h-7 px-2.5 text-[11px] gap-1" onClick={() => onEdit(link)}>
-                <Pencil className="h-3 w-3" /> Edit
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2.5 text-[11px] text-destructive hover:bg-destructive/10 hover:text-destructive gap-1 ml-auto"
-                onClick={() => onDelete(link)}
-              >
-                <Trash2 className="h-3 w-3" /> Delete
-              </Button>
-            </div>
-          </div>
-        ))}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -598,19 +594,6 @@ export default function UtmAnalyticsPage({
     [summaryRows, savedLinks],
   );
 
-  /* ── Sort state ── */
-  const [sortKey, setSortKey] = useState<SortKey>("registrations");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-
-  const handleSort = (col: SortKey) => {
-    if (sortKey === col) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(col);
-      setSortDir("desc");
-    }
-  };
-
   /* ── Filtered + sorted rows ── */
   const rows = useMemo<BreakdownRow[]>(() => {
     const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -619,15 +602,22 @@ export default function UtmAnalyticsPage({
     if (filterMedium !== "all") r = r.filter((row) => same(row.utm_medium ?? "", filterMedium));
     const q = filterCampaign.trim().toLowerCase();
     if (q) r = r.filter((row) => (row.utm_campaign ?? "").toLowerCase().includes(q));
-    return [...r].sort((a, b) => {
-      const av = a[sortKey] ?? "";
-      const bv = b[sortKey] ?? "";
-      const cmp = typeof av === "number" && typeof bv === "number"
-        ? av - bv
-        : String(av).localeCompare(String(bv));
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-  }, [periodRows, filterSource, filterMedium, filterCampaign, sortKey, sortDir]);
+    return [...r].sort((a, b) => b.registrations - a.registrations || b.clicks - a.clicks);
+  }, [periodRows, filterSource, filterMedium, filterCampaign]);
+
+  const visibleSavedLinks = useMemo(() => {
+    const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+    const q = filterCampaign.trim().toLowerCase();
+    return savedLinks.filter((l) =>
+      (filterSource === "all" || same(l.utm_source, filterSource)) &&
+      (filterMedium === "all" || same(l.utm_medium, filterMedium)) &&
+      (!q || l.utm_campaign.toLowerCase().includes(q)));
+  }, [savedLinks, filterSource, filterMedium, filterCampaign]);
+
+  const statsForLink = (link: UtmLink): LinkStats => {
+    const r = periodRows.find((row) => sameLink(row, link));
+    return { clicks: r?.clicks ?? 0, registrations: r?.registrations ?? 0, checked_in: r?.checked_in ?? 0, conversion_rate: r?.conversion_rate ?? 0 };
+  };
 
   const hasFilters = filterSource !== "all" || filterMedium !== "all" || filterCampaign.trim().length > 0 || dateRange !== "all";
   const periodLoading = cutoffIso !== null && (clicksQuery.isLoading || leadsQuery.isLoading);
@@ -702,14 +692,6 @@ export default function UtmAnalyticsPage({
   const linkFor = (r: BreakdownRow): string | null =>
     r.utm_source === DIRECT_SOURCE ? null : utmLinkUrl(eventRef, draftFor(r));
 
-  const copyRowLink = (r: BreakdownRow) => {
-    const url = linkFor(r);
-    if (!url) return;
-    navigator.clipboard.writeText(url)
-      .then(() => toast.success("Link copied"))
-      .catch(() => toast.error("Could not copy"));
-  };
-
   /* ── Delete a tracked link (after confirmation) ── */
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -720,11 +702,6 @@ export default function UtmAnalyticsPage({
     return { clicks: row?.clicks ?? 0, registrations: row?.registrations ?? 0 };
   }, [deleteTarget, summaryRows]);
 
-  const targetForRow = (r: BreakdownRow): DeleteTarget => ({
-    utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign,
-    utm_content: r.utm_content, utm_term: r.utm_term,
-    label: r.saved?.label ?? null, saved: r.saved,
-  });
   const targetForLink = (link: UtmLink): DeleteTarget => ({
     utm_source: link.utm_source, utm_medium: link.utm_medium, utm_campaign: link.utm_campaign,
     utm_content: utmPart(link.utm_content), utm_term: utmPart(link.utm_term),
@@ -801,9 +778,6 @@ export default function UtmAnalyticsPage({
     }
   };
 
-  const openRegs = (r: BreakdownRow) =>
-    setRegsFor({ utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign, utm_content: r.utm_content, utm_term: r.utm_term });
-
   /* ── Exports (what's on screen: current period + filters) ── */
   const exportScope = eventSlug || "event";
 
@@ -850,9 +824,6 @@ export default function UtmAnalyticsPage({
       </div>
     );
   }
-
-  const convClassOf = (conv: number) =>
-    conv >= 10 ? "text-emerald-500" : conv >= 5 ? "text-amber-500" : "text-muted-foreground";
 
   return (
     <div className="space-y-4">
@@ -1090,193 +1061,22 @@ export default function UtmAnalyticsPage({
         </div>
       )}
 
-      {/* ── Full breakdown ── */}
-      {rows.length === 0 ? (
-        <div className="border border-dashed border-border rounded-xl py-10 px-4 text-center text-[13px] text-muted-foreground">
-          {periodLoading
-            ? "Loading this period…"
-            : periodRows.length > 0 || summaryRows.length > 0
-              ? "Nothing matches the current filters. Try adjusting or clearing them."
-              : "No UTM data yet. Create a tracked link above and share it to start collecting attribution data."}
-        </div>
-      ) : (
-        <div className="border border-border rounded-xl bg-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">Full attribution breakdown</h3>
-            <span className="text-[11px] text-muted-foreground">
-              {rows.length} link{rows.length !== 1 ? "s" : ""}{rangeLabel ? ` · ${rangeLabel}` : ""}
-            </span>
-          </div>
-
-          {/* Phones: one card per link */}
-          <ul className="sm:hidden divide-y divide-border">
-            {rows.map((r) => {
-              const conv = capPct(r.conversion_rate);
-              const isDirect = r.utm_source === DIRECT_SOURCE;
-              return (
-                <li key={rowKey(r)} className="p-4 space-y-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: sourceColor(r.utm_source) }} />
-                        <span className="text-[14px] font-semibold truncate">{r.utm_source}</span>
-                        <span className="text-[12px] text-muted-foreground truncate">/ {r.utm_medium}</span>
-                      </div>
-                      <p className="mt-1 font-mono text-[11.5px] text-muted-foreground break-all">{r.utm_campaign}</p>
-                      {(r.utm_content || r.utm_term) && (
-                        <p className="mt-0.5 font-mono text-[11px] text-muted-foreground break-all">
-                          {[r.utm_content, r.utm_term].filter(Boolean).join(" · ")}
-                        </p>
-                      )}
-                      {r.saved?.label && <p className="mt-0.5 text-[12px] text-foreground/80 truncate">{r.saved.label}</p>}
-                    </div>
-                    {!isDirect && (
-                      <div className="flex items-center shrink-0 -mr-1.5">
-                        <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => copyRowLink(r)} aria-label="Copy link">
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => setLinkDialog({ open: true, initial: draftFor(r) })} aria-label="Edit link">
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteTarget(targetForRow(r))} aria-label="Delete link">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-4 gap-2 text-center">
-                    <div className="rounded-lg bg-muted/50 py-2">
-                      <p className="text-[15px] font-semibold tabular-nums">{r.clicks.toLocaleString()}</p>
-                      <p className="text-[10px] text-muted-foreground">Clicks</p>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={r.registrations === 0}
-                      onClick={() => openRegs(r)}
-                      className="rounded-lg bg-emerald-500/10 py-2 disabled:bg-muted/50 enabled:active:bg-emerald-500/20"
-                      aria-label={`View ${r.registrations} registrations`}
-                    >
-                      <p className={`text-[15px] font-semibold tabular-nums ${r.registrations > 0 ? "text-emerald-700 dark:text-emerald-400 underline decoration-dotted underline-offset-4" : ""}`}>
-                        {r.registrations.toLocaleString()}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">Registered</p>
-                    </button>
-                    <div className="rounded-lg bg-muted/50 py-2">
-                      <p className="text-[15px] font-semibold tabular-nums">{r.checked_in.toLocaleString()}</p>
-                      <p className="text-[10px] text-muted-foreground">Checked in</p>
-                    </div>
-                    <div className="rounded-lg bg-muted/50 py-2">
-                      <p className={`text-[15px] font-semibold tabular-nums ${isDirect ? "text-muted-foreground" : convClassOf(conv)}`}>
-                        {isDirect ? "—" : `${conv.toFixed(1)}%`}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">Conv.</p>
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-
-          {/* Larger screens: sortable table */}
-          <div className="hidden sm:block overflow-x-auto">
-            <table className="w-full text-[12px]">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <SortableHeader col="utm_source"      label="Source"        sort={sortKey} dir={sortDir} onSort={handleSort} />
-                  <SortableHeader col="utm_medium"      label="Medium"        sort={sortKey} dir={sortDir} onSort={handleSort} />
-                  <SortableHeader col="utm_campaign"    label="Campaign"      sort={sortKey} dir={sortDir} onSort={handleSort} />
-                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Content / term</th>
-                  <SortableHeader col="clicks"          label="Clicks"        sort={sortKey} dir={sortDir} onSort={handleSort} align="right" />
-                  <SortableHeader col="registrations"   label="Registrations" sort={sortKey} dir={sortDir} onSort={handleSort} align="right" />
-                  <SortableHeader col="checked_in"      label="Checked in"    sort={sortKey} dir={sortDir} onSort={handleSort} align="right" />
-                  <SortableHeader col="conversion_rate" label="Conv %"        sort={sortKey} dir={sortDir} onSort={handleSort} align="right" />
-                  <th className="text-right px-4 py-2.5 font-medium text-muted-foreground"><span className="sr-only">Actions</span></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {rows.map((r) => {
-                  const conv = capPct(r.conversion_rate);
-                  const isDirect = r.utm_source === DIRECT_SOURCE;
-                  return (
-                    <tr key={rowKey(r)} className="hover:bg-muted/20 transition-colors">
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="h-2 w-2 rounded-full shrink-0"
-                            style={{ backgroundColor: sourceColor(r.utm_source) }}
-                          />
-                          <span className="font-medium">{r.utm_source}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-2.5 text-muted-foreground">{r.utm_medium}</td>
-                      <td className="px-4 py-2.5 max-w-[200px]">
-                        <span className="font-mono text-[11px] bg-muted px-1.5 py-0.5 rounded truncate block" title={r.utm_campaign}>
-                          {r.utm_campaign}
-                        </span>
-                        {r.saved?.label && <span className="block text-[11px] text-muted-foreground truncate mt-0.5">{r.saved.label}</span>}
-                      </td>
-                      <td className="px-4 py-2.5 text-muted-foreground text-[11px] max-w-[160px]">
-                        <span className="block truncate" title={[r.utm_content, r.utm_term].filter(Boolean).join(" · ")}>
-                          {[r.utm_content, r.utm_term].filter(Boolean).join(" · ") || "—"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        {r.clicks.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums font-semibold">
-                        {r.registrations > 0 ? (
-                          <button
-                            type="button"
-                            onClick={() => openRegs(r)}
-                            className="text-emerald-600 underline decoration-dotted underline-offset-4 hover:decoration-solid hover:text-emerald-700"
-                            title="View these registrations"
-                          >
-                            {r.registrations.toLocaleString()}
-                          </button>
-                        ) : (
-                          <span className="text-muted-foreground">0</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        {r.checked_in.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        {isDirect ? (
-                          <span className="text-muted-foreground" title="Direct registrations have no link clicks">—</span>
-                        ) : (
-                          <span className={`font-medium ${convClassOf(conv)}`}>{conv.toFixed(1)}%</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-1.5 text-right whitespace-nowrap">
-                        {/* Direct traffic has no tracked link to copy or edit. */}
-                        {!isDirect && (
-                          <div className="inline-flex items-center gap-0.5">
-                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => copyRowLink(r)} title="Copy link" aria-label="Copy link">
-                              <Copy className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setLinkDialog({ open: true, initial: draftFor(r) })} title="Edit link" aria-label="Edit link">
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteTarget(targetForRow(r))} title="Delete link" aria-label="Delete link">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {/* ── Saved links ── */}
       <SavedLinksSection
-        savedRows={savedLinks}
-        analyticsRows={summaryRows}
+        links={visibleSavedLinks}
+        total={savedLinks.length}
+        statsFor={statsForLink}
+        rangeLabel={rangeLabel}
+        emptyMessage={
+          savedLinks.length === 0
+            ? "No saved links yet. Create a tracked link above and share it to start collecting attribution data."
+            : "No saved links match the current filters. Try adjusting or clearing them."
+        }
         urlFor={(link) => utmLinkUrl(eventRef, link)}
+        onOpenRegs={(link) => setRegsFor({
+          utm_source: link.utm_source, utm_medium: link.utm_medium, utm_campaign: link.utm_campaign,
+          utm_content: utmPart(link.utm_content), utm_term: utmPart(link.utm_term),
+        })}
         onDelete={(link) => setDeleteTarget(targetForLink(link))}
         onEdit={(link) => setLinkDialog({
           open: true,
