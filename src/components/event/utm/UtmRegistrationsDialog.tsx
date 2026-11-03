@@ -26,6 +26,8 @@ export interface UtmBreakdownKey {
   utm_source: string;
   utm_medium: string;
   utm_campaign: string;
+  utm_content?: string | null;
+  utm_term?: string | null;
 }
 
 const ATTENDANCE_TONE: Record<AttendanceLabel, string> = {
@@ -79,7 +81,7 @@ export function UtmRegistrationsDialog({
   const attended = leads.filter(hasAttended).length;
   const exportCsv = () => {
     if (!row) return;
-    exportLeadsCsv(shown, leadsFilename([row.utm_source, row.utm_medium, row.utm_campaign].join("-")));
+    exportLeadsCsv(shown, leadsFilename([row.utm_source, row.utm_medium, row.utm_campaign, row.utm_content, row.utm_term].filter(Boolean).join("-")));
   };
 
   const exportButton = (className?: string) => (
@@ -97,7 +99,7 @@ export function UtmRegistrationsDialog({
           </DialogTitle>
           <DialogDescription asChild>
             <div className="flex flex-wrap gap-1.5">
-              {row && ([["source", row.utm_source], ["medium", row.utm_medium], ["campaign", row.utm_campaign]] as const).map(([k, v]) => (
+              {row && ([["source", row.utm_source], ["medium", row.utm_medium], ["campaign", row.utm_campaign], ["content", row.utm_content], ["term", row.utm_term]] as const).filter(([, v]) => v).map(([k, v]) => (
                 <span key={k} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-muted border border-border font-mono max-w-full">
                   <span className="text-muted-foreground">{k}:</span><span className="truncate">{v}</span>
                 </span>

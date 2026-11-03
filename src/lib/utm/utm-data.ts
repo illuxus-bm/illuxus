@@ -1,8 +1,10 @@
 /**
  * Data access and aggregation for the per-event UTM analytics page.
  *
- * Grouping mirrors the `event_utm_summary` RPC exactly — missing UTM values
- * count as "(direct)" / "(none)" and cancelled registrations are excluded —
+ * Grouping mirrors the `event_utm_summary` RPC exactly — one row per link
+ * (source + medium + campaign + content + term), missing source / medium /
+ * campaign count as "(direct)" / "(none)", blank content / term as none, and
+ * cancelled registrations are excluded —
  * so numbers computed here (date-filtered rows, the registrations pop-up,
  * exports) always agree with the summary table.
  */
@@ -12,6 +14,9 @@ export interface UtmRow {
   utm_source: string;
   utm_medium: string;
   utm_campaign: string;
+  /** null when the link has none. */
+  utm_content: string | null;
+  utm_term: string | null;
   clicks: number;
   registrations: number;
   conversion_rate: number;
@@ -54,6 +59,8 @@ export interface UtmClick {
   utm_source: string | null;
   utm_medium: string | null;
   utm_campaign: string | null;
+  utm_content: string | null;
+  utm_term: string | null;
   created_at: string;
 }
 
@@ -101,7 +108,7 @@ export function fetchEventClicksSince(eventId: string, sinceIso: string): Promis
   return fetchAllPages<UtmClick>((from, to) =>
     supabase
       .from("utm_clicks" as never)
-      .select("utm_source, utm_medium, utm_campaign, created_at")
+      .select("utm_source, utm_medium, utm_campaign, utm_content, utm_term, created_at")
       .eq("event_id", eventId)
       .gte("created_at", sinceIso)
       .order("created_at", { ascending: false })
@@ -110,17 +117,41 @@ export function fetchEventClicksSince(eventId: string, sinceIso: string): Promis
 }
 
 const SEP = "\u0001";
-export const utmKey = (source: string, medium: string, campaign: string) => `${source}${SEP}${medium}${SEP}${campaign}`;
-export const rowKey = (r: Pick<UtmRow, "utm_source" | "utm_medium" | "utm_campaign">) =>
-  utmKey(r.utm_source, r.utm_medium, r.utm_campaign);
+
+/** Content / term as the analytics see them: trimmed, blank meaning none. */
+export const utmPart = (v: string | null | undefined): string | null => (v ?? "").trim() || null;
+
+/** The five values that identify a tracked link. */
+export interface UtmLinkKey {
+  utm_source: string;
+  utm_medium: string;
+  utm_campaign: string;
+  utm_content?: string | null;
+  utm_term?: string | null;
+}
+
+export const rowKey = (r: UtmLinkKey) =>
+  [r.utm_source, r.utm_medium, r.utm_campaign, utmPart(r.utm_content) ?? "", utmPart(r.utm_term) ?? ""].join(SEP);
+
+/** Same link? (blank content / term count as none) */
+export const sameLink = (a: UtmLinkKey, b: UtmLinkKey) => rowKey(a) === rowKey(b);
+
+type RawUtm = {
+  utm_source: string | null; utm_medium: string | null; utm_campaign: string | null;
+  utm_content?: string | null; utm_term?: string | null;
+};
+
 /** The summary row a lead or click belongs to. */
-export const attributionKey = (x: { utm_source: string | null; utm_medium: string | null; utm_campaign: string | null }) =>
-  utmKey(x.utm_source ?? "(direct)", x.utm_medium ?? "(none)", x.utm_campaign ?? "(none)");
+export const attributionKey = (x: RawUtm) =>
+  rowKey({
+    utm_source: x.utm_source ?? "(direct)", utm_medium: x.utm_medium ?? "(none)", utm_campaign: x.utm_campaign ?? "(none)",
+    utm_content: x.utm_content, utm_term: x.utm_term,
+  });
 
 /** Build summary rows from raw clicks + leads (same maths as the RPC). */
 export function aggregateRows(clicks: readonly UtmClick[], leads: readonly UtmLead[]): UtmRow[] {
   const map = new Map<string, UtmRow>();
-  const rowFor = (x: { utm_source: string | null; utm_medium: string | null; utm_campaign: string | null }) => {
+  const rowFor = (x: RawUtm) => {
     const key = attributionKey(x);
     let row = map.get(key);
     if (!row) {
@@ -128,6 +159,8 @@ export function aggregateRows(clicks: readonly UtmClick[], leads: readonly UtmLe
         utm_source: x.utm_source ?? "(direct)",
         utm_medium: x.utm_medium ?? "(none)",
         utm_campaign: x.utm_campaign ?? "(none)",
+        utm_content: utmPart(x.utm_content),
+        utm_term: utmPart(x.utm_term),
         clicks: 0,
         registrations: 0,
         conversion_rate: 0,

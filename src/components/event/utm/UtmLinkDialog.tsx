@@ -2,9 +2,10 @@
  * Create or edit a tracked (UTM) link for an event.
  *
  * Links are stored in `utm_links`, unique per event + source + medium +
- * campaign, so saving an existing combination updates it (label, content,
- * term, URL) instead of duplicating it. Changing source, medium or campaign
- * of an existing link creates a new link — clicks and registrations already
+ * campaign + content + term, so links can differ by content or term alone
+ * (one per team member, say). Saving an existing combination updates its
+ * label and URL instead of duplicating it. Changing any of the five values of
+ * an existing link creates a new link — clicks and registrations already
  * recorded stay attributed to the original combination.
  *
  * Saving is a convenience, not a requirement: tracking is carried by the URL
@@ -28,6 +29,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { DEFAULT_PARTNER_PERMISSIONS, type PartnerPermissions } from "@/lib/utm/partner-access";
 import { PartnerEmailField, PartnerPermissionFields, isEmail } from "./UtmPartnerFields";
 import { shareAndInvite } from "./UtmPartnersSection";
+import { sameLink, utmPart } from "@/lib/utm/utm-data";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -81,19 +83,14 @@ export function UtmLinkDialog({
   const set = (patch: Partial<UtmLinkDraft>) => { setV((prev) => ({ ...prev, ...patch })); setCopied(false); };
   const valid = !!(v.utm_source.trim() && v.utm_medium.trim() && v.utm_campaign.trim());
   const url = useMemo(() => utmLinkUrl({ eventId, eventSlug, orgSlug }, v), [eventId, eventSlug, orgSlug, v]);
-  const identityChanged = editing && initial && (
-    initial.utm_source !== v.utm_source || initial.utm_medium !== v.utm_medium || initial.utm_campaign !== v.utm_campaign
-  );
-  // Source + medium + campaign identify a saved link, and saving upserts on
-  // them — so a new link with the same three would overwrite that one.
-  const clash = (!editing || identityChanged)
-    ? existing.find((l) =>
-        l.utm_source === v.utm_source.trim() && l.utm_medium === v.utm_medium.trim() && l.utm_campaign === v.utm_campaign.trim())
-    : undefined;
-  // Content alone doesn't separate links (or their analytics), so offer to
-  // fold it into the campaign — e.g. one link per team member.
-  const contentSlug = (v.utm_content ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const suggestedCampaign = clash && contentSlug ? `${v.utm_campaign.trim()}-${contentSlug}` : null;
+  const identity = {
+    utm_source: v.utm_source.trim(), utm_medium: v.utm_medium.trim(), utm_campaign: v.utm_campaign.trim(),
+    utm_content: utmPart(v.utm_content), utm_term: utmPart(v.utm_term),
+  };
+  const identityChanged = editing && initial && !sameLink(initial, identity);
+  // The five values identify a saved link, and saving upserts on them — so a
+  // new link identical to a saved one would overwrite it.
+  const clash = (!editing || identityChanged) ? existing.find((l) => sameLink(l, identity)) : undefined;
 
   // Keep any custom value of an edited link selectable.
   const sources = withExtras(UTM_SOURCES, [v.utm_source]);
@@ -114,11 +111,11 @@ export function UtmLinkDialog({
         utm_source: v.utm_source.trim(),
         utm_medium: v.utm_medium.trim(),
         utm_campaign: v.utm_campaign.trim(),
-        utm_content: v.utm_content?.trim() || null,
-        utm_term: v.utm_term?.trim() || null,
+        utm_content: identity.utm_content,
+        utm_term: identity.utm_term,
         label: v.label?.trim() || null,
         url,
-      } as never, { onConflict: "event_id,utm_source,utm_medium,utm_campaign" });
+      } as never, { onConflict: "event_id,utm_source,utm_medium,utm_campaign,utm_content,utm_term" });
     const saved = !error;
     // Share only once the link exists — the database checks the link belongs to the event.
     if (sharing && !saved) {
@@ -151,13 +148,17 @@ export function UtmLinkDialog({
     }
     // Not stored, but the link itself is complete and tracks as normal.
     const denied = error?.code === "42501" || /permission denied/i.test(error?.message ?? "");
+    // 42P10: the database still identifies links by source / medium / campaign only.
+    const outdated = error?.code === "42P10";
     toast.warning(copiedNow ? "Link copied — it works, but wasn't added to your saved list" : "Your link works, but wasn't added to your saved list", {
       description:
         (copiedNow ? "" : "Copy it from the field below. ") +
         "Clicks and registrations from it are tracked as usual and will show in the breakdown. " +
         (denied
           ? "To keep links under “Saved UTM links”, apply the relevant UTM sections in supabase/migrations/000_full_schema.sql in the Supabase SQL Editor."
-          : `Reason: ${error?.message ?? "unknown error"}`),
+          : outdated
+            ? "To save links that differ by content or term, run supabase/RUN_ME_utm_link_variants.sql in the Supabase SQL Editor."
+            : `Reason: ${error?.message ?? "unknown error"}`),
       duration: 15_000,
     });
   };
@@ -209,28 +210,16 @@ export function UtmLinkDialog({
           </div>
 
           {clash && (
-            <div className="text-[12px] sm:text-[11px] text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2 space-y-2">
-              <p>
-                You already have a link with this source, medium and campaign
-                {clash.label ? <> (“{clash.label}”)</> : null}. Use a different campaign name for a separate link,
-                or edit the existing one. Content and term alone don't make a link separate.
-              </p>
-              {suggestedCampaign && (
-                <Button
-                  type="button" size="sm" variant="outline"
-                  className="h-9 sm:h-7 text-[12px] sm:text-[11px] max-w-full"
-                  onClick={() => set({ utm_campaign: suggestedCampaign })}
-                >
-                  <span className="truncate">Use campaign “{suggestedCampaign}”</span>
-                </Button>
-              )}
-            </div>
+            <p className="text-[12px] sm:text-[11px] text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2">
+              You already have this exact link{clash.label ? <> (“{clash.label}”)</> : null}. Change the content or
+              term (for example, the team member's name) to make a separate link, or edit the existing one.
+            </p>
           )}
 
           {identityChanged && !clash && (
             <p className="text-[12px] sm:text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2">
-              Changing source, medium or campaign creates a new link. Clicks and registrations already
-              recorded stay with the original link.
+              Changing source, medium, campaign, content or term creates a new link. Clicks and registrations
+              already recorded stay with the original link.
             </p>
           )}
 
@@ -267,6 +256,11 @@ export function UtmLinkDialog({
               they never see other links or the rest of your event.
             </p>
             <PartnerEmailField value={partnerEmail} onChange={setPartnerEmail} id="link-partner-email" optional />
+            {sharing && (identity.utm_content || identity.utm_term) && (
+              <p className="text-[12px] sm:text-[11px] text-muted-foreground">
+                Partners see the whole campaign: every link with this source, medium and campaign, whatever its content or term.
+              </p>
+            )}
             {sharing && <PartnerPermissionFields value={partnerPerms} onChange={setPartnerPerms} idPrefix="link" />}
           </div>
         </div>

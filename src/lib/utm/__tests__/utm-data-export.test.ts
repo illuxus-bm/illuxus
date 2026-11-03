@@ -19,14 +19,14 @@ const lead = (over: Partial<UtmLead> = {}): UtmLead => ({
   created_at: "2026-10-01T09:30:00Z",
   ...over,
 });
-const click = (s: string | null, m: string | null, c: string | null): UtmClick =>
-  ({ utm_source: s, utm_medium: m, utm_campaign: c, created_at: "2026-10-02T00:00:00Z" });
+const click = (s: string | null, m: string | null, c: string | null, content: string | null = null, term: string | null = null): UtmClick =>
+  ({ utm_source: s, utm_medium: m, utm_campaign: c, utm_content: content, utm_term: term, created_at: "2026-10-02T00:00:00Z" });
 
 describe("aggregateRows — mirrors event_utm_summary", () => {
   it("treats missing UTM values as (direct) / (none)", () => {
     const rows = aggregateRows([], [lead(), lead({ id: "r2" })]);
     expect(rows).toEqual([
-      { utm_source: "(direct)", utm_medium: "(none)", utm_campaign: "(none)", clicks: 0, registrations: 2, conversion_rate: 0 },
+      { utm_source: "(direct)", utm_medium: "(none)", utm_campaign: "(none)", utm_content: null, utm_term: null, clicks: 0, registrations: 2, conversion_rate: 0 },
     ]);
   });
 
@@ -46,6 +46,23 @@ describe("aggregateRows — mirrors event_utm_summary", () => {
     );
     expect(rows.map((r) => r.utm_source)).toEqual(["qr", "sms", "email"]);
     expect(rows[0].conversion_rate).toBe(0); // no clicks → 0, never a division by zero
+  });
+
+  it("keeps links that differ only by content or term apart, treating blank as none", () => {
+    const rows = aggregateRows(
+      [click("manual", "copy", "launch", "Insha"), click("manual", "copy", "launch", "Aman"), click("manual", "copy", "launch", "Aman", "  ")],
+      [
+        lead({ utm_source: "manual", utm_medium: "copy", utm_campaign: "launch", utm_content: "Insha" }),
+        lead({ id: "r2", utm_source: "manual", utm_medium: "copy", utm_campaign: "launch", utm_content: "Insha", utm_term: "vip" }),
+      ],
+    );
+    const byKey = Object.fromEntries(rows.map((r) => [`${r.utm_content}|${r.utm_term}`, r]));
+    expect(rows).toHaveLength(3);
+    expect(byKey["Aman|null"]).toMatchObject({ clicks: 2, registrations: 0 });
+    expect(byKey["Insha|null"]).toMatchObject({ clicks: 1, registrations: 1 });
+    expect(byKey["Insha|vip"]).toMatchObject({ clicks: 0, registrations: 1 });
+    expect(rowKey({ utm_source: "a", utm_medium: "b", utm_campaign: "c", utm_content: " " }))
+      .toBe(rowKey({ utm_source: "a", utm_medium: "b", utm_campaign: "c" }));
   });
 
   it("uses the same key for a lead and its summary row", () => {

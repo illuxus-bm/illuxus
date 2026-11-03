@@ -90,7 +90,7 @@ import {
   DIRECT_SOURCE, UTM_MEDIUMS, UTM_SOURCES, sourceColor, withExtras,
 } from "@/components/event/utm/utm-options";
 import {
-  aggregateRows, attributionKey, fetchEventClicksSince, fetchEventLeads, hasAttended, rowKey,
+  aggregateRows, attributionKey, fetchEventClicksSince, fetchEventLeads, hasAttended, rowKey, sameLink, utmPart,
   type UtmLead, type UtmRow,
 } from "@/lib/utm/utm-data";
 import {
@@ -129,6 +129,8 @@ interface DeleteTarget {
   utm_source: string;
   utm_medium: string;
   utm_campaign: string;
+  utm_content: string | null;
+  utm_term: string | null;
   label: string | null;
   saved: UtmLink | null;
 }
@@ -334,12 +336,7 @@ function SavedLinksSection({
 
   // Enrich saved links with click+reg data from analytics rows
   const enriched = savedRows.map((link) => {
-    const row = analyticsRows.find(
-      (r) =>
-        r.utm_source   === link.utm_source &&
-        r.utm_medium   === link.utm_medium &&
-        r.utm_campaign === link.utm_campaign
-    );
+    const row = analyticsRows.find((r) => sameLink(r, link));
     const hasData = !!(row && (Number(row.clicks) > 0 || Number(row.registrations) > 0));
     return {
       ...link,
@@ -486,6 +483,8 @@ export default function UtmAnalyticsPage({
       if (error) throw error;
       return ((data as UtmRow[]) ?? []).map((r) => ({
         ...r,
+        utm_content: utmPart(r.utm_content),
+        utm_term: utmPart(r.utm_term),
         clicks: Number(r.clicks),
         registrations: Number(r.registrations),
         conversion_rate: Number(r.conversion_rate),
@@ -580,7 +579,7 @@ export default function UtmAnalyticsPage({
         ...r,
         checked_in: rowLeads.filter(hasAttended).length,
         revenue: rowLeads.reduce((sum, l) => sum + Number(l.amount_paid ?? 0), 0),
-        saved: savedLinks.find((l) => l.utm_source === r.utm_source && l.utm_medium === r.utm_medium && l.utm_campaign === r.utm_campaign) ?? null,
+        saved: savedLinks.find((l) => sameLink(l, r)) ?? null,
       };
     });
   }, [cutoffIso, clicksQuery.data, leads, summaryRows, leadsByKey, savedLinks]);
@@ -694,7 +693,7 @@ export default function UtmAnalyticsPage({
   const draftFor = (r: BreakdownRow): UtmLinkDraft =>
     r.saved
       ? { utm_source: r.saved.utm_source, utm_medium: r.saved.utm_medium, utm_campaign: r.saved.utm_campaign, utm_content: r.saved.utm_content, utm_term: r.saved.utm_term, label: r.saved.label }
-      : { utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign };
+      : { utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign, utm_content: r.utm_content, utm_term: r.utm_term };
 
   /** The tracked URL behind a row; direct traffic has none. */
   const linkFor = (r: BreakdownRow): string | null =>
@@ -714,16 +713,18 @@ export default function UtmAnalyticsPage({
   // Activity recorded for the link being deleted (all time).
   const deleteTargetStats = useMemo(() => {
     if (!deleteTarget) return { clicks: 0, registrations: 0 };
-    const row = summaryRows.find((r) => r.utm_source === deleteTarget.utm_source && r.utm_medium === deleteTarget.utm_medium && r.utm_campaign === deleteTarget.utm_campaign);
+    const row = summaryRows.find((r) => sameLink(r, deleteTarget));
     return { clicks: row?.clicks ?? 0, registrations: row?.registrations ?? 0 };
   }, [deleteTarget, summaryRows]);
 
   const targetForRow = (r: BreakdownRow): DeleteTarget => ({
     utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign,
+    utm_content: r.utm_content, utm_term: r.utm_term,
     label: r.saved?.label ?? null, saved: r.saved,
   });
   const targetForLink = (link: UtmLink): DeleteTarget => ({
     utm_source: link.utm_source, utm_medium: link.utm_medium, utm_campaign: link.utm_campaign,
+    utm_content: utmPart(link.utm_content), utm_term: utmPart(link.utm_term),
     label: link.label, saved: link,
   });
 
@@ -747,6 +748,8 @@ export default function UtmAnalyticsPage({
         _utm_source: target.utm_source,
         _utm_medium: target.utm_medium,
         _utm_campaign: target.utm_campaign,
+        _utm_content: target.utm_content,
+        _utm_term: target.utm_term,
       } as never);
 
       if (!error) {
@@ -796,7 +799,7 @@ export default function UtmAnalyticsPage({
   };
 
   const openRegs = (r: BreakdownRow) =>
-    setRegsFor({ utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign });
+    setRegsFor({ utm_source: r.utm_source, utm_medium: r.utm_medium, utm_campaign: r.utm_campaign, utm_content: r.utm_content, utm_term: r.utm_term });
 
   /* ── Exports (what's on screen: current period + filters) ── */
   const exportScope = eventSlug || "event";
@@ -808,8 +811,8 @@ export default function UtmAnalyticsPage({
         utm_medium: r.utm_medium,
         utm_campaign: r.utm_campaign,
         label: r.saved?.label ?? null,
-        utm_content: r.saved?.utm_content ?? null,
-        utm_term: r.saved?.utm_term ?? null,
+        utm_content: r.utm_content,
+        utm_term: r.utm_term,
         clicks: r.clicks,
         registrations: r.registrations,
         checked_in: r.checked_in,
@@ -1117,6 +1120,11 @@ export default function UtmAnalyticsPage({
                         <span className="text-[12px] text-muted-foreground truncate">/ {r.utm_medium}</span>
                       </div>
                       <p className="mt-1 font-mono text-[11.5px] text-muted-foreground break-all">{r.utm_campaign}</p>
+                      {(r.utm_content || r.utm_term) && (
+                        <p className="mt-0.5 font-mono text-[11px] text-muted-foreground break-all">
+                          {[r.utm_content, r.utm_term].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
                       {r.saved?.label && <p className="mt-0.5 text-[12px] text-foreground/80 truncate">{r.saved.label}</p>}
                     </div>
                     {!isDirect && (
@@ -1174,7 +1182,7 @@ export default function UtmAnalyticsPage({
                   <SortableHeader col="utm_source"      label="Source"        sort={sortKey} dir={sortDir} onSort={handleSort} />
                   <SortableHeader col="utm_medium"      label="Medium"        sort={sortKey} dir={sortDir} onSort={handleSort} />
                   <SortableHeader col="utm_campaign"    label="Campaign"      sort={sortKey} dir={sortDir} onSort={handleSort} />
-                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Content</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Content / term</th>
                   <SortableHeader col="clicks"          label="Clicks"        sort={sortKey} dir={sortDir} onSort={handleSort} align="right" />
                   <SortableHeader col="registrations"   label="Registrations" sort={sortKey} dir={sortDir} onSort={handleSort} align="right" />
                   <SortableHeader col="checked_in"      label="Checked in"    sort={sortKey} dir={sortDir} onSort={handleSort} align="right" />
@@ -1204,8 +1212,10 @@ export default function UtmAnalyticsPage({
                         </span>
                         {r.saved?.label && <span className="block text-[11px] text-muted-foreground truncate mt-0.5">{r.saved.label}</span>}
                       </td>
-                      <td className="px-4 py-2.5 text-muted-foreground text-[11px] max-w-[120px] truncate">
-                        {r.saved?.utm_content || "—"}
+                      <td className="px-4 py-2.5 text-muted-foreground text-[11px] max-w-[160px]">
+                        <span className="block truncate" title={[r.utm_content, r.utm_term].filter(Boolean).join(" · ")}>
+                          {[r.utm_content, r.utm_term].filter(Boolean).join(" · ") || "—"}
+                        </span>
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums">
                         {r.clicks.toLocaleString()}
@@ -1292,7 +1302,7 @@ export default function UtmAnalyticsPage({
                 {deleteTarget && (
                   <div className="flex flex-wrap gap-1.5">
                     {deleteTarget.label && <span className="text-[13px] font-medium text-foreground w-full">{deleteTarget.label}</span>}
-                    {([["source", deleteTarget.utm_source], ["medium", deleteTarget.utm_medium], ["campaign", deleteTarget.utm_campaign]] as const).map(([k, v]) => (
+                    {([["source", deleteTarget.utm_source], ["medium", deleteTarget.utm_medium], ["campaign", deleteTarget.utm_campaign], ["content", deleteTarget.utm_content], ["term", deleteTarget.utm_term]] as const).filter(([, v]) => v).map(([k, v]) => (
                       <span key={k} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-muted border border-border font-mono max-w-full">
                         <span className="text-muted-foreground">{k}:</span><span className="truncate">{v}</span>
                       </span>
