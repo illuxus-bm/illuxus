@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Award, ExternalLink } from "lucide-react";
 import type { RendererSponsor } from "../PublicEventRenderer";
 import QuickViewDialog from "./QuickViewDialog";
+import { safeUrl } from "@/lib/safe-url";
 
 export default function SponsorQuickViewDialog({
   sponsor, open, onOpenChange,
@@ -31,7 +32,7 @@ export default function SponsorQuickViewDialog({
       actions={
         sponsor.website ? (
           <Button asChild size="sm" className="gap-1.5 rounded-full mt-1">
-            <a href={sponsor.website} target="_blank" rel="noreferrer">
+            <a href={safeUrl(sponsor.website)} target="_blank" rel="noreferrer">
               Visit website <ExternalLink className="h-3.5 w-3.5" />
             </a>
           </Button>

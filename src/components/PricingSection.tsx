@@ -4,6 +4,7 @@ import { SiteContainer } from "@/components/layout/SiteContainer";
 import { PillLink, PosterTitle, Reveal, SectionChip } from "@/components/landing/primitives";
 import { useTilt } from "@/components/landing/motion";
 import type { PricingPlan } from "@/lib/site-content";
+import { safeUrl } from "@/lib/safe-url";
 
 function PlanCard({ plan }: { plan: PricingPlan }) {
   const ref = useTilt<HTMLDivElement>(3);
@@ -37,7 +38,7 @@ function PlanCard({ plan }: { plan: PricingPlan }) {
       </ul>
 
       <PillLink
-        href={plan.ctaHref}
+        href={safeUrl(plan.ctaHref)}
         variant={plan.highlight ? "primary" : "outline"}
         size="md"
         arrow={plan.highlight}

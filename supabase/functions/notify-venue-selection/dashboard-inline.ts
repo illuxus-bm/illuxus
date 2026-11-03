@@ -95,6 +95,15 @@ async function withinLimit(admin, bucket, key, max, windowMs) {
 }
 
 // supabase/functions/notify-venue-selection/index.ts
+function previewOriginAllowed(origin) {
+  const pattern = Deno.env.get("PREVIEW_ORIGIN_PATTERN")?.trim();
+  if (!pattern || !origin) return false;
+  try {
+    return new RegExp(`^(?:${pattern})$`, "i").test(origin);
+  } catch {
+    return false;
+  }
+}
 function smtpConfigured() {
   return !!(Deno.env.get("SMTP_HOST") && Deno.env.get("SMTP_USERNAME") && Deno.env.get("SMTP_PASSWORD"));
 }
@@ -168,7 +177,7 @@ function buildCorsHeaders(req) {
     allowed.add(/^https?:\/\//.test(h) ? h : `https://${h}`);
   }
   const origin = req.headers.get("Origin") ?? "";
-  const ok = allowed.has(strip(origin)) || /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin);
+  const ok = allowed.has(strip(origin)) || previewOriginAllowed(origin);
   headers["Access-Control-Allow-Origin"] = origin && ok ? origin : "null";
   if (origin && ok) headers["Access-Control-Allow-Credentials"] = "true";
   return headers;

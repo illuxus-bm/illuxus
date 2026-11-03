@@ -18,6 +18,7 @@ import type {
   SponsorsData, GalleryData, TestimonialsData, NetworkingData, CfpData, CountdownData, FaqData, ContactData,
   CustomHtmlData,
 } from "./types";
+import { safeEmbedUrl, safeUrl } from "@/lib/safe-url";
 
 // Removed catalog sections mapped to placeholder types
 type WorkshopsData = any;
@@ -380,7 +381,7 @@ function HeroSec({ data, theme, event }: { data: HeroData; theme: ThemeConfig; e
         </div>
         <div className="flex flex-wrap justify-center gap-3 mt-8">
           <a
-            href={data.primaryCtaUrl || "#tickets"}
+            href={safeUrl(data.primaryCtaUrl || "#tickets")}
             className="px-7 py-3 rounded-xl font-semibold text-sm shadow-lg hover:scale-[1.02] transition-transform"
             style={{ backgroundColor: theme.accentColor, color: "#fff" }}
           >
@@ -388,7 +389,7 @@ function HeroSec({ data, theme, event }: { data: HeroData; theme: ThemeConfig; e
           </a>
           {data.secondaryCtaText && (
             <a
-              href={data.secondaryCtaUrl || "#about"}
+              href={safeUrl(data.secondaryCtaUrl || "#about")}
               className="px-7 py-3 rounded-xl font-medium text-sm border border-white/30 hover:bg-white/10 transition-colors"
             >
               {data.secondaryCtaText}
@@ -455,7 +456,7 @@ function DateVenueSec({ data, theme, event }: { data: DateVenueData; theme: Them
         </div>
         {data.mapEmbedUrl && (
           <div className="rounded-xl overflow-hidden border aspect-[4/3]" style={{ borderColor: `${theme.primaryColor}20` }}>
-            <iframe src={data.mapEmbedUrl} className="w-full h-full" title="Map" loading="lazy" />
+            <iframe src={safeEmbedUrl(data.mapEmbedUrl)} className="w-full h-full" title="Map" loading="lazy" />
           </div>
         )}
       </div>
@@ -496,7 +497,7 @@ function TicketsSec({ data, theme, event }: { data: TicketsData; theme: ThemeCon
             <p className="text-3xl font-extrabold" style={{ color: theme.primaryColor }}>{t.price}</p>
             {t.description && <p className="text-sm opacity-70 mt-2 flex-1">{t.description}</p>}
             <a
-              href={t.url || "#"}
+              href={safeUrl(t.url || "#")}
               className="mt-4 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold"
               style={{ backgroundColor: theme.primaryColor, color: "#fff" }}
             >
@@ -809,7 +810,7 @@ function WorkshopsSec({ data, theme }: { data: WorkshopsData; theme: ThemeConfig
               {w.duration && <span>· {w.duration}</span>}
             </div>
             {w.url && (
-              <a href={w.url} className="inline-flex items-center gap-1 text-sm font-semibold mt-3" style={{ color: theme.primaryColor }}>
+              <a href={safeUrl(w.url)} className="inline-flex items-center gap-1 text-sm font-semibold mt-3" style={{ color: theme.primaryColor }}>
                 Sign up <ExternalLink className="h-3 w-3" />
               </a>
             )}
@@ -826,7 +827,7 @@ function ExhibitorsSec({ data, theme }: { data: ExhibitorsData; theme: ThemeConf
     <Section theme={theme} tone="tinted" id="exhibitors">
       <SectionHeader title={data.title} intro={data.intro} theme={theme} />
       {data.floorMapUrl && (
-        <a href={data.floorMapUrl} target="_blank" rel="noreferrer"
+        <a href={safeUrl(data.floorMapUrl)} target="_blank" rel="noreferrer"
            className="inline-flex items-center gap-1.5 text-sm font-semibold mb-6"
            style={{ color: theme.primaryColor }}>
           View floor map <ExternalLink className="h-3 w-3" />
@@ -871,7 +872,7 @@ function TravelSec({ data, theme }: { data: TravelData; theme: ThemeConfig }) {
                 <p className="font-semibold text-sm">{h.name}</p>
                 {h.address && <p className="text-xs opacity-60 mt-1">{h.address}</p>}
                 {h.discountCode && <p className="text-xs mt-2">Code: <span className="font-mono font-bold" style={{ color: theme.primaryColor }}>{h.discountCode}</span></p>}
-                {h.url && <a href={h.url} className="text-xs font-semibold mt-2 inline-block" style={{ color: theme.primaryColor }}>Book →</a>}
+                {h.url && <a href={safeUrl(h.url)} className="text-xs font-semibold mt-2 inline-block" style={{ color: theme.primaryColor }}>Book →</a>}
               </div>
             ))}
           </div>
@@ -952,7 +953,7 @@ function PressSec({ data, theme }: { data: PressData; theme: ThemeConfig }) {
       {data.body && <p className="text-sm opacity-80 whitespace-pre-line max-w-3xl">{data.body}</p>}
       <div className="flex flex-wrap gap-3 mt-5">
         {data.pressKitUrl && (
-          <a href={data.pressKitUrl} target="_blank" rel="noreferrer"
+          <a href={safeUrl(data.pressKitUrl)} target="_blank" rel="noreferrer"
              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg font-semibold text-sm border"
              style={{ borderColor: theme.primaryColor, color: theme.primaryColor }}>
             Download press kit <ExternalLink className="h-3 w-3" />
@@ -977,7 +978,7 @@ function PartnersSec({ data, theme }: { data: PartnersData; theme: ThemeConfig }
       <SectionHeader title={data.title} intro={data.intro} theme={theme} />
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {data.partners.map(p => (
-          <a key={p.id} href={p.website || "#"} target="_blank" rel="noreferrer"
+          <a key={p.id} href={safeUrl(p.website || "#")} target="_blank" rel="noreferrer"
              className={LOGO_TILE}
              style={logoPlate(theme)}>
             {p.logoUrl
@@ -996,7 +997,7 @@ function LiveStreamSec({ data, theme }: { data: LiveStreamData; theme: ThemeConf
     <Section theme={theme} id="live">
       <SectionHeader title={data.title} intro={data.description} theme={theme} />
       <div className="aspect-video rounded-xl overflow-hidden border" style={{ borderColor: `${theme.primaryColor}20` }}>
-        <iframe src={data.embedUrl} className="w-full h-full" allowFullScreen title="Live stream" />
+        <iframe src={safeEmbedUrl(data.embedUrl)} className="w-full h-full" allowFullScreen title="Live stream" />
       </div>
     </Section>
   );
@@ -1014,7 +1015,7 @@ function NetworkingSec({ data, theme }: { data: NetworkingData; theme: ThemeConf
       <SectionHeader title={data.title} intro={data.description} theme={theme} />
       <div className="flex flex-wrap gap-3">
         {links.map(l => (
-          <a key={l.label} href={l.url} target="_blank" rel="noreferrer"
+          <a key={l.label} href={safeUrl(l.url)} target="_blank" rel="noreferrer"
              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg font-semibold text-sm"
              style={{ backgroundColor: theme.primaryColor, color: "#fff" }}>
             <Users className="h-3.5 w-3.5" /> Join {l.label}
@@ -1032,7 +1033,7 @@ function CfpSec({ data, theme }: { data: CfpData; theme: ThemeConfig }) {
       {data.deadline && <p className="text-sm opacity-70">Submission deadline: <span className="font-semibold">{data.deadline}</span></p>}
       {data.guidelines && <p className="text-sm opacity-80 whitespace-pre-line mt-3 max-w-3xl">{data.guidelines}</p>}
       {data.submitUrl && (
-        <a href={data.submitUrl} target="_blank" rel="noreferrer"
+        <a href={safeUrl(data.submitUrl)} target="_blank" rel="noreferrer"
            className="mt-5 inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg font-semibold text-sm"
            style={{ backgroundColor: theme.accentColor, color: "#fff" }}>
           <Mic2 className="h-3.5 w-3.5" /> Submit a talk
@@ -1214,7 +1215,7 @@ function ContactSec({ data, theme }: { data: ContactData; theme: ThemeConfig }) 
       {data.organizerName && <p className="text-base font-semibold mb-3">{data.organizerName}</p>}
       <div className="flex flex-wrap gap-3">
         {items.map((it, i) => (
-          <a key={i} href={it.url} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm hover:bg-black/[0.02]"
+          <a key={i} href={safeUrl(it.url)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm hover:bg-black/[0.02]"
              style={{ borderColor: `${theme.primaryColor}20` }}>
             <span style={{ color: theme.primaryColor }}>{it.icon}</span>
             {it.label}

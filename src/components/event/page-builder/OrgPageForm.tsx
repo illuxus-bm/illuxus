@@ -18,6 +18,7 @@ import {
 import CoverCropDialog from "@/components/event/CoverCropDialog";
 import { isNativeApp, SITE_ORIGIN } from "@/lib/native/platform";
 import { friendlyError } from "@/lib/friendly-error";
+import { safeUrl } from "@/lib/safe-url";
 
 /**
  * Lu.ma-style organization landing page customization.
@@ -597,7 +598,7 @@ function ProfilePreview({
             )}
         {state.accentLink?.url && (
           <a
-            href={state.accentLink.url}
+            href={safeUrl(state.accentLink.url)}
             target="_blank"
             rel="noreferrer"
             className="inline-block mt-3 text-[13px] font-medium underline underline-offset-4"

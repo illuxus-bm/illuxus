@@ -557,9 +557,10 @@ function rewriteHtml(html: string, meta: BuiltMeta): string {
     `<meta name="twitter:image" content="${img}" />`,
   );
 
-  // Inject Event JSON-LD right before </head>. Escape any literal `</script`
-  // inside the payload so it can't terminate the script tag prematurely.
-  const ldPayload = JSON.stringify(meta.jsonLd).replace(/<\/script/gi, '<\\/script');
+  // Inject Event JSON-LD right before </head>. Every `<` becomes `<`
+  // (still the same JSON), so nothing in organiser-written text can close
+  // the script element or start a new one (`</script>`, `<!--<script>`).
+  const ldPayload = JSON.stringify(meta.jsonLd).replace(/</g, '\\u003c');
   const ldScript = `<script type="application/ld+json" data-server-seo>${ldPayload}</script>`;
   out = out.replace(/<\/head>/i, `    ${ldScript}\n  </head>`);
 

@@ -35,6 +35,23 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
+/**
+ * Preview deployments (e.g. Vercel branch builds) are trusted only when they
+ * match the PREVIEW_ORIGIN_PATTERN secret — a regex for your own preview
+ * hosts, such as `https://illuxus-[a-z0-9-]+-yourteam\.vercel\.app`.
+ * Unset, none are: anyone can deploy to *.vercel.app. Same rule as
+ * _shared/cors.ts.
+ */
+function previewOriginAllowed(origin: string): boolean {
+  const pattern = Deno.env.get("PREVIEW_ORIGIN_PATTERN")?.trim();
+  if (!pattern || !origin) return false;
+  try {
+    return new RegExp(`^(?:${pattern})$`, "i").test(origin);
+  } catch {
+    return false;
+  }
+}
+
 // ─── Email, CORS + logging helpers ────────────────────────────────────
 // Inlined on purpose instead of importing ../_shared/smtp.ts,
 // ../_shared/cors.ts and ../_shared/edge-logger.ts: this function is
@@ -128,7 +145,7 @@ function buildCorsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("Origin") ?? "";
   const ok =
     allowed.has(strip(origin)) ||
-    /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin);
+    previewOriginAllowed(origin);
   headers["Access-Control-Allow-Origin"] = origin && ok ? origin : "null";
   if (origin && ok) headers["Access-Control-Allow-Credentials"] = "true";
   return headers;

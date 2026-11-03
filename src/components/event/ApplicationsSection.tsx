@@ -37,6 +37,7 @@ import {
 } from "@/lib/utm/applications-csv";
 import { CsvEscapeError } from "@/lib/utm/csv-escape";
 import { friendlyError } from "@/lib/friendly-error";
+import { safeUrl } from "@/lib/safe-url";
 
 type Tab = "pending" | "approved" | "rejected" | "all";
 
@@ -939,7 +940,7 @@ function Field({
         {label}
       </p>
       {link ? (
-        <a href={value} target="_blank" rel="noreferrer" className="text-[13px] text-primary hover:underline truncate block">
+        <a href={safeUrl(value)} target="_blank" rel="noreferrer" className="text-[13px] text-primary hover:underline truncate block">
           {value}
         </a>
       ) : (

@@ -25,6 +25,7 @@ import {
 } from "@/lib/creatives/creative-storage";
 import { STUDIO_FORMATS, STUDIO_TEMPLATES } from "@/lib/creatives/studio/templates";
 import { friendlyError } from "@/lib/friendly-error";
+import { safeUrl } from "@/lib/safe-url";
 
 function describe(row: EventCreativeRow): string {
   const template = STUDIO_TEMPLATES.find((t) => t.id === row.template_id)?.name;
@@ -99,7 +100,7 @@ export default function CreativeLibrary({ eventId, onCreate }: { eventId: string
                 <span className="block text-[11px] text-muted-foreground">{new Date(row.created_at).toLocaleDateString()}</span>
               </span>
               <Button asChild variant="ghost" size="icon" className="h-8 w-8" title="Download">
-                <a href={row.asset_url} download target="_blank" rel="noreferrer">
+                <a href={safeUrl(row.asset_url)} download target="_blank" rel="noreferrer">
                   <Download className="h-4 w-4" />
                 </a>
               </Button>

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { SiteContainer } from "@/components/layout/SiteContainer";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
+import { safeUrl } from "@/lib/safe-url";
 
 /** Render a footer link correctly depending on its href:
  *  - External (http/https) → <a target="_blank">
@@ -67,7 +68,7 @@ const Footer = () => {
               <ul className="space-y-2">
                 {col.links.map((link, li) => (
                   <li key={`${link.label}-${li}`}>
-                    <FooterLink href={link.href} label={link.label} />
+                    <FooterLink href={safeUrl(link.href)} label={link.label} />
                   </li>
                 ))}
               </ul>

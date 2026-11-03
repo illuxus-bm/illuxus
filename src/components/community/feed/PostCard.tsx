@@ -13,6 +13,7 @@ import { useModerate, useReport } from "@/hooks/community/useCommunityExtras";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { friendlyError } from "@/lib/friendly-error";
+import { safeUrl } from "@/lib/safe-url";
 
 const TYPE_BADGE: Record<string, string> = {
   discussion:   "bg-muted text-muted-foreground",
@@ -134,7 +135,7 @@ export function PostCard({ post, canModerate = false }: { post: PostWithAuthor; 
       )}
 
       {post.link_url && (
-        <a href={post.link_url} target="_blank" rel="noreferrer noopener"
+        <a href={safeUrl(post.link_url)} target="_blank" rel="noreferrer noopener"
            className="block text-[12px] text-primary truncate underline-offset-2 hover:underline">
           {post.link_url}
         </a>

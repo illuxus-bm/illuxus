@@ -1,6 +1,7 @@
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { SiteContainer } from "@/components/layout/SiteContainer";
 import { PillLink, PosterTitle, Reveal } from "@/components/landing/primitives";
+import { safeUrl } from "@/lib/safe-url";
 
 /**
  * Closing call to action: one framed panel standing on the same perspective
@@ -27,12 +28,12 @@ const CTASection = () => {
             <Reveal index={2}>
               <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
                 {c.primaryCtaLabel && (
-                  <PillLink href={c.primaryCtaHref} arrow>
+                  <PillLink href={safeUrl(c.primaryCtaHref)} arrow>
                     {c.primaryCtaLabel}
                   </PillLink>
                 )}
                 {c.secondaryCtaLabel && (
-                  <PillLink href={c.secondaryCtaHref} variant="outline">
+                  <PillLink href={safeUrl(c.secondaryCtaHref)} variant="outline">
                     {c.secondaryCtaLabel}
                   </PillLink>
                 )}

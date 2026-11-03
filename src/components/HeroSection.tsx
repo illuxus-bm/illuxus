@@ -8,6 +8,7 @@ import { PillLink, PosterTitle, Reveal } from "@/components/landing/primitives";
 import { CheckinCard, DoorCard, PaperTicket, SourcesCard, TiersCard } from "@/components/landing/StoryCards";
 import { clamp01, ease, onScrollFrame, prefersReducedMotion, span, useEngaged, useNearViewport, windowed } from "@/components/landing/motion";
 import { CHECKED_IN_SHARE, STAGE_WINDOWS, stage } from "@/components/three/stage-state";
+import { safeUrl } from "@/lib/safe-url";
 
 // three.js is heavy, so the WebGL stage ships in its own chunk and only loads
 // for visitors whose device can run it.
@@ -112,12 +113,12 @@ function HeroCopy({ immediate }: { immediate?: boolean }) {
       </p>
       <div className="mt-8 flex flex-wrap items-center gap-3">
         {h.primaryCtaLabel && (
-          <PillLink href={h.primaryCtaHref} arrow>
+          <PillLink href={safeUrl(h.primaryCtaHref)} arrow>
             {h.primaryCtaLabel}
           </PillLink>
         )}
         {h.secondaryCtaLabel && (
-          <PillLink href={h.secondaryCtaHref} variant="outline">
+          <PillLink href={safeUrl(h.secondaryCtaHref)} variant="outline">
             {h.secondaryCtaLabel}
           </PillLink>
         )}

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { loginPath } from "@/lib/safe-redirect";
+import { safeUrl } from "@/lib/safe-url";
 
 export default function SpeakerEventDetailPage() {
   const { user, loading: authLoading } = useAuth();
@@ -290,7 +291,7 @@ export default function SpeakerEventDetailPage() {
                         <div className="space-y-2">
                           {speaker.linkedin_url && (
                             <a
-                              href={speaker.linkedin_url}
+                              href={safeUrl(speaker.linkedin_url)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="flex items-center gap-2 text-[13px] hover:text-primary transition-colors"
@@ -302,7 +303,7 @@ export default function SpeakerEventDetailPage() {
                           )}
                           {speaker.company_website && (
                             <a
-                              href={speaker.company_website}
+                              href={safeUrl(speaker.company_website)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="flex items-center gap-2 text-[13px] hover:text-primary transition-colors"

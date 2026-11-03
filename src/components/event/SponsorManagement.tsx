@@ -49,6 +49,7 @@ import { dataSharing, type ShareSummary } from "@/lib/sponsors/data-sharing";
 import { SponsorshipPanel, type SponsorshipPanelTab } from "./SponsorshipPanel";
 import { fetchEventSponsorLinks, sponsorship, withEventSponsorship, type EventSponsorLink, type EventSponsorshipRow } from "@/lib/sponsors/event-sponsorship";
 import { friendlyError } from "@/lib/friendly-error";
+import { safeUrl } from "@/lib/safe-url";
 
 const SponsorApplicationsPanelLazy = lazy(() =>
   import("./ApplicationsSection").then((m) => ({ default: m.SponsorApplicationsPanel })),
@@ -914,7 +915,7 @@ function SponsorCardBody({
         </button>
         {s.sponsorship?.company && s.sponsorship.company.trim().toLowerCase() !== s.name.trim().toLowerCase() && <p className="truncate text-[11px] text-muted-foreground">Listed as {s.name}</p>}
         {s.website && (
-          <a href={s.website} target="_blank" rel="noopener noreferrer" className="text-xs text-primary flex items-center gap-1 hover:underline truncate">
+          <a href={safeUrl(s.website)} target="_blank" rel="noopener noreferrer" className="text-xs text-primary flex items-center gap-1 hover:underline truncate">
             <ExternalLink className="h-3 w-3 shrink-0" /><span className="truncate">{new URL(s.website).hostname}</span>
           </a>
         )}

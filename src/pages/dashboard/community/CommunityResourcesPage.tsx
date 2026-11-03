@@ -13,6 +13,7 @@ import { canUploadResource } from "@/lib/community/rbac";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { friendlyError } from "@/lib/friendly-error";
+import { safeUrl } from "@/lib/safe-url";
 
 function fmtSize(b: number) {
   if (b < 1024) return `${b} B`;
@@ -93,7 +94,7 @@ export default function CommunityResourcesPage() {
                       variant="outline"
                       className="h-7 text-[11px] gap-1"
                     >
-                      <a href={r.file_url} target="_blank" rel="noopener noreferrer" download={r.file_name}>
+                      <a href={safeUrl(r.file_url)} target="_blank" rel="noopener noreferrer" download={r.file_name}>
                         <Download className="h-3 w-3" /> Download
                       </a>
                     </Button>

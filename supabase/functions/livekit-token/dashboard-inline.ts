@@ -7,6 +7,15 @@ import { createClient as createClient2 } from "https://esm.sh/@supabase/supabase
 import { AccessToken } from "https://esm.sh/livekit-server-sdk@2.9.7";
 
 // supabase/functions/_shared/cors.ts
+function previewOriginAllowed(origin) {
+  const pattern = Deno.env.get("PREVIEW_ORIGIN_PATTERN")?.trim();
+  if (!pattern || !origin) return false;
+  try {
+    return new RegExp(`^(?:${pattern})$`, "i").test(origin);
+  } catch {
+    return false;
+  }
+}
 var DEV_ORIGINS = /* @__PURE__ */ new Set([
   "http://localhost:5173",
   "http://localhost:8080",
@@ -61,7 +70,7 @@ function buildCorsHeaders(req, opts = {}) {
   if (origin && allowed.has(stripTrailingSlash(origin))) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Access-Control-Allow-Credentials"] = "true";
-  } else if (origin && /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin)) {
+  } else if (origin && previewOriginAllowed(origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Access-Control-Allow-Credentials"] = "true";
   } else {

@@ -29,6 +29,7 @@ import {
   buildReport, pctChange, registrationState, REG_STATES, REG_STATE_LABEL,
   type RangeKey, type RegState, type TrendPoint,
 } from "@/lib/reports/analytics";
+import { safeUrl } from "@/lib/safe-url";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -676,7 +677,7 @@ function SponsorView({
                       <td className="py-2.5 pr-4 text-muted-foreground">{s.email ?? "—"}</td>
                       <td className="max-w-[200px] truncate py-2.5 pr-4 text-muted-foreground">
                         {s.website ? (
-                          <a href={s.website} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                          <a href={safeUrl(s.website)} target="_blank" rel="noreferrer" className="text-primary hover:underline">
                             {s.website.replace(/^https?:\/\//, "")}
                           </a>
                         ) : "—"}

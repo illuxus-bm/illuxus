@@ -207,32 +207,46 @@ const upsertHreflang = (lang: string, href: string) => {
 const GA_FLAG = "data-illuxus-ga4";
 const CLARITY_FLAG = "data-illuxus-clarity";
 
+// The init code runs here rather than in injected inline <script> text: the
+// Content-Security-Policy allows no inline scripts, only these vendors' files.
+type AnalyticsWindow = Window & {
+  dataLayer?: unknown[];
+  gtag?: (...args: unknown[]) => void;
+  clarity?: ((...args: unknown[]) => void) & { q?: unknown[] };
+};
+
 const injectGa4 = (id: string) => {
   if (document.querySelector(`script[${GA_FLAG}="${id}"]`)) return;
-  // Loader stub — async tag, gtag init, page-view event.
+  const w = window as AnalyticsWindow;
+  w.dataLayer = w.dataLayer || [];
+  // gtag must push the `arguments` object itself, as Google's snippet does.
+  w.gtag = function gtag() {
+    // eslint-disable-next-line prefer-rest-params
+    w.dataLayer!.push(arguments);
+  };
+  w.gtag("js", new Date());
+  w.gtag("config", id, { anonymize_ip: true });
+
   const loader = document.createElement("script");
   loader.async = true;
-  loader.src = `https://www.googletagmanager.com/gtag/js?id=${id}`;
+  loader.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}`;
   loader.setAttribute(GA_FLAG, id);
   document.head.appendChild(loader);
-
-  const init = document.createElement("script");
-  init.setAttribute(GA_FLAG, `${id}-init`);
-  init.text = [
-    "window.dataLayer = window.dataLayer || [];",
-    "function gtag(){dataLayer.push(arguments);}",
-    "gtag('js', new Date());",
-    `gtag('config', '${id}', { anonymize_ip: true });`,
-  ].join("\n");
-  document.head.appendChild(init);
 };
 
 const injectClarity = (id: string) => {
   if (document.querySelector(`script[${CLARITY_FLAG}="${id}"]`)) return;
-  const init = document.createElement("script");
-  init.setAttribute(CLARITY_FLAG, id);
-  init.text = `(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script","${id}");`;
-  document.head.appendChild(init);
+  const w = window as AnalyticsWindow;
+  // Queue calls until Clarity's tag loads and takes over.
+  w.clarity = w.clarity || Object.assign(
+    (...args: unknown[]) => { (w.clarity!.q = w.clarity!.q || []).push(args); },
+    { q: [] as unknown[] },
+  );
+  const loader = document.createElement("script");
+  loader.async = true;
+  loader.src = `https://www.clarity.ms/tag/${encodeURIComponent(id)}`;
+  loader.setAttribute(CLARITY_FLAG, id);
+  document.head.appendChild(loader);
 };
 
 const removeAnalytics = () => {

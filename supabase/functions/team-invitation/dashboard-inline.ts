@@ -5,6 +5,16 @@
 // supabase/functions/team-invitation/index.ts
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+function previewOriginAllowed(origin) {
+  const deno = globalThis.Deno;
+  const pattern = deno?.env.get("PREVIEW_ORIGIN_PATTERN")?.trim();
+  if (!pattern || !origin) return false;
+  try {
+    return new RegExp(`^(?:${pattern})$`, "i").test(origin);
+  } catch {
+    return false;
+  }
+}
 var INVITE_TTL_DAYS = 14;
 var PASSWORD_MIN = 8;
 var PASSWORD_MAX = 128;
@@ -613,7 +623,7 @@ if (runtime?.serve) {
     for (const o of env("ALLOWED_ORIGINS").split(",")) if (o.trim()) allowed.add(o.trim().replace(/\/+$/, ""));
     const site = siteOrigin().replace(/^https:\/\//, "");
     allowed.add(`https://www.${site.replace(/^www\./, "")}`);
-    const ok = allowed.has(origin) || /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin);
+    const ok = allowed.has(origin) || previewOriginAllowed(origin);
     return {
       "Access-Control-Allow-Origin": ok ? origin : "null",
       "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-correlation-id",

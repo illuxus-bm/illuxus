@@ -21,6 +21,7 @@ import OrgSubscribeButton from "@/components/OrgSubscribeButton";
 import SiteHeader from "@/components/SiteHeader";
 import RouteSeo from "@/components/RouteSeo";
 import { useTheme } from "@/contexts/ThemeContext";
+import { safeUrl } from "@/lib/safe-url";
 
 interface OrgRow {
   id: string;
@@ -301,7 +302,7 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
               )}
               {accentLink.url && (
                 <a
-                  href={accentLink.url}
+                  href={safeUrl(accentLink.url)}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-block mt-3 text-[13px] font-medium underline underline-offset-4"

@@ -51,6 +51,25 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
+/**
+ * Preview deployments (e.g. Vercel branch builds) are trusted only when they
+ * match the PREVIEW_ORIGIN_PATTERN secret — a regex for your own preview
+ * hosts, such as `https://illuxus-[a-z0-9-]+-yourteam\.vercel\.app`.
+ * Unset, none are: anyone can deploy to *.vercel.app. Same rule as
+ * _shared/cors.ts.
+ */
+function previewOriginAllowed(origin: string): boolean {
+  // Via globalThis like the rest of this file, so it also loads under Node in tests.
+  const deno = (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno;
+  const pattern = deno?.env.get("PREVIEW_ORIGIN_PATTERN")?.trim();
+  if (!pattern || !origin) return false;
+  try {
+    return new RegExp(`^(?:${pattern})$`, "i").test(origin);
+  } catch {
+    return false;
+  }
+}
+
 // ─── Limits ─────────────────────────────────────────────────────────────────
 
 export const TOKEN_TTL_HOURS = 72;
@@ -882,7 +901,7 @@ if (runtime?.serve) {
     for (const o of env("ALLOWED_ORIGINS").split(",")) if (o.trim()) allowed.add(o.trim().replace(/\/+$/, ""));
     const site = siteOrigin().replace(/^https:\/\//, "");
     allowed.add(`https://www.${site.replace(/^www\./, "")}`);
-    const ok = allowed.has(origin) || /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin);
+    const ok = allowed.has(origin) || previewOriginAllowed(origin);
     return {
       "Access-Control-Allow-Origin": ok ? origin : "null",
       "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-correlation-id",

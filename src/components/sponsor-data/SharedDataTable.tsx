@@ -10,6 +10,7 @@ import { useDebounced } from "@/hooks/useOrgPeopleSearch";
 import { dataSharing, formatShareValue, toCsv, type ShareField, type ShareRow } from "@/lib/sponsors/data-sharing";
 import { cn } from "@/lib/utils";
 import { friendlyError } from "@/lib/friendly-error";
+import { safeUrl } from "@/lib/safe-url";
 
 const DEFAULT_COLUMNS = ["full_name", "participant_type", "designation", "company", "email", "mobile", "linkedin_url", "attendance"];
 const ATTENDANCE = [["all", "All attendance"], ["attended", "Attended"], ["not_attended", "Didn't attend"]];
@@ -22,7 +23,7 @@ function Value({ field, row }: { field: string; row: ShareRow }) {
   if (field === "email") return <a href={`mailto:${v}`} className="text-primary hover:underline">{v}</a>;
   if (field === "mobile") return <a href={`tel:${v.replace(/\s+/g, "")}`} className="whitespace-nowrap hover:underline">{v}</a>;
   if ((field === "linkedin_url" || field === "company_website") && /^https?:\/\//i.test(v)) {
-    return <a href={v} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{field === "linkedin_url" ? "Profile" : v.replace(/^https?:\/\//i, "")}</a>;
+    return <a href={safeUrl(v)} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{field === "linkedin_url" ? "Profile" : v.replace(/^https?:\/\//i, "")}</a>;
   }
   if (field === "attendance") return <Badge variant={v === "Attended" ? "default" : "secondary"} className="text-[10px]">{v}</Badge>;
   if (field === "participant_type") {

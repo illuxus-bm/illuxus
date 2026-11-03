@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { VenueMedia } from "@/hooks/useVenueDetail";
 import { cn } from "@/lib/utils";
+import { safeUrl } from "@/lib/safe-url";
 
 const kindLabel = (kind: string) => kind.replace(/_/g, " ");
 const isImageUrl = (url: string) => /\.(png|jpe?g|gif|webp|avif|svg)(\?|$)/i.test(url);
@@ -82,7 +83,7 @@ export function VenueMediaCarousel({ media, className }: { media: VenueMedia[]; 
                       />
                     ) : (
                       <a
-                        href={m.url}
+                        href={safeUrl(m.url)}
                         target="_blank"
                         rel="noreferrer noopener"
                         tabIndex={isActive ? 0 : -1}
@@ -151,7 +152,7 @@ export function VenueMediaCarousel({ media, className }: { media: VenueMedia[]; 
           {files.map((m) => (
             <a
               key={m.id}
-              href={m.url}
+              href={safeUrl(m.url)}
               target="_blank"
               rel="noreferrer noopener"
               className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-medium capitalize transition-colors hover:bg-muted"

@@ -70,7 +70,9 @@ const SidebarProvider = React.forwardRef<
       }
 
       // This sets the cookie to keep the sidebar state.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
+      // Secure on https (localhost dev is http); SameSite keeps it off cross-site requests.
+      const secure = window.location.protocol === "https:" ? "; Secure" : "";
+      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}; SameSite=Lax${secure}`;
     },
     [setOpenProp, open],
   );

@@ -48,6 +48,7 @@ import { VenueMediaCarousel } from "@/components/event/VenueMediaCarousel";
 import { CalendarX2 } from "lucide-react";
 import { formatMoney } from "@/lib/currency";
 import { cn } from "@/lib/utils";
+import { safeUrl } from "@/lib/safe-url";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Props
@@ -642,7 +643,7 @@ function VendorDetailView({
               )}
               {detail?.map_url && (
                 <a
-                  href={detail.map_url}
+                  href={safeUrl(detail.map_url)}
                   target="_blank"
                   rel="noreferrer noopener"
                   className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
@@ -665,7 +666,7 @@ function VendorDetailView({
               )}
               {detail?.website && (
                 <a
-                  href={detail.website}
+                  href={safeUrl(detail.website)}
                   target="_blank"
                   rel="noreferrer noopener"
                   className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"

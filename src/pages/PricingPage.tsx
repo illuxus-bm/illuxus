@@ -3,6 +3,7 @@ import PublicPageShell from "@/components/layout/PublicPageShell";
 import { Button } from "@/components/ui/button";
 import RouteSeo from "@/components/RouteSeo";
 import { CheckCircle2, X, ArrowRight } from "lucide-react";
+import { safeUrl } from "@/lib/safe-url";
 
 const PRICING_KEYWORDS = [
   "event ticketing pricing",
@@ -232,7 +233,7 @@ export default function PricingPage() {
                 variant={plan.highlight ? "default" : "outline"}
                 className="w-full"
               >
-                <a href={plan.ctaHref}>
+                <a href={safeUrl(plan.ctaHref)}>
                   {plan.cta} <ArrowRight className="ml-2 h-4 w-4" />
                 </a>
               </Button>

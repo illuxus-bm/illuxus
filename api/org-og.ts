@@ -161,7 +161,9 @@ export function rewriteHtml(html: string, meta: OrgMeta): string {
   out = replaceTag(out, named('twitter:image'), `<meta name="twitter:image" content="${img}" />`);
   out = replaceTag(out, named('twitter:image:alt'), `<meta name="twitter:image:alt" content="${t}" />`);
 
-  const ld = JSON.stringify(meta.jsonLd).replace(/<\/script/gi, '<\\/script');
+  // Every `<` as `<` (same JSON): organiser text can't close or re-open
+  // the script element.
+  const ld = JSON.stringify(meta.jsonLd).replace(/</g, '\\u003c');
   out = out.replace(/<\/head>/i, `    <script type="application/ld+json" data-server-seo>${ld}</script>\n  </head>`);
   return out;
 }

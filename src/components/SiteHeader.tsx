@@ -8,6 +8,7 @@ import { AccountMenu } from "@/components/layout/AccountMenu";
 import { HEADER_CHIP } from "@/components/layout/header-chip";
 import { cn } from "@/lib/utils";
 import { useAppTabBar } from "@/hooks/useAppChrome";
+import { safeUrl } from "@/lib/safe-url";
 
 /**
  * Centralized site header used across every public segment
@@ -55,7 +56,7 @@ export default function SiteHeader({
         const className = cn(HEADER_CHIP, "px-3 2xl:px-3.5");
         if (link.href.startsWith("#")) {
           return pathname === "/" ? (
-            <a key={link.label} href={link.href} className={className}>{link.label}</a>
+            <a key={link.label} href={safeUrl(link.href)} className={className}>{link.label}</a>
           ) : (
             <Link key={link.label} to={`/${link.href}`} className={className}>{link.label}</Link>
           );
@@ -63,7 +64,7 @@ export default function SiteHeader({
         return link.href.startsWith("/") ? (
           <Link key={link.label} to={link.href} className={className}>{link.label}</Link>
         ) : (
-          <a key={link.label} href={link.href} className={className}>{link.label}</a>
+          <a key={link.label} href={safeUrl(link.href)} className={className}>{link.label}</a>
         );
       })}
     </nav>

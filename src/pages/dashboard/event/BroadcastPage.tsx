@@ -20,6 +20,7 @@ import { publicUrl } from "@/lib/publicUrl";
 import { getWebinarProvider, type WebinarProvider } from "@/lib/webinar/provider";
 import type { Tables } from "@/integrations/supabase/types";
 import { friendlyError } from "@/lib/friendly-error";
+import { safeUrl } from "@/lib/safe-url";
 
 // Local interim row aliases so this page doesn't lean on `any`. `EventRow`
 // extends the generated row with `video_provider` because the column was
@@ -697,7 +698,7 @@ export default function BroadcastPage() {
         {session.recording_url && (
           <div className="border-t border-border bg-emerald-500/5 px-4 py-2.5 text-[12px] flex items-center justify-between">
             <span className="text-muted-foreground">Recording ready</span>
-            <a className="text-emerald-600 hover:underline font-medium inline-flex items-center gap-1" href={session.recording_url} target="_blank" rel="noreferrer">
+            <a className="text-emerald-600 hover:underline font-medium inline-flex items-center gap-1" href={safeUrl(session.recording_url)} target="_blank" rel="noreferrer">
               View recording <ExternalLink className="h-3 w-3" />
             </a>
           </div>

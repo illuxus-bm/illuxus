@@ -19,6 +19,7 @@ import {
   type BrandAsset, type BrandKit, type LogoSlot,
 } from "@/lib/brand-kit";
 import { friendlyError } from "@/lib/friendly-error";
+import { safeUrl } from "@/lib/safe-url";
 
 const LOGOS: { slot: LogoSlot; title: string; hint: string; stage: string }[] = [
   { slot: "cmyk", title: "CMYK logo", hint: "For print. PDF, AI, EPS or TIFF.", stage: "bg-white" },
@@ -42,7 +43,7 @@ function FileRow({ asset, onRemove }: { asset: BrandAsset; onRemove?: () => void
         <p className="text-[11px] text-muted-foreground">{formatBytes(asset.size)}</p>
       </div>
       <Button asChild variant="ghost" size="icon" className="h-8 w-8 shrink-0" title="Download" aria-label={`Download ${asset.name}`}>
-        <a href={asset.url} download={asset.name} target="_blank" rel="noreferrer"><Download className="h-4 w-4" /></a>
+        <a href={safeUrl(asset.url)} download={asset.name} target="_blank" rel="noreferrer"><Download className="h-4 w-4" /></a>
       </Button>
       {onRemove && (
         <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive" title="Remove" aria-label={`Remove ${asset.name}`} onClick={onRemove}>
@@ -191,7 +192,7 @@ export default function BrandKitPanel({ orgId, userId, canEdit }: { orgId: strin
                     )}
                     {asset && (
                       <Button asChild variant="ghost" size="icon" className="h-8 w-8 shrink-0" title="Download" aria-label={`Download ${title}`}>
-                        <a href={asset.url} download={asset.name} target="_blank" rel="noreferrer"><Download className="h-4 w-4" /></a>
+                        <a href={safeUrl(asset.url)} download={asset.name} target="_blank" rel="noreferrer"><Download className="h-4 w-4" /></a>
                       </Button>
                     )}
                     {asset && canEdit && (

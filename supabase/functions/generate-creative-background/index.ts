@@ -55,6 +55,23 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+/**
+ * Preview deployments (e.g. Vercel branch builds) are trusted only when they
+ * match the PREVIEW_ORIGIN_PATTERN secret — a regex for your own preview
+ * hosts, such as `https://illuxus-[a-z0-9-]+-yourteam\.vercel\.app`.
+ * Unset, none are: anyone can deploy to *.vercel.app. Same rule as
+ * _shared/cors.ts.
+ */
+function previewOriginAllowed(origin: string): boolean {
+  const pattern = Deno.env.get("PREVIEW_ORIGIN_PATTERN")?.trim();
+  if (!pattern || !origin) return false;
+  try {
+    return new RegExp(`^(?:${pattern})$`, "i").test(origin);
+  } catch {
+    return false;
+  }
+}
+
 /** Two-factor on: a password-only (aal1) session doesn't count. Same rule as _shared/auth.ts. */
 function sessionMeetsTwoFactor(user: { factors?: { status: string }[] }, token: string): boolean {
   if (!(user.factors ?? []).some((f) => f.status === "verified")) return true;
@@ -114,7 +131,7 @@ function buildCorsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("Origin") ?? "";
   const allowed = envAllowedOrigins();
 
-  const isVercel = /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin);
+  const isVercel = previewOriginAllowed(origin);
 
   if (origin && (allowed.has(stripTrailingSlash(origin)) || isVercel)) {
     headers["Access-Control-Allow-Origin"] = origin;

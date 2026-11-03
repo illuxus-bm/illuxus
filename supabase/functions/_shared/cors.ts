@@ -1,3 +1,20 @@
+
+/**
+ * Preview deployments (e.g. Vercel branch builds) are trusted only when they
+ * match the PREVIEW_ORIGIN_PATTERN secret — a regex for your own preview
+ * hosts, such as `https://illuxus-[a-z0-9-]+-yourteam\.vercel\.app`.
+ * Unset, none are: anyone can deploy to *.vercel.app. Copied into the
+ * functions that inline their CORS.
+ */
+export function previewOriginAllowed(origin: string): boolean {
+  const pattern = Deno.env.get("PREVIEW_ORIGIN_PATTERN")?.trim();
+  if (!pattern || !origin) return false;
+  try {
+    return new RegExp(`^(?:${pattern})$`, "i").test(origin);
+  } catch {
+    return false;
+  }
+}
 /**
  * Origin-aware CORS helper for Supabase edge functions.
  *
@@ -163,10 +180,9 @@ export function buildCorsHeaders(
   if (origin && allowed.has(stripTrailingSlash(origin))) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Access-Control-Allow-Credentials"] = "true";
-  } else if (origin && /^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app$/i.test(origin)) {
-    // Vercel production + preview deployments share the `*.vercel.app`
-    // suffix. Allow any subdomain so each new preview / branch deploy
-    // doesn't need an ops-side ALLOWED_ORIGINS update.
+  } else if (origin && previewOriginAllowed(origin)) {
+    // Only our own preview deployments (see previewOriginAllowed): any
+    // *.vercel.app would let anyone's deployment call these functions.
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Access-Control-Allow-Credentials"] = "true";
   } else {
