@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import SiteHeader from "@/components/SiteHeader";
@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Download, Heart, ShieldCheck } from "lucide-react";
+import { ChevronRight, ClipboardList, Download, Heart, LogOut, Moon, Settings, ShieldCheck, Ticket, Users2, type LucideIcon } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { useTheme } from "@/contexts/ThemeContext";
 import { collectMyData, downloadJson, exportFileName, type ExportClient } from "@/lib/data-export";
 
 interface FollowedOrg {
@@ -21,7 +23,9 @@ interface FollowedOrg {
 
 /** Lu.ma-style attendee profile + followed organizations. */
 export default function ProfilePage() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+  const { theme, setTheme } = useTheme();
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -108,14 +112,62 @@ export default function ProfilePage() {
     }
   };
 
-  const initials = (displayName || user?.email || "A").slice(0, 2).toUpperCase();
+  // Same initials as the account menu's avatar: "Asha Rao" → "AR".
+  const initials = (displayName || user?.email?.split("@")[0] || "A").split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "A";
 
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
-      <main className="max-w-3xl mx-auto px-4 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight mb-6">Your profile</h1>
+      <main className="max-w-3xl mx-auto px-4 pb-8 pt-3 sm:py-8">
+        <h1 className="sr-only">Your profile</h1>
 
+        {/* Who you are, at a glance. */}
+        {loading ? (
+          <Skeleton className="h-24 rounded-2xl mb-6" />
+        ) : (
+          <div className="flex flex-col items-center text-center gap-3 mb-6 sm:flex-row sm:text-left sm:gap-4">
+            {avatarUrl ? (
+              <img loading="lazy" decoding="async" src={avatarUrl} alt="" className="h-20 w-20 rounded-full object-cover ring-4 ring-card" />
+            ) : (
+              <div className="h-20 w-20 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-2xl font-semibold ring-4 ring-card">
+                {initials}
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="text-[22px] font-semibold tracking-tight truncate">{displayName || user?.email?.split("@")[0] || "Your profile"}</p>
+              {username && <p className="text-[13px] text-muted-foreground">@{username}</p>}
+              {headline && <p className="text-[13px] text-muted-foreground mt-0.5">{headline}</p>}
+            </div>
+          </div>
+        )}
+
+        {/* Your pages, as a grouped list (phones and tablets; the account
+            menu has them on wide screens). */}
+        <nav aria-label="Your pages" className="app-chrome lg:hidden mb-8 space-y-3">
+          <div className="overflow-hidden rounded-2xl border border-border bg-card divide-y divide-border">
+            <ListRow to="/u/me/events" icon={Ticket} label="My tickets" />
+            <ListRow to="/u/me/applications" icon={ClipboardList} label="Applications" />
+            <ListRow to="/u/me/communities" icon={Users2} label="Communities" />
+            <ListRow to="/u/me/settings" icon={Settings} label="Settings" />
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-border bg-card divide-y divide-border">
+            <label className="flex h-12 items-center gap-3 px-4 text-[15px]">
+              <RowIcon icon={Moon} />
+              <span className="flex-1">Dark appearance</span>
+              <Switch checked={theme === "dark"} onCheckedChange={(on) => setTheme(on ? "dark" : "light")} />
+            </label>
+            <button
+              type="button"
+              onClick={async () => { await signOut(); navigate("/", { replace: true }); }}
+              className="flex h-12 w-full items-center gap-3 px-4 text-left text-[15px] text-destructive active:bg-muted"
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-destructive/10"><LogOut className="h-4 w-4" /></span>
+              Sign out
+            </button>
+          </div>
+        </nav>
+
+        <h2 className="text-base font-semibold mb-3">Edit profile</h2>
         {loading ? (
           <Skeleton className="h-72 rounded-2xl" />
         ) : (
@@ -161,7 +213,7 @@ export default function ProfilePage() {
               />
             </div>
             <div className="flex justify-end">
-              <Button type="submit" disabled={saving} className="h-9 text-[13px]">{saving ? "Saving…" : "Save profile"}</Button>
+              <Button type="submit" disabled={saving} className="h-11 w-full rounded-full text-[14px] sm:h-9 sm:w-auto sm:rounded-md sm:text-[13px]">{saving ? "Saving…" : "Save profile"}</Button>
             </div>
           </form>
         )}
@@ -231,5 +283,24 @@ export default function ProfilePage() {
         </section>
       </main>
     </div>
+  );
+}
+
+function RowIcon({ icon: Icon }: { icon: LucideIcon }) {
+  return (
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+      <Icon className="h-4 w-4" />
+    </span>
+  );
+}
+
+/** A settings-style row: icon, label, chevron. */
+function ListRow({ to, icon, label }: { to: string; icon: LucideIcon; label: string }) {
+  return (
+    <Link to={to} className="flex h-12 items-center gap-3 px-4 text-[15px] transition-colors active:bg-muted hover:bg-muted/50">
+      <RowIcon icon={icon} />
+      <span className="flex-1">{label}</span>
+      <ChevronRight className="h-4 w-4 text-muted-foreground/60" aria-hidden="true" />
+    </Link>
   );
 }

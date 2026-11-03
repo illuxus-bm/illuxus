@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { AppFab } from "@/components/native/AppFab";
+import { useAppTabBar } from "@/hooks/useAppChrome";
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -80,6 +82,8 @@ const EventsPage = () => {
   const { org, myRole } = useOrg();
   const { toast } = useToast();
   const navigate = useNavigate();
+  // In the app on a phone, "New event" is the floating button instead.
+  const { visible: tabBar } = useAppTabBar();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -307,10 +311,13 @@ const EventsPage = () => {
             <h1 className="text-lg font-semibold tracking-tight">Events</h1>
             <p className="text-muted-foreground text-sm">Manage all your events in one place</p>
           </div>
-          <Button onClick={() => navigate("/dashboard/events/new")} className="h-10 rounded-xl px-4 font-medium">
-            <Plus className="h-4 w-4 mr-1.5" /> New Event
-          </Button>
+          {!tabBar && (
+            <Button onClick={() => navigate("/dashboard/events/new")} className="h-10 rounded-xl px-4 font-medium">
+              <Plus className="h-4 w-4 mr-1.5" /> New Event
+            </Button>
+          )}
         </div>
+        <AppFab to="/dashboard/events/new" label="New event" icon={Plus} />
 
         {/* Overview */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Download, X } from "lucide-react";
 import { useStandaloneMode } from "@/hooks/useStandaloneMode";
+import { isNativeApp } from "@/lib/native/platform";
 import { logger } from "@/lib/observability";
 import { cn } from "@/lib/utils";
 
@@ -52,7 +53,8 @@ function markDismissed() {
  * mobile visitors with a one-line "Add to Home Screen" tip.
  */
 export function PWAInstallPrompt() {
-  const standalone = useStandaloneMode();
+  // The iOS / Android app is already installed.
+  const standalone = useStandaloneMode() || isNativeApp();
   const [installEvent, setInstallEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [showIosTip, setShowIosTip] = useState(false);
   const [dismissed, setDismissed] = useState(false);

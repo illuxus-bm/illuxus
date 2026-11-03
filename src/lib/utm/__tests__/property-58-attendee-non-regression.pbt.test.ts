@@ -95,7 +95,14 @@ const ATTENDEE_FILES = [
     // 6.1–6.3: only the agreement wording changed, adding "and the event's
     // sponsors". `handleRsvp`, `loadStoredUtm()`, the five utm_* columns on
     // the insert and `clearStoredUtm()` on success are untouched.
-    hash: "d87023d80afde22d83bff11e35e374d91605e7962a278d05cc8a947cdc36fb79",
+    //
+    // Bumped again for the iOS / Android app (2026-11-03). Re-audited against
+    // 6.1–6.3: the calendar file's link and the shared link are built by
+    // `publicUrl()` from the page's path, so the app shares illuxus.com
+    // rather than its local origin. `handleRsvp`, `loadStoredUtm()`, the
+    // five utm_* columns on the insert and `clearStoredUtm()` on success are
+    // untouched.
+    hash: "88b514a39e5ae9134f68e6d06a01b3a9fe7a45c174a31d194b95bf78b035c42d",
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",

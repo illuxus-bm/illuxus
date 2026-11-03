@@ -75,6 +75,9 @@ const DEV_ORIGINS = new Set<string>([
   "http://localhost:8080",
   "http://127.0.0.1:5173",
   "http://127.0.0.1:8080",
+  // The iOS and Android apps (capacitor.config.ts).
+  "capacitor://localhost",
+  "https://localhost",
 ]);
 
 const ALLOWED_HEADERS =

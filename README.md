@@ -52,6 +52,7 @@ public pages.
 | Observability | Internal Logger + `supabaseRpc` wrapper, Sentry-compatible remote sink, error boundaries |
 | Tests | Vitest, fast-check (property-based), Testing Library, Playwright (e2e and visual) |
 | PWA | `vite-plugin-pwa` (Workbox), installable on iOS, Android and desktop |
+| Mobile apps | Capacitor 8: the same SPA as iOS and Android apps, with an app tab bar on phones ([`docs/MOBILE.md`](./docs/MOBILE.md)) |
 
 Exact versions live in `bun.lock`.
 
@@ -652,6 +653,7 @@ Source-map upload in CI needs `OBSERVABILITY_AUTH_TOKEN`, `OBSERVABILITY_ORG` an
 | [`docs/observability.md`](./docs/observability.md), [`docs/observability-privacy.md`](./docs/observability-privacy.md) | Logger, sinks, redaction, opt-out |
 | [`docs/utm-attribution.md`](./docs/utm-attribution.md) | UTM capture, storage and the tripwire |
 | [`docs/agora-setup.md`](./docs/agora-setup.md), [`docs/gemini-setup.md`](./docs/gemini-setup.md) | Third-party setup |
+| [`docs/MOBILE.md`](./docs/MOBILE.md) | iOS and Android apps: building, what changes in the app, store release checklist |
 
 Public links must keep working: legacy `/o/…` URLs and the other old paths in `vercel.json` are
 permanently redirected, never dropped.

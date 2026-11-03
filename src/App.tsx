@@ -22,6 +22,11 @@ import { CookieConsent } from "@/components/CookieConsent";
 import { SecondFactorGate } from "@/components/auth/SecondFactorGate";
 import { loginPath } from "@/lib/safe-redirect";
 import { SkipToContent } from "@/components/SkipToContent";
+import { NativeBridge } from "@/components/native/NativeBridge";
+import { MobileTabBar } from "@/components/native/MobileTabBar";
+import { OfflineBanner } from "@/components/native/OfflineBanner";
+import { useAppMode, useAppTabBar } from "@/hooks/useAppChrome";
+import { isNativeApp } from "@/lib/native/platform";
 // Eagerly-loaded landing & auth pages (small + needed for first paint / SEO)
 import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
@@ -127,6 +132,7 @@ const EventModerationPage = lazyWithLog("EventModerationPage", () => import("./p
 const RevenuePage = lazyWithLog("RevenuePage", () => import("./pages/dashboard/admin/RevenuePage.tsx"));
 const SystemHealthPage = lazyWithLog("SystemHealthPage", () => import("./pages/dashboard/admin/SystemHealthPage.tsx"));
 const ActivityFeedPage = lazyWithLog("ActivityFeedPage", () => import("./pages/dashboard/admin/ActivityFeedPage.tsx"));
+const AppWelcomePage = lazyWithLog("AppWelcomePage", () => import("./pages/AppWelcomePage.tsx"));
 const TicketTrackPage = lazyWithLog("TicketTrackPage", () => import("./pages/TicketTrackPage.tsx"));
 // SEO-targeted high-intent landing pages — keyword pages mounted alongside the
 // canonical marketing pages. Each is fully indexable, listed in the sitemap,
@@ -302,6 +308,7 @@ const App = () => (
         <PWAInstallPrompt />
         <BrowserRouter>
           <HistoryTracker />
+          <NativeBridge />
           <RootErrorBoundary>
             <AuthProvider>
               <OrgProvider>
@@ -441,6 +448,8 @@ const App = () => (
                 </LazyRouteBoundary>
                 <GlobalFooter />
                 <GlobalCookieConsent />
+                <MobileTabBar />
+                <OfflineBanner />
                 </SiteContentProvider>
               </OrgProvider>
             </AuthProvider>
@@ -460,6 +469,10 @@ export default App;
  */
 function GlobalFooter() {
   const { pathname } = useLocation();
+  // The app has its tab bar; the website's footer (legal, company, social
+  // links) isn't part of it.
+  const { visible: tabBar } = useAppTabBar();
+  if (isNativeApp() || tabBar) return null;
 
   // Prefixes where the footer must NOT appear (app chrome / auth flows).
   const suppressed = [
@@ -536,9 +549,21 @@ function RequireAuthOnly({ children }: { children: React.ReactNode }) {
  * Public landing page. Always renders the Index marketing page at `/`
  * regardless of auth state — signed-in users can navigate to `/discover`
  * (linked from the header / sidebar / nav) when they want the discovery feed.
+ *
+ * The iOS / Android app and the installed PWA open on `/` too, but an app
+ * has no use for a marketing page: there it is a welcome screen for someone
+ * signed out, and otherwise the first tab — the dashboard for organisers,
+ * Discover for everyone else.
  */
 function HomeRoute() {
-  return <Index />;
+  const appMode = useAppMode();
+  const { user, loading, isAdmin, accountType } = useAuth();
+  const { memberships, loading: orgLoading } = useOrg();
+  if (!appMode) return <Index />;
+  if (loading || (user && orgLoading)) return <FullPageLoader />;
+  if (!user) return <AppWelcomePage />;
+  const organiser = isAdmin || accountType === "organizer" || memberships.length > 0;
+  return <Navigate to={organiser ? "/dashboard" : "/discover"} replace />;
 }
 
 /** Permanent redirect from `/e/<id>` (used by the back-button on the live

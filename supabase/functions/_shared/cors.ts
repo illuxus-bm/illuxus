@@ -64,6 +64,16 @@ const DEV_ORIGINS = new Set<string>([
   "http://127.0.0.1:8080",
 ]);
 
+/**
+ * The iOS and Android apps (capacitor.config.ts) serve the bundled SPA from
+ * these origins, on every device. They are not reachable from outside the
+ * device, so they are allowed everywhere, not only in dev.
+ */
+const NATIVE_APP_ORIGINS = new Set<string>([
+  "capacitor://localhost", // iOS
+  "https://localhost",     // Android
+]);
+
 const ALLOWED_HEADERS =
   "authorization, x-client-info, apikey, content-type, x-correlation-id";
 
@@ -89,7 +99,7 @@ export interface CorsOpts {
 }
 
 function envAllowedOrigins(): Set<string> {
-  const set = new Set<string>(DEV_ORIGINS);
+  const set = new Set<string>([...DEV_ORIGINS, ...NATIVE_APP_ORIGINS]);
   const fromSecret = (Deno.env.get("ALLOWED_ORIGINS") || "")
     .split(",")
     .map((s) => s.trim())

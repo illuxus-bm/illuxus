@@ -17,6 +17,7 @@ import {
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import { buildUpgradeRequest } from "@/lib/plans/upgrade-request";
 import { supabaseRpc } from "@/lib/observability";
+import { publicOrigin } from "@/lib/publicUrl";
 
 const PLANS = [
   {
@@ -224,7 +225,7 @@ const OnboardingPage = () => {
                   <Label className="text-[13px]">Workspace handle</Label>
                   <div className="flex items-center mt-1.5 rounded-md border border-input bg-background overflow-hidden focus-within:ring-2 focus-within:ring-ring">
                     <span className="px-2.5 h-9 inline-flex items-center text-[12px] text-muted-foreground bg-muted border-r border-input shrink-0 font-mono">
-                      {(typeof window !== "undefined" ? window.location.host.replace(/^www\./, "") : "yourapp.com")}/
+                      {new URL(publicOrigin()).host.replace(/^www\./, "")}/
                     </span>
                     <input
                       value={subdomain}

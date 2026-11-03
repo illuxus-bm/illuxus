@@ -138,7 +138,8 @@ export function CookieConsent() {
             if (event.key === "Escape" && decided) setVisible(false);
           }}
           className={[
-            "fixed z-50 bottom-4 right-4 left-4",
+            // `cookie-consent`: lifted above the app's tab bar (index.css).
+            "cookie-consent fixed z-50 bottom-4 right-4 left-4",
             "sm:left-auto sm:w-[480px]",
             "bg-card border border-border rounded-2xl shadow-pop",
             "p-4 sm:p-5",

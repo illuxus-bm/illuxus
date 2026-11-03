@@ -13,6 +13,7 @@ import { normalizeConfig, type EventPageConfig } from "@/components/event/page-f
 import { logger } from "@/lib/observability";
 
 import type { StudioContent, StudioSpeaker, StudioSponsor } from "./templates";
+import { publicOrigin } from "@/lib/publicUrl";
 
 export interface StudioEventSource {
   title: string;
@@ -193,7 +194,7 @@ export async function loadStudioData(eventId: string): Promise<StudioData> {
     logoUrl: (sponsorLinks.data ?? []).find((l) => l.sponsor_id === row.id)?.logo_url || row.logo_url || null,
   }));
 
-  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  const origin = publicOrigin();
   const content = deriveContent(
     {
       title: event.title,

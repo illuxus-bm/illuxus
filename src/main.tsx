@@ -2,6 +2,11 @@ import "./lib/observability/boot";
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import { bootNativeApp } from "./lib/native/boot";
+
+// The iOS / Android app's native glue (downloads, sharing, links, keyboard);
+// a no-op in the browser beyond tagging an installed PWA as `app-mode`.
+bootNativeApp();
 
 /**
  * A tab opened before a deploy still runs the old bundle; when it lazy-loads

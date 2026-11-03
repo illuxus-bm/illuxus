@@ -11,12 +11,22 @@
 
 export const config = { runtime: "edge" };
 
+/** The iOS and Android apps (capacitor.config.ts) call this cross-origin. */
+const NATIVE_APP_ORIGINS = new Set(["capacitor://localhost", "https://localhost"]);
+
 export default function handler(req: Request): Response {
+  const origin = req.headers.get("Origin") || "";
+  const cors: Record<string, string> = NATIVE_APP_ORIGINS.has(origin)
+    ? { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Headers": "Accept", Vary: "Origin" }
+    : { Vary: "Origin" };
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+
   const raw = (req.headers.get("x-vercel-ip-country") || "").toUpperCase();
   const country = /^[A-Z]{2}$/.test(raw) ? raw : null;
   return new Response(JSON.stringify({ country }), {
     status: 200,
     headers: {
+      ...cors,
       "Content-Type": "application/json",
       // Different for every visitor: never cache it in a shared cache.
       "Cache-Control": "private, no-store",

@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { ArrowLeft, Eye, EyeOff, Ticket, Building2, ChevronLeft, MailCheck } from "lucide-react";
 import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import TwoFactorChallengeDialog from "@/components/auth/TwoFactorChallengeDialog";
 import { needsSecondFactor } from "@/lib/mfa";
@@ -22,6 +22,8 @@ import { postLoginDestination } from "@/lib/safe-redirect";
 import { landingPathFor, loadLandingAccess } from "@/lib/landing";
 import { useTheme } from "@/contexts/ThemeContext";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
+import { useAppMode } from "@/hooks/useAppChrome";
+import { cn } from "@/lib/utils";
 import { ACTIVE_ORG_KEY } from "@/contexts/OrgContext";
 import { callTeamInvitation, isInvitationLinkToken, replyError } from "@/lib/team-invitation";
 import PersonFieldsForm, {
@@ -41,7 +43,8 @@ const SIGNUP_OTP_MAX = 8;
 const LoginPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [isSignUp, setIsSignUp] = useState(false);
+  // `?mode=signup` (the app's welcome screen) opens on "Create account".
+  const [isSignUp, setIsSignUp] = useState(() => new URLSearchParams(window.location.search).get("mode") === "signup");
   const [isForgot, setIsForgot] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -80,6 +83,9 @@ const LoginPage = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
+  // In the app, phones get a full-screen sign-in: the brand across the top
+  // and the form on a sheet over it, with app-sized fields (index.css).
+  const appMode = useAppMode();
 
   // Capture UTM query params on mount so they persist across the sign-in /
   // sign-up two-step flow and are still available when the sign-up submit
@@ -492,11 +498,19 @@ const LoginPage = () => {
         : "Sign In";
 
   return (
-    <div className="app-shell min-h-screen flex p-2.5 sm:p-4">
-      <div className="absolute top-5 right-5 sm:top-7 sm:right-7 z-10">
+    <div className={cn("app-shell min-h-screen flex p-2.5 sm:p-4", appMode && "app-auth max-lg:p-0")}>
+      <div className={cn("absolute top-5 right-5 sm:top-7 sm:right-7 z-10", appMode && "max-lg:top-[calc(env(safe-area-inset-top)+0.75rem)] max-lg:right-4")}>
         <ThemeToggle size="sm" />
       </div>
-      <div className="flex-1 grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] rounded-3xl border border-border bg-background overflow-hidden">
+      <div className={cn("flex-1 grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] rounded-3xl border border-border bg-background overflow-hidden", appMode && "max-lg:flex max-lg:flex-col max-lg:rounded-none max-lg:border-0")}>
+        {appMode && (
+          <div className="login-art relative flex min-h-[30dvh] flex-col justify-between px-6 pb-12 pt-[calc(env(safe-area-inset-top)+1.25rem)] text-white lg:hidden" aria-hidden="true">
+            <IlluxusWordmark height={24} variant="dark" className="self-start" ariaLabel="" />
+            <p className="mt-8 max-w-[18rem] text-[26px] font-medium leading-[1.15] tracking-[-0.035em]">
+              {isSignUp ? "Your events, tickets and community in one app." : "Good to see you again."}
+            </p>
+          </div>
+        )}
         {/* Brand panel — large screens only */}
         <aside className="login-art hidden lg:flex relative m-3 rounded-[1.75rem] overflow-hidden flex-col justify-between p-10 text-white" aria-hidden="true">
           <IlluxusWordmark height={26} variant="dark" className="self-start" ariaLabel="" />
@@ -527,7 +541,7 @@ const LoginPage = () => {
             </p>
           </div>
         </aside>
-        <div className="flex items-center justify-center px-4 py-16 sm:p-8">
+        <div className={cn("flex items-center justify-center px-4 py-16 sm:p-8", appMode && "relative max-lg:-mt-6 max-lg:flex-1 max-lg:items-start max-lg:rounded-t-[28px] max-lg:bg-background max-lg:px-5 max-lg:pb-[calc(2rem+env(safe-area-inset-bottom))] max-lg:pt-7")}>
       <div className="w-full max-w-sm">
         <TwoFactorChallengeDialog
           open={twoFactorOpen}
@@ -546,11 +560,11 @@ const LoginPage = () => {
           title="Verify it's you"
           description="Enter the 6-digit code from your authenticator app to finish signing in."
         />
-        <div className="text-center mb-7">
-          <a href="/" className="inline-flex items-center gap-2 mb-6 lg:hidden" aria-label={brandName}>
+        <div className={cn("text-center mb-7", appMode && "max-lg:mb-5 max-lg:text-left")}>
+          <Link to="/" className={cn("inline-flex items-center gap-2 mb-6 lg:hidden", appMode && "hidden")} aria-label={brandName}>
             <IlluxusWordmark height={26} ariaLabel="" />
-          </a>
-          <h1 className="text-[28px] leading-tight font-medium tracking-[-0.035em]">{title}</h1>
+          </Link>
+          <h1 className={cn("text-[28px] leading-tight font-medium tracking-[-0.035em]", appMode && "max-lg:text-[24px]")}>{title}</h1>
         </div>
 
         {claimingTicket && !mustChangePassword && (
@@ -562,7 +576,7 @@ const LoginPage = () => {
           </div>
         )}
 
-        <div className="bg-card border border-border/80 rounded-3xl p-6 sm:p-7 shadow-[0_24px_60px_-40px_rgb(0_0_0/0.35)]">
+        <div className={cn("bg-card border border-border/80 rounded-3xl p-6 sm:p-7 shadow-[0_24px_60px_-40px_rgb(0_0_0/0.35)]", appMode && "max-lg:border-0 max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none")}>
           {/* ── Sign-up email verification code ─── */}
           {verifyEmail ? (
             <form
@@ -941,10 +955,16 @@ const LoginPage = () => {
         </div>
 
         <div className="mt-6 text-center">
-          <a href="/" className="inline-flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft className="h-3 w-3" />
-            Back to home
-          </a>
+          {appMode ? (
+            <Link to="/discover" className="inline-flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+              Browse events without an account
+            </Link>
+          ) : (
+            <a href="/" className="inline-flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+              <ArrowLeft className="h-3 w-3" />
+              Back to home
+            </a>
+          )}
         </div>
       </div>
         </div>

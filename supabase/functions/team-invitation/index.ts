@@ -871,7 +871,11 @@ if (runtime?.serve) {
 
   const corsHeaders = (req: Request): Record<string, string> => {
     const origin = req.headers.get("Origin") ?? "";
-    const allowed = new Set<string>(["http://localhost:5173", "http://localhost:8080", "http://127.0.0.1:5173", siteOrigin()]);
+    const allowed = new Set<string>([
+      "http://localhost:5173", "http://localhost:8080", "http://127.0.0.1:5173", siteOrigin(),
+      // The iOS and Android apps (capacitor.config.ts).
+      "capacitor://localhost", "https://localhost",
+    ]);
     for (const o of env("ALLOWED_ORIGINS").split(",")) if (o.trim()) allowed.add(o.trim().replace(/\/+$/, ""));
     const site = siteOrigin().replace(/^https:\/\//, "");
     allowed.add(`https://www.${site.replace(/^www\./, "")}`);

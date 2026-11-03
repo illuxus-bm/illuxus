@@ -13,13 +13,16 @@
 //      are rewritten to `FALLBACK_ORIGIN` so emails/tickets always reach a
 //      stable address. Production Vercel hosts and custom domains pass
 //      through unchanged.
-//   4. The current `window.location.origin` for ordinary cases.
+//   4. The current `window.location.origin` for ordinary cases (not in the
+//      iOS / Android app, whose origin is a local one).
 //   5. Hardcoded `FALLBACK_ORIGIN` for SSR / non-browser contexts.
 //
 // To force every link onto a fixed domain (including production Vercel,
 // previews, and localhost) set `VITE_PUBLIC_ORIGIN=https://illuxus.com` in
 // your Vercel env. Setting it once is the cleanest fix and removes the need
 // for the heuristic.
+
+import { isNativeApp } from "@/lib/native/platform";
 
 const FALLBACK_ORIGIN = "https://illuxus.com";
 
@@ -67,6 +70,8 @@ export function publicOrigin(): string {
   if (typeof window === "undefined" || !window.location?.origin) {
     return FALLBACK_ORIGIN;
   }
+  // The iOS / Android app runs on a localhost origin no one else can open.
+  if (isNativeApp()) return FALLBACK_ORIGIN;
   if (isPreviewHost(window.location.hostname)) {
     return FALLBACK_ORIGIN;
   }

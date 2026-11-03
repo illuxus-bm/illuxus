@@ -7,6 +7,7 @@ import { AppHeaderBar } from "@/components/layout/AppHeaderBar";
 import { AccountMenu } from "@/components/layout/AccountMenu";
 import { HEADER_CHIP } from "@/components/layout/header-chip";
 import { cn } from "@/lib/utils";
+import { useAppTabBar } from "@/hooks/useAppChrome";
 
 /**
  * Centralized site header used across every public segment
@@ -69,6 +70,8 @@ export default function SiteHeader({
   ) : undefined;
 
   const onDiscover = pathname.startsWith("/discover");
+  // In the app on a phone, Discover and Sign in are tabs.
+  const { visible: tabBar } = useAppTabBar();
 
   return (
     // Same header as the dashboard (AppHeaderBar): only what goes in its
@@ -80,7 +83,7 @@ export default function SiteHeader({
       navWideOnly
       actions={<>
         {/* A circle with just the compass on phones. */}
-        <Link
+        {!tabBar && <Link
           to="/discover"
           title="Discover"
           aria-current={onDiscover ? "page" : undefined}
@@ -89,7 +92,7 @@ export default function SiteHeader({
         >
           <Compass className="h-4 w-4 shrink-0" />
           <span className="hidden sm:inline">Discover</span>
-        </Link>
+        </Link>}
 
         <ThemeToggle floating />
 
@@ -109,7 +112,7 @@ export default function SiteHeader({
               <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
             </Link>
           </>
-        ) : (
+        ) : tabBar ? null : (
           <Link to="/login" className={cn(HEADER_CHIP, "px-3 2xl:px-3.5")}>
             Sign in
           </Link>

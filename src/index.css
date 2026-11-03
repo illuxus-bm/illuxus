@@ -810,3 +810,82 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
 @media (prefers-reduced-motion: no-preference) {
   html { scroll-behavior: smooth; }
 }
+
+/* ─── The iOS / Android app and the installed PWA ──────────────────────────
+   `html.app-mode` is set in either (src/lib/native/boot.ts); `.native-app`
+   only in the iOS / Android shell. `html.has-tab-bar` is set while the
+   bottom tab bar shows (MobileTabBar), on phones and tablets only. */
+:root { --tab-bar-h: 4rem; }
+
+/* The tab bar: a floating capsule over the page, above the home indicator,
+   in the same frosted floating-chip look as the header. */
+.app-tab-bar {
+  position: fixed;
+  /* Under dialogs, sheets and menus (z-50), so they cover it. */
+  z-index: 40;
+  left: max(0.75rem, env(safe-area-inset-left));
+  right: max(0.75rem, env(safe-area-inset-right));
+  bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
+  height: var(--tab-bar-h);
+  max-width: 34rem;
+  margin: 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 0.125rem;
+  padding: 0.25rem;
+  border-radius: 9999px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / 0.82);
+  -webkit-backdrop-filter: saturate(1.6) blur(18px);
+  backdrop-filter: saturate(1.6) blur(18px);
+  box-shadow: var(--pop-shadow, 0 12px 32px -12px hsl(0 0% 0% / 0.25));
+  transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s;
+}
+@media (min-width: 1024px) { .app-tab-bar { display: none; } }
+/* Out of the way while typing: the keyboard covers that part of the screen. */
+html.keyboard-open .app-tab-bar {
+  transform: translateY(calc(100% + 2rem));
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (max-width: 1023px) {
+  /* Room under the last thing on the page to scroll it above the bar. */
+  html.has-tab-bar body {
+    padding-bottom: calc(var(--tab-bar-h) + env(safe-area-inset-bottom) + 1rem);
+  }
+  html.has-tab-bar .cookie-consent,
+  html.has-tab-bar .pwa-install-prompt {
+    bottom: calc(var(--tab-bar-h) + env(safe-area-inset-bottom) + 1rem) !important;
+  }
+  html.has-tab-bar [data-sonner-toaster][data-y-position="bottom"] {
+    bottom: calc(var(--tab-bar-h) + env(safe-area-inset-bottom) + 1rem) !important;
+  }
+  /* With the destinations in the tab bar the header is one row. */
+  html.has-tab-bar .app-shell.shell-notch { --app-header-h: calc(3.75rem + env(safe-area-inset-top, 0px)); }
+}
+
+/* In the app a long press on a link or picture doesn't open the browser's
+   preview / save callout. Text stays selectable. */
+html.native-app :is(a, img) { -webkit-touch-callout: none; }
+
+/* App sign-in (LoginPage): fields and the main button at a thumb's size. */
+@media (max-width: 1023px) {
+  .app-auth form :is(input[type="email"], input[type="password"], input[type="text"], input[type="tel"]) {
+    height: 2.875rem;
+    border-radius: 0.875rem;
+  }
+  .app-auth form button[type="submit"] {
+    height: 3rem;
+    border-radius: 9999px;
+    font-size: 0.9375rem;
+  }
+}
+
+/* The floating action button (AppFab) sits just above the tab bar. */
+.app-fab {
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: calc(var(--tab-bar-h) + env(safe-area-inset-bottom) + 1.25rem);
+  transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s;
+}
+html.keyboard-open .app-fab { opacity: 0; pointer-events: none; }

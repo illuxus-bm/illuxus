@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">illuxus</string>
+    <string name="title_activity_main">illuxus</string>
+    <string name="package_name">com.illuxus.app</string>
+    <string name="custom_url_scheme">com.illuxus.app</string>
+</resources>

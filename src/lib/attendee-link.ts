@@ -1,3 +1,5 @@
+
+import { isNativeApp, SITE_ORIGIN } from "@/lib/native/platform";
 /**
  * attendee-link.ts — per-attendee tracked webinar join URLs.
  *
@@ -113,6 +115,7 @@ function publicOrigin(): string {
   if (custom) {
     return custom.startsWith("http") ? custom.replace(/\/+$/, "") : `https://${custom}`;
   }
+  if (isNativeApp()) return SITE_ORIGIN;
   if (typeof window !== "undefined" && window.location?.origin) {
     return window.location.origin.replace(/\/+$/, "");
   }

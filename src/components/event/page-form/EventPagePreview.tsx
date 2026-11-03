@@ -9,6 +9,7 @@ import type { CountdownData, EventPageConfig, HeroData } from "./types";
 import { mapsUrlFor } from "@/lib/utils";
 import { surfaceTokens } from "@/lib/theme-contrast";
 import { renderRichText } from "@/lib/markdown";
+import { publicUrl } from "@/lib/publicUrl";
 
 /**
  * The public event page.
@@ -138,7 +139,7 @@ export default function EventPagePreview({
   }, [previewMode]);
 
   const share = async () => {
-    const url = window.location.href;
+    const url = publicUrl(window.location.pathname + window.location.search);
     try {
       if (navigator.share) await navigator.share({ title: event.title, url });
       else await navigator.clipboard.writeText(url);

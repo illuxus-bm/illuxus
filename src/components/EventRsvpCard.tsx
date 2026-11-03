@@ -421,7 +421,7 @@ export default function EventRsvpCard({
       location: [event.venue, event.location].filter(Boolean).join(", ") || undefined,
       start: event.date,
       end: event.end_date,
-      url: window.location.href,
+      url: publicUrl(window.location.pathname + window.location.search),
     });
     const a = document.createElement("a");
     a.href = href;
@@ -430,7 +430,7 @@ export default function EventRsvpCard({
     setTimeout(() => URL.revokeObjectURL(href), 10_000);
   };
   const shareEvent = async () => {
-    const url = window.location.href;
+    const url = publicUrl(window.location.pathname + window.location.search);
     try {
       if (navigator.share) await navigator.share({ title: event.title, url });
       else { await navigator.clipboard.writeText(url); toast({ title: "Link copied" }); }

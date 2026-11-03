@@ -89,8 +89,11 @@ const BUILD_SHA = resolveBuildSha();
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const isProduction = mode === "production";
+  // The iOS / Android build (capacitor.config.ts). The app ships its bundle,
+  // so it needs no service worker and no per-page HTML for search engines.
+  const isNativeApp = mode === "capacitor";
   const observabilityAuthToken = process.env.OBSERVABILITY_AUTH_TOKEN;
-  const shouldUploadSourceMaps = isProduction && Boolean(observabilityAuthToken);
+  const shouldUploadSourceMaps = (isProduction || isNativeApp) && Boolean(observabilityAuthToken);
 
   if (isProduction && !observabilityAuthToken) {
     // eslint-disable-next-line no-console -- build-time notice; outside src/** lint scope
@@ -112,11 +115,13 @@ export default defineConfig(({ mode }) => {
       "import.meta.env.VITE_BUILD_SHA": JSON.stringify(BUILD_SHA),
     },
     build: {
-      sourcemap: isProduction ? "hidden" : true,
+      // The app bundle carries no source maps unless they are uploaded (and
+      // then deleted from dist) by the Sentry plugin below.
+      sourcemap: isNativeApp ? (shouldUploadSourceMaps ? "hidden" : false) : isProduction ? "hidden" : true,
     },
     plugins: [
       react(),
-      seoPrerender(),
+      !isNativeApp && seoPrerender(),
       // PWA / service-worker layer.
       //
       // - registerType: 'prompt' — we control update timing via PWAUpdatePrompt
@@ -143,6 +148,8 @@ export default defineConfig(({ mode }) => {
       //   never be consumed: it wastes a network round trip and Chrome logs
       //   "navigation preload request was cancelled" on every page load.
       VitePWA({
+        // Still provides `virtual:pwa-register` (as a no-op) in the app build.
+        disable: isNativeApp,
         registerType: "prompt",
         injectRegister: false,
         manifest: false,

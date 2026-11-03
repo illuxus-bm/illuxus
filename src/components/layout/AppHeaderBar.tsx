@@ -3,6 +3,8 @@ import { cn } from "@/lib/utils";
 import { hexToRgb, perceivedLuminance } from "@/lib/theme-contrast";
 import { SidebarTrigger, useOptionalSidebar } from "@/components/ui/sidebar";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
+import { Link } from "react-router-dom";
+import { useAppMode } from "@/hooks/useAppChrome";
 
 /**
  * The one app header. Every surface — public site, organiser dashboard,
@@ -49,6 +51,8 @@ export function AppHeaderBar({
   // The menu button appears whenever the page has a sidebar — never in a
   // page-specific second row — so it's always in the same place.
   const hasSidebar = useOptionalSidebar() !== null;
+  // In the app the logo is the way home inside it, not to the website.
+  const appMode = useAppMode();
 
   // Nothing is under the chips until the page scrolls, so the haze behind
   // them (index.css) stays off till then: on a textured canvas it would
@@ -95,6 +99,15 @@ export function AppHeaderBar({
     collapsible && collapsed && "max-lg:pointer-events-none max-lg:opacity-0",
   );
 
+  const wordmark = (
+    <IlluxusWordmark
+      height={22}
+      variant={canvasColor ? (perceivedLuminance(canvasColor) > 0.55 ? "light" : "dark") : "auto"}
+      ariaLabel=""
+    />
+  );
+  const logoClass = "pointer-events-auto flex h-9 shrink-0 items-center px-1 lg:h-10";
+
   return (
     <header
       ref={headerRef}
@@ -113,17 +126,11 @@ export function AppHeaderBar({
         {hasSidebar && (
           <SidebarTrigger className="shell-icon-btn float-chip shrink-0" aria-label="Toggle sidebar" />
         )}
-        <a
-          href="https://illuxus.com"
-          className="pointer-events-auto flex h-9 shrink-0 items-center px-1 lg:h-10"
-          aria-label={`${brandName} home`}
-        >
-          <IlluxusWordmark
-            height={22}
-            variant={canvasColor ? (perceivedLuminance(canvasColor) > 0.55 ? "light" : "dark") : "auto"}
-            ariaLabel=""
-          />
-        </a>
+        {appMode ? (
+          <Link to="/" className={logoClass} aria-label={`${brandName} home`}>{wordmark}</Link>
+        ) : (
+          <a href="https://illuxus.com" className={logoClass} aria-label={`${brandName} home`}>{wordmark}</a>
+        )}
         {leading}
       </div>
       {nav && (

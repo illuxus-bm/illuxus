@@ -16,6 +16,7 @@ import {
   publicUrlFor,
 } from "@/lib/workspace-handle";
 import CoverCropDialog from "@/components/event/CoverCropDialog";
+import { isNativeApp, SITE_ORIGIN } from "@/lib/native/platform";
 
 /**
  * Lu.ma-style organization landing page customization.
@@ -307,8 +308,9 @@ export default function OrgPageForm() {
 
           <Section title="URL & Embed" hint="Your public landing page URL and an embeddable event widget for any external site.">
             {(() => {
-              const currentHost = typeof window !== "undefined" ? window.location.host : "";
-              const protocol = typeof window !== "undefined" ? window.location.protocol : "https:";
+              const native = isNativeApp();
+              const currentHost = native ? new URL(SITE_ORIGIN).host : typeof window !== "undefined" ? window.location.host : "";
+              const protocol = native ? "https:" : typeof window !== "undefined" ? window.location.protocol : "https:";
               const preferred = preferredPublicHost({
                 currentHost,
                 customDomain: PROJECT_CUSTOM_DOMAIN,

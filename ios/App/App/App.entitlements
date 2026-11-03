@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- illuxus.com links open in the app (Universal Links). Needs
+	     https://illuxus.com/.well-known/apple-app-site-association; see docs/MOBILE.md. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:illuxus.com</string>
+		<string>applinks:www.illuxus.com</string>
+	</array>
+</dict>
+</plist>

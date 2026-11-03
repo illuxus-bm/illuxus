@@ -7,6 +7,7 @@
  */
 
 import { logger } from "@/lib/observability";
+import { isNativeApp, SITE_ORIGIN } from "@/lib/native/platform";
 
 export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -76,6 +77,8 @@ export function preferredPublicEventHost(currentHost?: string): string {
 }
 
 function resolveOrigin(): { protocol: string; host: string } {
+  // The iOS / Android app runs on a local origin: share the public site.
+  if (isNativeApp()) return { protocol: "https:", host: preferredPublicEventHost(new URL(SITE_ORIGIN).host) };
   if (typeof window !== "undefined" && window.location) {
     const host = preferredPublicEventHost(window.location.host);
     return { protocol: window.location.protocol || "https:", host };

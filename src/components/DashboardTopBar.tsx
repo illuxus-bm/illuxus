@@ -12,6 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAppTabBar } from "@/hooks/useAppChrome";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -180,6 +181,8 @@ export function DashboardTopBar() {
   const { content } = useSiteContent();
   const { brandName } = content.navbar;
 
+  // In the app on a phone the organiser's destinations are in the tab bar.
+  const { visible: tabBar } = useAppTabBar();
   const [searchOpen, setSearchOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifs, setNotifs] = useState<NotifItem[]>([]);
@@ -264,7 +267,7 @@ export function DashboardTopBar() {
             <span className="hidden sm:inline xl:hidden min-[1340px]:inline">Super Admin</span>
           </span>
         ) : undefined}
-        nav={isAdminRoute ? <AdminNav /> : <OrganiserNav />}
+        nav={isAdminRoute ? <AdminNav /> : tabBar ? undefined : <OrganiserNav />}
         actions={<>
           <ThemeToggle floating />
 

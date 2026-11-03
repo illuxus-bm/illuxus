@@ -36,6 +36,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
+import { publicUrl } from "@/lib/publicUrl";
 
 // Categories mirror the support_ticket_category enum in
 // supabase/migrations/000_full_schema.sql (section 005_support_tickets.sql). Keep this list in sync when
@@ -211,7 +212,7 @@ export default function ContactPage() {
       const trackingUrl =
         typeof data.tracking_url === "string"
           ? data.tracking_url
-          : `${window.location.origin}/support/ticket/${ticketNumber}`;
+          : publicUrl(`/support/ticket/${ticketNumber}`);
 
       logger.info("support_ticket_submitted", {
         category: form.category,

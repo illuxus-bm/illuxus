@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { format, isFuture, isToday, isTomorrow } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import SiteHeader from "@/components/SiteHeader";
+import { PullToRefresh } from "@/components/native/PullToRefresh";
 import RouteSeo from "@/components/RouteSeo";
 import { LumaEvent } from "@/components/EventCardLuma";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,47 +24,49 @@ export default function DiscoverFeed() {
   const [query, setQuery] = useState("");
   const explore = usePublicCommunities();
 
+  const load = useCallback(async (isCancelled: () => boolean = () => false) => {
+    // Fetch published events. We don't filter by date in SQL — instead
+    // we filter client-side using end_date when available, or date otherwise.
+    // This is more reliable than complex .or() filters and lets us show
+    // ongoing/today's events too.
+    const { data, error } = await supabase
+      .from("events")
+      .select("id, slug, title, description, date, end_date, venue, location, image_url, banner_landscape_url, price, organizations(name, slug, subdomain, logo_url)")
+      .eq("status", "published")
+      .order("date", { ascending: true })
+      .limit(100);
+    if (isCancelled()) return;
+    if (error) {
+      logger.error("discover events query failed", { error_message: error?.message ?? String(error) });
+    }
+    // Split into upcoming/ongoing vs past based on end_date (fallback to date).
+    // Past = ended; Upcoming = not yet ended OR still ongoing.
+    const now = Date.now();
+    const rows = (data || []) as unknown as LumaEvent[];
+    const upcoming: LumaEvent[] = [];
+    const past: LumaEvent[] = [];
+    for (const e of rows) {
+      const endTs = e.end_date ? new Date(e.end_date).getTime() : null;
+      const startTs = e.date ? new Date(e.date).getTime() : 0;
+      const ended = endTs ? endTs < now : startTs < now;
+      if (ended) past.push(e); else upcoming.push(e);
+    }
+    // Past events most-recent-first.
+    past.sort((a, b) => {
+      const aTs = new Date(a.end_date || a.date).getTime();
+      const bTs = new Date(b.end_date || b.date).getTime();
+      return bTs - aTs;
+    });
+    setEvents(upcoming);
+    setPastEvents(past);
+    setLoading(false);
+  }, []);
+
   useEffect(() => {
     let cancel = false;
-    (async () => {
-      // Fetch published events. We don't filter by date in SQL — instead
-      // we filter client-side using end_date when available, or date otherwise.
-      // This is more reliable than complex .or() filters and lets us show
-      // ongoing/today's events too.
-      const { data, error } = await supabase
-        .from("events")
-        .select("id, slug, title, description, date, end_date, venue, location, image_url, banner_landscape_url, price, organizations(name, slug, subdomain, logo_url)")
-        .eq("status", "published")
-        .order("date", { ascending: true })
-        .limit(100);
-      if (cancel) return;
-      if (error) {
-        logger.error("discover events query failed", { error_message: error?.message ?? String(error) });
-      }
-      // Split into upcoming/ongoing vs past based on end_date (fallback to date).
-      // Past = ended; Upcoming = not yet ended OR still ongoing.
-      const now = Date.now();
-      const rows = (data || []) as unknown as LumaEvent[];
-      const upcoming: LumaEvent[] = [];
-      const past: LumaEvent[] = [];
-      for (const e of rows) {
-        const endTs = e.end_date ? new Date(e.end_date).getTime() : null;
-        const startTs = e.date ? new Date(e.date).getTime() : 0;
-        const ended = endTs ? endTs < now : startTs < now;
-        if (ended) past.push(e); else upcoming.push(e);
-      }
-      // Past events most-recent-first.
-      past.sort((a, b) => {
-        const aTs = new Date(a.end_date || a.date).getTime();
-        const bTs = new Date(b.end_date || b.date).getTime();
-        return bTs - aTs;
-      });
-      setEvents(upcoming);
-      setPastEvents(past);
-      setLoading(false);
-    })();
+    void load(() => cancel);
     return () => { cancel = true; };
-  }, []);
+  }, [load]);
 
   // Filter by event title, host (organization) name, venue, or location.
   // Searching applies to BOTH upcoming and past so visitors can find an event
@@ -114,18 +117,42 @@ export default function DiscoverFeed() {
         canonical="https://illuxus.com/discover"
       />
       <SiteHeader />
-      <main className="max-w-5xl mx-auto px-4 py-10 sm:py-14">
+      <PullToRefresh onRefresh={() => Promise.all([load(), explore.refetch()])} />
+      <main className="max-w-5xl mx-auto px-4 pt-3 pb-10 sm:py-14">
         {/* Header */}
-        <header className="mb-10 sm:mb-14">
-          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">Discover Events</h1>
-          <p className="text-[14px] text-muted-foreground mt-2 max-w-xl">
+        <header className="mb-5 sm:mb-8">
+          <h1 className="text-[28px] sm:text-4xl font-bold tracking-tight">Discover Events</h1>
+          <p className="text-[14px] text-muted-foreground mt-1.5 sm:mt-2 max-w-xl">
             Explore popular events near you, browse by category, or check out some of the great community calendars.
           </p>
         </header>
 
+        {/* Search bar — filters Popular Events list live by event, host or location. */}
+        <div className="relative mb-8 sm:mb-10">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search events, hosts or locations…"
+            aria-label="Search events"
+            className="pl-10 pr-10 h-11 rounded-xl text-[14px]"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              aria-label="Clear search"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
         {/* Popular Events */}
-        <section className="mb-14">
-          <div className="flex items-end justify-between mb-5">
+        <section className="mb-10 sm:mb-14">
+          <div className="flex items-end justify-between mb-4 sm:mb-5">
             <div>
               <h2 className="text-xl font-semibold tracking-tight">
                 {query.trim() ? "Search Results" : "Popular Events"}
@@ -144,33 +171,10 @@ export default function DiscoverFeed() {
             </Link>
           </div>
 
-          {/* Search bar — filters Popular Events list live by event, host or location. */}
-          <div className="relative mb-5">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <Input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search events, hosts or locations…"
-              aria-label="Search events"
-              className="pl-10 pr-10 h-11 rounded-xl text-[14px]"
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                aria-label="Clear search"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-
           {loading ? (
             <div className="flex flex-col gap-3">
               {[0, 1, 2, 3, 4, 5].map((i) => (
-                <Skeleton key={i} className="h-32 w-full rounded-xl" />
+                <Skeleton key={i} className="h-28 sm:h-32 w-full rounded-xl" />
               ))}
             </div>
           ) : popular.length === 0 ? (
@@ -187,8 +191,8 @@ export default function DiscoverFeed() {
         </section>
 
         {/* Past Events — events whose end_date (or start date if no end_date) is in the past. */}
-        <section className="mb-14">
-          <div className="flex items-end justify-between mb-5">
+        <section className="mb-10 sm:mb-14">
+          <div className="flex items-end justify-between mb-4 sm:mb-5">
             <div>
               <h2 className="text-xl font-semibold tracking-tight">Past Events</h2>
               <p className="text-[12px] text-muted-foreground mt-0.5">
@@ -236,7 +240,8 @@ export default function DiscoverFeed() {
               No public communities available yet.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            // Phones: a row to swipe through. Wider screens: a grid.
+            <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-3">
               {explore.data.map((c) => <DiscoverCommunityTile key={c.id} community={c} />)}
             </div>
           )}
@@ -258,7 +263,7 @@ function PopularRow({ event }: { event: LumaEvent }) {
   return (
     <Link
       to={href}
-      className="group flex flex-col-reverse sm:flex-row gap-4 p-4 rounded-xl border border-border bg-card hover:border-foreground/15 hover:shadow-sm transition-all"
+      className="group flex flex-row items-center sm:items-stretch gap-3.5 sm:gap-4 p-3 sm:p-4 rounded-2xl sm:rounded-xl border border-border bg-card hover:border-foreground/15 hover:shadow-sm active:scale-[0.99] transition-all"
     >
       <div className="flex-1 min-w-0">
         <div className="text-[12px] font-medium text-muted-foreground mb-1.5">
@@ -272,7 +277,7 @@ function PopularRow({ event }: { event: LumaEvent }) {
           <span className="truncate">{venue || event.organizations?.name || "Online"}</span>
         </div>
       </div>
-      <div className="shrink-0 w-full sm:w-40 md:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
+      <div className="shrink-0 w-24 aspect-square sm:w-40 sm:aspect-video md:w-56 rounded-xl sm:rounded-lg overflow-hidden bg-secondary">
         {(event.banner_landscape_url || event.image_url) ? (
           <img loading="lazy" decoding="async" src={event.banner_landscape_url || event.image_url!} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
         ) : (
@@ -300,7 +305,7 @@ function PastRow({ event }: { event: LumaEvent }) {
   return (
     <Link
       to={href}
-      className="group flex flex-col-reverse sm:flex-row gap-4 p-4 rounded-xl border border-border bg-card/50 hover:border-foreground/15 hover:bg-card transition-all"
+      className="group flex flex-row items-center sm:items-stretch gap-3.5 sm:gap-4 p-3 sm:p-4 rounded-2xl sm:rounded-xl border border-border bg-card/50 hover:border-foreground/15 hover:bg-card active:scale-[0.99] transition-all"
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1.5">
@@ -317,7 +322,7 @@ function PastRow({ event }: { event: LumaEvent }) {
           <span className="truncate">{venue || event.organizations?.name || "Online"}</span>
         </div>
       </div>
-      <div className="shrink-0 w-full sm:w-40 md:w-56 aspect-video rounded-lg overflow-hidden bg-secondary">
+      <div className="shrink-0 w-24 aspect-square sm:w-40 sm:aspect-video md:w-56 rounded-xl sm:rounded-lg overflow-hidden bg-secondary">
         {(event.banner_landscape_url || event.image_url) ? (
           <img loading="lazy" decoding="async"
             src={event.banner_landscape_url || event.image_url!}
@@ -342,7 +347,7 @@ function DiscoverCommunityTile({
   return (
     <Link
       to={`/community/${community.slug}/feed`}
-      className="border border-border rounded-xl bg-card p-4 hover:border-primary/50 hover:shadow-sm transition-all flex flex-col gap-2 group"
+      className="w-[78%] shrink-0 snap-start sm:w-auto border border-border rounded-2xl sm:rounded-xl bg-card p-4 hover:border-primary/50 hover:shadow-sm transition-all flex flex-col gap-2 group"
     >
       <div className="flex items-center gap-3">
         <div className="h-10 w-10 shrink-0 rounded-lg bg-primary/10 text-primary flex items-center justify-center text-[14px] font-bold group-hover:bg-primary group-hover:text-primary-foreground transition-colors">

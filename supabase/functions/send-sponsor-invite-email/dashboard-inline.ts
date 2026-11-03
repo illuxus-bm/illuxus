@@ -15,10 +15,16 @@ var DEV_ORIGINS = /* @__PURE__ */ new Set([
   "http://127.0.0.1:5173",
   "http://127.0.0.1:8080"
 ]);
+var NATIVE_APP_ORIGINS = /* @__PURE__ */ new Set([
+  "capacitor://localhost",
+  // iOS
+  "https://localhost"
+  // Android
+]);
 var ALLOWED_HEADERS = "authorization, x-client-info, apikey, content-type, x-correlation-id";
 var DEFAULT_METHODS = "POST, OPTIONS";
 function envAllowedOrigins() {
-  const set = new Set(DEV_ORIGINS);
+  const set = /* @__PURE__ */ new Set([...DEV_ORIGINS, ...NATIVE_APP_ORIGINS]);
   const fromSecret = (Deno.env.get("ALLOWED_ORIGINS") || "").split(",").map((s) => s.trim()).filter(Boolean);
   for (const o of fromSecret) set.add(stripTrailingSlash(o));
   const publicDomain = Deno.env.get("PUBLIC_DOMAIN") || Deno.env.get("VITE_PUBLIC_DOMAIN");

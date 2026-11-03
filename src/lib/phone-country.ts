@@ -1,6 +1,8 @@
 // Lightweight country dial-code list + locale-based default detection.
 // No network calls, no dependencies.
 
+import { isNativeApp, SITE_ORIGIN } from "@/lib/native/platform";
+
 export type Country = { code: string; name: string; dial: string };
 
 export const COUNTRIES: Country[] = [
@@ -94,7 +96,8 @@ export function detectCountryFromIp(): Promise<string | null> {
       // AbortSignal.timeout is missing before Safari 16 and Chrome 103.
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 3000);
-      const res = await fetch("/api/geo", { signal: ctrl.signal, headers: { Accept: "application/json" } }).finally(() => clearTimeout(timer));
+      // The app's own origin is local; ask the site.
+      const res = await fetch(isNativeApp() ? `${SITE_ORIGIN}/api/geo` : "/api/geo", { signal: ctrl.signal, headers: { Accept: "application/json" } }).finally(() => clearTimeout(timer));
       if (!res.ok) throw new Error(`geo ${res.status}`);
       const body = (await res.json()) as { country?: unknown };
       const country = typeof body?.country === "string" && /^[A-Z]{2}$/.test(body.country) ? body.country : null;
