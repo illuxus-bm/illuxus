@@ -324,11 +324,14 @@ function SortableHeader({
 function SavedLinksSection({
   savedRows,
   analyticsRows,
+  urlFor,
   onEdit,
   onDelete,
 }: {
   savedRows: UtmLink[];
   analyticsRows: UtmRow[];
+  /** The link's current URL (rebuilt from its values, not the copy stored when it was saved). */
+  urlFor: (link: UtmLink) => string;
   onEdit: (link: UtmLink) => void;
   /** Ask to delete the link (the page shows the confirmation). */
   onDelete: (link: UtmLink) => void;
@@ -409,13 +412,13 @@ function SavedLinksSection({
             {/* URL row */}
             <div className="flex items-center gap-2">
               <code className="flex-1 text-[10px] font-mono bg-muted rounded px-2 py-1.5 truncate border border-border text-muted-foreground">
-                {link.url}
+                {urlFor(link)}
               </code>
-              <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => copyUrl(link.url)} title="Copy">
+              <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => copyUrl(urlFor(link))} title="Copy">
                 <Copy className="h-3 w-3" />
               </Button>
               <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" asChild title="Open">
-                <a href={link.url} target="_blank" rel="noopener noreferrer">
+                <a href={urlFor(link)} target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="h-3 w-3" />
                 </a>
               </Button>
@@ -697,7 +700,7 @@ export default function UtmAnalyticsPage({
 
   /** The tracked URL behind a row; direct traffic has none. */
   const linkFor = (r: BreakdownRow): string | null =>
-    r.utm_source === DIRECT_SOURCE ? null : r.saved?.url ?? utmLinkUrl(eventRef, draftFor(r));
+    r.utm_source === DIRECT_SOURCE ? null : utmLinkUrl(eventRef, draftFor(r));
 
   const copyRowLink = (r: BreakdownRow) => {
     const url = linkFor(r);
@@ -1273,6 +1276,7 @@ export default function UtmAnalyticsPage({
       <SavedLinksSection
         savedRows={savedLinks}
         analyticsRows={summaryRows}
+        urlFor={(link) => utmLinkUrl(eventRef, link)}
         onDelete={(link) => setDeleteTarget(targetForLink(link))}
         onEdit={(link) => setLinkDialog({
           open: true,

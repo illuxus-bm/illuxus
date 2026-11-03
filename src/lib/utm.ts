@@ -65,9 +65,14 @@ export function hasUtm(params: UtmParams): boolean {
  *
  * Returns the params that are NOW active (either freshly captured or
  * already stored). Returns `{}` if no params are available at all.
+ *
+ * `fallback` fills keys a tagged URL leaves out — e.g. an event page passes
+ * its slug as the campaign, because links whose campaign is the event slug
+ * omit it (the slug is already in the path).
  */
-export function captureUtm(search: string, force = false): UtmParams {
-  const incoming = readUtmFromSearch(search);
+export function captureUtm(search: string, force = false, fallback: UtmParams = {}): UtmParams {
+  const tagged = readUtmFromSearch(search);
+  const incoming = hasUtm(tagged) ? { ...fallback, ...tagged } : tagged;
 
   if (hasUtm(incoming)) {
     // Only overwrite if first-touch has no data yet, or forced.

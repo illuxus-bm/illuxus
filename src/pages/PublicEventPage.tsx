@@ -221,8 +221,10 @@ const PublicEventPage = () => {
     // ── UTM capture + click recording ───────────────────────────────────
     // Runs after the event loads so we know the event_id. captureUtm
     // stores params in sessionStorage (first-touch); record_utm_click
-    // writes a row to utm_clicks for funnel analytics.
-    const utm = captureUtm(window.location.search);
+    // writes a row to utm_clicks for funnel analytics. Tracked links whose
+    // campaign is the event slug leave it out of the URL, so it comes back here.
+    const slug = (evRes.data as { slug?: string | null } | null)?.slug;
+    const utm = captureUtm(window.location.search, false, slug ? { utm_campaign: slug } : {});
     if (hasUtm(utm)) {
       // Fire-and-forget — don't block the render on analytics writes.
       supabaseRpc("record_utm_click" as never, {
