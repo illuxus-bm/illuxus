@@ -11,6 +11,7 @@ import { canManageSettings } from "@/lib/community/rbac";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { friendlyError } from "@/lib/friendly-error";
 
 export default function CommunitySettingsPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -54,7 +55,7 @@ export default function CommunitySettingsPage() {
       .eq("id", data.community!.id);
     setSaving(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyError(error));
       return;
     }
     toast.success("Saved");

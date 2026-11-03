@@ -31,6 +31,7 @@ import IssueTab from "@/components/event/certificates/IssueTab";
 import IssuedTab from "@/components/event/certificates/IssuedTab";
 import CertificateEditor from "@/components/event/certificates/CertificateEditor";
 import type { SidebarTab } from "@/components/event/certificates/CertificateEditorSidebar";
+import { friendlyError } from "@/lib/friendly-error";
 
 type Tab = "templates" | "issue" | "issued";
 
@@ -97,7 +98,7 @@ export default function CertificatesSection({ eventId }: { eventId: string }) {
   const run = async <T,>(id: string, fn: () => Promise<T>, fail: string): Promise<T | null> => {
     setBusyId(id);
     try { return await fn(); }
-    catch (err) { toast.error(fail, { description: err instanceof Error ? err.message : String(err) }); return null; }
+    catch (err) { toast.error(fail, { description: friendlyError(err) }); return null; }
     finally { setBusyId(null); }
   };
 

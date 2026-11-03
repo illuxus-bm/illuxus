@@ -10,6 +10,7 @@ import { Search, Check, X, Clock3, ArrowLeft, Download } from "lucide-react";
 import { isUuid } from "@/lib/event-routes";
 import { fetchAllRows } from "@/lib/reports/fetch";
 import { supabaseRpc, logger } from "@/lib/observability";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface Reg {
   id: string;
@@ -101,7 +102,7 @@ export default function GuestListPage() {
 
   const setApproval = async (reg: Reg, next: string) => {
     const { error } = await supabase.from("registrations").update({ approval_status: next }).eq("id", reg.id);
-    if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); return; }
+    if (error) { toast({ title: "Error", description: friendlyError(error), variant: "destructive" }); return; }
     setRows((rs) => rs.map((r) => r.id === reg.id ? { ...r, approval_status: next } : r));
     // An approved guest gets their ticket, as from the event's Registrations
     // tab (RegistrationsSection.updateApprovalStatus).
@@ -124,7 +125,7 @@ export default function GuestListPage() {
     const result = (Array.isArray(data) ? data[0] : data) as { state?: string } | null;
     if (error || !result) {
       logger.warn("guest-list toggle-attendance failed", { reg_id: reg.id, error_message: error?.message ?? null });
-      toast({ title: "Could not update check-in", description: error?.message, variant: "destructive" });
+      toast({ title: "Could not update check-in", description: friendlyError(error), variant: "destructive" });
       return;
     }
     if (result.state === "tracking_closed") {

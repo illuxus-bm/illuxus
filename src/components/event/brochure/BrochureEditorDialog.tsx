@@ -150,6 +150,7 @@ import {
 } from "@/lib/brochure/editor/editor-operations";
 import { useHistory } from "@/lib/brochure/editor/editor-history";
 import { blockedImagesMessage, downloadDocumentAsPdf } from "@/lib/brochure/editor/editor-pdf";
+import { friendlyError } from "@/lib/friendly-error";
 
 /** Names for the template pages offered in the "add page" menu. */
 const TEMPLATE_PAGE_LABELS: Partial<Record<BrochureSectionId, string>> = {
@@ -730,7 +731,7 @@ export default function BrochureEditorDialog({
         error_message: err instanceof Error ? err.message : String(err),
       });
       toast.error("Export failed", {
-        description: err instanceof Error ? err.message : "Unknown error.",
+        description: friendlyError(err, "Unknown error."),
       });
     } finally {
       setIsExporting(false);
@@ -750,7 +751,7 @@ export default function BrochureEditorDialog({
         error_message: err instanceof Error ? err.message : String(err),
       });
       toast.error("Save failed", {
-        description: err instanceof Error ? err.message : "Unknown error.",
+        description: friendlyError(err, "Unknown error."),
       });
       return false;
     } finally {

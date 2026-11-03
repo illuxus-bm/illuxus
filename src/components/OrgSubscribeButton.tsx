@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { logger } from "@/lib/observability";
 import { loginPath } from "@/lib/safe-redirect";
+import { friendlyError } from "@/lib/friendly-error";
 
 /**
  * Lu.ma-style "Subscribe" pill for an organization page.
@@ -81,7 +82,7 @@ export default function OrgSubscribeButton({
           .eq("user_id", user.id);
         if (error) {
           logger.warn("unsubscribe failed", { org_id: orgId, error_message: error.message });
-          toast({ title: "Could not unsubscribe", description: error.message, variant: "destructive" });
+          toast({ title: "Could not unsubscribe", description: friendlyError(error), variant: "destructive" });
         } else {
           toast({ title: "Unsubscribed", description: "You'll stop getting updates from this organization." });
         }
@@ -96,7 +97,7 @@ export default function OrgSubscribeButton({
           );
         if (error) {
           logger.warn("subscribe failed", { org_id: orgId, error_message: error.message });
-          toast({ title: "Could not subscribe", description: error.message, variant: "destructive" });
+          toast({ title: "Could not subscribe", description: friendlyError(error), variant: "destructive" });
         } else {
           toast({ title: "Subscribed", description: "You'll get updates about new events." });
         }

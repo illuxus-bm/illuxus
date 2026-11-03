@@ -7,6 +7,7 @@ import { Eye, EyeOff, ShieldAlert, Trash2 } from "lucide-react";
 import { canModerate } from "@/lib/community/rbac";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { friendlyError } from "@/lib/friendly-error";
 
 export default function CommunityModerationPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -73,7 +74,7 @@ export default function CommunityModerationPage() {
                         });
                         toast.success("Hidden");
                       } catch (err: unknown) {
-                        toast.error(err instanceof Error ? err.message : "Failed");
+                        toast.error(friendlyError(err, "Failed"));
                       }
                     }}
                   >
@@ -92,7 +93,7 @@ export default function CommunityModerationPage() {
                         });
                         toast.success("Restored");
                       } catch (err: unknown) {
-                        toast.error(err instanceof Error ? err.message : "Failed");
+                        toast.error(friendlyError(err, "Failed"));
                       }
                     }}
                   >
@@ -112,7 +113,7 @@ export default function CommunityModerationPage() {
                         });
                         toast.success("Deleted");
                       } catch (err: unknown) {
-                        toast.error(err instanceof Error ? err.message : "Failed");
+                        toast.error(friendlyError(err, "Failed"));
                       }
                     }}
                   >

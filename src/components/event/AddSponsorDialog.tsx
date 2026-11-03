@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useDebounced } from "@/hooks/useOrgPeopleSearch";
 import { sponsorship, type AddedSponsor, type SponsorOptionCompany, type SponsorOptionRecord } from "@/lib/sponsors/event-sponsorship";
 import SponsorLogoUploader from "./SponsorLogoUploader";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface Props {
   eventId: string;
@@ -85,7 +86,7 @@ export function AddSponsorDialog({ eventId, tiers, presets, onClose, onAdded }: 
       onAdded(added, tier === "custom" ? label.trim() : null);
       onClose();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(friendlyError(e));
     } finally {
       setBusy(false);
     }

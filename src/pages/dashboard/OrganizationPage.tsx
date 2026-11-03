@@ -19,6 +19,7 @@ import { FeatureGate } from "@/components/plans/FeatureGate";
 import { FEATURES } from "@/lib/plans/features";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { friendlyError } from "@/lib/friendly-error";
 
 const OrgPageForm = lazy(() => import("@/components/event/page-builder/OrgPageForm"));
 
@@ -62,7 +63,7 @@ const OrganizationPage = () => {
       .eq("id", org.id);
     setSaving(false);
     if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
       return;
     }
     toast({ title: "Organization updated" });

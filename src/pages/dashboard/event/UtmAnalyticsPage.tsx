@@ -93,6 +93,7 @@ import {
 import {
   exportLeadsCsv, exportSummaryCsv, leadsFilename, summaryFilename,
 } from "@/lib/utm/utm-export";
+import { friendlyError } from "@/lib/friendly-error";
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
 
@@ -748,7 +749,7 @@ export default function UtmAnalyticsPage({
       }
 
       if (!isMissingFunction(error)) {
-        toast.error("Couldn't delete the link", { description: error.message });
+        toast.error("Couldn't delete the link", { description: friendlyError(error) });
         return;
       }
 

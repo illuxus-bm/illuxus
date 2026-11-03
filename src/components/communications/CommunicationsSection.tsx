@@ -20,6 +20,7 @@ import { ComposeMessageDialog } from "./ComposeMessageDialog";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Communication } from "@/types/communications";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface CommunicationsSectionProps {
   /** Pass exactly one. */
@@ -92,7 +93,7 @@ export function CommunicationsSection({ eventId, communityId }: CommunicationsSe
       toast.success("Duplicated as draft");
       openCompose(newId);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not duplicate");
+      toast.error(friendlyError(err, "Could not duplicate"));
     }
   };
 
@@ -101,7 +102,7 @@ export function CommunicationsSection({ eventId, communityId }: CommunicationsSe
       await unscheduleCommunication(id);
       toast.success("Schedule cancelled — back to draft");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not unschedule");
+      toast.error(friendlyError(err, "Could not unschedule"));
     }
   };
 
@@ -121,7 +122,7 @@ export function CommunicationsSection({ eventId, communityId }: CommunicationsSe
         (typeof result.sent === "number" ? ` — ${result.sent} sent, ${result.failed} failed` : ""),
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Retry failed");
+      toast.error(friendlyError(err, "Retry failed"));
     }
   };
 
@@ -250,7 +251,7 @@ export function CommunicationsSection({ eventId, communityId }: CommunicationsSe
 async function handleDelete(id: string) {
   if (!confirm("Delete this message? This cannot be undone.")) return;
   try { await deleteCommunication(id); toast.success("Deleted"); }
-  catch (err) { toast.error(err instanceof Error ? err.message : "Delete failed"); }
+  catch (err) { toast.error(friendlyError(err, "Delete failed")); }
 }
 
 async function handleSendNow(id: string) {
@@ -258,7 +259,7 @@ async function handleSendNow(id: string) {
     const result = await dispatchCommunication(id);
     toast.success(`Sent to ${result.recipient_count} recipient${result.recipient_count === 1 ? "" : "s"}`);
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : "Send failed");
+    toast.error(friendlyError(err, "Send failed"));
   }
 }
 

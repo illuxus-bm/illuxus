@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Heart, HeartOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { loginPath } from "@/lib/safe-redirect";
+import { friendlyError } from "@/lib/friendly-error";
 
 /** Lu.ma-style follow button that lives next to an organization's name. */
 export default function OrgFollowButton({ orgId, primaryColor }: { orgId: string; primaryColor?: string }) {
@@ -40,11 +41,11 @@ export default function OrgFollowButton({ orgId, primaryColor }: { orgId: string
     setBusy(true);
     if (following) {
       const { error } = await supabase.from("org_followers").delete().eq("org_id", orgId).eq("user_id", user.id);
-      if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+      if (error) toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
       else { setFollowing(false); setCount((n) => Math.max(0, n - 1)); }
     } else {
       const { error } = await supabase.from("org_followers").insert({ org_id: orgId, user_id: user.id });
-      if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+      if (error) toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
       else { setFollowing(true); setCount((n) => n + 1); toast({ title: "Following", description: "You'll see new events from this organization." }); }
     }
     setBusy(false);

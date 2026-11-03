@@ -24,6 +24,7 @@ import {
   type EventCreativeRow,
 } from "@/lib/creatives/creative-storage";
 import { STUDIO_FORMATS, STUDIO_TEMPLATES } from "@/lib/creatives/studio/templates";
+import { friendlyError } from "@/lib/friendly-error";
 
 function describe(row: EventCreativeRow): string {
   const template = STUDIO_TEMPLATES.find((t) => t.id === row.template_id)?.name;
@@ -45,7 +46,7 @@ export default function CreativeLibrary({ eventId, onCreate }: { eventId: string
       .catch((err: unknown) => {
         if (!mounted) return;
         setRows([]);
-        toast.error("Could not load saved creatives", { description: err instanceof Error ? err.message : undefined });
+        toast.error("Could not load saved creatives", { description: friendlyError(err) });
       });
     return () => {
       mounted = false;

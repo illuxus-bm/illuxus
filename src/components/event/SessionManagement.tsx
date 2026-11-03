@@ -17,6 +17,7 @@ import { Plus, Pencil, Trash2, Presentation, Coffee, Wrench, Clock, MapPin, Mic,
 import { ExternalLink } from "lucide-react";
 import { computeEventDays, buildSessionPayload } from "./session-day-utils";
 import { logger } from "@/lib/observability";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface Session {
   id: string;
@@ -171,10 +172,10 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
     let sessionId = editing?.id;
     if (editing) {
       const { error } = await supabase.from("sessions").update(payload).eq("id", editing.id);
-      if (error) { toast.error(error.message); return; }
+      if (error) { toast.error(friendlyError(error)); return; }
     } else {
       const { data, error } = await supabase.from("sessions").insert(payload).select("id").single();
-      if (error) { toast.error(error.message); return; }
+      if (error) { toast.error(friendlyError(error)); return; }
       sessionId = data?.id;
     }
 

@@ -17,6 +17,7 @@ import type { Tables } from "@/integrations/supabase/types";
 import PersonFieldsForm, { type PersonFields, emptyPersonFields, displayName as buildDisplayName } from "@/components/people/PersonFieldsForm";
 import { TwoFactorSettings } from "@/components/auth/TwoFactorSettings";
 import { ProfileSuggestions } from "@/components/intelligence/ProfileSuggestions";
+import { friendlyError } from "@/lib/friendly-error";
 
 type Profile = Tables<"profiles">;
 
@@ -86,7 +87,7 @@ const SettingsPage = () => {
       .update(updatePayload as never)
       .eq("user_id", user.id);
     setSaving(false);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+    if (error) toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
     else toast({ title: "Profile updated" });
   };
 
@@ -354,7 +355,7 @@ function NotificationsTab({ userId }: { userId: string | undefined }) {
       .eq("user_id", userId);
 
     setSaving(false);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+    if (error) toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
     else       toast({ title: "Notification preferences saved" });
   };
 

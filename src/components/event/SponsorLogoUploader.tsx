@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Upload, X, Image as ImageIcon } from "lucide-react";
 import { uuid } from "@/lib/uuid";
+import { friendlyError } from "@/lib/friendly-error";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const ALLOWED = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
@@ -39,7 +40,7 @@ export default function SponsorLogoUploader({
       onChange(data.publicUrl);
       toast.success("Logo uploaded");
     } catch (e: any) {
-      toast.error("Upload failed", { description: e?.message });
+      toast.error("Upload failed", { description: friendlyError(e) });
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";

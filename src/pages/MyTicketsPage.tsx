@@ -8,6 +8,7 @@ import { Calendar, MapPin, Ticket, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import SiteHeader from "@/components/SiteHeader";
 import { formatEventDateTime } from "@/lib/datetime";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface RegistrationRow {
   id: string;
@@ -47,7 +48,7 @@ const MyTicketsPage = () => {
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
       if (error) {
-        toast({ title: "Error", description: error.message, variant: "destructive" });
+        toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
       } else {
         setRows((data ?? []) as unknown as RegistrationRow[]);
       }

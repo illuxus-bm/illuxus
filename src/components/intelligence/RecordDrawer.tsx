@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { COMPANY_FIELDS, PERSON_FIELDS, intel, type CompanyRow, type Detail, type Entity, type HistoryEntry, type SponsorRow, sponsorshipTitle } from "@/lib/intelligence/admin-api";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface Props {
   entity: Entity;
@@ -44,7 +45,7 @@ export function RecordDrawer({ entity, id, onClose, onChanged }: Props) {
       const r = (entity === "person" ? d.person : d.company) as Record<string, unknown>;
       setForm(Object.fromEntries(fields.map(([f]) => [f, String(r[f] ?? "")])));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(friendlyError(e));
     }
   }, [entity, id, fields]);
 
@@ -53,7 +54,7 @@ export function RecordDrawer({ entity, id, onClose, onChanged }: Props) {
   const run = async (fn: () => Promise<unknown>, done: string) => {
     setBusy(true);
     try { await fn(); toast.success(done); await load(); onChanged(); }
-    catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+    catch (e) { toast.error(friendlyError(e)); }
     finally { setBusy(false); }
   };
 

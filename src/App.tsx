@@ -21,6 +21,7 @@ import { PWAInstallPrompt } from "@/components/pwa/PWAInstallPrompt";
 import { SecondFactorGate } from "@/components/auth/SecondFactorGate";
 import { loginPath } from "@/lib/safe-redirect";
 import { SkipToContent } from "@/components/SkipToContent";
+import { PlatformBanNotice } from "@/components/bans/UnbanRequests";
 import { NativeBridge } from "@/components/native/NativeBridge";
 import { MobileTabBar } from "@/components/native/MobileTabBar";
 import { OfflineBanner } from "@/components/native/OfflineBanner";
@@ -322,6 +323,7 @@ const App = () => (
                 <SiteContentProvider>
                 <SiteHead />
                 <SkipToContent />
+                <PlatformBanNotice />
                 <LazyRouteBoundary>
                 <Suspense fallback={<FullPageLoader />}>
                 <SecondFactorGate>

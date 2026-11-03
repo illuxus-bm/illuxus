@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Hash, Send } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { friendlyError } from "@/lib/friendly-error";
 
 export default function CommunityChatPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -41,7 +42,7 @@ export default function CommunityChatPage() {
       await send.mutateAsync(body);
       setBody("");
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Could not send");
+      toast.error(friendlyError(err, "Could not send"));
     }
   };
 

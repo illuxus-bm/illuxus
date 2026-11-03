@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useCreatePost } from "@/hooks/community/useCommunityFeed";
 import { canPostAnnouncement, type CommunityPostType, type CommunityRole } from "@/lib/community/rbac";
 import { toast } from "sonner";
+import { friendlyError } from "@/lib/friendly-error";
 
 export function FeedComposer({
   communityId,
@@ -40,7 +41,7 @@ export function FeedComposer({
       setType("discussion");
       toast.success("Posted");
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Could not post");
+      toast.error(friendlyError(err, "Could not post"));
     }
   };
 

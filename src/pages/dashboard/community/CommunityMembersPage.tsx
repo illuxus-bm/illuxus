@@ -15,7 +15,9 @@ import { MoreHorizontal, Search, Shield, ShieldOff, UserCog, UserX } from "lucid
 import { canManageSettings, canModerate, type CommunityRole } from "@/lib/community/rbac";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { UnbanRequestsPanel } from "@/components/bans/UnbanRequests";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
+import { friendlyError } from "@/lib/friendly-error";
 
 const ROLE_BADGE: Record<string, string> = {
   member:    "bg-muted text-muted-foreground",
@@ -91,6 +93,7 @@ export default function CommunityMembersPage() {
   return (
     <CommunityLayout>
       <div className="space-y-3">
+        {isModerator && data?.community?.id && <UnbanRequestsPanel communityId={data.community.id} />}
         <div className="flex items-center gap-2">
           <div className="relative flex-1 sm:max-w-xs">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -136,7 +139,7 @@ export default function CommunityMembersPage() {
                   await setStatus.mutateAsync({ userId: m.user_id, status: "banned" });
                   toast.success(`${name} removed`);
                 } catch (err: unknown) {
-                  toast.error(err instanceof Error ? err.message : "Failed");
+                  toast.error(friendlyError(err, "Failed"));
                 }
               };
               const handleSuspend = async () => {
@@ -144,7 +147,7 @@ export default function CommunityMembersPage() {
                   await setStatus.mutateAsync({ userId: m.user_id, status: "suspended" });
                   toast.success(`${name} suspended`);
                 } catch (err: unknown) {
-                  toast.error(err instanceof Error ? err.message : "Failed");
+                  toast.error(friendlyError(err, "Failed"));
                 }
               };
               const handleReactivate = async () => {
@@ -152,7 +155,7 @@ export default function CommunityMembersPage() {
                   await setStatus.mutateAsync({ userId: m.user_id, status: "active" });
                   toast.success(`${name} restored`);
                 } catch (err: unknown) {
-                  toast.error(err instanceof Error ? err.message : "Failed");
+                  toast.error(friendlyError(err, "Failed"));
                 }
               };
               const handleSetRole = async (next: CommunityRole) => {
@@ -160,7 +163,7 @@ export default function CommunityMembersPage() {
                   await setRole.mutateAsync({ userId: m.user_id, role: next });
                   toast.success(`${name} is now ${next}`);
                 } catch (err: unknown) {
-                  toast.error(err instanceof Error ? err.message : "Failed");
+                  toast.error(friendlyError(err, "Failed"));
                 }
               };
 

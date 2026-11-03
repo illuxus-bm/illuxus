@@ -18,6 +18,7 @@ import {
   MAX_BRAND_COLORS, MAX_BRAND_RESOURCES, saveBrandKit, uploadBrandAsset,
   type BrandAsset, type BrandKit, type LogoSlot,
 } from "@/lib/brand-kit";
+import { friendlyError } from "@/lib/friendly-error";
 
 const LOGOS: { slot: LogoSlot; title: string; hint: string; stage: string }[] = [
   { slot: "cmyk", title: "CMYK logo", hint: "For print. PDF, AI, EPS or TIFF.", stage: "bg-white" },
@@ -110,7 +111,7 @@ export default function BrandKitPanel({ orgId, userId, canEdit }: { orgId: strin
         setKit((k) => (slot === "guidelines" ? { ...k, guidelines: asset } : { ...k, logos: { ...k.logos, [slot]: asset } }));
       }
     } catch (err) {
-      toast({ title: "Upload failed", description: err instanceof Error ? err.message : undefined, variant: "destructive" });
+      toast({ title: "Upload failed", description: friendlyError(err), variant: "destructive" });
     } finally {
       setUploading(null);
     }
@@ -132,7 +133,7 @@ export default function BrandKitPanel({ orgId, userId, canEdit }: { orgId: strin
       setSaved({ id: result.id, kit, snapshot: result.snapshot });
       toast({ title: "Brand kit saved" });
     } catch (err) {
-      toast({ title: "Could not save the brand kit", description: err instanceof Error ? err.message : undefined, variant: "destructive" });
+      toast({ title: "Could not save the brand kit", description: friendlyError(err), variant: "destructive" });
     } finally {
       setSaving(false);
     }

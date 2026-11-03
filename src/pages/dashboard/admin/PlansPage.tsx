@@ -30,6 +30,7 @@ import {
   DEFAULT_PLANS, FEATURE_GROUPS, FEATURES, PLAN_KEY_PATTERN, parsePlan,
   type Plan, type PlanLimits,
 } from "@/lib/plans/features";
+import { friendlyError } from "@/lib/friendly-error";
 
 const LIMITS: Array<{ key: keyof PlanLimits; label: string }> = [
   { key: "max_events", label: "Events" },
@@ -124,7 +125,7 @@ export default function PlansPage() {
         _features: p.features,
       });
       if (error) {
-        toast.error(`Couldn't save ${p.name}`, { description: error.message });
+        toast.error(`Couldn't save ${p.name}`, { description: friendlyError(error) });
         setSaving(false);
         return;
       }
@@ -140,7 +141,7 @@ export default function PlansPage() {
     const { error } = await supabaseRpc("admin_delete_plan", { _key: plan.key });
     setDeleting(null);
     if (error) {
-      toast.error(`Couldn't delete ${plan.name}`, { description: error.message });
+      toast.error(`Couldn't delete ${plan.name}`, { description: friendlyError(error) });
       return;
     }
     await refreshEverywhere();

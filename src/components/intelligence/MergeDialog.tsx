@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { COMPANY_FIELDS, PERSON_FIELDS, confidenceBand, intel, mergeOptions, reasonLabel, type Entity } from "@/lib/intelligence/admin-api";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface Props {
   entity: Entity;
@@ -58,7 +59,7 @@ export function MergeDialog({ entity, ids, open, onOpenChange, onMerged, match }
         const withAccount = rows.findIndex((r) => r.user_id);
         setSurvivor(withAccount >= 0 ? withAccount : 0);
       })
-      .catch((e) => toast.error(e.message))
+      .catch((e) => toast.error(friendlyError(e)))
       .finally(() => live && setLoading(false));
     return () => { live = false; };
   }, [open, ids, entity]);
@@ -99,7 +100,7 @@ export function MergeDialog({ entity, ids, open, onOpenChange, onMerged, match }
       onOpenChange(false);
       onMerged();
     } catch (e) {
-      toast.error("Merge not done — nothing was changed", { description: e instanceof Error ? e.message : String(e) });
+      toast.error("Merge not done — nothing was changed", { description: friendlyError(e) });
     } finally {
       setBusy(false);
     }

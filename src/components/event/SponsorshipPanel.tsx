@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, type PersonFields } from "@/components/people/PersonFieldsForm";
 import { useDebounced } from "@/hooks/useOrgPeopleSearch";
 import { sponsorship, type SponsorshipDetail } from "@/lib/sponsors/event-sponsorship";
+import { friendlyError } from "@/lib/friendly-error";
 
 export type SponsorshipPanelTab = "company" | "sponsorship" | "team";
 
@@ -34,7 +35,7 @@ const PAYMENTS = [["not_invoiced", "Not invoiced"], ["invoiced", "Invoiced"], ["
 
 const titleOf = (tier: string | null, label: string | null) =>
   tier === "custom" ? label || "Custom" : TIERS.find(([v]) => v === tier)?.[1] ?? tier ?? "—";
-const fail = (e: unknown) => toast.error(e instanceof Error ? e.message : String(e));
+const fail = (e: unknown) => toast.error(friendlyError(e));
 
 function Choice({ label, value, options, onChange }: { label: string; value: string; options: string[][]; onChange: (v: string) => void }) {
   return (

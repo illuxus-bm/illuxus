@@ -7,6 +7,7 @@ import { useJoinCommunity, useLeaveCommunity } from "@/hooks/community/useCommun
 import { Users, Newspaper, BookOpen, MessageSquare, Calendar, Settings, ShieldAlert, Megaphone, Send } from "lucide-react";
 import { canManageSettings, canModerate } from "@/lib/community/rbac";
 import { toast } from "sonner";
+import { friendlyError } from "@/lib/friendly-error";
 
 const tabs = [
   { to: "feed",          label: "Feed",          icon: Newspaper      },
@@ -57,7 +58,7 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
       await join.mutateAsync(community.id);
       toast.success(`Joined ${community.name}`);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Could not join");
+      toast.error(friendlyError(err, "Could not join"));
     }
   };
   const handleLeave = async () => {
@@ -65,7 +66,7 @@ export function CommunityLayout({ children }: { children: ReactNode }) {
       await leave.mutateAsync(community.id);
       toast.success(`Left ${community.name}`);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Could not leave");
+      toast.error(friendlyError(err, "Could not leave"));
     }
   };
 

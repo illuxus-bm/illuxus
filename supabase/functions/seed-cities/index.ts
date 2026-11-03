@@ -134,7 +134,7 @@ Deno.serve(async (req) => {
       if (error) {
         log.error("batch upsert failed", { error_message: error.message, offset: b });
         return new Response(
-          JSON.stringify({ error: error.message, inserted }),
+          JSON.stringify({ error: "Saving cities failed. Details are in the function logs.", inserted }),
           {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },

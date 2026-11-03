@@ -24,6 +24,7 @@ import {
 } from "@/lib/certificates/certificate-api";
 import { batchPdf, downloadBlob, safeFileName } from "@/lib/certificates/certificate-pdf";
 import CertificatePreviewDialog from "./CertificatePreviewDialog";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface Props {
   event: EventContext;
@@ -93,7 +94,7 @@ export default function IssueTab(props: Props) {
       setPreviewDesign(await loadVersionDesign(template.published_version_id));
       setPreviewWho(who);
     } catch (err) {
-      toast.error("Could not load the template", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Could not load the template", { description: friendlyError(err) });
     }
   };
 
@@ -112,7 +113,7 @@ export default function IssueTab(props: Props) {
       setResult({ created, existing });
       toast.success(created.length ? `Issued ${created.length} certificate${created.length === 1 ? "" : "s"}` : "Everyone selected already has a certificate");
     } catch (err) {
-      toast.error("Certificates were not issued", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Certificates were not issued", { description: friendlyError(err) });
     } finally {
       setBusy(null);
     }
@@ -129,7 +130,7 @@ export default function IssueTab(props: Props) {
       downloadBlob(blob, `${safeFileName(event.title)}-certificates.pdf`);
       if (blockedImages) toast.warning(`${blockedImages} image${blockedImages === 1 ? " was" : "s were"} left out because ${blockedImages === 1 ? "its" : "their"} host blocks downloads.`);
     } catch (err) {
-      toast.error("Could not build the PDF", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Could not build the PDF", { description: friendlyError(err) });
     } finally {
       setBusy(null);
       setProgress(null);
@@ -145,7 +146,7 @@ export default function IssueTab(props: Props) {
       if (out.failed.length === 0) toast.success(`Emailed ${out.sent} certificate${out.sent === 1 ? "" : "s"}`);
       else toast.warning(`Emailed ${out.sent}; ${out.failed.length} not sent`, { description: out.failed.slice(0, 3).map((f) => `${f.name}: ${f.error}`).join(" · ") });
     } catch (err) {
-      toast.error("Emails were not sent", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Emails were not sent", { description: friendlyError(err) });
     } finally {
       setBusy(null);
       setProgress(null);

@@ -32,7 +32,7 @@ export function useCommunications(
       const { data, error } = await q.order("created_at", { ascending: false });
       if (cancelled) return;
       if (error) {
-        toast.error(`Failed to load communications: ${error.message}`);
+        toast.error(`Failed to load communications: ${friendlyError(error)}`);
         setLoading(false);
         return;
       }
@@ -208,6 +208,7 @@ export async function duplicateCommunication(id: string): Promise<string> {
 
 // ── Phase 3 ────────────────────────────────────────────────────────────────
 import type { WhatsAppTemplate } from "@/types/communications";
+import { friendlyError } from "@/lib/friendly-error";
 
 /**
  * listWhatsAppTemplates — pulls the org's approved WhatsApp templates from

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { dataSharing, type SharePreview } from "@/lib/sponsors/data-sharing";
 import { SharedDataTable } from "./SharedDataTable";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface Props {
   eventSponsorId: string;
@@ -62,7 +63,7 @@ export function ShareDataDialog({ eventSponsorId, onClose, onChanged }: Props) {
       toast.success(current ? "Updated data shared" : "Data shared", { description: "The sponsor's team can see it in their dashboard now." });
       refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(friendlyError(e));
     } finally {
       setBusy(false);
     }
@@ -77,7 +78,7 @@ export function ShareDataDialog({ eventSponsorId, onClose, onChanged }: Props) {
       setReason("");
       refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(friendlyError(e));
     } finally {
       setBusy(false);
     }

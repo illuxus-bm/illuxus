@@ -41,6 +41,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { friendlyError } from "@/lib/friendly-error";
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
 
@@ -173,7 +174,7 @@ function OrgDetailDrawer({ org, onClose }: { org: OrgRow | null; onClose: () => 
       toast.success("Organization updated");
       qc.invalidateQueries({ queryKey: ["admin-orgs"] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e: unknown) => toast.error(friendlyError(e, "Failed")),
   });
 
   if (!org) return null;
@@ -349,7 +350,7 @@ export default function OrganizationManagementPage() {
       qc.invalidateQueries({ queryKey: ["org-entitlements"] });
       qc.invalidateQueries({ queryKey: ["admin-plan-counts"] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e: unknown) => toast.error(friendlyError(e, "Failed")),
   });
 
   const deleteMut = useMutation({
@@ -362,7 +363,7 @@ export default function OrganizationManagementPage() {
       setDeleteTarget(null);
       qc.invalidateQueries({ queryKey: ["admin-orgs"] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e: unknown) => toast.error(friendlyError(e, "Failed")),
   });
 
   /* ── Filtering ── */

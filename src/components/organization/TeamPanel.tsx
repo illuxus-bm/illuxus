@@ -19,6 +19,7 @@ import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 import { fetchPublicProfile, fetchPublicProfiles, type PublicProfile } from "@/lib/public-profiles";
 import type { Tables } from "@/integrations/supabase/types";
 import { callTeamInvitation, replyError } from "@/lib/team-invitation";
+import { friendlyError } from "@/lib/friendly-error";
 
 type Org = { id: string; name: string; owner_id: string };
 type Member = { id: string; user_id: string; role: string; joined_at: string; profile?: PublicProfile };
@@ -110,7 +111,7 @@ const TeamPanel = ({ org }: { org: Org }) => {
   const handleSendVerification = async () => {
     if (!user?.email) return;
     const { error } = await supabase.auth.resend({ type: "signup", email: user.email, options: { emailRedirectTo: `${publicOrigin()}/dashboard/organization?tab=team` } });
-    if (error) toast({ title: "Could not send the email", description: error.message, variant: "destructive" });
+    if (error) toast({ title: "Could not send the email", description: friendlyError(error), variant: "destructive" });
     else {
       setVerificationSent(true);
       toast({ title: "Verification email sent", description: `Check ${user.email}, then come back and invite your team.` });
@@ -185,7 +186,7 @@ const TeamPanel = ({ org }: { org: Org }) => {
   // invitation can be sent again later.
   const handleCancelInvite = async (id: string) => {
     const { error } = await supabase.from("org_invitations").update({ status: "revoked" }).eq("id", id);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+    if (error) toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
     else toast({ title: "Invitation withdrawn", description: "The link in that email no longer works." });
     fetchTeam();
   };
@@ -195,7 +196,7 @@ const TeamPanel = ({ org }: { org: Org }) => {
       .from("org_members")
       .update({ role: newRole })
       .eq("id", memberId);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+    if (error) toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
     else {
       toast({ title: "Role updated" });
       fetchTeam();

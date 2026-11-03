@@ -1,9 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { Tables } from "@/integrations/supabase/types";
+import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 import { entitlementsQueryKey, fetchOrgEntitlements } from "@/hooks/usePlanFeatures";
 import { DEFAULT_PLANS, fallbackEntitlements, type Entitlements, type FeatureOverrides } from "@/lib/plans/features";
+
+/** Every organizations column the app reads, except billing_email. */
+const ORG_COLUMNS =
+  "id, name, slug, subdomain, custom_domain, custom_domain_verified, logo_url, owner_id, plan, " +
+  "plan_limits, addons, landing_config, landing_published, webinar_branding_enabled, " +
+  "feature_overrides, created_at, updated_at";
 
 /** Legacy snapshot shape stored in `organizations.plan_limits`. */
 interface PlanLimits {
@@ -231,17 +239,24 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
       ?? memberships.find((m) => m.org_id === effectiveOrgId);
     setMyRole(myMembership?.role ?? null);
 
-    const { data: orgData } = await supabase
-      .from("organizations")
-      .select("*")
-      .eq("id", effectiveOrgId)
-      .single();
+    // Explicit columns: billing_email isn't readable directly (security
+    // fixes C-1); members get it from org_billing_email().
+    const [orgRes, { data: billingEmail }] = await Promise.all([
+      supabase
+        .from("organizations")
+        .select(ORG_COLUMNS)
+        .eq("id", effectiveOrgId)
+        .single(),
+      supabaseRpc<string | null>("org_billing_email", { _org_id: effectiveOrgId }),
+    ]);
+    const orgData = orgRes.data as unknown as Omit<Tables<"organizations">, "billing_email"> | null;
 
     if (orgData) {
       const addons = ((orgData as { addons?: string[] }).addons) || [];
       const overrides = ((orgData as { feature_overrides?: FeatureOverrides }).feature_overrides) || {};
       setOrg({
         ...orgData,
+        billing_email: billingEmail ?? null,
         plan_limits: (orgData.plan_limits as unknown as PlanLimits) || PLAN_DETAILS.free.limits,
         addons,
         feature_overrides: overrides,

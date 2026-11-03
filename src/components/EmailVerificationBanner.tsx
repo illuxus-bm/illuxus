@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { MailWarning, X } from "lucide-react";
 import { SiteContainer } from "@/components/layout/SiteContainer";
 import { publicOrigin } from "@/lib/publicUrl";
+import { friendlyError } from "@/lib/friendly-error";
 
 /**
  * Slim banner that appears across the app while a signed-in user has not
@@ -30,7 +31,7 @@ export default function EmailVerificationBanner() {
     });
     setSending(false);
     if (error) {
-      toast({ title: "Could not resend", description: error.message, variant: "destructive" });
+      toast({ title: "Could not resend", description: friendlyError(error), variant: "destructive" });
     } else {
       toast({ title: "Verification email sent", description: `Check ${user.email}.` });
     }

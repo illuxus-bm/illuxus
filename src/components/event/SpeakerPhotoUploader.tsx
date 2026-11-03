@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Upload, X, User, Crop } from "lucide-react";
 import { uuid } from "@/lib/uuid";
 import CoverCropDialog from "./CoverCropDialog";
+import { friendlyError } from "@/lib/friendly-error";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const ALLOWED = ["image/png", "image/jpeg", "image/webp"];
@@ -65,7 +66,7 @@ export default function SpeakerPhotoUploader({
       setCropOpen(false);
       setCropSrc(null);
     } catch (e: any) {
-      toast.error("Upload failed", { description: e?.message });
+      toast.error("Upload failed", { description: friendlyError(e) });
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";

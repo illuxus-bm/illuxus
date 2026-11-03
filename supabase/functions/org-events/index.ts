@@ -34,14 +34,24 @@ Deno.serve(async (req) => {
     // Accept workspace handle (subdomain), legacy slug, or UUID.
     const handle = (orgSlug || subdomain || "").toLowerCase();
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(handle);
-    const { data: org } = await supabase
-      .from("organizations")
-      .select("id, name, slug, subdomain, custom_domain, logo_url, landing_published")
-      .or(isUuid
-        ? `id.eq.${handle}`
-        : `subdomain.eq.${handle},slug.eq.${handle}`)
-      .limit(1)
-      .maybeSingle();
+    // Handles are slugs / subdomains. Anything else (commas, dots, brackets)
+    // could add conditions to the filter, so it never reaches the query.
+    if (!isUuid && !/^[a-z0-9][a-z0-9-]{0,62}$/.test(handle)) {
+      return new Response(JSON.stringify({ error: "Organization not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const orgColumns = "id, name, slug, subdomain, custom_domain, logo_url, landing_published";
+    let org: { id: string } & Record<string, unknown> | null = null;
+    if (isUuid) {
+      ({ data: org } = await supabase.from("organizations").select(orgColumns).eq("id", handle).maybeSingle());
+    } else {
+      ({ data: org } = await supabase.from("organizations").select(orgColumns).eq("subdomain", handle).maybeSingle());
+      if (!org) {
+        ({ data: org } = await supabase.from("organizations").select(orgColumns).eq("slug", handle).maybeSingle());
+      }
+    }
 
     if (!org) {
       return new Response(JSON.stringify({ error: "Organization not found" }), {

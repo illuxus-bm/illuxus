@@ -33,6 +33,7 @@ import PersonFieldsForm, {
 } from "@/components/people/PersonFieldsForm";
 import { callGuestRegistration } from "@/lib/guest-registration";
 import { isValidEmailFormat } from "@/lib/email-format";
+import { friendlyError } from "@/lib/friendly-error";
 
 /** Digit range accepted for the sign-up verification code. Supabase's
  *  "Email OTP Length" decides what is emailed (6–10); this project sends 8,
@@ -156,7 +157,7 @@ const LoginPage = () => {
     if (error) {
       toast({
         title: "Invitation not accepted",
-        description: error.message || "Please ask your organiser to resend the invite.",
+        description: friendlyError(error, "Please ask your organiser to resend the invite."),
         variant: "destructive",
       });
       return null;
@@ -256,7 +257,7 @@ const LoginPage = () => {
       options: { emailRedirectTo: signupRedirectTo() },
     });
     if (error) {
-      toast({ title: "Couldn't resend the code", description: error.message, variant: "destructive" });
+      toast({ title: "Couldn't resend the code", description: friendlyError(error), variant: "destructive" });
       return;
     }
     setResendIn(60);
@@ -272,7 +273,7 @@ const LoginPage = () => {
         redirectTo: `${publicOrigin()}/reset-password${safeNext ? `?next=${encodeURIComponent(safeNext)}` : ""}`,
       });
       if (error) {
-        toast({ title: "Error", description: error.message, variant: "destructive" });
+        toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
       } else {
         toast({ title: "Check your email", description: "We sent you a password reset link." });
       }
@@ -400,7 +401,7 @@ const LoginPage = () => {
             variant: "destructive",
           });
         } else {
-          toast({ title: "Error", description: error.message, variant: "destructive" });
+          toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
         }
       } else if (await needsSecondFactor()) {
         // Two-factor is on: nothing else is loaded until the authenticator

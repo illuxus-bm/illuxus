@@ -17,6 +17,7 @@ import {
 } from "@/lib/workspace-handle";
 import CoverCropDialog from "@/components/event/CoverCropDialog";
 import { isNativeApp, SITE_ORIGIN } from "@/lib/native/platform";
+import { friendlyError } from "@/lib/friendly-error";
 
 /**
  * Lu.ma-style organization landing page customization.
@@ -148,7 +149,7 @@ export default function OrgPageForm() {
       .eq("id", org.id);
     setSaving(false);
     if (error) {
-      toast({ title: "Save failed", description: error.message, variant: "destructive" });
+      toast({ title: "Save failed", description: friendlyError(error), variant: "destructive" });
       return;
     }
     lastSavedRef.current = JSON.stringify(state);
@@ -166,7 +167,7 @@ export default function OrgPageForm() {
       .update({ landing_published: next })
       .eq("id", org.id);
     if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
       return;
     }
     toast({
@@ -369,7 +370,7 @@ export default function OrgPageForm() {
                   .eq("id", org.id);
                 setSavingHandle(false);
                 if (error) {
-                  toast({ title: "Error", description: error.message, variant: "destructive" });
+                  toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
                   return;
                 }
                 setHandleError(null);

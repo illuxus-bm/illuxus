@@ -38,6 +38,7 @@ import PricingSection from "@/components/PricingSection";
 import TestimonialsSection from "@/components/TestimonialsSection";
 import CTASection from "@/components/CTASection";
 import Footer from "@/components/Footer";
+import { friendlyError } from "@/lib/friendly-error";
 
 // ---------------- Reusable form atoms ----------------
 
@@ -136,7 +137,7 @@ function ImageUrlField({
       onChange(url);
       toast.success("Uploaded — remember to save & publish");
     } catch (err: any) {
-      toast.error(err?.message || "Upload failed");
+      toast.error(friendlyError(err, "Upload failed"));
     } finally {
       setUploading(false);
     }
@@ -879,7 +880,7 @@ export default function SiteEditorPage() {
         if (error) {
           if (!autoSaveErrorShownRef.current) {
             autoSaveErrorShownRef.current = true;
-            toast.error(`Auto-save failed: ${error.message}. Use Save draft to retry.`);
+            toast.error(`Auto-save failed: ${friendlyError(error)}. Use Save draft to retry.`);
           }
           break;
         }
@@ -919,7 +920,7 @@ export default function SiteEditorPage() {
       });
       if (error) {
         setSaving(false);
-        toast.error(error.message || `Failed to save ${s}`);
+        toast.error(friendlyError(error, `Failed to save ${s}`));
         return;
       }
     }
@@ -938,7 +939,7 @@ export default function SiteEditorPage() {
     const { error } = await supabaseRpc("publish_site_section", { _section: active });
     setPublishing(false);
     if (error) {
-      toast.error(error.message || "Failed to publish");
+      toast.error(friendlyError(error, "Failed to publish"));
       return;
     }
     toast.success(`Published "${SECTION_LABELS[active]}" to the live site`);
@@ -956,7 +957,7 @@ export default function SiteEditorPage() {
     for (const s of Array.from(draftSections)) {
       const { error } = await supabaseRpc("publish_site_section", { _section: s });
       if (error) {
-        toast.error(`Failed to publish ${s}: ${error.message}`);
+        toast.error(`Failed to publish ${s}: ${friendlyError(error)}`);
         setPublishing(false);
         return;
       }
@@ -972,7 +973,7 @@ export default function SiteEditorPage() {
     const { error } = await supabaseRpc("discard_site_draft", { _section: active });
     setDiscarding(false);
     if (error) {
-      toast.error(error.message || "Failed to discard");
+      toast.error(friendlyError(error, "Failed to discard"));
       return;
     }
     toast.success("Draft discarded");

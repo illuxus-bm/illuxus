@@ -45,6 +45,7 @@ import { SectionPills } from "@/components/layout/ShellNav";
 import { FeatureGate } from "@/components/plans/FeatureGate";
 import { useOrgEntitlements } from "@/hooks/usePlanFeatures";
 import { holdsSeat, registrationState } from "@/lib/reports/analytics";
+import { friendlyError } from "@/lib/friendly-error";
 
 const BroadcastPageLazy = lazy(() => import("./event/BroadcastPage"));
 const ApplicationsSectionLazy = lazy(() => import("@/components/event/ApplicationsSection").then((m) => ({ default: m.ApplicationsSection })));
@@ -334,7 +335,7 @@ const EventDetailPage = () => {
     if (error || !data) {
       toast({
         title: isLive ? "Failed to unpublish" : "Failed to publish",
-        description: error?.message,
+        description: friendlyError(error),
         variant: "destructive",
       });
       return;
@@ -361,7 +362,7 @@ const EventDetailPage = () => {
       .single();
     setPublishing(false);
     if (error || !data) {
-      toast({ title: "Failed to update", description: error?.message, variant: "destructive" });
+      toast({ title: "Failed to update", description: friendlyError(error), variant: "destructive" });
       return;
     }
     setEvent(data);

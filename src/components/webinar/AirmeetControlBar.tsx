@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { REACTIONS, sendReaction as postReaction } from "@/lib/webinar-reactions";
+import { friendlyError } from "@/lib/friendly-error";
 
 /**
  * Airmeet-style stage control bar.
@@ -83,19 +84,19 @@ export function AirmeetControlBar({
   const toggleMic = async () => {
     if (!canPublish || !localParticipant) return;
     try { await localParticipant.setMicrophoneEnabled(!micOn); } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Mic error");
+      toast.error(friendlyError(e, "Mic error"));
     }
   };
   const toggleCam = async () => {
     if (!canPublish || !localParticipant) return;
     try { await localParticipant.setCameraEnabled(!camOn); } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Camera error");
+      toast.error(friendlyError(e, "Camera error"));
     }
   };
   const toggleScreen = async () => {
     if (!canPublish || !localParticipant) return;
     try { await localParticipant.setScreenShareEnabled(!screenOn); } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Screen share error");
+      toast.error(friendlyError(e, "Screen share error"));
     }
   };
 
@@ -115,7 +116,7 @@ export function AirmeetControlBar({
       if (error) throw error;
       toast.success(action === "promote" ? "You're on stage" : "You're in backstage");
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to update stage");
+      toast.error(friendlyError(e, "Failed to update stage"));
     } finally {
       setStageBusy(false);
     }
@@ -125,7 +126,7 @@ export function AirmeetControlBar({
     const { error } = await supabase.functions.invoke("livekit-promote", {
       body: { session_id: sessionId, action, target_user_id: identity },
     });
-    if (error) toast.error(error.message);
+    if (error) toast.error(friendlyError(error));
     else toast.success(action === "promote" ? "Sent to stage" : "Moved to backstage");
   };
 

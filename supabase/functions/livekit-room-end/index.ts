@@ -41,6 +41,10 @@ Deno.serve(async (req) => {
 
     await supabase.from("webinar_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", session_id);
     return j({ ok: true });
-  } catch (e) { return j({ error: String(e) }, 500); }
+  } catch (e) {
+    // Details stay in the logs; callers get a generic message.
+    console.error(JSON.stringify({ level: "error", fn: "livekit-room-end", msg: "unhandled error", error_message: e instanceof Error ? e.message : String(e) }));
+    return j({ error: "Something went wrong. Please try again." }, 500);
+  }
   function j(b: unknown, s = 200) { return new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
 });

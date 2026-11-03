@@ -9,6 +9,7 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { friendlyError } from "@/lib/friendly-error";
 
 type Enrolment = { factorId: string; qr: string; secret: string };
 
@@ -43,7 +44,7 @@ export function TwoFactorSettings() {
     const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp", friendlyName: `Authenticator ${new Date().toISOString().slice(0, 10)}` });
     setBusy(false);
     if (error || !data) {
-      toast({ title: "Couldn't start setup", description: error?.message, variant: "destructive" });
+      toast({ title: "Couldn't start setup", description: friendlyError(error), variant: "destructive" });
       return;
     }
     setCode("");
@@ -77,7 +78,7 @@ export function TwoFactorSettings() {
     setBusy(false);
     setConfirmOff(false);
     if (error) {
-      toast({ title: "Couldn't turn it off", description: error.message, variant: "destructive" });
+      toast({ title: "Couldn't turn it off", description: friendlyError(error), variant: "destructive" });
       return;
     }
     toast({ title: "Two-factor sign-in is off" });

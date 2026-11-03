@@ -39,6 +39,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { UnbanRequestsPanel } from "@/components/bans/UnbanRequests";
+import { friendlyError } from "@/lib/friendly-error";
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
 
@@ -302,7 +304,7 @@ function UserDetailDrawer({
       qc.invalidateQueries({ queryKey: ["admin-user-profile", userId] });
       qc.invalidateQueries({ queryKey: ["admin-users-profiles"] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to ban"),
+    onError: (e: unknown) => toast.error(friendlyError(e, "Failed to ban")),
   });
 
   const unbanMut = useMutation({
@@ -315,7 +317,7 @@ function UserDetailDrawer({
       qc.invalidateQueries({ queryKey: ["admin-user-profile", userId] });
       qc.invalidateQueries({ queryKey: ["admin-users-profiles"] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to unban"),
+    onError: (e: unknown) => toast.error(friendlyError(e, "Failed to unban")),
   });
 
   const resetMut = useMutation({
@@ -332,7 +334,7 @@ function UserDetailDrawer({
         navigator.clipboard?.writeText(token).catch(() => {});
       }
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to generate token"),
+    onError: (e: unknown) => toast.error(friendlyError(e, "Failed to generate token")),
   });
 
   const profile = profileQ.data;
@@ -551,7 +553,7 @@ export default function UserManagementPage() {
       toast.success("Role updated");
       qc.invalidateQueries({ queryKey: ["admin-users"] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e: unknown) => toast.error(friendlyError(e, "Failed")),
   });
 
   const banMut = useMutation({
@@ -563,7 +565,7 @@ export default function UserManagementPage() {
       toast.success("User banned");
       qc.invalidateQueries({ queryKey: ["admin-users-profiles"] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e: unknown) => toast.error(friendlyError(e, "Failed")),
   });
 
   const unbanMut = useMutation({
@@ -575,7 +577,7 @@ export default function UserManagementPage() {
       toast.success("User unbanned");
       qc.invalidateQueries({ queryKey: ["admin-users-profiles"] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e: unknown) => toast.error(friendlyError(e, "Failed")),
   });
 
   const deleteMut = useMutation({
@@ -589,7 +591,7 @@ export default function UserManagementPage() {
       qc.invalidateQueries({ queryKey: ["admin-users"] });
       qc.invalidateQueries({ queryKey: ["admin-users-profiles"] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e: unknown) => toast.error(friendlyError(e, "Failed")),
   });
 
   const resetMut = useMutation({
@@ -604,7 +606,7 @@ export default function UserManagementPage() {
       });
       if (typeof token === "string") navigator.clipboard?.writeText(token).catch(() => {});
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e: unknown) => toast.error(friendlyError(e, "Failed")),
   });
 
   /* ── Filtering ── */
@@ -707,7 +709,7 @@ export default function UserManagementPage() {
           error_message: err instanceof Error ? err.message : String(err),
         });
         toast.error("Export failed", {
-          description: err instanceof Error ? err.message : "Unknown error.",
+          description: friendlyError(err, "Unknown error."),
         });
       }
     }
@@ -750,6 +752,9 @@ export default function UserManagementPage() {
           <KpiCard icon={Crown}     label="Super admins"     value={adminCount}      loading={isLoading} />
           <KpiCard icon={Ban}       label="Banned"           value={totalBanned}     loading={isLoading} />
         </div>
+
+        {/* Platform unban requests waiting for a decision */}
+        <UnbanRequestsPanel />
 
         {/* Search + filters */}
         <div className="flex items-center gap-2 flex-wrap">

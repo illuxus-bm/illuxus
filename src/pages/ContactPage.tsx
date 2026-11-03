@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import PublicPageShell from "@/components/layout/PublicPageShell";
 import RouteSeo from "@/components/RouteSeo";
@@ -158,6 +158,8 @@ interface SubmissionResult {
 
 export default function ContactPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  // Hidden field only bots fill in; the server discards those submissions.
+  const honeypotRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
@@ -197,6 +199,7 @@ export default function ContactPage() {
           message:  form.message.trim(),
           source:   "contact_form",
           page_url: typeof window !== "undefined" ? window.location.href : null,
+          website:  honeypotRef.current?.value ?? "",
         },
       });
 
@@ -421,6 +424,10 @@ export default function ContactPage() {
             <TicketSuccess result={result} onReset={resetForm} />
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden">
+                <label htmlFor="contact-website">Website</label>
+                <input ref={honeypotRef} id="contact-website" name="website" type="text" tabIndex={-1} autoComplete="off" />
+              </div>
               <h2 className="text-lg font-semibold mb-2">Send us a message</h2>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">

@@ -14,6 +14,7 @@ import { COMMON_TIMEZONES, detectBrowserTimezone, isValidTimezone } from "@/lib/
 import { formatEventDateTime, formatEventRange } from "@/lib/datetime";
 import { DateTimePicker } from "@/components/ui/datetime-picker";
 import MarkdownEditor from "@/components/MarkdownEditor";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface EventForm {
   title: string;
@@ -80,7 +81,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
         .maybeSingle();
       if (cancelled) return;
       if (error || !data) {
-        toast({ title: "Could not load event", description: error?.message, variant: "destructive" });
+        toast({ title: "Could not load event", description: friendlyError(error), variant: "destructive" });
         setLoading(false);
         return;
       }
@@ -153,7 +154,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
     } as never);
     setResyncing(false);
     if (error) {
-      toast({ title: "Re-sync failed", description: error.message, variant: "destructive" });
+      toast({ title: "Re-sync failed", description: friendlyError(error), variant: "destructive" });
       return;
     }
     const copied = Number(data) || 0;
@@ -281,7 +282,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
 
     setSaving(false);
     if (error) {
-      toast({ title: "Save failed", description: error.message, variant: "destructive" });
+      toast({ title: "Save failed", description: friendlyError(error), variant: "destructive" });
       return;
     }
 
@@ -311,7 +312,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
       .eq("id", eventId)
       .select("id");
     if (error) {
-      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+      toast({ title: "Delete failed", description: friendlyError(error), variant: "destructive" });
       return;
     }
     if (!deleted || deleted.length === 0) {

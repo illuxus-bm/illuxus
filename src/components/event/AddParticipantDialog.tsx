@@ -10,6 +10,7 @@ import { UserPlus, Copy, Ticket, Link2 } from "lucide-react";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, displayName, type PersonFields } from "@/components/people/PersonFieldsForm";
 import { logger } from "@/lib/observability";
 import { publicOrigin } from "@/lib/publicUrl";
+import { friendlyError } from "@/lib/friendly-error";
 
 /**
  * AddParticipantDialog — organiser-side single-participant add flow.
@@ -115,7 +116,7 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
       if (error?.code === "23505" || error?.message?.includes("registrations_event_email_unique")) {
         return toast.error(`${email} has already been added or checked in for this event.`);
       }
-      return toast.error(error?.message || "Failed to add");
+      return toast.error(friendlyError(error, "Failed to add"));
     }
 
     setCreated({ join_token: reg.join_token, qr_code: reg.qr_code || "", speakerLink: undefined });

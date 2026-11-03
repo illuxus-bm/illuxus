@@ -60,12 +60,15 @@ Deno.serve(async (req) => {
     const { data: session, error } = await supabase.from("webinar_sessions").insert({
       event_id, livekit_room: room, status: "scheduled", record_enabled, created_by: user.id,
     }).select().single();
-    if (error) return j({ error: error.message }, 500);
+    if (error) {
+      log.error("room create failed", { error_message: error.message });
+      return j({ error: "Something went wrong. Please try again." }, 500);
+    }
 
     return j({ session });
   } catch (e) {
     log.error("unhandled error", toErrorFields(e));
-    return j({ error: String(e) }, 500);
+    return j({ error: "Something went wrong. Please try again." }, 500);
   }
   function j(b: unknown, s = 200) {
     return new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } });

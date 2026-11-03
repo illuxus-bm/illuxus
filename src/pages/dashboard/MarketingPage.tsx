@@ -28,6 +28,7 @@ import {
 import { publicUrl } from "@/lib/publicUrl";
 import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 import { Link } from "react-router-dom";
+import { friendlyError } from "@/lib/friendly-error";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -245,7 +246,7 @@ function EmailCampaignsTab() {
         prev.map((m) => (m.id === msg.id ? { ...m, status: "sent", sent_at: new Date().toISOString() } : m))
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to send draft");
+      toast.error(friendlyError(e, "Failed to send draft"));
     } finally {
       setSendingDraftId(null);
     }
@@ -296,7 +297,7 @@ function EmailCampaignsTab() {
       setComposeOpen(false);
       resetCompose();
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to send");
+      toast.error(friendlyError(e, "Failed to send"));
     } finally {
       setSending(false);
     }
@@ -317,7 +318,7 @@ function EmailCampaignsTab() {
       created_by: user?.id,
     });
     setSavingDraft(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(friendlyError(error)); return; }
     toast.success("Draft saved");
     setComposeOpen(false);
     resetCompose();
@@ -325,7 +326,7 @@ function EmailCampaignsTab() {
 
   const handleDelete = async (id: string) => {
     const { error } = await supabase.from("event_emails").delete().eq("id", id);
-    if (error) toast.error(error.message);
+    if (error) toast.error(friendlyError(error));
     else toast.success("Message deleted");
   };
 

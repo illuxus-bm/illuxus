@@ -167,7 +167,8 @@ const PublicEventPage = () => {
     const spkRows = (spkRel.data || []) as Array<{ speaker_id: string; display_order: number }>;
     const spkIds = spkRows.map((s) => s.speaker_id);
     if (spkIds.length) {
-      const { data } = await supabase.from("speakers").select("*").in("id", spkIds);
+      // Public pages read the contact-free view; the speakers table is for organisers.
+      const { data } = await supabase.from("speakers_public" as never).select("*").in("id", spkIds);
       const orderMap = new Map(spkRows.map((r, i) => [r.speaker_id, i]));
       const sorted = ((data as RendererSpeaker[]) || []).slice().sort(
         (a, b) => (orderMap.get(a.id) ?? 9999) - (orderMap.get(b.id) ?? 9999)
@@ -180,10 +181,10 @@ const PublicEventPage = () => {
     const spRows = spRel.data || [];
     const spIds = spRows.map((s) => s.sponsor_id);
     if (spIds.length) {
-      const { data } = await supabase.from("sponsors").select("*").in("id", spIds);
+      const { data } = await supabase.from("sponsors_public" as never).select("*").in("id", spIds);
       const orderMap = new Map(spRows.map((r, i) => [r.sponsor_id, i]));
       const linkBySponsor = new Map(spRows.map((r) => [r.sponsor_id, r]));
-      const sorted = (data || []).slice().sort(
+      const sorted = ((data as RendererSponsor[] | null) || []).slice().sort(
         (a, b) => (orderMap.get(a.id) ?? 9999) - (orderMap.get(b.id) ?? 9999)
       ).map((s) => withEventSponsorship(s, linkBySponsor.get(s.id)));
       setSponsors(sorted as RendererSponsor[]);

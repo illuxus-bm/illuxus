@@ -204,7 +204,7 @@ Deno.serve(async (req) => {
     });
   } catch (e) {
     log.error("unhandled error", toErrorFields(e));
-    return json({ error: String(e) }, 500);
+    return json({ error: "Something went wrong. Please try again." }, 500);
   }
 
   function json(body: unknown, status = 200) {

@@ -29,6 +29,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { friendlyError } from "@/lib/friendly-error";
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
 
@@ -131,7 +132,7 @@ export default function EventModerationPage() {
       setUnpublishTarget(null); setReason("");
       qc.invalidateQueries({ queryKey: ["admin-events"] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e: unknown) => toast.error(friendlyError(e, "Failed")),
   });
 
   const deleteMut = useMutation({
@@ -144,7 +145,7 @@ export default function EventModerationPage() {
       setDeleteTarget(null); setReason("");
       qc.invalidateQueries({ queryKey: ["admin-events"] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e: unknown) => toast.error(friendlyError(e, "Failed")),
   });
 
   /* ── Filtering ── */

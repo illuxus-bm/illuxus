@@ -36,6 +36,7 @@ import {
 import type { VenueVendor } from "@/hooks/useVenueVendors";
 import { formatMoney } from "@/lib/currency";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface EventLite {
   id: string;
@@ -146,7 +147,7 @@ export default function EventVenueSection({ eventId }: { eventId: string }) {
     } catch (err) {
       toast({
         title: "Could not send request",
-        description: err instanceof Error ? err.message : String(err),
+        description: friendlyError(err),
         variant: "destructive",
       });
     }
@@ -169,7 +170,7 @@ export default function EventVenueSection({ eventId }: { eventId: string }) {
     } catch (err) {
       toast({
         title: "Could not withdraw request",
-        description: err instanceof Error ? err.message : String(err),
+        description: friendlyError(err),
         variant: "destructive",
       });
     }

@@ -36,6 +36,7 @@ import {
 import { applyVariables, invalidTokensForScope, type SubstitutionContext } from "@/lib/communications/substitute";
 import { withGreeting } from "@/lib/communications/greeting";
 import { fetchPublicProfiles } from "@/lib/public-profiles";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface AttendeeOption {
   user_id: string | null;
@@ -255,7 +256,7 @@ export function ComposeMessageDialog({
     setWaLoading(true);
     listWhatsAppTemplates(orgId)
       .then((rows) => { if (!cancelled) setWhatsappTemplates(rows); })
-      .catch((err: Error) => { if (!cancelled) toast.error(err.message); })
+      .catch((err: Error) => { if (!cancelled) toast.error(friendlyError(err)); })
       .finally(() => { if (!cancelled) setWaLoading(false); });
     return () => { cancelled = true; };
   }, [open, channels, orgId, whatsappTemplates.length]);
@@ -287,7 +288,7 @@ export function ComposeMessageDialog({
     setResolving(true);
     resolveRecipients({ eventId, communityId }, filter)
       .then((rows) => { if (!cancelled) setResolvedCount(rows.length); })
-      .catch((err: Error) => { if (!cancelled) toast.error(err.message); })
+      .catch((err: Error) => { if (!cancelled) toast.error(friendlyError(err)); })
       .finally(() => { if (!cancelled) setResolving(false); });
     return () => { cancelled = true; };
   }, [open, step, eventId, communityId, filter]);
@@ -568,7 +569,7 @@ export function ComposeMessageDialog({
       onOpenChange(false);
       onSent?.();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to send");
+      toast.error(friendlyError(err, "Failed to send"));
     } finally {
       setSubmitting(false);
     }
@@ -787,7 +788,7 @@ export function ComposeMessageDialog({
                           // Reload picker
                           setWhatsappTemplates([]);
                         } catch (err) {
-                          toast.error(err instanceof Error ? err.message : "Sync failed");
+                          toast.error(friendlyError(err, "Sync failed"));
                         } finally {
                           setWaSyncing(false);
                         }

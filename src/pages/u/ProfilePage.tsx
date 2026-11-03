@@ -12,6 +12,7 @@ import { ChevronRight, ClipboardList, Download, Heart, LogOut, Moon, Settings, S
 import { Switch } from "@/components/ui/switch";
 import { useTheme } from "@/contexts/ThemeContext";
 import { collectMyData, downloadJson, exportFileName, type ExportClient } from "@/lib/data-export";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface FollowedOrg {
   id: string;
@@ -87,7 +88,7 @@ export default function ProfilePage() {
         avatar_url: avatarUrl || null,
       })
       .eq("user_id", user.id);
-    if (error) toast({ title: "Could not save", description: error.message, variant: "destructive" });
+    if (error) toast({ title: "Could not save", description: friendlyError(error), variant: "destructive" });
     else toast({ title: "Profile updated" });
     setSaving(false);
   };
@@ -106,7 +107,7 @@ export default function ProfilePage() {
           : { title: "Download ready" },
       );
     } catch (err) {
-      toast({ title: "Could not prepare your data", description: err instanceof Error ? err.message : undefined, variant: "destructive" });
+      toast({ title: "Could not prepare your data", description: friendlyError(err), variant: "destructive" });
     } finally {
       setExporting(false);
     }

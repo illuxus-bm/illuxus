@@ -36,6 +36,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { THEME_PRESETS, COLOR_SWATCHES, FONT_OPTIONS } from "./presets";
 import { useOrg } from "@/contexts/OrgContext";
 import { eventPublicPath, eventPublicUrl } from "@/lib/event-routes";
+import { friendlyError } from "@/lib/friendly-error";
 
 /**
  * Form-based event page editor.
@@ -119,7 +120,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
       .eq("id", eventId);
     setSaving(false);
     if (error) {
-      toast({ title: "Save failed", description: error.message, variant: "destructive" });
+      toast({ title: "Save failed", description: friendlyError(error), variant: "destructive" });
     } else {
       setDirty(false);
       toast({ title: "Saved", description: "Landing page updated." });
@@ -145,7 +146,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
         .update({ [field]: value } as never)
         .eq("id", eventId);
       if (error) {
-        toast({ title: "Save failed", description: error.message, variant: "destructive" });
+        toast({ title: "Save failed", description: friendlyError(error), variant: "destructive" });
         logger.warn("event description save failed", {
           event_id: eventId,
           error_message: error.message,
@@ -164,7 +165,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
     setSaving(false);
     pendingConfigRef.current = null;
     if (error) {
-      toast({ title: "Auto-save failed", description: error.message, variant: "destructive" });
+      toast({ title: "Auto-save failed", description: friendlyError(error), variant: "destructive" });
     } else {
       setDirty(false);
     }
@@ -406,7 +407,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
                       .update(patch as never)
                       .eq("id", eventId);
                     if (error) {
-                      toast({ title: "Banner update failed", description: error.message, variant: "destructive" });
+                      toast({ title: "Banner update failed", description: friendlyError(error), variant: "destructive" });
                       return;
                     }
                     setEvent((prev) => (prev ? { ...prev, ...(patch as object) } as RendererEvent : prev));

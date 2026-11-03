@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAddComment, usePostComments } from "@/hooks/community/useCommunityFeed";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
+import { friendlyError } from "@/lib/friendly-error";
 
 export function CommentList({ postId }: { postId: string }) {
   const { data: comments, isLoading } = usePostComments(postId);
@@ -17,7 +18,7 @@ export function CommentList({ postId }: { postId: string }) {
       await add.mutateAsync(body.trim());
       setBody("");
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Could not comment");
+      toast.error(friendlyError(err, "Could not comment"));
     }
   };
 

@@ -19,6 +19,7 @@ import { useSessionBranding } from "@/components/webinar/StageOverlays";
 import { publicUrl } from "@/lib/publicUrl";
 import { getWebinarProvider, type WebinarProvider } from "@/lib/webinar/provider";
 import type { Tables } from "@/integrations/supabase/types";
+import { friendlyError } from "@/lib/friendly-error";
 
 // Local interim row aliases so this page doesn't lean on `any`. `EventRow`
 // extends the generated row with `video_provider` because the column was
@@ -243,7 +244,7 @@ export default function BroadcastPage() {
       .from("webinar_sessions")
       .update({ status: "scheduled", ended_at: null })
       .eq("id", session.id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(friendlyError(error)); return; }
     setSession({ ...session, status: "scheduled", ended_at: null });
     toast.success("Session restarted — click Go Live when ready");
   };

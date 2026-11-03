@@ -36,6 +36,7 @@ import {
   type SponsorApplicationRow,
 } from "@/lib/utm/applications-csv";
 import { CsvEscapeError } from "@/lib/utm/csv-escape";
+import { friendlyError } from "@/lib/friendly-error";
 
 type Tab = "pending" | "approved" | "rejected" | "all";
 
@@ -179,7 +180,7 @@ function SpeakerApplicationsList({
         });
       } else {
         toast.error("Export failed", {
-          description: err instanceof Error ? err.message : "Unknown error.",
+          description: friendlyError(err, "Unknown error."),
         });
       }
     }
@@ -476,7 +477,7 @@ function SponsorApplicationsList({
         });
       } else {
         toast.error("Export failed", {
-          description: err instanceof Error ? err.message : "Unknown error.",
+          description: friendlyError(err, "Unknown error."),
         });
       }
     }

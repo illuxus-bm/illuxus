@@ -9,6 +9,7 @@ import { Empty, FilterSelect, NoData, Pager, SearchBox, SortHead, TableShell, td
 import { useDebounced } from "@/hooks/useOrgPeopleSearch";
 import { dataSharing, formatShareValue, toCsv, type ShareField, type ShareRow } from "@/lib/sponsors/data-sharing";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/friendly-error";
 
 const DEFAULT_COLUMNS = ["full_name", "participant_type", "designation", "company", "email", "mobile", "linkedin_url", "attendance"];
 const ATTENDANCE = [["all", "All attendance"], ["attended", "Attended"], ["not_attended", "Didn't attend"]];
@@ -72,7 +73,7 @@ export function SharedDataTable({ shareId, canExport, fileName }: { shareId: str
       }
       toast.success(`${all.rows.length.toLocaleString()} participants downloaded`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(friendlyError(e));
     } finally {
       setExporting(false);
     }

@@ -24,6 +24,18 @@ export const DASHBOARD_FUNCTIONS = [
   "send-sponsor-invite-email",
   "notify-venue-selection",
   "notify-organizer-venue-response",
+  "org-events",
+  "team-invitation",
+  "seed-cities",
+  "livekit-go-live",
+  "livekit-promote",
+  "livekit-room-create",
+  "livekit-room-end",
+  "livekit-token",
+  "recording-start",
+  "recording-stop",
+  "send-whatsapp",
+  "whatsapp-sync-templates",
 ];
 
 for (const name of DASHBOARD_FUNCTIONS) {

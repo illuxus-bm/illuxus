@@ -10,8 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/friendly-error";
 
-export const fail = (e: unknown) => toast.error(e instanceof Error ? e.message : String(e));
+export const fail = (e: unknown) => toast.error(friendlyError(e));
 export const PAGE_SIZES = [25, 50, 100];
 export const th = "px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground";
 export const td = "px-4 py-2.5";

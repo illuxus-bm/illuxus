@@ -48,6 +48,7 @@ import { ShareDataDialog } from "@/components/sponsor-data/ShareDataDialog";
 import { dataSharing, type ShareSummary } from "@/lib/sponsors/data-sharing";
 import { SponsorshipPanel, type SponsorshipPanelTab } from "./SponsorshipPanel";
 import { fetchEventSponsorLinks, sponsorship, withEventSponsorship, type EventSponsorLink, type EventSponsorshipRow } from "@/lib/sponsors/event-sponsorship";
+import { friendlyError } from "@/lib/friendly-error";
 
 const SponsorApplicationsPanelLazy = lazy(() =>
   import("./ApplicationsSection").then((m) => ({ default: m.SponsorApplicationsPanel })),
@@ -204,7 +205,7 @@ export default function SponsorManagement({ eventId }: Props) {
     const { data, error } = await supabaseRpc("sponsor_meeting_report" as never, { _eid: eventId, _sponsor_id: sponsor.id } as never);
     if (error) {
       const missing = /function .* does not exist|schema cache|Could not find the function/i.test(error.message ?? "");
-      toast.error("Report wasn't created", { description: missing ? "This needs a database update that hasn't been applied yet (migration 054)." : error.message });
+      toast.error("Report wasn't created", { description: missing ? "This needs a database update that hasn't been applied yet (migration 054)." : friendlyError(error) });
       return;
     }
     const rows = (data || []) as unknown as MeetingReportRow[];
@@ -267,7 +268,7 @@ export default function SponsorManagement({ eventId }: Props) {
     setTogglingApplications(false);
     if (error) {
       setApplicationsEnabled(!enabled);
-      toast.error(error.message);
+      toast.error(friendlyError(error));
       logger.error("sponsor applications toggle failed", {
         event_id: eventId,
         error_message: error.message,
@@ -279,7 +280,7 @@ export default function SponsorManagement({ eventId }: Props) {
 
   const removeMember = async (id: string) => {
     const { error } = await supabase.from("sponsor_members").delete().eq("id", id);
-    if (error) toast.error(error.message);
+    if (error) toast.error(friendlyError(error));
   };
 
   const copyInvite = (token: string) => {
@@ -354,7 +355,7 @@ export default function SponsorManagement({ eventId }: Props) {
       name: form.name, email: form.email || null, ...(logoIsThisEvents ? {} : { logo_url: form.logo_url || null }),
       website: form.website || null, description: form.description || null,
     }).eq("id", editing.id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(friendlyError(error)); return; }
     const { error: linkError } = await supabase.from("event_sponsors").update({
       tier: form.tier, tier_label: tierLabelToSave, ...(logoIsThisEvents ? { logo_url: form.logo_url || null } : {}),
     }).eq("event_id", eventId).eq("sponsor_id", editing.id);
@@ -457,7 +458,7 @@ export default function SponsorManagement({ eventId }: Props) {
         .eq("event_id", eventId)
         .eq("sponsor_id", sponsorId);
       if (error) {
-        toast.error(error.message);
+        toast.error(friendlyError(error));
         fetchData();
         return;
       }

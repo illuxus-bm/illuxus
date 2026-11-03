@@ -43,6 +43,7 @@ import {
   type EventContext, type Registrant, type TemplateRow,
 } from "@/lib/certificates/certificate-api";
 import CertificateEditorSidebar, { type SidebarTab } from "./CertificateEditorSidebar";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface Props {
   template: TemplateRow;
@@ -206,7 +207,7 @@ export default function CertificateEditor(props: Props) {
       toast.success("Template saved");
       return row;
     } catch (err) {
-      toast.error("Could not save", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Could not save", { description: friendlyError(err) });
       return null;
     } finally {
       setSaving(null);
@@ -220,7 +221,7 @@ export default function CertificateEditor(props: Props) {
       toast.success("Saved as a new template");
       props.onSavedAsNew(row);
     } catch (err) {
-      toast.error("Could not save a copy", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Could not save a copy", { description: friendlyError(err) });
     } finally {
       setSaving(null);
     }
@@ -239,7 +240,7 @@ export default function CertificateEditor(props: Props) {
       props.onSaved({ ...row, status: "published", current_version: v.version, published_version_id: v.versionId, published_at: new Date().toISOString() });
       toast.success(`Published as version ${v.version}`, { description: "You can now issue certificates from it. Certificates already issued keep their original design." });
     } catch (err) {
-      toast.error("Could not publish", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Could not publish", { description: friendlyError(err) });
     } finally {
       setSaving(null);
     }

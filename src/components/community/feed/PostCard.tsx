@@ -12,6 +12,7 @@ import { useToggleReaction } from "@/hooks/community/useCommunityFeed";
 import { useModerate, useReport } from "@/hooks/community/useCommunityExtras";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { friendlyError } from "@/lib/friendly-error";
 
 const TYPE_BADGE: Record<string, string> = {
   discussion:   "bg-muted text-muted-foreground",
@@ -75,7 +76,7 @@ export function PostCard({ post, canModerate = false }: { post: PostWithAuthor; 
                     await report.mutateAsync({ postId: post.id, reason });
                     toast.success("Report submitted");
                   } catch (err: unknown) {
-                    toast.error(err instanceof Error ? err.message : "Failed");
+                    toast.error(friendlyError(err, "Failed"));
                   }
                 }}
               >
@@ -90,7 +91,7 @@ export function PostCard({ post, canModerate = false }: { post: PostWithAuthor; 
                       await moderate.mutateAsync({ postId: post.id, action: post.hidden ? "unhide" : "hide" });
                       toast.success(post.hidden ? "Restored" : "Hidden");
                     } catch (err: unknown) {
-                      toast.error(err instanceof Error ? err.message : "Failed");
+                      toast.error(friendlyError(err, "Failed"));
                     }
                   }}
                 >
@@ -102,7 +103,7 @@ export function PostCard({ post, canModerate = false }: { post: PostWithAuthor; 
                       await moderate.mutateAsync({ postId: post.id, action: post.pinned ? "unpin" : "pin" });
                       toast.success(post.pinned ? "Unpinned" : "Pinned");
                     } catch (err: unknown) {
-                      toast.error(err instanceof Error ? err.message : "Failed");
+                      toast.error(friendlyError(err, "Failed"));
                     }
                   }}
                 >
@@ -116,7 +117,7 @@ export function PostCard({ post, canModerate = false }: { post: PostWithAuthor; 
                       await moderate.mutateAsync({ postId: post.id, action: "delete" });
                       toast.success("Deleted");
                     } catch (err: unknown) {
-                      toast.error(err instanceof Error ? err.message : "Failed");
+                      toast.error(friendlyError(err, "Failed"));
                     }
                   }}
                 >

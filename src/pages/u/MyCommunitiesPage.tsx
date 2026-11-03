@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, Users, Sparkles, Calendar, Megaphone } from "lucide-react";
 import type { Community, CommunityMember } from "@/lib/community/types";
 import { loginPath } from "@/lib/safe-redirect";
+import { UnbanRequestForm } from "@/components/bans/UnbanRequests";
+import { useMyBans } from "@/components/bans/useMyBans";
 
 /**
  * Personal "My communities" page. Mirrors the look & feel of MyEventsPage and
@@ -63,8 +65,32 @@ export default function MyCommunitiesPage() {
             ))}
           </div>
         )}
+        <RemovedFromCommunities />
       </main>
     </div>
+  );
+}
+
+/** Communities that banned this person, each with a way to ask back in. */
+function RemovedFromCommunities() {
+  const { data } = useMyBans();
+  const bans = (data ?? []).filter((b) => b.scope === "community");
+  if (!bans.length) return null;
+  return (
+    <section className="mt-10" aria-labelledby="removed-communities-title">
+      <h2 id="removed-communities-title" className="text-lg font-semibold">Communities you were removed from</h2>
+      <p className="text-[13px] text-muted-foreground mt-1">
+        A community's organisers can let you back in if you ask.
+      </p>
+      <div className="mt-4 space-y-3">
+        {bans.map((b) => (
+          <div key={b.community_id} className="border border-border rounded-xl bg-card p-4 space-y-3">
+            <p className="text-sm font-medium">{b.community_name}</p>
+            <UnbanRequestForm ban={b} />
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

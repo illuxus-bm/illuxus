@@ -28,6 +28,7 @@ import { supabaseRpc } from "@/lib/observability";
 import { applyVariables, type SubstitutionContext } from "@/lib/communications/substitute";
 import { withGreeting } from "@/lib/communications/greeting";
 import { buildAttendeeJoinUrl } from "@/lib/attendee-link";
+import { friendlyError } from "@/lib/friendly-error";
 
 // ─── Types — kept local so this file is self-contained ─────────────────────
 type Channel = "email" | "whatsapp";
@@ -178,7 +179,7 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
         .order("created_at", { ascending: false });
       if (cancelled) return;
       if (error) {
-        toast.error(`Failed to load: ${error.message}`);
+        toast.error(`Failed to load: ${friendlyError(error)}`);
         setLoading(false);
         return;
       }
@@ -211,7 +212,7 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this message? This cannot be undone.")) return;
     const { error } = await supabase.from("communications" as never).delete().eq("id", id);
-    if (error) toast.error(error.message);
+    if (error) toast.error(friendlyError(error));
     else toast.success("Deleted");
   };
 
@@ -287,7 +288,7 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
         toast.success(`Sent to ${totalSent} recipient${totalSent === 1 ? "" : "s"}`);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Send failed");
+      toast.error(friendlyError(err, "Send failed"));
     }
   };
 
@@ -296,7 +297,7 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
       "communications_unschedule" as never,
       { _communication_id: id } as never,
     );
-    if (error) toast.error(error.message);
+    if (error) toast.error(friendlyError(error));
     else toast.success("Schedule cancelled — back to draft");
   };
 
@@ -306,7 +307,7 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
       { _communication_id: id } as never,
     );
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyError(error));
       return;
     }
     toast.success("Duplicated as draft");
@@ -625,7 +626,7 @@ function ComposeDialog({
         { _org_id: orgIdLocal } as never,
       );
       if (cancelled) return;
-      if (error) { toast.error(error.message); }
+      if (error) { toast.error(friendlyError(error)); }
       else { setWaTemplates((data ?? []) as WhatsAppTemplate[]); }
       setWaLoadingTemplates(false);
     })();
@@ -780,7 +781,7 @@ function ComposeDialog({
     )
       .then(({ data, error }) => {
         if (cancelled) return;
-        if (error) { toast.error(error.message); return; }
+        if (error) { toast.error(friendlyError(error)); return; }
         const rows = (data ?? []) as Array<{ user_id: string | null }>;
         setResolvedCount(rows.length);
       })
@@ -935,7 +936,7 @@ function ComposeDialog({
         .from("communications" as never)
         .update(payload as never)
         .eq("id", editing.id);
-      if (error) { toast.error(error.message); return null; }
+      if (error) { toast.error(friendlyError(error)); return null; }
       return editing.id;
     }
 
@@ -947,7 +948,7 @@ function ComposeDialog({
       .insert({ ...payload, created_by: uid } as never)
       .select("id")
       .single();
-    if (error) { toast.error(error.message); return null; }
+    if (error) { toast.error(friendlyError(error)); return null; }
     return (data as { id: string }).id;
   };
 
@@ -1034,7 +1035,7 @@ function ComposeDialog({
       }
       onOpenChange(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Send failed");
+      toast.error(friendlyError(err, "Send failed"));
     } finally {
       setSubmitting(false);
     }
@@ -1054,7 +1055,7 @@ function ComposeDialog({
       toast.success(`Scheduled for ${new Date(scheduledFor).toLocaleString()}`);
       onOpenChange(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Schedule failed");
+      toast.error(friendlyError(err, "Schedule failed"));
     } finally {
       setSubmitting(false);
     }
@@ -1301,7 +1302,7 @@ function ComposeDialog({
                             toast.success(`Synced ${r.synced} of ${r.total} templates`);
                             setWaTemplates([]); // forces reload via the load effect
                           } catch (err) {
-                            toast.error(err instanceof Error ? err.message : "Sync failed");
+                            toast.error(friendlyError(err, "Sync failed"));
                           } finally {
                             setWaSyncing(false);
                           }

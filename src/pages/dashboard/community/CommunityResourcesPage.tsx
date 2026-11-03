@@ -12,6 +12,7 @@ import { Download, FileText, Trash2, Upload } from "lucide-react";
 import { canUploadResource } from "@/lib/community/rbac";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { friendlyError } from "@/lib/friendly-error";
 
 function fmtSize(b: number) {
   if (b < 1024) return `${b} B`;
@@ -44,7 +45,7 @@ export default function CommunityResourcesPage() {
       setOpen(false);
       reset();
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Upload failed");
+      toast.error(friendlyError(err, "Upload failed"));
     }
   };
 
@@ -107,7 +108,7 @@ export default function CommunityResourcesPage() {
                             await del.mutateAsync(r.id);
                             toast.success("Deleted");
                           } catch (err: unknown) {
-                            toast.error(err instanceof Error ? err.message : "Delete failed");
+                            toast.error(friendlyError(err, "Delete failed"));
                           }
                         }}
                       >

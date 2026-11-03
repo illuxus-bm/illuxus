@@ -655,7 +655,7 @@ export function createHandler(deps: Deps) {
       if (created.conflict) return reply(409, { ok: false, code: "subdomain_taken", errors: { "org.subdomain": "This URL is already used by another organization." }, error: "This URL is already used by another organization." });
       // Only Super Admin gets here, so the database's own reason is shown to help fix it.
       console.error("admin_create_org: organization not created", created.error);
-      return reply(500, { ok: false, code: "create_failed", error: "We could not create the organization. Nothing was saved; please try again.", detail: created.error });
+      return reply(500, { ok: false, code: "create_failed", error: "We could not create the organization. Nothing was saved; please try again." });
     }
 
     const prefill: Record<string, string> = { first_name: first.first_name, last_name: first.last_name };
@@ -666,7 +666,7 @@ export function createHandler(deps: Deps) {
       // No organization without its invitation: undo, so a retry starts clean.
       await store.deleteOrganization(created.id);
       console.error("admin_create_org: invitation not saved", sent.body.error);
-      return reply(500, { ok: false, code: "create_failed", error: "We could not save the invitation, so the organization was not created. Please try again.", detail: sent.body.error });
+      return reply(500, { ok: false, code: "create_failed", error: "We could not save the invitation, so the organization was not created. Please try again." });
     }
 
     const result = {

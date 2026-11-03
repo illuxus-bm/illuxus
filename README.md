@@ -318,6 +318,8 @@ more than once, and its change is already in the bundle, so nothing here is outs
 | `RUN_ME_sponsor_event_counts.sql` | The sponsor's event page counts registrations, speakers and check-ins by the organiser's analytics rules | section 073 |
 | `RUN_ME_service_role_subscriptions.sql` | Lets the server create an organization's subscription (fixes "permission denied for table subscriptions" when creating an organization) | section 074 |
 | `RUN_ME_sponsor_share_speaker_details.sql` | Shared participant data fills a registered speaker's missing designation, company, mobile and LinkedIn from their speaker profile | section 075 |
+| `RUN_ME_security_fixes_B.sql` | Security review B (2026-11-03): speaker and sponsor contact details only for organisers (public pages read `speakers_public` / `sponsors_public`); website files in `site-assets` only for platform admins, organisers only in their own event and organisation folders; bans can't be lifted by the banned user and only by approving their unban request; `can_moderate_community` no longer lets non-members moderate | section 080 |
+| `RUN_ME_security_fixes_C.sql` | Security review B, remaining items: organisation billing email/plan hidden from the public (column grants — re-run C-1 after adding an `organizations` column); external join links moved to `event_private_details` (`get_event_join_url()`); community views respect row security; `has_role` / `is_user_banned` answer only about the caller; text length limits; storage size limits and member-only community uploads (run after B) | section 081 |
 
 Most can run in any order; a script says so at the top when it needs another first.
 

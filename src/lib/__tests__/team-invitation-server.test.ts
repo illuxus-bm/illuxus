@@ -643,7 +643,10 @@ describe("Super Admin creates an organization", () => {
     const r = await failing({ action: "admin_create_org", org: { name: "Keka Events", subdomain: "keka", plan: "free", plan_limits: BUSINESS },
       user: { first_name: "Anita", last_name: "Rao", email: "anita@keka.test" } }, as("u-super"));
     expect(r.status).toBe(500);
-    expect(r.body).toMatchObject({ code: "create_failed", detail: expect.stringContaining("subscriptions_org_id_key") });
+    expect(r.body).toMatchObject({ code: "create_failed" });
+    // The database's own error (constraint names etc.) stays in the logs.
+    expect(r.body).not.toHaveProperty("detail");
+    expect(JSON.stringify(r.body)).not.toContain("subscriptions_org_id_key");
     expect(w.invites).toHaveLength(0);
   });
 

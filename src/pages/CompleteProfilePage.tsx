@@ -17,6 +17,7 @@ import PersonFieldsForm, {
 } from "@/components/people/PersonFieldsForm";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import { z } from "zod";
+import { friendlyError } from "@/lib/friendly-error";
 
 const citySchema = z.string().uuid("Pick your city from the suggestions");
 
@@ -120,7 +121,7 @@ export default function CompleteProfilePage() {
     });
     setOtpSending(false);
     if (error) {
-      toast({ title: "Could not send code", description: error.message, variant: "destructive" });
+      toast({ title: "Could not send code", description: friendlyError(error), variant: "destructive" });
       return;
     }
     setOtpSent(true);
@@ -141,7 +142,7 @@ export default function CompleteProfilePage() {
     });
     setOtpVerifying(false);
     if (error) {
-      toast({ title: "Verification failed", description: error.message, variant: "destructive" });
+      toast({ title: "Verification failed", description: friendlyError(error), variant: "destructive" });
       return;
     }
     setEmailVerified(true);
@@ -206,7 +207,7 @@ export default function CompleteProfilePage() {
     setSaving(false);
 
     if (error) {
-      toast({ title: "Could not save", description: error.message, variant: "destructive" });
+      toast({ title: "Could not save", description: friendlyError(error), variant: "destructive" });
       return;
     }
     toast({ title: "Welcome aboard!", description: "Your profile is set up." });

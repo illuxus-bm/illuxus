@@ -11,6 +11,7 @@ import { useSiteContent } from "@/hooks/useSiteContent";
 import { useTheme } from "@/contexts/ThemeContext";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import { postLoginDestination } from "@/lib/safe-redirect";
+import { friendlyError } from "@/lib/friendly-error";
 
 const ResetPasswordPage = () => {
   const [password, setPassword] = useState("");
@@ -40,7 +41,7 @@ const ResetPasswordPage = () => {
     setLoading(true);
     const { error } = await supabase.auth.updateUser({ password });
     if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
     } else {
       toast({ title: "Password updated", description: "You can now sign in with your new password." });
       // The reset link signed them in; carry on to where they were going.

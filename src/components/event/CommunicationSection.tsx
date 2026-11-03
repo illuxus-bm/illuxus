@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface EmailMessage {
   id: string;
@@ -67,7 +68,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
     if (error) {
       // Table may not exist yet in older schemas — show empty state gracefully
       if (error.code !== "42P01") {
-        toast.error("Failed to load messages: " + error.message);
+        toast.error("Failed to load messages: " + friendlyError(error));
       }
       setMessages([]);
     } else {
@@ -258,7 +259,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
       setComposeOpen(false);
       resetCompose();
     } catch (err: any) {
-      toast.error(err?.message || "Failed to send email");
+      toast.error(friendlyError(err, "Failed to send email"));
     } finally {
       setSending(false);
     }
@@ -278,7 +279,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
       created_by: user?.id,
     });
     setSavingDraft(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(friendlyError(error)); return; }
     toast.success("Draft saved");
     setComposeOpen(false);
     resetCompose();
@@ -286,7 +287,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
 
   const handleDelete = async (id: string) => {
     const { error } = await supabase.from("event_emails").delete().eq("id", id);
-    if (error) toast.error(error.message);
+    if (error) toast.error(friendlyError(error));
     else toast.success("Message deleted");
   };
 

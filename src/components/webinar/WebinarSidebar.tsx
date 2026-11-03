@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { subscribeSessionParticipants, type SidebarParticipant } from "./participantStore";
 import { REACTIONS, sendReaction as postReaction } from "@/lib/webinar-reactions";
+import { friendlyError } from "@/lib/friendly-error";
 
 type Tab = "chat" | "qa" | "polls" | "requests" | "participants";
 
@@ -590,7 +591,7 @@ function PollComposer({ sessionId, onClose }: { sessionId: string; onClose: () =
     setSaving(true);
     const { error } = await supabase.from("webinar_polls").insert({ session_id: sessionId, question: q, options: cleaned, open: true });
     setSaving(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(friendlyError(error)); return; }
     onClose();
   };
 

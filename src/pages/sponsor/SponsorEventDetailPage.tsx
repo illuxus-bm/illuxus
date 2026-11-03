@@ -246,7 +246,7 @@ export default function SponsorEventDetailPage() {
       // from their public profiles.
       const missing = rows.filter((r) => r.kind === "speaker" && r.designation === undefined).map((r) => r.id);
       if (missing.length) {
-        const { data: sp } = await supabase.from("speakers").select("id, designation, title").in("id", missing);
+        const { data: sp } = await supabase.from("speakers_public" as never).select("id, designation, title").in("id", missing);
         const byId = new Map(((sp || []) as { id: string; designation: string | null; title: string | null }[]).map((s) => [s.id, s.designation || s.title]));
         rows.forEach((r) => { if (r.kind === "speaker" && r.designation === undefined) r.designation = byId.get(r.id) ?? null; });
       }

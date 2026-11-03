@@ -22,6 +22,7 @@ import { batchPdf, certificatePdf, downloadBlob, safeFileName, verificationUrl }
 import type { CertificateDesign } from "@/lib/certificates/certificate-design";
 import CertificatePreviewDialog from "./CertificatePreviewDialog";
 import { ProgressBar } from "./IssueTab";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface Props {
   event: EventContext;
@@ -60,7 +61,7 @@ export default function IssuedTab({ event, certificates, canEdit, userId, onChan
       downloadBlob(blob, `${safeFileName(c.recipient_name)}-${c.code}.pdf`);
       if (blockedImages) toast.warning("An image was left out because its host blocks downloads.");
     } catch (err) {
-      toast.error("Could not create the PDF", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Could not create the PDF", { description: friendlyError(err) });
     } finally {
       setBusy(null);
     }
@@ -75,7 +76,7 @@ export default function IssuedTab({ event, certificates, canEdit, userId, onChan
       const { blob } = await batchPdf(items, (done, total) => setProgress({ done, total, label: "Rendering" }));
       downloadBlob(blob, `${safeFileName(event.title)}-certificates.pdf`);
     } catch (err) {
-      toast.error("Could not build the PDF", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Could not build the PDF", { description: friendlyError(err) });
     } finally {
       setBusy(null);
       setProgress(null);
@@ -91,7 +92,7 @@ export default function IssuedTab({ event, certificates, canEdit, userId, onChan
       if (out.failed.length === 0) toast.success(out.sent === 1 ? `Emailed ${rows[0].recipient_name}` : `Emailed ${out.sent} certificates`);
       else toast.warning(`Emailed ${out.sent}; ${out.failed.length} not sent`, { description: out.failed.slice(0, 3).map((f) => `${f.name}: ${f.error}`).join(" · ") });
     } catch (err) {
-      toast.error("Not sent", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Not sent", { description: friendlyError(err) });
     } finally {
       setBusy(null);
       setProgress(null);
@@ -107,7 +108,7 @@ export default function IssuedTab({ event, certificates, canEdit, userId, onChan
       toast.success("Certificate revoked", { description: "Its verification page now shows it as revoked." });
       setRevoking(null);
     } catch (err) {
-      toast.error("Could not revoke", { description: err instanceof Error ? err.message : String(err) });
+      toast.error("Could not revoke", { description: friendlyError(err) });
     } finally {
       setBusy(null);
     }
@@ -115,7 +116,7 @@ export default function IssuedTab({ event, certificates, canEdit, userId, onChan
 
   const openPreview = async (c: CertificateRow) => {
     try { setPreview({ cert: c, design: await loadVersionDesign(c.template_version_id) }); }
-    catch (err) { toast.error("Could not load the design", { description: err instanceof Error ? err.message : String(err) }); }
+    catch (err) { toast.error("Could not load the design", { description: friendlyError(err) }); }
   };
 
   if (certificates.length === 0) {

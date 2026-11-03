@@ -23,6 +23,7 @@ import {
 import { SUPPORTED_CURRENCIES, formatMoney, formatPriceOrFree } from "@/lib/currency";
 import { COMMON_TIMEZONES, detectBrowserTimezone, isValidTimezone } from "@/lib/timezones";
 import { formatEventDateTime } from "@/lib/datetime";
+import { friendlyError } from "@/lib/friendly-error";
 
 /** Lu.ma-style one-screen event create. Saves a draft, then opens manage hub. */
 export default function EventQuickCreatePage() {
@@ -127,7 +128,7 @@ export default function EventQuickCreatePage() {
     const { data, error } = await supabase.from("events").insert(payload as never).select("id, slug").single();
     setSaving(false);
     if (error) {
-      toast({ title: "Could not create event", description: error.message, variant: "destructive" });
+      toast({ title: "Could not create event", description: friendlyError(error), variant: "destructive" });
       return;
     }
     if (eventFormat !== "physical" && virtualProvider === "builtin" && hasFeature("webinar")) {

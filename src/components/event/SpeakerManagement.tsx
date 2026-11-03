@@ -24,6 +24,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useOrgSpeakerSearch } from "@/hooks/useOrgPeopleSearch";
+import { friendlyError } from "@/lib/friendly-error";
 
 const SpeakerApplicationsPanelLazy = lazy(() =>
   import("./ApplicationsSection").then((m) => ({ default: m.SpeakerApplicationsPanel })),
@@ -155,7 +156,7 @@ export default function SpeakerManagement({ eventId }: Props) {
     if (error) {
       // Roll back on failure
       setApplicationsEnabled(!enabled);
-      toast.error(error.message);
+      toast.error(friendlyError(error));
       logger.error("speaker applications toggle failed", {
         event_id: eventId,
         error_message: error.message,
@@ -209,11 +210,11 @@ export default function SpeakerManagement({ eventId }: Props) {
 
     if (editing) {
       const { error } = await supabase.from("speakers").update(payload).eq("id", editing.id);
-      if (error) { toast.error(error.message); return; }
+      if (error) { toast.error(friendlyError(error)); return; }
       toast.success("Speaker updated");
     } else {
       const { data, error } = await supabase.from("speakers").insert({ ...payload, user_id: user.id }).select().single();
-      if (error) { toast.error(error.message); return; }
+      if (error) { toast.error(friendlyError(error)); return; }
       // Auto-assign to this event
       await supabase.from("event_speakers").insert({ event_id: eventId, speaker_id: data.id });
       await syncWebinarSpeaker({ name: data.name, email: data.email });
@@ -276,7 +277,7 @@ export default function SpeakerManagement({ eventId }: Props) {
       const { error } = await supabase.from("event_speakers").insert({
         event_id: eventId, speaker_id: speakerId, display_order: nextOrder,
       });
-      if (error) { toast.error(error.message); return; }
+      if (error) { toast.error(friendlyError(error)); return; }
       await syncWebinarSpeaker({ name: speaker.name, email: speaker.email });
       toast.success("Speaker assigned to event");
       void notifySpeakerAdded({ id: speaker.id, email: speaker.email, name: speaker.name });

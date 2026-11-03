@@ -18,6 +18,7 @@ import { Building2, Loader2 } from "lucide-react";
 import { isValidEmailFormat } from "@/lib/email-format";
 import { notifyOrganiserOfApplication } from "@/lib/application-notify";
 import { loadStoredUtm } from "@/lib/utm";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface Props {
   eventId: string;
@@ -161,7 +162,7 @@ export function SponsorApplicationDialog({ eventId, open, onOpenChange, onSubmit
       if (error.message?.includes("duplicate")) {
         toast.error("You have already applied as a sponsor for this event.");
       } else {
-        toast.error(error.message);
+        toast.error(friendlyError(error));
       }
       return;
     }

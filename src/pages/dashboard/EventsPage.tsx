@@ -26,6 +26,7 @@ import EventBannerPicker from "@/components/event/EventBannerPicker";
 import { stripRichText } from "@/lib/markdown";
 import { formatMoney } from "@/lib/currency";
 import { eventPublicPath, eventDashboardPath } from "@/lib/event-routes";
+import { friendlyError } from "@/lib/friendly-error";
 
 type Event = Tables<"events">;
 
@@ -205,7 +206,7 @@ const EventsPage = () => {
     try {
       if (editingEvent) {
         const { error } = await supabase.from("events").update(eventData as never).eq("id", editingEvent.id);
-        if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+        if (error) toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
         else toast({ title: "Event updated successfully" });
         resetForm();
         fetchEvents();
@@ -223,7 +224,7 @@ const EventsPage = () => {
           result = await supabase.from("events").insert(retryData as never).select("id, slug").single();
         }
         if (result.error) {
-          toast({ title: "Error", description: result.error.message, variant: "destructive" });
+          toast({ title: "Error", description: friendlyError(result.error), variant: "destructive" });
           return;
         }
         toast({ title: "Event created successfully" });
@@ -243,7 +244,7 @@ const EventsPage = () => {
 
   const deleteEvent = async (id: string) => {
     const { error } = await supabase.from("events").delete().eq("id", id);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+    if (error) toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
     else { toast({ title: "Event deleted" }); fetchEvents(); }
   };
 

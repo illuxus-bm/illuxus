@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from "@/components/ui/textarea";
 import { intel, sponsorshipTitle, type SponsorMergePreview } from "@/lib/intelligence/admin-api";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/friendly-error";
 
 interface Props {
   ids: string[];
@@ -31,7 +32,7 @@ export function SponsorMergeDialog({ ids, onClose, onMerged }: Props) {
     let live = true;
     intel.sponsorMergePreview(survivor, ids.filter((id) => id !== survivor))
       .then((p) => live && setPreview(p))
-      .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
+      .catch((e) => toast.error(friendlyError(e)));
     return () => { live = false; };
   }, [survivor, ids]);
 
@@ -44,7 +45,7 @@ export function SponsorMergeDialog({ ids, onClose, onMerged }: Props) {
       onMerged();
       onClose();
     } catch (e) {
-      toast.error("Not merged — nothing was changed", { description: e instanceof Error ? e.message : String(e) });
+      toast.error("Not merged — nothing was changed", { description: friendlyError(e) });
     } finally {
       setBusy(false);
     }

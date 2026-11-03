@@ -474,7 +474,7 @@ Deno.serve(async (req) => {
     const msg = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : void 0;
     log.error("unhandled error", { step, error_message: msg, error_stack: stack });
-    return json({ error: msg, step }, 500);
+    return json({ error: "Something went wrong. Please try again.", step }, 500);
   }
 });
 function textToHtml2(text) {

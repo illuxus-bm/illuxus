@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
 import { isValidEmailFormat } from "@/lib/email-format";
+import { friendlyError } from "@/lib/friendly-error";
 
 /** Columns accepted by the importer. Header matching is case-insensitive and
  *  ignores spaces, dashes and underscores, so `Full Name`, `full_name`,
@@ -322,7 +323,7 @@ export default function ImportRegistrationsDialog({
       logger.error("import-registrations failed", {
         error_message: error.message, attempted: payload.length,
       });
-      toast.error("Import failed", { description: error.message });
+      toast.error("Import failed", { description: friendlyError(error) });
       return;
     }
 

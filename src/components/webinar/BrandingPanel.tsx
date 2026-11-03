@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Upload } from "lucide-react";
 import type { Branding } from "./StageOverlays";
+import { friendlyError } from "@/lib/friendly-error";
 
 export function BrandingPanel({ sessionId, initial }: { sessionId: string; initial?: Branding }) {
   const [b, setB] = useState<Branding>(initial || {});
@@ -21,13 +22,13 @@ export function BrandingPanel({ sessionId, initial }: { sessionId: string; initi
     setSaving(true);
     const { error } = await supabase.from("webinar_sessions").update({ branding: b as any }).eq("id", sessionId);
     setSaving(false);
-    if (error) toast.error(error.message); else toast.success("Branding updated");
+    if (error) toast.error(friendlyError(error)); else toast.success("Branding updated");
   };
 
   const onLogo = async (file: File) => {
     const path = `webinar-branding/${sessionId}/logo-${Date.now()}-${file.name}`;
     const { error } = await supabase.storage.from("site-assets").upload(path, file, { upsert: true });
-    if (error) return toast.error(error.message);
+    if (error) return toast.error(friendlyError(error));
     const { data } = supabase.storage.from("site-assets").getPublicUrl(path);
     update({ logo_url: data.publicUrl });
   };

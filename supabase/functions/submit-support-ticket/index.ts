@@ -182,6 +182,8 @@ interface SubmitBody {
   message?: string;
   source?: string;
   page_url?: string;
+  /** Hidden from people; only form-filling bots fill it in. */
+  website?: string;
 }
 
 interface SupportTicketRow {
@@ -209,6 +211,35 @@ async function hashIp(ip: string | null): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+// ─── Abuse limits ─────────────────────────────────────────────────────
+// This endpoint is public and emails the address it is given, so without
+// limits anyone could make it send mail to anyone. take_rate_limit
+// (migration 077) counts and records in one locked transaction, so
+// simultaneous requests can't slip past the limit.
+const LIMIT_PER_IP = { max: 5, windowSeconds: 60 * 60 };          // 5 an hour
+const LIMIT_PER_EMAIL = { max: 3, windowSeconds: 24 * 60 * 60 };  // 3 a day
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Records one use of `bucket` by `key`; false once `max` were used in the window (or on error). */
+async function withinLimit(
+  admin: ReturnType<typeof createClient>,
+  bucket: string,
+  key: string,
+  limit: { max: number; windowSeconds: number },
+): Promise<boolean> {
+  const { data, error } = await admin.rpc("take_rate_limit", {
+    _bucket: bucket,
+    _key_hash: await sha256Hex(key),
+    _max: limit.max,
+    _window_seconds: limit.windowSeconds,
+  });
+  return !error && data === true;
 }
 
 function clamp(v: unknown, max: number): string {
@@ -461,6 +492,12 @@ Deno.serve(async (req) => {
       return json({ success: false, error: "Invalid email address" }, 400);
     }
 
+    // A bot filled the hidden field: answer as if it worked, save nothing.
+    if (clamp(body.website, 200)) {
+      log.warn("support form honeypot tripped");
+      return json({ success: true });
+    }
+
     // ── Provenance ─────────────────────────────────────────────────────────
     const rawIp =
       req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
@@ -476,6 +513,16 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    const ipOk = await withinLimit(supabase, "support_ticket_ip", rawIp ?? "unknown", LIMIT_PER_IP);
+    const emailOk = ipOk && await withinLimit(supabase, "support_ticket_email", email, LIMIT_PER_EMAIL);
+    if (!ipOk || !emailOk) {
+      log.warn("support form rate limited", { by: ipOk ? "email" : "ip" });
+      return json({
+        success: false,
+        error: "Too many messages. Please try again later, or email support@illuxus.com directly.",
+      }, 429);
+    }
 
     // Best-effort: link to existing auth.users row when the submitter's email
     // already has an account. Keeps the ticket connected to their profile but
@@ -617,7 +664,7 @@ Deno.serve(async (req) => {
     log.error("unexpected error", toErrorFields(err));
     return json({
       success: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: "Something went wrong. Please try again, or email support@illuxus.com directly.",
     }, 500);
   }
 });

@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useOrgEntitlements, usePlans } from "@/hooks/usePlanFeatures";
 import { supabaseRpc } from "@/lib/observability";
 import { FEATURE_GROUPS, FEATURES, findPlan, type FeatureOverrides } from "@/lib/plans/features";
+import { friendlyError } from "@/lib/friendly-error";
 
 type Choice = "plan" | "on" | "off";
 
@@ -45,7 +46,7 @@ export function OrgFeatureOverrides({ orgId, planKey }: { orgId: string; planKey
     const { error } = await supabaseRpc("admin_set_org_features", { _oid: orgId, _overrides: draft });
     setSaving(false);
     if (error) {
-      toast.error("Couldn't save features", { description: error.message });
+      toast.error("Couldn't save features", { description: friendlyError(error) });
       return;
     }
     await queryClient.invalidateQueries({ queryKey: ["org-entitlements"] });
