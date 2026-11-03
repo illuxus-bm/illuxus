@@ -17,7 +17,14 @@ describe("loadImageAsDataUrl", () => {
 
   it("resolves a data URL on a successful fetch", async () => {
     const blob = new Blob(["fake-image-bytes"], { type: "image/png" });
-    const fetchMock = vi.fn(async () => new Response(blob, { status: 200 }));
+    // Keep the mocked Blob in the same realm as jsdom's FileReader. Native
+    // Node Response.blob() can return a different Blob implementation, which
+    // jsdom rejects even though the fetch was successful.
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      blob: async () => blob,
+    }) as Response);
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await loadImageAsDataUrl("https://example.com/photo.png");
