@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { logger, supabaseRpc } from "@/lib/observability";
 import { Search, Users, Download, Filter, Handshake, Check, ChevronDown, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, Copy, ExternalLink, Link2, Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { fetchAllRows } from "@/lib/reports/fetch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -209,8 +210,18 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   // Live counters from a single source of truth (REQ-11.5).
   const liveCounters = useEventCheckinCounters(eventId);
 
-  const reload = () => supabase.from("registrations").select("*").eq("event_id", eventId)
-    .order("created_at", { ascending: false }).then(({ data }) => { if (data) setRegistrations(data); });
+  // Every registration, page by page: one request stops at the API's row cap,
+  // which would cut the list, its selection and the CSV export short.
+  const reload = (): Promise<void> =>
+    fetchAllRows<Registration>((from, to) =>
+      supabase.from("registrations").select("*").eq("event_id", eventId)
+        .order("created_at", { ascending: false }).order("id").range(from, to),
+    )
+      .then((rows) => setRegistrations(rows))
+      .catch((err: Error) => {
+        logger.warn("registrations reload failed", { error_message: err.message });
+        toast.error("Could not load registrations", { description: err.message });
+      });
 
   const reloadExtras = async () => {
     const [{ data: spLinks }, { data: spLinksSponsors }] = await Promise.all([

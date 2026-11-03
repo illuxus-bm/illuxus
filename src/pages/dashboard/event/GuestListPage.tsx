@@ -8,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { Search, Check, X, Clock3, ArrowLeft, Download } from "lucide-react";
 import { isUuid } from "@/lib/event-routes";
+import { fetchAllRows } from "@/lib/reports/fetch";
+import { supabaseRpc, logger } from "@/lib/observability";
 
 interface Reg {
   id: string;
@@ -17,8 +19,12 @@ interface Reg {
   approval_status: string;
   status: string;
   checked_in: boolean;
+  /** "inside" | "outside" once attendance is tracked; null before the first check-in. */
+  attendance_state: string | null;
   created_at: string;
 }
+
+const REG_COLUMNS = "id, name, email, ticket_type, approval_status, status, checked_in, attendance_state, created_at";
 
 const TABS = [
   { key: "all", label: "All" },
@@ -51,17 +57,27 @@ export default function GuestListPage() {
       if (cancel || !ev) { setLoading(false); return; }
       setEventId(ev.id);
       setEventTitle(ev.title);
-      const { data } = await supabase
-        .from("registrations")
-        .select("id, name, email, ticket_type, approval_status, status, checked_in, created_at")
-        .eq("event_id", ev.id)
-        .order("created_at", { ascending: false });
+      // Every guest, page by page: one request stops at the API's row cap.
+      let all: Reg[] = [];
+      try {
+        all = await fetchAllRows<Reg>((from, to) =>
+          supabase
+            .from("registrations")
+            .select(REG_COLUMNS)
+            .eq("event_id", ev.id)
+            .order("created_at", { ascending: false })
+            .order("id")
+            .range(from, to),
+        );
+      } catch (err) {
+        toast({ title: "Could not load guests", description: (err as Error).message, variant: "destructive" });
+      }
       if (cancel) return;
-      setRows((data ?? []) as Reg[]);
+      setRows(all);
       setLoading(false);
     })();
     return () => { cancel = true; };
-  }, [id]);
+  }, [id, toast]);
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
@@ -87,13 +103,37 @@ export default function GuestListPage() {
     const { error } = await supabase.from("registrations").update({ approval_status: next }).eq("id", reg.id);
     if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); return; }
     setRows((rs) => rs.map((r) => r.id === reg.id ? { ...r, approval_status: next } : r));
+    // An approved guest gets their ticket, as from the event's Registrations
+    // tab (RegistrationsSection.updateApprovalStatus).
+    if (next !== "approved") return;
+    const { data, error: emailErr } = await supabase.functions.invoke("send-ticket-email", { body: { registration_id: reg.id } });
+    const result = data as { error?: string; delivered?: boolean; note?: string } | null;
+    if (emailErr || result?.error) {
+      toast({ title: "Approved, but the ticket email wasn't sent", description: result?.error ?? emailErr?.message, variant: "destructive" });
+    } else if (result?.delivered === false) {
+      toast({ title: "Approved. Ticket email skipped", description: result.note ?? "Email isn't set up." });
+    } else {
+      toast({ title: `Ticket sent to ${reg.email || "the guest"}` });
+    }
   };
 
+  // Through the attendance RPC, like the Registrations tab and the door
+  // scanner, so the check-in is logged and counted as inside.
   const toggleCheckIn = async (reg: Reg) => {
-    const next = !reg.checked_in;
-    const { error } = await supabase.from("registrations").update({ checked_in: next, checked_in_at: next ? new Date().toISOString() : null }).eq("id", reg.id);
-    if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); return; }
-    setRows((rs) => rs.map((r) => r.id === reg.id ? { ...r, checked_in: next } : r));
+    const { data, error } = await supabaseRpc("toggle_attendance" as never, { p_reg_id: reg.id, p_method: "manual" } as never);
+    const result = (Array.isArray(data) ? data[0] : data) as { state?: string } | null;
+    if (error || !result) {
+      logger.warn("guest-list toggle-attendance failed", { reg_id: reg.id, error_message: error?.message ?? null });
+      toast({ title: "Could not update check-in", description: error?.message, variant: "destructive" });
+      return;
+    }
+    if (result.state === "tracking_closed") {
+      toast({ title: "Tracking is closed", description: "This event ended more than 2 hours ago.", variant: "destructive" });
+      return;
+    }
+    const { data: fresh } = await supabase.from("registrations").select(REG_COLUMNS).eq("id", reg.id).maybeSingle();
+    if (fresh) setRows((rs) => rs.map((r) => (r.id === reg.id ? (fresh as unknown as Reg) : r)));
+    toast({ title: result.state === "inside" ? `${reg.name} checked in` : `${reg.name} checked out` });
   };
 
   const exportCsv = () => {
@@ -193,8 +233,8 @@ export default function GuestListPage() {
                           <Button size="sm" variant="outline" className="h-7 text-[12px]" onClick={() => setApproval(r, "approved")}>Promote</Button>
                         )}
                         {r.approval_status === "approved" && (
-                          <Button size="sm" variant={r.checked_in ? "outline" : "default"} className="h-7 text-[12px]" onClick={() => toggleCheckIn(r)}>
-                            {r.checked_in ? "Undo check-in" : "Check in"}
+                          <Button size="sm" variant={r.attendance_state === "inside" ? "outline" : "default"} className="h-7 text-[12px]" onClick={() => toggleCheckIn(r)}>
+                            {r.attendance_state === "inside" ? "Check out" : "Check in"}
                           </Button>
                         )}
                       </div>

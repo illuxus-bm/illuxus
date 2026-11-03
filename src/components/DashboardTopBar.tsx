@@ -41,6 +41,10 @@ function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => void })
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  // Search the workspace being worked in. Published events of every
+  // organisation are readable, so without this the results include theirs.
+  const { org } = useOrg();
+  const orgId = org?.id ?? null;
 
   useEffect(() => {
     if (open) { setQuery(""); setResults([]); setTimeout(() => inputRef.current?.focus(), 60); }
@@ -52,19 +56,21 @@ function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => void })
     let cancelled = false;
     setLoading(true);
 
+    // Quoted, so a comma or a bracket in the search is text, not filter syntax.
+    const pattern = `"%${q.replace(/[\\"]/g, "\\$&")}%"`;
+
     const run = async () => {
-      const [evRes, regRes] = await Promise.all([
-        supabase
-          .from("events")
-          .select("id, title, date, slug")
-          .ilike("title", `%${q}%`)
-          .limit(5),
-        supabase
-          .from("registrations")
-          .select("id, name, email, event_id")
-          .or(`name.ilike.%${q}%,email.ilike.%${q}%`)
-          .limit(5),
-      ]);
+      let events = supabase.from("events").select("id, title, date, slug").ilike("title", `%${q}%`);
+      let guests = supabase
+        .from("registrations")
+        .select("id, name, email, event_id, events!inner(org_id)")
+        .or(`name.ilike.${pattern},email.ilike.${pattern}`);
+      // A super admin outside any workspace keeps the platform-wide search.
+      if (orgId) {
+        events = events.eq("org_id", orgId);
+        guests = guests.eq("events.org_id", orgId);
+      }
+      const [evRes, regRes] = await Promise.all([events.limit(5), guests.limit(5)]);
       if (cancelled) return;
 
       const items: SearchResult[] = [
@@ -73,7 +79,8 @@ function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => void })
           id: e.id,
           label: e.title,
           sub: new Date(e.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-          url: `/dashboard/events/${e.slug ?? e.id}`,
+          // By id: slugs are only unique within an organisation.
+          url: `/dashboard/events/${e.id}`,
         })),
         ...(regRes.data ?? []).map((r) => ({
           type: "attendee" as const,
@@ -89,7 +96,7 @@ function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => void })
 
     const t = setTimeout(run, 250);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [query]);
+  }, [query, orgId]);
 
   if (!open) return null;
 

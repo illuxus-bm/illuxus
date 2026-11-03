@@ -132,7 +132,13 @@ const ATTENDEE_FILES = [
     // one. Re-audited against 6.4 and 6.6: compared with 638c185 its UTM
     // lines differ only by two added comments — the `via <utm_source>` hint
     // and the five UTM CSV columns are untouched.
-    hash: "065a95aecb98312cda1a4a6a7d9d94fa7ccef071c3263624c9993de977695cf8",
+    //
+    // Bumped again for paged loading (app audit C-3, 2026-11-03). Re-audited
+    // against 6.4 and 6.6: `reload()` now reads every registration page by
+    // page (`fetchAllRows`) instead of one capped request, so the list and the
+    // CSV export include all rows. The `via <utm_source>` hint and the five
+    // UTM CSV columns are untouched.
+    hash: "7260f1e5bccd029b43275068f8d7c5baa774afc04e1203670c61e73f8c91d6ad",
   },
   {
     path: "src/components/event/registrations/RegistrantQuickView.tsx",
