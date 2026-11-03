@@ -119,7 +119,7 @@
       "destination": "/api/org-og?orgSlug=:orgSlug"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!\\.well-known/).*)",
       "destination": "/index.html"
     }
   ],
