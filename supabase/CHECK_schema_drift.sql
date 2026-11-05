@@ -1407,7 +1407,8 @@ WITH expected(kind, name, col, section) AS (VALUES
   ('function','my_profile_suggestions',NULL::text,'062_invitation_prefill.sql'),
   ('function','apply_profile_suggestion',NULL::text,'062_invitation_prefill.sql'),
   ('function','dismiss_profile_suggestion',NULL::text,'062_invitation_prefill.sql'),
-  ('function','accept_sponsor_invite_as',NULL::text,'063_sponsor_contact_activation.sql')
+  ('function','accept_sponsor_invite_as',NULL::text,'063_sponsor_contact_activation.sql'),
+  ('function','org_member_role',NULL::text,'083_fix_event_publish.sql')
 )
 SELECT e.section, e.kind, e.name, e.col
   FROM expected e
