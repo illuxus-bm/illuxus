@@ -11,8 +11,10 @@ async function sha256Hex(text: string): Promise<string> {
 
 /**
  * Records one use of `bucket`/`key` and returns true, or returns false when
- * `max` uses already happened within `windowMs`. If the limiter itself is
- * unavailable it refuses rather than running unlimited.
+ * `max` uses already happened within `windowMs`. The check and the record are
+ * one locked database call (take_rate_limit, migration 077), so concurrent
+ * requests can't all get through. If the limiter itself is unavailable it
+ * refuses rather than running unlimited.
  */
 export async function withinLimit(
   admin: SupabaseClient,
@@ -21,13 +23,11 @@ export async function withinLimit(
   max: number,
   windowMs: number,
 ): Promise<boolean> {
-  const keyHash = await sha256Hex(key);
-  const since = new Date(Date.now() - windowMs).toISOString();
-  const { count, error } = await admin
-    .from("guest_rate_limits")
-    .select("id", { count: "exact", head: true })
-    .eq("bucket", bucket).eq("key_hash", keyHash).gte("created_at", since);
-  if (error || (count ?? 0) >= max) return false;
-  const { error: insertError } = await admin.from("guest_rate_limits").insert({ bucket, key_hash: keyHash });
-  return !insertError;
+  const { data, error } = await admin.rpc("take_rate_limit", {
+    _bucket: bucket,
+    _key_hash: await sha256Hex(key),
+    _max: max,
+    _window_seconds: Math.max(1, Math.ceil(windowMs / 1000)),
+  });
+  return !error && data === true;
 }

@@ -740,14 +740,13 @@ function toInvitation(data: any): InvitationRow | null {
 export function supabaseStore(db: any): Store {
   return {
     async allow(bucket, key, windowSeconds, max) {
-      const since = new Date(Date.now() - windowSeconds * 1000).toISOString();
-      const { count, error } = await db.from("guest_rate_limits").select("id", { count: "exact", head: true })
-        .eq("bucket", bucket).eq("key_hash", key).gte("created_at", since);
+      // Counts and records in one locked call (take_rate_limit, migration 077),
+      // so requests arriving together can't all slip under the limit.
+      const { data, error } = await db.rpc("take_rate_limit", {
+        _bucket: bucket, _key_hash: key, _max: max, _window_seconds: windowSeconds,
+      });
       // If the limiter itself is unavailable, refuse rather than run unlimited.
-      if (error) return false;
-      if ((count ?? 0) >= max) return false;
-      await db.from("guest_rate_limits").insert({ bucket, key_hash: key });
-      return true;
+      return !error && data === true;
     },
     async userFromJwt(jwt) {
       const { data, error } = await db.auth.getUser(jwt);

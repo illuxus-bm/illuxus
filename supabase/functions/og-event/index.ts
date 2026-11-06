@@ -28,6 +28,7 @@
 
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { MAX_IMAGE_BYTES, decodable, imageSize, isOwnStorageUrl, readCapped } from "./image-guard.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -267,18 +268,34 @@ async function drawWatermark(canvas: Image, font: Uint8Array | null): Promise<vo
 // Banner sourcing
 // ---------------------------------------------------------------------------
 
-/** Try a list of image URLs in order. First successful decode wins. */
+/**
+ * Try a list of image URLs in order. First successful decode wins. Only images
+ * in this project's Storage are fetched, and only small enough ones decoded
+ * (image-guard.ts, QA audit F-12).
+ */
 async function tryDecode(urls: (string | null | undefined)[]): Promise<Image | null> {
   for (const url of urls) {
     if (!url) continue;
+    if (!isOwnStorageUrl(url, Deno.env.get("SUPABASE_URL"))) {
+      console.warn("og-event: banner not in project storage, skipped");
+      continue;
+    }
     try {
       const res = await fetch(url, {
+        redirect: "manual",
         signal: AbortSignal.timeout(6000),
         headers: { "User-Agent": "illuxus-og-bot/1.0" },
       });
-      if (!res.ok) continue;
-      const buf = new Uint8Array(await res.arrayBuffer());
-      if (buf.byteLength === 0) continue;
+      if (!res.ok || !(res.headers.get("content-type") ?? "").startsWith("image/")) {
+        await res.body?.cancel().catch(() => {});
+        continue;
+      }
+      const buf = await readCapped(res, MAX_IMAGE_BYTES);
+      if (!buf || buf.byteLength === 0) continue;
+      if (!decodable(imageSize(buf))) {
+        console.warn("og-event: banner too large to decode, skipped");
+        continue;
+      }
       return await Image.decode(buf);
     } catch (_) {
       // try next

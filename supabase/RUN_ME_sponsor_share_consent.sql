@@ -3,10 +3,11 @@
 --
 --   • Registering asks a separate, optional question: share my email, mobile
 --     and LinkedIn with the event's sponsors. The answer, when it was given and
---     which wording was shown are kept on the registration. Only the registrant
---     (or the guest-registration server, on their behalf) can say yes; an
---     organiser adding, importing or editing a registration cannot. Saying no
---     later is always allowed (set_my_sponsor_share_consent).
+--     which wording was asked (_sponsor_share_notice_version) are kept on the
+--     registration. Only the registrant (or the guest-registration server, on
+--     their behalf) can say yes; an organiser adding, importing or editing a
+--     registration cannot. Changing the answer later is always allowed
+--     (set_my_sponsor_share_consent, from the ticket page).
 --   • A share still lists everyone eligible, with name, company, role and
 --     attendance, but carries contact details only for people who agreed.
 --     Listed speakers who never registered had no way to agree, so a share
@@ -25,8 +26,17 @@
 
 ALTER TABLE public.registrations ADD COLUMN IF NOT EXISTS sponsor_share_consent    boolean NOT NULL DEFAULT false;
 ALTER TABLE public.registrations ADD COLUMN IF NOT EXISTS sponsor_share_consent_at timestamptz;
--- Which wording of the question was answered (the app's SPONSOR_SHARE_NOTICE).
+-- Which wording of the question was answered (_sponsor_share_notice_version).
 ALTER TABLE public.registrations ADD COLUMN IF NOT EXISTS sponsor_share_notice     text;
+
+/*
+ * The wording of the question the app asks, by date: SponsorShareChoice.tsx.
+ * Change it whenever that wording changes, so each answer records what was
+ * asked. Kept here rather than sent by the app, so the app needs nothing from
+ * this migration to register people, and the record can't be set by a caller.
+ */
+CREATE OR REPLACE FUNCTION public._sponsor_share_notice_version()
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path = '' AS $$ SELECT '2026-11-07'::text $$;
 
 /*
  * Agreement is the registrant's own: kept only when it comes from the
@@ -54,7 +64,7 @@ BEGIN
     NEW.sponsor_share_notice := NULL;
   ELSE
     NEW.sponsor_share_consent_at := now();
-    NEW.sponsor_share_notice := left(NULLIF(btrim(NEW.sponsor_share_notice), ''), 32);
+    NEW.sponsor_share_notice := public._sponsor_share_notice_version();
   END IF;
   RETURN NEW;
 END;
@@ -67,20 +77,22 @@ CREATE TRIGGER registrations_sponsor_consent
   FOR EACH ROW EXECUTE FUNCTION public.registrations_sponsor_consent();
 
 -- The registrant changes their answer for one of their own registrations.
-CREATE OR REPLACE FUNCTION public.set_my_sponsor_share_consent(_registration uuid, _consent boolean, _notice text DEFAULT NULL)
+-- (An earlier draft took the wording from the caller; the server records it now.)
+DROP FUNCTION IF EXISTS public.set_my_sponsor_share_consent(uuid, boolean, text);
+CREATE OR REPLACE FUNCTION public.set_my_sponsor_share_consent(_registration uuid, _consent boolean)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE _now boolean;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Sign in first' USING ERRCODE = '42501'; END IF;
-  UPDATE registrations SET sponsor_share_consent = COALESCE(_consent, false), sponsor_share_notice = _notice
+  UPDATE registrations SET sponsor_share_consent = COALESCE(_consent, false)
    WHERE id = _registration AND user_id = auth.uid()
   RETURNING sponsor_share_consent INTO _now;
   IF NOT FOUND THEN RAISE EXCEPTION 'Registration not found' USING ERRCODE = 'P0002'; END IF;
   RETURN _now;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.set_my_sponsor_share_consent(uuid, boolean, text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.set_my_sponsor_share_consent(uuid, boolean, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.set_my_sponsor_share_consent(uuid, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.set_my_sponsor_share_consent(uuid, boolean) TO authenticated;
 
 -- ── 2. What a share carries ──────────────────────────────────────────────────
 

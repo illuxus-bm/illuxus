@@ -18,6 +18,8 @@ The current source audit found six medium-severity risks:
 - The shared Edge Function rate limiter uses a non-atomic count-then-insert sequence.
 - Anonymous users can read reaction metadata across every webinar session through an unconditional SELECT policy.
 
+**7 November 2026:** all six (F-10 to F-15) are fixed in the source, with tests, but not deployed. Migration 077 must run before the rate-limited functions deploy. See [Remediation status](docs/QA_SECURITY_AUDIT_2026-10-27.md#remediation-status-7-november-2026) for the deploy order and the decisions left to the privacy owner.
+
 ## Validation
 
 - Vitest: 141 files, 1,510 tests passed.

@@ -98,7 +98,7 @@ We share personal data with the following categories of recipients, each bound b
 
 (a) Event organisers — when you register for an event, the organiser receives the data necessary to manage your registration (name, email, ticket type, custom-question answers, dietary/accessibility flags you provide, check-in status).
 
-(b) Event sponsors — when you register for an event, the organiser may share your registration details with that event's sponsors: your name, email address, mobile number, LinkedIn profile, company, designation, company details you provide, registration date and attendance. Sponsors receive this only for the events they sponsor, to follow up with you about the event and their offerings. Each sponsor is responsible for how it uses the data it receives; you can ask a sponsor to stop contacting you, and ask the organiser or Illuxus to stop sharing your details with sponsors of future events.
+(b) Event sponsors — when you register for an event, the organiser may share your name, company, designation, company details you provide, registration date and attendance with that event's sponsors. Your email address, mobile number and LinkedIn profile are shared with sponsors only if you choose to when you register. You can change that choice at any time on your ticket; withdrawing it also removes your contact details from the lists already shared with sponsors on Illuxus (a copy a sponsor has already downloaded is that sponsor's responsibility). Sponsors receive this only for the events they sponsor, to follow up with you about the event and their offerings. Shared lists are kept only while in use: when an organiser shares an updated list or withdraws one, the earlier copy is deleted. Each sponsor is responsible for how it uses the data it receives; you can ask a sponsor to stop contacting you, and ask the organiser or Illuxus to stop sharing your details with sponsors of future events.
 
 (c) Sub-processors — Illuxus's current list of material sub-processors is:
    • Stripe Payments India Private Limited (India) and Stripe Inc. (USA / Ireland) — international card payments.
@@ -439,7 +439,7 @@ export default function PrivacyPage() {
         <p className="text-sm font-medium text-primary mb-3 uppercase tracking-widest">Legal</p>
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-3">Privacy Policy</h1>
         <p className="text-muted-foreground text-[14px]">
-          Last updated: 2 November 2026 · Effective: 2 November 2026 · Version 3.1
+          Last updated: 7 November 2026 · Effective: 7 November 2026 · Version 3.2
         </p>
       </section>
 

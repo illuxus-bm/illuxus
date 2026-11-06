@@ -122,6 +122,9 @@ const DEV_ORIGINS = [
   "http://127.0.0.1:8080",
 ];
 
+/** The iOS and Android apps (capacitor.config.ts), as in _shared/cors.ts. */
+const NATIVE_APP_ORIGINS = ["capacitor://localhost", "https://localhost"];
+
 function buildCorsHeaders(req: Request): Record<string, string> {
   const headers: Record<string, string> = {
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-correlation-id",
@@ -130,7 +133,7 @@ function buildCorsHeaders(req: Request): Record<string, string> {
     "Vary": "Origin",
   };
   const strip = (s: string) => s.trim().replace(/\/$/, "");
-  const allowed = new Set(DEV_ORIGINS);
+  const allowed = new Set([...DEV_ORIGINS, ...NATIVE_APP_ORIGINS]);
   for (const o of (Deno.env.get("ALLOWED_ORIGINS") || "").split(",")) {
     if (o.trim()) allowed.add(strip(o));
   }
@@ -237,6 +240,59 @@ async function hashIp(ip: string | null): Promise<string | null> {
 // simultaneous requests can't slip past the limit.
 const LIMIT_PER_IP = { max: 5, windowSeconds: 60 * 60 };          // 5 an hour
 const LIMIT_PER_EMAIL = { max: 3, windowSeconds: 24 * 60 * 60 };  // 3 a day
+// Across everyone: a ceiling for when the caller's address can't be trusted
+// (QA audit F-13), so the endpoint can't be turned into a mail cannon.
+const LIMIT_ALL = { max: 200, windowSeconds: 60 * 60 };            // 200 an hour
+
+/** The largest request body read. The form's fields fit well within it. */
+const MAX_BODY_BYTES = 64 * 1024;
+
+/**
+ * The request body as JSON, read no further than `maxBytes`: a larger body is
+ * refused before it is buffered or parsed. Returns "too_large" or "invalid"
+ * instead of throwing.
+ */
+async function readJsonCapped(req: Request, maxBytes: number): Promise<unknown> {
+  const declared = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) return "too_large";
+  if (!req.body) return "invalid";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return "too_large";
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return "invalid";
+  }
+}
+
+/**
+ * The caller's address. cf-connecting-ip, when present, is set by Cloudflare
+ * in front of the edge and can't be written by the caller; the first
+ * x-forwarded-for entry can be, so it is only a fallback (LIMIT_ALL caps the
+ * rest).
+ */
+function clientIp(req: Request): string | null {
+  return req.headers.get("cf-connecting-ip")?.trim() ||
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    null;
+}
 
 async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -490,7 +546,14 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const body = (await req.json()) as SubmitBody;
+    const parsed = await readJsonCapped(req, MAX_BODY_BYTES);
+    if (parsed === "too_large") {
+      return json({ success: false, error: "Message too long" }, 413);
+    }
+    if (parsed === "invalid" || !parsed || typeof parsed !== "object") {
+      return json({ success: false, error: "Invalid request" }, 400);
+    }
+    const body = parsed as SubmitBody;
 
     // ── Validation ──────────────────────────────────────────────────────────
     const name = clamp(body.name, 120);
@@ -516,10 +579,7 @@ Deno.serve(async (req) => {
     }
 
     // ── Provenance ─────────────────────────────────────────────────────────
-    const rawIp =
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      req.headers.get("cf-connecting-ip") ??
-      null;
+    const rawIp = clientIp(req);
     const ipHash = await hashIp(rawIp);
     const userAgent = clamp(req.headers.get("user-agent") ?? "", 500) || null;
 
@@ -533,8 +593,9 @@ Deno.serve(async (req) => {
 
     const ipOk = await withinLimit(supabase, "support_ticket_ip", rawIp ?? "unknown", LIMIT_PER_IP);
     const emailOk = ipOk && await withinLimit(supabase, "support_ticket_email", email, LIMIT_PER_EMAIL);
-    if (!ipOk || !emailOk) {
-      log.warn("support form rate limited", { by: ipOk ? "email" : "ip" });
+    const allOk = emailOk && await withinLimit(supabase, "support_ticket_all", "all", LIMIT_ALL);
+    if (!allOk) {
+      log.warn("support form rate limited", { by: !ipOk ? "ip" : !emailOk ? "email" : "all" });
       return json({
         success: false,
         error: "Too many messages. Please try again later, or email support@illuxus.com directly.",

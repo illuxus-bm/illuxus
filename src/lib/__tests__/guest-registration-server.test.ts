@@ -25,7 +25,7 @@ const event = (id: string, over: Partial<EventRow> = {}): EventRow => ({
 
 interface World {
   events: Map<string, EventRow>;
-  registrations: (RegistrationRow & { utm: NewRegistration["utm"]; confirmationSent: boolean })[];
+  registrations: (RegistrationRow & { utm: NewRegistration["utm"]; sponsor_share_consent: boolean; confirmationSent: boolean })[];
   users: Map<string, { id: string; password: string; meta: Record<string, string> }>;
   tokens: (TokenRow & { token_hash: string })[];
   hits: Map<string, number>;
@@ -102,7 +102,7 @@ function makeDeps(w: World): Deps {
         id, event_id: row.event_id, email: row.email, name: row.name, first_name: row.first_name, last_name: row.last_name,
         designation: row.designation, company: row.company, mobile_country_code: row.mobile_country_code, mobile_number: row.mobile_number,
         approval_status: ev.requires_approval ? "pending" : row.approval_status, qr_code: `qr-${seq}`, join_token: `join-${seq}`,
-        user_id: null, utm: row.utm, confirmationSent: false,
+        user_id: null, utm: row.utm, sponsor_share_consent: row.sponsor_share_consent, confirmationSent: false,
       };
       w.registrations.push(saved);
       return { row: saved };
@@ -150,6 +150,15 @@ beforeEach(() => { w = makeWorld(); handle = createHandler(makeDeps(w)); });
 const lastToken = () => w.issued[w.issued.length - 1];
 
 describe("registering without an account", () => {
+  it("records the optional answer about sharing contact details with sponsors (QA audit F-10)", async () => {
+    await handle(form(), "1.1.1.1");
+    await handle(form({ email: "ben@example.com", sponsor_share: true }), "1.1.1.2");
+    await handle(form({ email: "cara@example.com", sponsor_share: "yes" }), "1.1.1.3");
+    expect(w.registrations.map((r) => [r.email, r.sponsor_share_consent])).toEqual([
+      ["asha.rao@example.com", false], ["ben@example.com", true], ["cara@example.com", false],
+    ]);
+  });
+
   it("saves the registration, confirms it and emails the ticket with an account link", async () => {
     const res = await handle(form({ utm: { utm_source: "partner-a", utm_campaign: "launch", evil: "x" } }), "1.1.1.1");
     expect(res.status).toBe(200);

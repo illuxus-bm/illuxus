@@ -135,8 +135,15 @@ export function ShareDataDialog({ eventSponsorId, onClose, onChanged }: Props) {
               <Stat label="With email" value={p.with_email} />
               <Stat label="With mobile" value={p.with_mobile} />
               <Stat label="With both" value={p.with_both} />
-              <Stat label="Without contact details" value={p.without_contact} hint="No email or mobile given" />
+              <Stat label="Without contact details" value={p.without_contact} hint="Not agreed to share, or none given" />
             </div>
+            {(p.without_permission ?? 0) > 0 && (
+              <p className="text-[12px] text-muted-foreground">
+                <strong className="text-foreground">{p.without_permission!.toLocaleString()}</strong>{" "}
+                {p.without_permission === 1 ? "participant hasn't" : "participants haven't"} given permission to share contact details with
+                sponsors. Their email, mobile and LinkedIn are not shared.
+              </p>
+            )}
 
             <section className="space-y-2">
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Fields shared</p>

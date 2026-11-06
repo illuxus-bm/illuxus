@@ -5,6 +5,7 @@
  * sponsor's team on that event while the share is active.
  */
 import { supabaseRpc } from "@/lib/observability";
+import { safeCsvCell } from "@/lib/csv-safety";
 
 export interface ShareField { key: string; label: string; contact: boolean }
 
@@ -19,6 +20,8 @@ export interface SharePreview {
   sponsor: { id: string; name: string; title: string | null; title_label: string | null };
   eligible: number; speakers?: number; attendees?: number;
   with_email: number; with_mobile: number; with_both: number; without_contact: number;
+  /** People who haven't agreed to share contact details with sponsors (migration 079); absent before it. */
+  without_permission?: number;
   fields: ShareField[]; not_collected: string[];
   current: ShareSummary | null;
 }
@@ -69,14 +72,14 @@ export function formatShareValue(key: string, value: unknown): string {
   return String(value);
 }
 
-/** CSV with every field, in the order shared. Quotes and line breaks are escaped. */
+/**
+ * CSV with every field, in the order shared. Values come from registrants, so
+ * any that a spreadsheet would run as a formula are marked as text
+ * (`safeCsvCell`); quotes, separators and line breaks are escaped.
+ */
 export function toCsv(fields: ShareField[], rows: ShareRow[]): string {
-  // A value starting with = + - or @ could run as a formula in a spreadsheet, so it is
-  // marked as text. Phone numbers (+ and digits only) can't, and stay as they are.
-  const risky = (v: string) => /^[=+\-@]/.test(v) && !/^\+[\d\s]+$/.test(v);
-  const cell = (v: string) => {
-    const safe = risky(v) ? `'${v}` : v;
-    return /[",\n\r]/.test(safe) || risky(v) ? `"${safe.replace(/"/g, '""')}"` : safe;
-  };
-  return [fields.map((f) => cell(f.label)).join(","), ...rows.map((r) => fields.map((f) => cell(formatShareValue(f.key, r[f.key]))).join(","))].join("\r\n");
+  return [
+    fields.map((f) => safeCsvCell(f.label)).join(","),
+    ...rows.map((r) => fields.map((f) => safeCsvCell(formatShareValue(f.key, r[f.key]))).join(",")),
+  ].join("\r\n");
 }

@@ -102,7 +102,13 @@ const ATTENDEE_FILES = [
     // rather than its local origin. `handleRsvp`, `loadStoredUtm()`, the
     // five utm_* columns on the insert and `clearStoredUtm()` on success are
     // untouched.
-    hash: "88b514a39e5ae9134f68e6d06a01b3a9fe7a45c174a31d194b95bf78b035c42d",
+    //
+    // Bumped again for asking separately about sponsors (QA audit F-10,
+    // 2026-11-07). Re-audited against 6.1–6.3: the insert gains one column,
+    // `sponsor_share_consent`, from a new optional checkbox, and the agreement
+    // wording changes. `loadStoredUtm()`, the five utm_* columns on the insert
+    // and `clearStoredUtm()` on success are untouched.
+    hash: "8aa8ca552eeacc35e0a2dccb12b58d6c1d2662945684fcdc54124679bd6ae5de",
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",

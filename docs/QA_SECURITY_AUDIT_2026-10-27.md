@@ -22,6 +22,32 @@ The current review found six medium-severity risks:
 
 No critical or high-severity issue was confirmed in the reviewed paths. This is a source-level audit, not a penetration test, and the rating does not imply the deployed system is safe.
 
+## Remediation status, 7 November 2026
+
+F-10 to F-15 are fixed in the source. None of the fixes is deployed yet.
+
+| ID | Fix | Tests |
+|---|---|---|
+| F-10 | Registration forms ask a separate, optional question: share my email, mobile and LinkedIn with the event's sponsors. Signed-in and guest forms both ask it, unticked. Migration 079 records each answer, its time and its wording, and only the registrant (or the guest-registration server) can say yes. Shares list everyone but carry contact details only for people who agreed; listed speakers who never registered get none. A registrant can change their answer on their ticket, and withdrawing removes their details from shares already made. Copies are deleted when a share is revoked or replaced, and when a registration or speaker is deleted. Organisers see how many people haven't agreed. The Privacy Policy describes this (version 3.2). | `supabase/tests/079_sponsor_share_consent.test.mjs` (14), plus component and client tests |
+| F-11 | The sponsor CSV marks as text any value starting with `=` `+` `-` `@`, tab, CR, LF or NUL, or their full-width forms. It quotes tabs, separators and line breaks (`src/lib/csv-safety.ts`). | `csv-safety.test.ts` (25), `data-sharing.test.ts` |
+| F-12 | og-event fetches banners only from the project's own public Storage. It doesn't follow redirects, reads at most 8 MB, and decodes only images up to 6000 px per side and 24 MP (size read from the header first). Anything else gets the brand gradient (`og-event/image-guard.ts`). | `og-event-image-guard.test.ts` (19) |
+| F-13 | submit-support-ticket reads at most 64 KB before parsing. It takes the client address from `cf-connecting-ip` first, and has a 200-an-hour cap across everyone, on top of the per-address and per-email limits and the honeypot added on 3 November. | Compile-checked only (no Deno test harness) |
+| F-14 | `take_rate_limit` (migration 077) counts and records under a per-key transaction lock. The shared helper, guest-registration and team-invitation all use it. | `077_078_rate_limit_reactions.test.mjs` |
+| F-15 | Anonymous viewers can read reactions only for a live session, with reactions on, of a published event (migration 078). | `077_078_rate_limit_reactions.test.mjs` |
+
+**Deploy in this order:**
+
+1. Run `supabase/RUN_ME_atomic_rate_limit.sql` (077), then deploy the functions that rate-limit. Deploying them first would refuse every limited request, because the limiter fails closed. Those functions are: guest-registration, team-invitation, submit-support-ticket, send-ticket-email, send-speaker-invite-email, send-sponsor-invite-email, notify-venue-selection and seed-cities. Use the `dashboard-inline.ts` copy for any function deployed by pasting.
+2. Deploy og-event.
+3. Run `supabase/RUN_ME_reaction_reads.sql` (078). It can go at any time.
+4. Run `supabase/RUN_ME_sponsor_share_consent.sql` (079). The app works before or after it, but the ticket-page setting needs it.
+5. Decide whether to run step 5 of that file, which is left commented out. It removes contact details from shares made before 079, which nobody agreed to under the new question.
+
+**Before release:**
+
+- The privacy owner should confirm the legal basis for sharing name, company and attendance with sponsors without opt-in, and approve the Privacy Policy wording (version 3.2).
+- Other CSV exports (registrations, guest list, UTM) don't neutralise formulas yet. They go to the organiser, not to third parties.
+
 ## Validation results
 
 | Check | Result | Evidence |

@@ -481,12 +481,13 @@ function toInvitation(data) {
 function supabaseStore(db) {
   return {
     async allow(bucket, key, windowSeconds, max) {
-      const since = new Date(Date.now() - windowSeconds * 1e3).toISOString();
-      const { count, error } = await db.from("guest_rate_limits").select("id", { count: "exact", head: true }).eq("bucket", bucket).eq("key_hash", key).gte("created_at", since);
-      if (error) return false;
-      if ((count ?? 0) >= max) return false;
-      await db.from("guest_rate_limits").insert({ bucket, key_hash: key });
-      return true;
+      const { data, error } = await db.rpc("take_rate_limit", {
+        _bucket: bucket,
+        _key_hash: key,
+        _max: max,
+        _window_seconds: windowSeconds
+      });
+      return !error && data === true;
     },
     async userFromJwt(jwt) {
       const { data, error } = await db.auth.getUser(jwt);

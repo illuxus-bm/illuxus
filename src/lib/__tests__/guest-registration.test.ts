@@ -41,12 +41,21 @@ describe("talking to the registration service", () => {
     const [name, options] = invoke.mock.calls[0] as [string, { body: Record<string, unknown> }];
     expect(name).toBe("guest-registration");
     expect(options.body).toMatchObject({ action: "register", event_id: "event-1", consent: true, utm: { utm_source: "partner-a" }, first_name: "Asha" });
+    // Sharing contact details with sponsors is a separate answer, no unless asked.
+    expect(options.body).toMatchObject({ sponsor_share: false });
     expect(Object.keys(options.body)).not.toContain("password");
 
     expect(result).toEqual({
       ok: true,
       confirmation: { duplicate: false, status: "pending", reference: "ILX-ABCDEF12", email: "asha.rao@example.com", emailSent: true },
     });
+  });
+
+  it("sends yes to sharing contact details with sponsors only when the guest ticks it", async () => {
+    invoke.mockResolvedValue({ data: { ok: true, duplicate: false, status: "approved", reference: null, email_sent: true }, error: null });
+    await registerGuest({ eventId: "event-1", fields, utm: {}, website: "", shareWithSponsors: true });
+    const [, options] = invoke.mock.calls[0] as [string, { body: Record<string, unknown> }];
+    expect(options.body).toMatchObject({ sponsor_share: true });
   });
 
   it("surfaces the server's field errors", async () => {

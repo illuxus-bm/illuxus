@@ -9,9 +9,10 @@ import { PullToRefresh } from "@/components/native/PullToRefresh";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronLeft, CalendarDays, MapPin, CheckCircle2, Copy, Check, Download, Loader2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { eventPublicPath } from "@/lib/event-routes";
 import { downloadTicketPdf } from "@/lib/ticket-pdf";
-import { logger } from "@/lib/observability";
+import { logger, supabaseRpc } from "@/lib/observability";
 import { toast } from "sonner";
 
 interface TicketRow {
@@ -23,6 +24,9 @@ interface TicketRow {
   amount_paid: number | null;
   name: string | null;
   email: string | null;
+  user_id: string | null;
+  /** Whether this registrant lets the event's sponsors have their contact details. */
+  sponsor_share_consent: boolean | null;
   events: {
     id: string;
     title: string;
@@ -78,7 +82,7 @@ export default function TicketDetailPage() {
     if (!id || !user) return;
     const { data } = await supabase
       .from("registrations")
-      .select("id, qr_code, approval_status, checked_in, ticket_type, amount_paid, name, email, events:events(id, title, slug, date, venue, location, image_url, banner_landscape_url, banner_portrait_url, timezone, organizations(name, slug, subdomain))")
+      .select("id, qr_code, approval_status, checked_in, ticket_type, amount_paid, name, email, user_id, sponsor_share_consent, events:events(id, title, slug, date, venue, location, image_url, banner_landscape_url, banner_portrait_url, timezone, organizations(name, slug, subdomain))")
       .eq("id", id)
       .maybeSingle();
     setRow(data as unknown as TicketRow);
@@ -216,6 +220,12 @@ export default function TicketDetailPage() {
                 </Button>
               )}
             </div>
+
+            {/* Only the registrant can give or withdraw this (migration 079). */}
+            {user && row.user_id === user.id && (
+              <SponsorShareSetting registrationId={row.id} value={!!row.sponsor_share_consent}
+                                   onChange={(v) => setRow((r) => (r ? { ...r, sponsor_share_consent: v } : r))} />
+            )}
           </>
         )}
       </main>
@@ -265,5 +275,40 @@ function TicketCodeDisplay({ code }: { code: string }) {
         Use this if the QR scanner can't read the code.
       </p>
     </div>
+  );
+}
+
+/**
+ * The registrant's answer to "share my contact details with this event's
+ * sponsors", which they can change at any time. Withdrawing also takes the
+ * details out of anything already shared (migration 079).
+ */
+function SponsorShareSetting({ registrationId, value, onChange }: { registrationId: string; value: boolean; onChange: (value: boolean) => void }) {
+  const [saving, setSaving] = useState(false);
+
+  const change = async (next: boolean) => {
+    setSaving(true);
+    onChange(next);
+    const { error } = await supabaseRpc("set_my_sponsor_share_consent" as never, { _registration: registrationId, _consent: next } as never);
+    setSaving(false);
+    if (error) {
+      onChange(!next);
+      toast.error("Couldn't save your choice", { description: "Please try again in a moment." });
+      return;
+    }
+    toast.success(next ? "Sponsors can now see your contact details" : "Your contact details are no longer shared with sponsors");
+  };
+
+  return (
+    <label className="mt-4 flex items-start justify-between gap-4 rounded-2xl border border-border bg-card p-4">
+      <span className="min-w-0">
+        <span className="block text-[14px] font-medium">Share my contact details with sponsors</span>
+        <span className="mt-0.5 block text-[12px] leading-relaxed text-muted-foreground">
+          Your email, mobile number and LinkedIn, so this event's sponsors can contact you. Sponsors always see your name,
+          company and whether you attended.
+        </span>
+      </span>
+      <Switch checked={value} disabled={saving} onCheckedChange={(v) => void change(v)} aria-label="Share my contact details with sponsors" />
+    </label>
   );
 }

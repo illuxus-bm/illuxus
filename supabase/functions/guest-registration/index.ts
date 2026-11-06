@@ -156,6 +156,8 @@ export interface NewRegistration {
   mobile_country_code: string;
   mobile_number: string;
   approval_status: "pending" | "approved";
+  /** The guest's answer to "share my contact details with the event's sponsors" (migration 079 records when and to which wording). */
+  sponsor_share_consent: boolean;
   utm: Partial<Record<(typeof UTM_KEYS)[number], string>>;
 }
 
@@ -245,6 +247,8 @@ export interface RegistrationInput {
   company: string;
   mobile_country_code: string;
   mobile_number: string;
+  /** Optional, and only an explicit yes counts. */
+  sponsor_share: boolean;
   utm: NewRegistration["utm"];
 }
 
@@ -259,6 +263,7 @@ export function validateRegistration(body: Record<string, unknown>): { ok: true;
     company: clean(body.company, 160),
     mobile_country_code: clean(body.mobile_country_code, 6),
     mobile_number: clean(body.mobile_number, 20).replace(/[\s()-]/g, ""),
+    sponsor_share: body.sponsor_share === true,
     utm: sanitizeUtm(body.utm),
   };
   if (!UUID_RE.test(value.event_id)) errors.event_id = "Unknown event.";
@@ -562,6 +567,7 @@ export function createHandler(deps: Deps) {
       // The database trigger has the final say: approval-required and paid
       // events become 'pending' whatever is sent here.
       approval_status: event.requires_approval || Number(event.price) > 0 ? "pending" : "approved",
+      sponsor_share_consent: input.sponsor_share,
       utm: input.utm,
     });
     if ("duplicate" in inserted) {
@@ -766,14 +772,13 @@ const REG_COLUMNS = "id, event_id, email, name, first_name, last_name, designati
 export function supabaseStore(db: any): Store {
   return {
     async allow(bucket, key, windowSeconds, max) {
-      const since = new Date(Date.now() - windowSeconds * 1000).toISOString();
-      const { count, error } = await db.from("guest_rate_limits").select("id", { count: "exact", head: true })
-        .eq("bucket", bucket).eq("key_hash", key).gte("created_at", since);
+      // Counts and records in one locked call (take_rate_limit, migration 077),
+      // so requests arriving together can't all slip under the limit.
+      const { data, error } = await db.rpc("take_rate_limit", {
+        _bucket: bucket, _key_hash: key, _max: max, _window_seconds: windowSeconds,
+      });
       // If the limiter itself is unavailable, refuse rather than run unlimited.
-      if (error) return false;
-      if ((count ?? 0) >= max) return false;
-      await db.from("guest_rate_limits").insert({ bucket, key_hash: key });
-      return true;
+      return !error && data === true;
     },
     async getEvent(id) {
       const { data } = await db.from("events")

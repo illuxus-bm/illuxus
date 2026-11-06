@@ -245,12 +245,13 @@ async function sha256Hex(text) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 async function withinLimit(admin, bucket, key, max, windowMs) {
-  const keyHash = await sha256Hex(key);
-  const since = new Date(Date.now() - windowMs).toISOString();
-  const { count, error } = await admin.from("guest_rate_limits").select("id", { count: "exact", head: true }).eq("bucket", bucket).eq("key_hash", keyHash).gte("created_at", since);
-  if (error || (count ?? 0) >= max) return false;
-  const { error: insertError } = await admin.from("guest_rate_limits").insert({ bucket, key_hash: keyHash });
-  return !insertError;
+  const { data, error } = await admin.rpc("take_rate_limit", {
+    _bucket: bucket,
+    _key_hash: await sha256Hex(key),
+    _max: max,
+    _window_seconds: Math.max(1, Math.ceil(windowMs / 1e3))
+  });
+  return !error && data === true;
 }
 
 // supabase/functions/seed-cities/index.ts

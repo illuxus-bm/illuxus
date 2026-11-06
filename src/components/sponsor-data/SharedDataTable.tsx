@@ -133,6 +133,9 @@ export function SharedDataTable({ shareId, canExport, fileName }: { shareId: str
         </TableShell>
       )}
       <Pager pager={pager} total={query.data?.total ?? 0} updating={query.isFetching} label="participants" />
+      <p className="text-[12px] text-muted-foreground">
+        Contact details appear only for participants who agreed to share them with sponsors. Use them for this event's follow-up, as agreed with the organiser.
+      </p>
       <Sheet open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
           <SheetHeader>
@@ -141,6 +144,9 @@ export function SharedDataTable({ shareId, canExport, fileName }: { shareId: str
           </SheetHeader>
           {open && (
             <div className="mt-4 space-y-4 pb-8">
+              {!open.email && !open.mobile && (
+                <p className="text-[12px] text-muted-foreground">This participant didn't give permission to share their contact details with sponsors.</p>
+              )}
               <div className="flex flex-wrap gap-2">
                 {open.email && <Button asChild variant="outline" className="h-9 rounded-xl"><a href={`mailto:${open.email}`}><Mail className="mr-1.5 h-4 w-4" /> Email</a></Button>}
                 {open.mobile && <Button asChild variant="outline" className="h-9 rounded-xl"><a href={`tel:${String(open.mobile).replace(/\s+/g, "")}`}><Phone className="mr-1.5 h-4 w-4" /> Call</a></Button>}

@@ -48,6 +48,14 @@ describe("ShareDataDialog", () => {
     expect(screen.getByText("Mobile")).toBeTruthy();
   });
 
+  it("says how many people haven't agreed to share their contact details (QA audit F-10)", async () => {
+    p = preview({ without_permission: 7 });
+    open();
+    const note = await screen.findByText(/haven't given permission to share contact details with/);
+    expect(note.textContent).toMatch(/^7 participants haven't given permission/);
+    expect(note.textContent).toContain("Their email, mobile and LinkedIn are not shared.");
+  });
+
   it("shares on confirmation with the chosen options", async () => {
     open();
     fireEvent.click(await screen.findByRole("switch", { name: "Allow download" }));
