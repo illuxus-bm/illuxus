@@ -1,8 +1,9 @@
 /**
  * Super admin: what each plan includes.
  *
- * One column per plan, one row per feature. Saving a plan applies to every
- * organisation on it straight away (org_entitlements reads the plan live).
+ * One column per plan, one row per price, limit and feature. Saving a plan
+ * applies to every organisation on it straight away (org_entitlements reads
+ * the plan live); prices show wherever plans are offered (onboarding).
  * Exceptions for a single organisation are set from the Organizations page.
  */
 import { useEffect, useMemo, useState } from "react";
@@ -23,12 +24,13 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseRpc } from "@/lib/observability";
 import { PLANS_QUERY_KEY } from "@/hooks/usePlanFeatures";
 import {
-  DEFAULT_PLANS, FEATURE_GROUPS, FEATURES, PLAN_KEY_PATTERN, parsePlan,
-  type Plan, type PlanLimits,
+  DEFAULT_PLANS, FEATURE_GROUPS, FEATURES, PLAN_CURRENCIES, PLAN_KEY_PATTERN, formatPlanPrice, parsePlan,
+  rowHasPricing, type Plan, type PlanLimits,
 } from "@/lib/plans/features";
 import { friendlyError } from "@/lib/friendly-error";
 
@@ -46,10 +48,19 @@ const db = supabase as unknown as {
   };
 };
 
-async function loadPlans(): Promise<{ plans: Plan[]; missing: boolean }> {
+const PRICES: Array<{ key: "price_monthly" | "price_yearly"; label: string; empty: string }> = [
+  { key: "price_monthly", label: "Monthly price", empty: "Custom" },
+  { key: "price_yearly", label: "Yearly price", empty: "No yearly option" },
+];
+
+async function loadPlans(): Promise<{ plans: Plan[]; missing: boolean; pricingMissing: boolean }> {
   const { data, error } = await db.from("plans").select("*").order("sort_order");
-  if (error || !data) return { plans: DEFAULT_PLANS, missing: true };
-  return { plans: data.map(parsePlan), missing: false };
+  if (error || !data) return { plans: DEFAULT_PLANS, missing: true, pricingMissing: true };
+  return {
+    plans: data.map(parsePlan),
+    missing: false,
+    pricingMissing: data.length > 0 && !rowHasPricing(data[0]),
+  };
 }
 
 async function loadPlanCounts(): Promise<Record<string, number>> {
@@ -66,6 +77,9 @@ const samePlan = (a: Plan, b: Plan) =>
   a.name === b.name &&
   a.description === b.description &&
   a.is_public === b.is_public &&
+  a.price_monthly === b.price_monthly &&
+  a.price_yearly === b.price_yearly &&
+  a.currency === b.currency &&
   LIMITS.every(({ key }) => a.limits[key] === b.limits[key]) &&
   [...a.features].sort().join() === [...b.features].sort().join();
 
@@ -80,6 +94,7 @@ export default function PlansPage() {
 
   const saved = useMemo(() => plansQ.data?.plans ?? [], [plansQ.data]);
   const missing = plansQ.data?.missing ?? false;
+  const pricingMissing = plansQ.data?.pricingMissing ?? false;
   useEffect(() => setDraft(saved.map((p) => ({ ...p, limits: { ...p.limits }, features: [...p.features] }))), [saved]);
 
   const dirtyKeys = draft
@@ -100,6 +115,12 @@ export default function PlansPage() {
     const value = raw.trim() === "" ? -1 : Math.max(-1, Math.floor(Number(raw)));
     if (!Number.isFinite(value)) return;
     update(key, (p) => ({ ...p, limits: { ...p.limits, [limit]: value } }));
+  };
+  const setPrice = (key: string, field: "price_monthly" | "price_yearly", raw: string) => {
+    if (raw.trim() === "") return update(key, (p) => ({ ...p, [field]: null }));
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0) return;
+    update(key, (p) => ({ ...p, [field]: Math.round(value * 100) / 100 }));
   };
 
   const refreshEverywhere = async () => {
@@ -123,6 +144,11 @@ export default function PlansPage() {
         _is_public: p.is_public,
         _limits: p.limits,
         _features: p.features,
+        // Left out until migration 084 adds the price columns, so saving
+        // features and limits keeps working on the older function.
+        ...(pricingMissing
+          ? {}
+          : { _pricing: { monthly: p.price_monthly, yearly: p.price_yearly, currency: p.currency } }),
       });
       if (error) {
         toast.error(`Couldn't save ${p.name}`, { description: friendlyError(error) });
@@ -161,6 +187,9 @@ export default function PlansPage() {
         is_public: false,
         limits: { max_events: -1, max_attendees_per_event: -1, max_team_members: -1 },
         features: [...(base?.features ?? [])],
+        price_monthly: null,
+        price_yearly: null,
+        currency: base?.currency ?? "INR",
       },
     ]);
     setAdding(false);
@@ -209,6 +238,16 @@ export default function PlansPage() {
               The plans table isn't in the database yet. Run the <code>048_plan_features.sql</code> section of{" "}
               <code>supabase/migrations/000_full_schema.sql</code> in the Supabase SQL Editor. Until then this page shows
               the built-in plans and can't save.
+            </p>
+          </div>
+        )}
+
+        {!missing && pricingMissing && (
+          <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-[13px]">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <p>
+              Plan prices aren't in the database yet. Run <code>supabase/RUN_ME_plan_pricing.sql</code> in the Supabase
+              SQL Editor. Until then prices can't be changed; features and limits still save.
             </p>
           </div>
         )}
@@ -264,6 +303,54 @@ export default function PlansPage() {
                 </tr>
               </thead>
               <tbody>
+                <tr className="border-b border-border bg-muted/40">
+                  <th colSpan={draft.length + 1} scope="colgroup" className="sticky left-0 p-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Pricing <span className="font-normal normal-case tracking-normal">— leave the monthly price empty for "Custom" (contact sales); 0 is free.</span>
+                  </th>
+                </tr>
+                <tr className="border-b border-border">
+                  <th scope="row" className="sticky left-0 z-10 bg-card p-3 text-left font-medium">Currency</th>
+                  {draft.map((p) => (
+                    <td key={p.key} className="p-3">
+                      <Select
+                        value={p.currency}
+                        onValueChange={(v) => update(p.key, (x) => ({ ...x, currency: v }))}
+                        disabled={pricingMissing}
+                      >
+                        <SelectTrigger aria-label={`Currency on ${p.name}`} className="h-8 w-28 text-[13px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[...new Set([...PLAN_CURRENCIES, p.currency])].map((c) => (
+                            <SelectItem key={c} value={c}>{c}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </td>
+                  ))}
+                </tr>
+                {PRICES.map(({ key, label, empty }) => (
+                  <tr key={key} className="border-b border-border">
+                    <th scope="row" className="sticky left-0 z-10 bg-card p-3 text-left font-medium">{label}</th>
+                    {draft.map((p) => (
+                      <td key={p.key} className="p-3">
+                        <Input
+                          type="number" min={0} step="any" inputMode="decimal"
+                          aria-label={`${label} on ${p.name}`}
+                          placeholder={empty}
+                          value={p[key] === null ? "" : String(p[key])}
+                          onChange={(e) => setPrice(p.key, key, e.target.value)}
+                          disabled={pricingMissing}
+                          className="h-8 w-28 text-[13px]"
+                        />
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          {p[key] === null ? empty : formatPlanPrice(p[key], p.currency)}
+                        </p>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+
                 <tr className="border-b border-border bg-muted/40">
                   <th colSpan={draft.length + 1} scope="colgroup" className="sticky left-0 p-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Limits <span className="font-normal normal-case tracking-normal">— leave empty for unlimited. Shown on the plan; not enforced yet.</span>
@@ -401,7 +488,7 @@ function AddPlanDialog({
               {error ?? "Stored on each organisation; can't be changed later."}
             </p>
           </div>
-          <p className="text-[12px] text-muted-foreground">It starts hidden, with the Free plan's features. Tick what it includes, then save.</p>
+          <p className="text-[12px] text-muted-foreground">It starts hidden, with the Free plan's features and a Custom price. Set its price, tick what it includes, then save.</p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

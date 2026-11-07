@@ -18,13 +18,13 @@ import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import { buildUpgradeRequest } from "@/lib/plans/upgrade-request";
 import { supabaseRpc } from "@/lib/observability";
 import { publicOrigin } from "@/lib/publicUrl";
+import { usePlans } from "@/hooks/usePlanFeatures";
+import { formatPlanPrice, type Plan } from "@/lib/plans/features";
 
 const PLANS = [
   {
     key: "free",
     name: "Free",
-    price: "$0",
-    period: "forever",
     icon: Rocket,
     highlight: false,
     features: ["3 events", "50 attendees/event", "Basic analytics", "1 team member"],
@@ -32,8 +32,6 @@ const PLANS = [
   {
     key: "starter",
     name: "Starter",
-    price: "$29",
-    period: "/month",
     icon: Zap,
     highlight: false,
     features: ["10 events", "200 attendees/event", "Custom branding", "Email notifications", "3 team members"],
@@ -41,8 +39,6 @@ const PLANS = [
   {
     key: "pro",
     name: "Pro",
-    price: "$79",
-    period: "/month",
     icon: Crown,
     highlight: true,
     features: ["50 events", "1,000 attendees/event", "Advanced analytics", "Sponsor management", "Custom domain", "10 team members"],
@@ -50,13 +46,21 @@ const PLANS = [
   {
     key: "business",
     name: "Business",
-    price: "$199",
-    period: "/month",
     icon: Globe,
     highlight: false,
     features: ["Unlimited events", "Unlimited attendees", "API access", "White label", "Priority support", "Unlimited team members"],
   },
 ];
+
+/** The price a super admin set for the plan (/dashboard/admin/plans). */
+function planPrice(plan: Plan | undefined): { price: string; period: string } {
+  if (!plan) return { price: "", period: "" };
+  const monthly = formatPlanPrice(plan.price_monthly, plan.currency);
+  if (plan.price_monthly === 0) return { price: monthly, period: " forever" };
+  if (plan.price_monthly === null) return { price: monthly, period: "" };
+  const yearly = plan.price_yearly ? ` · ${formatPlanPrice(plan.price_yearly, plan.currency)}/year` : "";
+  return { price: monthly, period: `/month${yearly}` };
+}
 
 const OnboardingPage = () => {
   const { user } = useAuth();
@@ -77,6 +81,8 @@ const OnboardingPage = () => {
   const [subdomainError, setSubdomainError] = useState<string | null>(null);
   const [checkingSub, setCheckingSub] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState("free");
+  const { data: plans = [] } = usePlans();
+  const prices = Object.fromEntries(PLANS.map((p) => [p.key, planPrice(plans.find((x) => x.key === p.key))]));
   const [saving, setSaving] = useState(false);
 
   // Avoid flashing the onboarding UI while we're still resolving the user's org
@@ -290,8 +296,8 @@ const OnboardingPage = () => {
                     <plan.icon className="h-5 w-5 text-muted-foreground mb-2" />
                     <p className="text-sm font-semibold">{plan.name}</p>
                     <p className="text-lg font-bold mt-0.5">
-                      {plan.price}
-                      <span className="text-xs font-normal text-muted-foreground">{plan.period}</span>
+                      {prices[plan.key].price}
+                      <span className="text-xs font-normal text-muted-foreground">{prices[plan.key].period}</span>
                     </p>
                     <ul className="mt-3 space-y-1.5">
                       {plan.features.map((f) => (

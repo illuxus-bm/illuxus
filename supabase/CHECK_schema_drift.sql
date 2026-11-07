@@ -1421,7 +1421,10 @@ WITH expected(kind, name, col, section) AS (VALUES
   ('function','_sponsor_share_without_permission',NULL::text,'079_sponsor_share_consent.sql'),
   ('function','_sponsor_share_rows_forget',NULL::text,'079_sponsor_share_consent.sql'),
   ('function','_sponsor_share_rows_withdraw',NULL::text,'079_sponsor_share_consent.sql'),
-  ('function','org_member_role',NULL::text,'083_fix_event_publish.sql')
+  ('function','org_member_role',NULL::text,'083_fix_event_publish.sql'),
+  ('column','plans','price_monthly','084_plan_pricing.sql'),
+  ('column','plans','price_yearly','084_plan_pricing.sql'),
+  ('column','plans','currency','084_plan_pricing.sql')
 )
 SELECT e.section, e.kind, e.name, e.col
   FROM expected e

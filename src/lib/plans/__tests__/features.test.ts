@@ -10,6 +10,7 @@ import {
   fallbackEntitlements,
   featureLabel,
   formatLimit,
+  formatPlanPrice,
   parseEntitlements,
   parsePlan,
   resolveFeatures,
@@ -110,6 +111,33 @@ describe("parsing server rows", () => {
       features: [],
       is_public: true,
     });
+  });
+});
+
+describe("plan prices", () => {
+  it("reads the price columns, accepting numeric strings", () => {
+    expect(parsePlan({ key: "pro", name: "Pro", price_monthly: "2499.00", price_yearly: null, currency: "INR" })).toMatchObject({
+      price_monthly: 2499,
+      price_yearly: null,
+      currency: "INR",
+    });
+  });
+
+  it("keeps a NULL monthly price as Custom rather than the built-in price", () => {
+    expect(parsePlan({ key: "pro", name: "Pro", price_monthly: null, currency: "USD" }).price_monthly).toBeNull();
+  });
+
+  it("falls back to the built-in prices before the price columns exist", () => {
+    expect(parsePlan({ key: "starter", name: "Starter" })).toMatchObject({ price_monthly: 29, currency: "USD" });
+    expect(parsePlan({ key: "agency", name: "Agency" })).toMatchObject({ price_monthly: null, price_yearly: null });
+  });
+
+  it("formats prices", () => {
+    expect(formatPlanPrice(null, "INR")).toBe("Custom");
+    expect(formatPlanPrice(0, "USD")).toBe("Free");
+    expect(formatPlanPrice(29, "USD")).toBe("$29");
+    expect(formatPlanPrice(249999, "INR")).toBe("₹2,49,999");
+    expect(formatPlanPrice(9.5, "USD")).toBe("$9.50");
   });
 });
 

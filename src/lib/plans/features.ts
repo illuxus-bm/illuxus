@@ -78,7 +78,16 @@ export interface Plan {
   is_public: boolean;
   limits: PlanLimits;
   features: string[];
+  /** Monthly price in `currency`. `null` means "Custom" (contact sales); 0 is free. */
+  price_monthly: number | null;
+  /** Yearly price in `currency`; `null` when the plan has no yearly option. */
+  price_yearly: number | null;
+  /** ISO 4217 code, e.g. "INR". */
+  currency: string;
 }
+
+/** Currencies offered in the admin plan editor. The database accepts any ISO 4217 code. */
+export const PLAN_CURRENCIES = ["INR", "USD", "EUR", "GBP", "AED", "SGD", "AUD", "CAD"] as const;
 
 /** Per-organisation exceptions: `true` grants a feature, `false` removes it. */
 export type FeatureOverrides = Record<string, boolean>;
@@ -106,6 +115,9 @@ export const DEFAULT_PLANS: Plan[] = [
     is_public: true,
     limits: { max_events: 3, max_attendees_per_event: 50, max_team_members: 1 },
     features: [...ALL_MODULES],
+    price_monthly: 0,
+    price_yearly: null,
+    currency: "USD",
   },
   {
     key: "starter",
@@ -115,6 +127,9 @@ export const DEFAULT_PLANS: Plan[] = [
     is_public: true,
     limits: { max_events: 10, max_attendees_per_event: 200, max_team_members: 3 },
     features: [...ALL_MODULES],
+    price_monthly: 29,
+    price_yearly: null,
+    currency: "USD",
   },
   {
     key: "pro",
@@ -124,6 +139,9 @@ export const DEFAULT_PLANS: Plan[] = [
     is_public: true,
     limits: { max_events: 50, max_attendees_per_event: 1000, max_team_members: 10 },
     features: [...ALL_MODULES, "advanced_analytics"],
+    price_monthly: 79,
+    price_yearly: null,
+    currency: "USD",
   },
   {
     key: "business",
@@ -133,6 +151,9 @@ export const DEFAULT_PLANS: Plan[] = [
     is_public: true,
     limits: { max_events: -1, max_attendees_per_event: -1, max_team_members: -1 },
     features: [...ALL_MODULES, "advanced_analytics", "white_label", "api_access", "priority_support"],
+    price_monthly: 199,
+    price_yearly: null,
+    currency: "USD",
   },
 ];
 
@@ -199,10 +220,25 @@ export function parseEntitlements(raw: unknown): Entitlements | null {
   };
 }
 
+/** True when a `plans` row carries prices (migration 084 applied). */
+export function rowHasPricing(row: Record<string, unknown>): boolean {
+  return "price_monthly" in row;
+}
+
+/** A price column: PostgREST returns `numeric` as a number or a string. */
+function parsePrice(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 /** Normalises a `plans` table row. */
 export function parsePlan(row: Record<string, unknown>): Plan {
   const limits = (row.limits ?? {}) as Partial<PlanLimits>;
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : -1);
+  // Before migration 084 there are no price columns: use the built-in prices.
+  const builtIn = DEFAULT_PLANS.find((p) => p.key === row.key);
+  const priced = rowHasPricing(row);
   return {
     key: String(row.key),
     name: String(row.name ?? row.key),
@@ -215,6 +251,12 @@ export function parsePlan(row: Record<string, unknown>): Plan {
       max_team_members: num(limits.max_team_members),
     },
     features: Array.isArray(row.features) ? row.features.map(String) : [],
+    price_monthly: priced ? parsePrice(row.price_monthly) : builtIn?.price_monthly ?? null,
+    price_yearly: priced ? parsePrice(row.price_yearly) : builtIn?.price_yearly ?? null,
+    currency:
+      typeof row.currency === "string" && /^[A-Z]{3}$/.test(row.currency)
+        ? row.currency
+        : builtIn?.currency ?? "USD",
   };
 }
 
@@ -223,4 +265,20 @@ export const PLAN_KEY_PATTERN = /^[a-z][a-z0-9_]{1,31}$/;
 /** "Unlimited" for -1, otherwise the number. */
 export function formatLimit(value: number): string {
   return value < 0 ? "Unlimited" : value.toLocaleString("en-IN");
+}
+
+/** "Custom" for no price, "Free" for 0, otherwise e.g. "₹2,499" or "$29". */
+export function formatPlanPrice(amount: number | null, currency: string): string {
+  if (amount === null) return "Custom";
+  if (amount === 0) return "Free";
+  try {
+    return new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+      maximumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toLocaleString("en-US")}`;
+  }
 }

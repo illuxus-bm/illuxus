@@ -331,6 +331,16 @@ END; $$;
 REVOKE ALL ON FUNCTION public.admin_save_plan(text, text, text, int, boolean, jsonb, text[]) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.admin_save_plan(text, text, text, int, boolean, jsonb, text[]) TO authenticated;
 
+-- 084_plan_pricing replaces this with a version that also takes prices. If
+-- that one exists (this file re-run later), drop the one just created so a
+-- call isn't ambiguous between the two.
+DO $$
+BEGIN
+  IF to_regprocedure('public.admin_save_plan(text,text,text,int,boolean,jsonb,text[],jsonb)') IS NOT NULL THEN
+    DROP FUNCTION public.admin_save_plan(text, text, text, int, boolean, jsonb, text[]);
+  END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION public.admin_delete_plan(_key text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE _n int;
