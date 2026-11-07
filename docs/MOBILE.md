@@ -33,10 +33,23 @@ apply there, at phone and tablet widths.
 
 ### Icons and splash screens
 
-`bun run cap:assets` regenerates every Android and iOS size from `assets/icon-*.png` and
-`assets/splash*.png`. Replace those source images to change the artwork. The native splash is the
-same violet as `index.html`'s splash (`#0f0a19`) and is hidden as soon as the page starts, so the two
-read as one screen.
+`bun run cap:assets` regenerates every Android and iOS icon size from `assets/icon-*.png`, then runs
+[`scripts/app-splash.mjs`](../scripts/app-splash.mjs) (needs `brew install librsvg`), which renders
+the launch-screen logo from the website's wordmark (`public/illuxus-wordmark-{light,dark}.svg`).
+
+The launch screen is the wordmark at 166 × 48, centred on white in light mode and on the brand violet
+(`#0f0a19`) in dark mode, following the device's setting. It looks the same as `index.html`'s splash,
+which takes over under it: the native screen stays up until the web splash has painted, then fades in
+200 ms (`src/lib/native/boot.ts`), so the two read as one screen.
+
+| | Where |
+| --- | --- |
+| iOS | `ios/App/App/Base.lproj/LaunchScreen.storyboard`, with `SplashLogo` and `SplashBackground` in `Assets.xcassets` |
+| Android 12+ | The launch theme's `windowSplashScreenBackground` and `windowSplashScreenAnimatedIcon` (`res/values/styles.xml`) |
+| Android 7–11 | `res/drawable/launch_splash.xml` |
+| Colours | `res/values{,-night}/colors.xml` (`splash_background`), `SplashBackground.colorset` |
+
+iOS caches launch screens: after changing it, delete the app and reinstall to see the new one.
 
 ## What changes in the app
 

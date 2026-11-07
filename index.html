@@ -55,7 +55,9 @@
           linear-gradient(180deg, #0f0a19 0%, #1a1330 100%);
         color: #fafafa;
         font-family: 'Onest', 'Poppins', system-ui, -apple-system, sans-serif;
-        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        /* Sides only: the logo centres on the whole screen, where the iOS
+           and Android launch screens put it, so the hand-over doesn't jump. */
+        padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
         transition: opacity 200ms ease, visibility 200ms ease;
         will-change: opacity;
         opacity: 1;
@@ -96,15 +98,23 @@
       }
 
       /* The card holds the wordmark + tagline + loading dots */
+      /* The wordmark sits at the exact centre (as on the native launch
+         screens); the tagline and dots hang below it. */
       .splash-card {
         position: relative;
         z-index: 1;
+        transition: transform 200ms ease;
+        will-change: transform;
+      }
+      .splash-below {
+        position: absolute;
+        top: calc(100% + 24px);
+        left: 50%;
+        transform: translateX(-50%);
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 24px;
-        transition: transform 200ms ease;
-        will-change: transform;
+        white-space: nowrap;
       }
 
       .splash-logo {
@@ -112,8 +122,8 @@
         animation: logo-glow 2.6s ease-in-out infinite;
         filter: drop-shadow(0 0 24px rgba(139, 92, 246, 0.35));
       }
+      /* 166 × 48, the size of the native launch screens' wordmark. */
       .splash-logo img { display: block; height: 48px; width: auto; }
-      @media (min-width: 768px) { .splash-logo img { height: 60px; } }
 
       @keyframes logo-glow {
         0%, 100% { filter: drop-shadow(0 0 20px rgba(139, 92, 246, 0.30)); }
@@ -179,6 +189,7 @@
       }
 
       /* If the user has overridden to light mode before JS runs, recolour. */
+      html:not(.dark), html:not(.dark) body { background: #ffffff; }
       html:not(.dark) #illuxus-splash {
         background:
           radial-gradient(80% 50% at 50% 0%, rgba(139, 92, 246, 0.18), transparent 70%),
@@ -479,11 +490,13 @@
               if (wm) wm.src = window.__splashTheme === 'dark' ? '/illuxus-wordmark-dark.svg' : '/illuxus-wordmark-light.svg';
             })();
           </script>        </div>
-        <p class="splash-tagline">
-          Events you'll <strong>remember</strong>
-        </p>
-        <div class="splash-dots" aria-hidden="true">
-          <span></span><span></span><span></span>
+        <div class="splash-below">
+          <p class="splash-tagline">
+            Events you'll <strong>remember</strong>
+          </p>
+          <div class="splash-dots" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
         </div>
       </div>
       <p class="splash-foot">Hosted on Illuxus</p>

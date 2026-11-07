@@ -15,7 +15,7 @@
     "app:release": "node scripts/check-app-release.mjs && vite build --mode capacitor && cap sync",
     "cap:android": "cap open android",
     "cap:ios": "cap open ios",
-    "cap:assets": "capacitor-assets generate --ios --android --iconBackgroundColor '#0b0b1a' --iconBackgroundColorDark '#0b0b1a' --splashBackgroundColor '#0f0a19' --splashBackgroundColorDark '#0f0a19'",
+    "cap:assets": "capacitor-assets generate --ios --android --iconBackgroundColor '#0b0b1a' --iconBackgroundColorDark '#0b0b1a' && node scripts/app-splash.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "preview": "vite preview",

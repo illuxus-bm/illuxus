@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launch screen before Android 12: the wordmark centred on the splash
+     colour, drawn at the device's density so it is sharp at any size and
+     never stretched. Android 12+ draws the same from the theme
+     (windowSplashScreenAnimatedIcon). Light and night variants come from
+     the resources. Regenerate the logo with scripts/app-splash.mjs. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_background" />
+    <item>
+        <bitmap android:gravity="center" android:src="@drawable/splash_logo" />
+    </item>
+</layer-list>

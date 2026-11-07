@@ -4,6 +4,6 @@
          web view and the system bars, so nothing flashes white or black when
          the page loads, rotates or the theme changes. -->
     <color name="app_background">#FAFAFA</color>
-    <!-- The splash (capacitor.config.ts backgroundColor, index.html splash). -->
-    <color name="splash_background">#0F0A19</color>
+    <!-- Launch screen background (light: index.html splash, light theme). -->
+    <color name="splash_background">#FFFFFF</color>
 </resources>

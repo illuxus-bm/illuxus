@@ -23,11 +23,14 @@
         <item name="android:enforceNavigationBarContrast" tools:targetApi="29">false</item>
     </style>
 
-    <!-- Launch: Android 12+ shows the app icon on the brand colour, then hands
-         over to the app's theme; older versions show the splash image. -->
+    <!-- Launch: the wordmark centred on white (light) or the brand violet
+         (dark), the same as the web splash that follows, so the two read as
+         one screen. Android 12+ uses the splash-screen attributes; older
+         versions the layer-list behind them. -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="android:background">@drawable/launch_splash</item>
         <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

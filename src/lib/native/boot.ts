@@ -202,8 +202,12 @@ export function bootNativeApp() {
   installKeyboard().catch((err) =>
     logger.debug("native.keyboard_unavailable", { error_message: (err as Error)?.message }),
   );
-  // index.html paints its own splash; hand over to it straight away.
-  import("@capacitor/splash-screen")
-    .then(({ SplashScreen }) => SplashScreen.hide({ fadeOutDuration: 150 }))
-    .catch(() => { /* already hidden */ });
+  // index.html paints its own splash, the same as the launch screen. Hand
+  // over once it has been drawn (two frames), so the fade shows it, not a
+  // blank page.
+  const handOver = () =>
+    import("@capacitor/splash-screen")
+      .then(({ SplashScreen }) => SplashScreen.hide({ fadeOutDuration: 200 }))
+      .catch(() => { /* already hidden */ });
+  requestAnimationFrame(() => requestAnimationFrame(() => void handOver()));
 }
