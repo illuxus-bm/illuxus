@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark mode: index.css dark background token. -->
+    <color name="app_background">#121212</color>
+    <color name="splash_background">#0F0A19</color>
+</resources>

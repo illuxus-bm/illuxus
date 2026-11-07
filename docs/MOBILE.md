@@ -69,7 +69,10 @@ These changes apply only in the native app:
 | Links to other sites | Open in the in-app browser (SFSafariViewController or Custom Tabs). |
 | Links to illuxus.com | Stay in the app. |
 | Android back button | Closes an open dialog or sheet, then goes back a page, then exits from the first page. |
-| Status bar | Follows the light/dark theme. |
+| Appearance | Light, Dark or **Device** (the default), in the header and the More sheet. Device follows the phone's setting live, including scheduled dark mode. On Android the choice also drives native pickers and the window behind the page ([`AppAppearancePlugin`](../android/app/src/main/java/com/illuxus/app/AppAppearancePlugin.java)). |
+| Status and navigation bars | Icons follow the theme. The page draws under the bars (edge to edge) where the web view can: always on iOS, and on Android with System WebView 140+. Older Android web views keep the bars outside the page, filled with the theme's background. Always-dark screens (welcome, sign-in on phones) ask for light icons with `useDarkScreenBars`. |
+| Text size | Android: the phone's font size scales the app's text (85–150%, `MainActivity`). iOS web views don't follow Dynamic Type; people can still pinch to zoom. |
+| Devices | Phones, tablets and foldables in any orientation, split screen and resizable windows. Android doesn't require a touchscreen, so Play also offers the app on Chromebooks. iPad apps also run on Apple silicon Macs. |
 | Keyboard | Hides the tab bar while it is up. |
 | Input zoom | iOS no longer zooms into small inputs. |
 | Shared links | Shared links, QR codes and emails use `https://illuxus.com`, not the web view's local origin ([`publicUrl`](../src/lib/publicUrl.ts)). |
@@ -147,7 +150,8 @@ illuxus project:
    they are live, the links open in the browser. The `illuxus://` scheme works without them.
 4. **Supabase Auth.** Add `illuxus://**` to the allowed redirect URLs if any flow should return to the
    app by the custom scheme.
-5. **Store listings.**
+5. **Store listings.** The text to paste, the privacy answers and the review notes are in
+   [`STORE_LISTING.md`](./STORE_LISTING.md).
    - Both stores need a privacy policy URL (`/privacy`) and an account-deletion URL (`/data-deletion`),
      plus the data-safety and privacy-label forms. Declare what the app collects (name, email, mobile,
      company, photos people upload) and that GA4 and Clarity run only after consent.

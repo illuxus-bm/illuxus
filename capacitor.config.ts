@@ -25,6 +25,9 @@ const config: CapacitorConfig = {
     contentInset: "never",
     scrollEnabled: true,
     backgroundColor: "#0f0a19",
+    // A long press on a link doesn't pop up Safari's web preview; it's an
+    // app, not a browser.
+    allowsLinkPreview: false,
   },
   plugins: {
     SplashScreen: {
@@ -41,8 +44,9 @@ const config: CapacitorConfig = {
     Keyboard: {
       // The page resizes above the keyboard, so the focused field stays
       // visible. The tab bar hides while the keyboard is up (index.css).
+      // (No `resizeOnFullScreen`: SystemBars handles the keyboard inset on
+      // Android and warns that the two conflict.)
       resize: "native",
-      resizeOnFullScreen: true,
     },
     SystemBars: {
       // Edge to edge on Android, with the insets as env() values like iOS.

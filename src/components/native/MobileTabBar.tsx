@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   BarChart3, Building2, Calendar, ClipboardList, Compass, CreditCard, HelpCircle, LayoutGrid,
-  LogIn, LogOut, Megaphone, Moon, Settings, Sun, Ticket, User, Users, type LucideIcon,
+  LogIn, LogOut, Megaphone, Monitor, Moon, Palette, Settings, Sun, Ticket, User, Users, type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
@@ -84,7 +84,7 @@ function MoreSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open:
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
-  const { theme, setTheme } = useTheme();
+  const { preference, setTheme } = useTheme();
   const { workspace, you } = useMoreItems();
 
   // `wide`: icon beside the name, for the two-column rows.
@@ -122,14 +122,34 @@ function MoreSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open:
           <div className="grid grid-cols-2 gap-2.5">{you.map((item) => tile(item, true))}</div>
 
           <div className="mt-5 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
-            <button
-              type="button"
-              onClick={() => { hapticSelection(); setTheme(theme === "dark" ? "light" : "dark"); }}
-              className="flex w-full items-center gap-3 px-4 py-3.5 text-left text-[14px] font-medium active:bg-muted"
-            >
-              {theme === "dark" ? <Sun className="h-[18px] w-[18px] text-muted-foreground" /> : <Moon className="h-[18px] w-[18px] text-muted-foreground" />}
-              <span className="flex-1">{theme === "dark" ? "Light appearance" : "Dark appearance"}</span>
-            </button>
+            {/* Appearance, as a settings row with a segmented control, the way
+                both platforms present it. "Device" follows the system setting. */}
+            <div className="flex items-center gap-3 px-4 py-3">
+              <Palette className="h-[18px] w-[18px] text-muted-foreground" aria-hidden="true" />
+              <span id="appearance-label" className="flex-1 text-[14px] font-medium">Appearance</span>
+              <div role="radiogroup" aria-labelledby="appearance-label" className="flex rounded-full bg-muted p-0.5">
+                {([
+                  { value: "light", label: "Light", icon: Sun },
+                  { value: "system", label: "Device", icon: Monitor },
+                  { value: "dark", label: "Dark", icon: Moon },
+                ] as const).map(({ value, label, icon: Icon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={preference === value}
+                    onClick={() => { hapticSelection(); setTheme(value); }}
+                    className={cn(
+                      "flex min-h-9 items-center gap-1 rounded-full px-2.5 text-[12px] font-medium transition-colors",
+                      preference === value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             {user && (
               <button
                 type="button"

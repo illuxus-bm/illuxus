@@ -869,6 +869,16 @@ html.keyboard-open .app-tab-bar {
    preview / save callout. Text stays selectable. */
 html.native-app :is(a, img) { -webkit-touch-callout: none; }
 
+/* Controls behave like native ones: a tap is a tap straight away (no
+   double-tap-to-zoom wait), a long press doesn't start selecting a button's
+   label, and dragging an image or link doesn't lift a ghost copy of it. */
+html.native-app { touch-action: manipulation; }
+html.native-app :is(button, [role="button"], [role="tab"], [role="radio"], [role="switch"], [role="menuitem"], label, summary) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+html.native-app :is(a, img) { -webkit-user-drag: none; }
+
 /* App sign-in (LoginPage): fields and the main button at a thumb's size. */
 @media (max-width: 1023px) {
   .app-auth form :is(input[type="email"], input[type="password"], input[type="text"], input[type="tel"]) {
