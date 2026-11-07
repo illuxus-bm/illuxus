@@ -18,26 +18,33 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: "https",
   },
-  backgroundColor: "#0f0a19",
+  // No fixed web-view colour: iOS then uses the system's light or dark
+  // background, and the launch screen covers the page until it has painted.
   ios: {
     // The web view runs under the status bar and the home indicator; the
     // page pads itself with env(safe-area-inset-*) (index.css).
     contentInset: "never",
     scrollEnabled: true,
-    backgroundColor: "#0f0a19",
     // A long press on a link doesn't pop up Safari's web preview; it's an
     // app, not a browser.
     allowsLinkPreview: false,
   },
   plugins: {
     SplashScreen: {
-      // Hidden (src/lib/native/boot.ts) as soon as the page runs, handing
-      // over to index.html's own splash, which is the same colour.
-      launchAutoHide: false,
-      launchShowDuration: 0,
-      backgroundColor: "#0f0a19",
+      // The launch screen (LaunchScreen.storyboard on iOS, the launch theme
+      // on Android: the wordmark centred on white or the brand violet) stays
+      // up until index.html's splash, which looks the same, has painted under
+      // it, then fades (src/lib/native/boot.ts): one screen, no flash. If the
+      // page never runs, it gives way after launchShowDuration anyway.
+      // No backgroundColor here: it would paint over the launch screen's own
+      // light or dark colour.
+      launchShowDuration: 4000,
+      launchAutoHide: true,
+      launchFadeOutDuration: 200,
       showSpinner: false,
-      androidScaleType: "CENTER_CROP",
+      // Android before 12, if the splash-screen API is unavailable.
+      androidSplashResourceName: "launch_splash",
+      androidScaleType: "CENTER",
       splashFullScreen: false,
       splashImmersive: false,
     },

@@ -2,5 +2,6 @@
 <resources>
     <!-- Dark mode: index.css dark background token. -->
     <color name="app_background">#121212</color>
+    <!-- Launch screen background (dark: index.html splash, dark theme). -->
     <color name="splash_background">#0F0A19</color>
 </resources>
