@@ -31,7 +31,7 @@ supabase/.temp/
 *.sln
 *.sw?
 
-# App signing keys and their passwords: never committed (docs/MOBILE.md).
+# App signing keys and their passwords: never committed.
 *.jks
 *.keystore
 *.p12

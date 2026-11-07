@@ -27,7 +27,7 @@
             </intent-filter>
 
             <!-- illuxus.com links open in the app (App Links). Verified by
-                 https://illuxus.com/.well-known/assetlinks.json; see docs/MOBILE.md. -->
+                 https://illuxus.com/.well-known/assetlinks.json. -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

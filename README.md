@@ -25,13 +25,11 @@ public pages.
 
 <a id="iphone-ipad-and-mac"></a><a id="windows-chromebook-and-linux"></a>Every version is listed on
 the [Releases](https://github.com/illuxus-bm/illuxus/releases) page with its SHA-256 checksum. Apple
-only allows apps to be installed from the App Store or TestFlight, so there is no iOS file to
-download. Building and releasing the apps: [`docs/MOBILE.md`](./docs/MOBILE.md).
+requires distribution through the App Store or TestFlight, so there is no iOS file to download.
 
 > **New here?** Read [Project layout](#project-layout) and [Conventions](#conventions) first, then
-> [`ROADMAP.md`](./ROADMAP.md) for direction and the product mindmap, and
-> [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md) before touching anything legal, payments or
-> messaging.
+> review the [current engineering audit](./docs/ENGINEERING_AUDIT_2026-11-07.md) for source and
+> deployment findings.
 
 ---
 
@@ -74,7 +72,7 @@ download. Building and releasing the apps: [`docs/MOBILE.md`](./docs/MOBILE.md).
 | Observability | Internal Logger + `supabaseRpc` wrapper, Sentry-compatible remote sink, error boundaries |
 | Tests | Vitest, fast-check (property-based), Testing Library, Playwright (e2e and visual) |
 | PWA | `vite-plugin-pwa` (Workbox), installable on iOS, Android and desktop |
-| Mobile apps | Capacitor 8: the same SPA as iOS and Android apps, with an app tab bar on phones ([`docs/MOBILE.md`](./docs/MOBILE.md)) |
+| Mobile apps | Capacitor 8: the same SPA as iOS and Android apps, with an app tab bar on phones |
 
 Exact versions live in `bun.lock`.
 
@@ -168,7 +166,7 @@ flowchart LR
 3. **Routes are lazy** via `lazyWithLog(...)`, so chunk-load failures reach the Logger before the route error boundary.
 4. **Gates wrap authenticated routes:** `AuthProvider` → `OrgProvider` → `ProfileGate` → an organiser, admin or attendee gate.
 5. **Public URLs come from `publicOrigin()`** (`src/lib/publicUrl.ts`). Never inline a host.
-6. **Public copy must match the code.** Don't advertise a feature, integration or certification that doesn't exist. [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md) lists the claims still waiting on code.
+6. **Public copy must match the code.** Don't advertise a feature, integration or certification that doesn't exist; check each claim against the implementation.
 
 ---
 
@@ -231,7 +229,7 @@ supabase/
 ├── migrations/                 000_full_schema.sql (base schema + ordered migration sections)
 ├── functions/                  Deno edge functions (see Data layer)
 └── config.toml
-docs/                           compliance, audits, observability, setup guides
+docs/                           current engineering audit report
 tests/                          Playwright e2e + visual regression
 scripts/                        token audit, slug check
 ```
@@ -419,8 +417,7 @@ Super admins decide which organiser features each plan includes, at `/dashboard/
 - **PWA:** installable, offline app shell, update prompt, safe-area support.
 
 > **Not built yet, though some copy mentions them:** payment collection (Razorpay / Stripe), SSO,
-> AI matchmaking, promo codes and offline scan queueing. See
-> [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md) §2.
+> AI matchmaking, promo codes and offline scan queueing. Keep these limits explicit in public copy.
 
 ---
 
@@ -465,8 +462,7 @@ Also in place:
 | Form consents | `ConsentCheckbox.tsx`: required and never pre-ticked; Terms acceptance stored as `terms_accepted_at` |
 | Keyboard access | skip link, visible focus ring, reduced-motion support |
 
-The full law-by-law review and the open gaps are in [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md).
-Update it whenever a legal page, sub-processor or market changes.
+Review legal pages whenever a law, sub-processor or market changes.
 
 ---
 
@@ -480,7 +476,7 @@ Update it whenever a legal page, sub-processor or market changes.
 - Hardening on 9 October 2026: open email relay, account-takeover paths and data-exposure holes closed (migration `038_security_hardening.sql`).
 - HSTS (preload), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, and a `Permissions-Policy` that allows only the camera and microphone.
 - PII redaction in all logs.
-- A Content-Security-Policy header is configured in `vercel.json`; deployed headers have not been rechecked. 180-day log retention for CERT-In remains open (see `docs/COMPLIANCE.md`).
+- A Content-Security-Policy header is configured in `vercel.json`; verify deployed headers in the release environment.
 
 **Observability** (`src/lib/observability/`)
 
@@ -495,8 +491,7 @@ logger.info('clicked rsvp', { event_id });
 const { data, error, correlationId } = await supabaseRpc('set_attendance', { p_reg_id });
 ```
 
-See [`docs/observability.md`](./docs/observability.md) and
-[`docs/observability-privacy.md`](./docs/observability-privacy.md).
+Implementation details live in `src/lib/observability/`.
 
 ---
 
@@ -512,7 +507,7 @@ Capacity estimates (from the 27 August 2026 audit):
 | One live event page | ~500 attendees | ~1,000 | WAL volume |
 | Agora / LiveKit video | 3,000 viewers per room | 10,000 | Bandwidth and licence tier |
 
-These are historical capacity estimates from August 2026, not revalidated in the current source review: [`docs/PLATFORM_AUDIT_2026-11-07.md`](./docs/PLATFORM_AUDIT_2026-11-07.md).
+These are historical capacity estimates from August 2026 and have not been validated by load testing.
 
 **Optimisations:**
 
@@ -574,8 +569,7 @@ Property tests cover:
 | Links | `PUBLIC_DOMAIN`, `PUBLIC_PUBLISHED_HOST`, `ORGANIZER_DASHBOARD_URL`, `VENDOR_PORTAL_URL` |
 
 Source-map upload in CI needs `OBSERVABILITY_AUTH_TOKEN`, `OBSERVABILITY_ORG` and
-`OBSERVABILITY_PROJECT`. Setup guides: [`docs/agora-setup.md`](./docs/agora-setup.md),
-[`docs/gemini-setup.md`](./docs/gemini-setup.md).
+`OBSERVABILITY_PROJECT`. Store provider secrets in Supabase's secret manager; do not commit them.
 
 ---
 
@@ -599,13 +593,13 @@ Source-map upload in CI needs `OBSERVABILITY_AUTH_TOKEN`, `OBSERVABILITY_ORG` an
 
 ### November 2026
 
-- Fresh repository source audit: [`docs/PLATFORM_AUDIT_2026-11-07.md`](./docs/PLATFORM_AUDIT_2026-11-07.md).
+- Fresh repository source audit: [`docs/ENGINEERING_AUDIT_2026-11-07.md`](./docs/ENGINEERING_AUDIT_2026-11-07.md).
 
 ### October 2026
 
 - **Compliance pass:**
   - Global Privacy Control honoured, "Download my data" on `/u/me`, and an accessibility statement at `/accessibility`.
-  - Privacy-policy references corrected, and a global compliance review in [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md).
+  - Privacy-policy references corrected.
 - **Landing page:** honest feature cards, plus a new "One workspace for the whole event" section covering the creative studio, brochures, certificates, communities, venue sourcing, partner links, the widget and the installable app.
 - **SEO:**
   - Per-page prerendered HTML, a live events sitemap, 19 permanent redirects and unique page tags.
@@ -634,17 +628,10 @@ Source-map upload in CI needs `OBSERVABILITY_AUTH_TOKEN`, `OBSERVABILITY_ORG` an
 
 ---
 
-## Documentation index
+## Audit report
 
-| Document | What it covers |
-| --- | --- |
-| [`ROADMAP.md`](./ROADMAP.md) | Product mindmap, Now / Next / Later, epics |
-| [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md) | Global IT and data-protection review, open gaps, action plan |
-| [`docs/PLATFORM_AUDIT_2026-11-07.md`](./docs/PLATFORM_AUDIT_2026-11-07.md) | Current repository source audit and findings |
-| [`docs/observability.md`](./docs/observability.md), [`docs/observability-privacy.md`](./docs/observability-privacy.md) | Logger, sinks, redaction, opt-out |
-| [`docs/utm-attribution.md`](./docs/utm-attribution.md) | UTM capture, storage and the tripwire |
-| [`docs/agora-setup.md`](./docs/agora-setup.md), [`docs/gemini-setup.md`](./docs/gemini-setup.md) | Third-party setup |
-| [`docs/MOBILE.md`](./docs/MOBILE.md) | iOS and Android apps: building, what changes in the app, store release checklist |
+The current source and deployment review is in
+[`docs/ENGINEERING_AUDIT_2026-11-07.md`](./docs/ENGINEERING_AUDIT_2026-11-07.md).
 
 Public links must keep working: legacy `/o/…` URLs and the other old paths in `vercel.json` are
 permanently redirected, never dropped.

@@ -12,12 +12,8 @@ import {
   extractRouteMeta,
   outputFile,
   renderRouteHtml,
-  SITE_ORIGIN,
   type RouteMeta,
 } from "./src/lib/seo/prerender";
-
-/** Indexable addresses that have no page of their own to be discovered from. */
-const SITEMAP_EXTRA_URLS = [`${SITE_ORIGIN}/llms.txt`];
 
 /**
  * After the build, writes one HTML file per static public page with that
@@ -64,7 +60,7 @@ function seoPrerender(): Plugin {
         writeFileSync(file, renderRouteHtml(baseHtml, route, routes, options));
       }
       const today = new Date().toISOString().slice(0, 10);
-      writeFileSync(path.join(outDir, "sitemap.xml"), buildSitemap(routes, today, SITEMAP_EXTRA_URLS));
+      writeFileSync(path.join(outDir, "sitemap.xml"), buildSitemap(routes, today));
       writeFileSync(path.join(outDir, "sitemap-index.xml"), buildSitemapIndex(today));
       // eslint-disable-next-line no-console -- build-time notice; outside src/** lint scope
       console.log(`[seo] prerendered ${routes.length} pages, wrote sitemap.xml and sitemap-index.xml`);

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<!-- illuxus.com links open in the app (Universal Links). Needs
-	     https://illuxus.com/.well-known/apple-app-site-association; see docs/MOBILE.md. -->
+	     https://illuxus.com/.well-known/apple-app-site-association. -->
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:illuxus.com</string>

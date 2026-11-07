@@ -120,10 +120,6 @@ Allow: /
 # --- Default fall-through ---------------------------------------------------
 User-agent: *
 Allow: /
-Allow: /llms.txt
-Allow: /llms-full.txt
-Allow: /ai.txt
-Allow: /humans.txt
 Allow: /.well-known/security.txt
 Disallow: /dashboard
 Disallow: /onboarding
@@ -146,11 +142,6 @@ Disallow: /support/ticket/
 Sitemap: https://illuxus.com/sitemap.xml
 Sitemap: https://illuxus.com/sitemap-index.xml
 Sitemap: https://illuxus.com/sitemap-events.xml
-
-# AI / LLM discovery files
-# Crawlers that respect llms.txt, llms-full.txt, and ai.txt can find them here.
-# See https://illuxus.com/llms.txt for the structured site index and
-# https://illuxus.com/llms-full.txt for one-fetch marketing-content ingestion.
 
 # Slow down misbehaving crawlers (Googlebot and Bingbot ignore this and use
 # their own crawl-budget heuristics, which is what we want).

@@ -1,7 +1,7 @@
 apply plugin: 'com.android.application'
 
 // The version both stores see, shared with iOS: set it with
-// `node scripts/app-version.mjs <version> <build>` (docs/MOBILE.md).
+// `node scripts/app-version.mjs <version> <build>`.
 def appVersion = new Properties()
 file('../version.properties').withInputStream { appVersion.load(it) }
 

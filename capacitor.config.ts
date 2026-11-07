@@ -3,7 +3,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 /**
  * The iOS and Android apps. Both wrap the same SPA, built with
  * `bun run build:app` (vite `--mode capacitor`) into `dist/`, and bundled
- * into the app by `bunx cap sync`. See docs/MOBILE.md.
+ * into the app by `bunx cap sync`.
  *
  * The web view serves the bundle from `https://localhost` (Android) and
  * `capacitor://localhost` (iOS). Those two origins are allowed by the edge
