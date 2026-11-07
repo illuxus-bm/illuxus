@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { logger } from "@/lib/observability";
 import { isNativeApp } from "@/lib/native/platform";
 import { inAppPath, setAppNavigator } from "@/lib/native/boot";
+import { useDarkScreenShowing, usePageUnderStatusBar } from "@/lib/native/system-bars";
 
 /**
  * The app's side of the native shell (iOS / Android). Mount once inside the
@@ -19,8 +20,10 @@ import { inAppPath, setAppNavigator } from "@/lib/native/boot";
  */
 export function NativeBridge() {
   const navigate = useNavigate();
-  const { theme } = useTheme();
+  const { theme, preference } = useTheme();
+  const darkScreen = useDarkScreenShowing();
   const native = isNativeApp();
+  const underBar = usePageUnderStatusBar(native);
 
   useEffect(() => {
     if (!native) return;
@@ -73,13 +76,27 @@ export function NativeBridge() {
     };
   }, [native, navigate]);
 
+  // The native side follows the app's Appearance choice (Android: the
+  // window behind the page and native pickers; see AppAppearancePlugin).
   useEffect(() => {
     if (!native) return;
+    void import("@capacitor/core")
+      .then(({ registerPlugin }) =>
+        registerPlugin<{ setMode(o: { mode: string }): Promise<void> }>("AppAppearance").setMode({ mode: preference }),
+      )
+      .catch(() => { /* iOS, or an older shell: the system setting applies */ });
+  }, [native, preference]);
+
+  useEffect(() => {
+    if (!native) return;
+    // An always-dark screen only matters where the page is under the bar;
+    // otherwise the bar shows the native window, in the app's theme.
+    const darkPage = theme === "dark" || (darkScreen && underBar);
     void import("@capacitor/core").then(({ SystemBars, SystemBarsStyle }) =>
       // "Dark" is light text, for a dark page.
-      SystemBars.setStyle({ style: theme === "dark" ? SystemBarsStyle.Dark : SystemBarsStyle.Light }),
+      SystemBars.setStyle({ style: darkPage ? SystemBarsStyle.Dark : SystemBarsStyle.Light }),
     ).catch(() => { /* older shell */ });
-  }, [native, theme]);
+  }, [native, theme, darkScreen, underBar]);
 
   return null;
 }

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { ArrowRight, CalendarDays, QrCode, Users } from "lucide-react";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
+import { useDarkScreenBars } from "@/lib/native/system-bars";
 
 const POINTS = [
   { icon: CalendarDays, text: "Find events and register in a tap" },
@@ -15,6 +16,8 @@ const POINTS = [
  * instead, which an app has no use for (App.tsx, HomeRoute).
  */
 export default function AppWelcomePage() {
+  // The art is dark in both themes: light status-bar icons over it.
+  useDarkScreenBars();
   return (
     <main className="login-art app-chrome flex min-h-[100dvh] flex-col px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-[calc(env(safe-area-inset-top)+1.5rem)] text-white">
       <IlluxusWordmark height={26} variant="dark" className="self-start" ariaLabel="illuxus" />

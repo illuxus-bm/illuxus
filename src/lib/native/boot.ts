@@ -188,10 +188,14 @@ export function bootNativeApp() {
 
   root.classList.add("native-app", `native-${nativePlatform()}`);
   // iOS zooms the page into any field under 16px when it's focused, and
-  // doesn't zoom back out. A maximum scale stops that; pinch zoom still works.
-  document
-    .querySelector('meta[name="viewport"]')
-    ?.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover");
+  // doesn't zoom back out. A maximum scale stops that, and iOS still lets
+  // people pinch to zoom. Android honours the maximum and would lose pinch
+  // zoom (an accessibility need), and doesn't zoom into fields, so it's iOS only.
+  if (nativePlatform() === "ios") {
+    document
+      .querySelector('meta[name="viewport"]')
+      ?.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover");
+  }
   installDownloads();
   installShare();
   installLinks();

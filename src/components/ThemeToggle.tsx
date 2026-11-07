@@ -1,5 +1,5 @@
-import { Moon, Sun } from "lucide-react";
-import { useTheme } from "@/contexts/ThemeContext";
+import { Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
+import { useTheme, type ThemePreference } from "@/contexts/ThemeContext";
 import { cn } from "@/lib/utils";
 
 interface ThemeToggleProps {
@@ -7,27 +7,45 @@ interface ThemeToggleProps {
   size?: "sm" | "md";
   /**
    * The header's version: a floating chip (`float-chip`, index.css) sized to
-   * sit with the other chips. Phones have no room for the two-sided switch,
-   * so there it is one round button that flips the theme.
+   * sit with the other chips. Phones have no room for the three-way switch,
+   * so there it is one round button that steps through the choices.
    */
   floating?: boolean;
 }
 
+const OPTIONS: Array<{ value: ThemePreference; label: string; icon: LucideIcon }> = [
+  { value: "light", label: "Light theme", icon: Sun },
+  { value: "system", label: "Match device", icon: Monitor },
+  { value: "dark", label: "Dark theme", icon: Moon },
+];
+
+// The phone button's order: from following the device to each fixed choice.
+const NEXT: Record<ThemePreference, ThemePreference> = { system: "light", light: "dark", dark: "system" };
+
 /**
- * Two-state pill toggle (sun / moon) — persists via ThemeProvider.
- * Active option gets a raised "thumb" with shadow; inactive is muted.
+ * Light / match device / dark — persists via ThemeProvider. "Match device"
+ * follows the phone or computer's own setting as it changes, which is the
+ * default until the person picks one.
  */
 export function ThemeToggle({ className, size = "md", floating = false }: ThemeToggleProps) {
-  const { theme, setTheme, toggle } = useTheme();
+  const { preference, setTheme } = useTheme();
   const dimensions = size === "sm" ? "h-8 p-0.5" : "h-9 p-0.5";
   const iconWrap = size === "sm" ? "h-7 w-7" : "h-8 w-8";
 
   if (floating) {
-    const flipTo = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+    const current = OPTIONS.find((o) => o.value === preference) ?? OPTIONS[1];
+    const next = OPTIONS.find((o) => o.value === NEXT[preference])!;
+    const label = `Theme: ${current.label}. Switch to ${next.label.toLowerCase()}`;
     return (
       <>
-        <button type="button" className="shell-icon-btn float-chip sm:hidden" onClick={toggle} title={flipTo} aria-label={flipTo}>
-          {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+        <button
+          type="button"
+          className="shell-icon-btn float-chip sm:hidden"
+          onClick={() => setTheme(next.value)}
+          title={label}
+          aria-label={label}
+        >
+          <current.icon className="h-4 w-4" />
         </button>
         <ThemeToggle size="sm" className={cn("float-chip hidden h-9 p-[3px] sm:inline-flex lg:h-10 lg:p-[5px]", className)} />
       </>
@@ -44,38 +62,27 @@ export function ThemeToggle({ className, size = "md", floating = false }: ThemeT
         className,
       )}
     >
-      <button
-        type="button"
-        role="radio"
-        aria-checked={theme === "light"}
-        aria-label="Light theme"
-        onClick={() => setTheme("light")}
-        className={cn(
-          "inline-flex items-center justify-center rounded-full transition-all duration-200",
-          iconWrap,
-          theme === "light"
-            ? "bg-background text-foreground shadow-sm"
-            : "text-muted-foreground hover:text-foreground",
-        )}
-      >
-        <Sun className="h-4 w-4" strokeWidth={2} />
-      </button>
-      <button
-        type="button"
-        role="radio"
-        aria-checked={theme === "dark"}
-        aria-label="Dark theme"
-        onClick={() => setTheme("dark")}
-        className={cn(
-          "inline-flex items-center justify-center rounded-full transition-all duration-200",
-          iconWrap,
-          theme === "dark"
-            ? "bg-background text-foreground shadow-sm"
-            : "text-muted-foreground hover:text-foreground",
-        )}
-      >
-        <Moon className="h-4 w-4" strokeWidth={2} />
-      </button>
+      {OPTIONS.map(({ value, label, icon: Icon }) => {
+        const checked = preference === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={checked}
+            aria-label={label}
+            title={label}
+            onClick={() => setTheme(value)}
+            className={cn(
+              "inline-flex items-center justify-center rounded-full transition-all duration-200",
+              iconWrap,
+              checked ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Icon className="h-4 w-4" strokeWidth={2} />
+          </button>
+        );
+      })}
     </div>
   );
 }
