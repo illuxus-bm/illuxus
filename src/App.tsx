@@ -23,6 +23,7 @@ import { loginPath } from "@/lib/safe-redirect";
 import { SkipToContent } from "@/components/SkipToContent";
 import { PlatformBanNotice } from "@/components/bans/UnbanRequests";
 import { NativeBridge } from "@/components/native/NativeBridge";
+import { AppUpdateGate } from "@/components/native/AppUpdateGate";
 import { MobileTabBar } from "@/components/native/MobileTabBar";
 import { OfflineBanner } from "@/components/native/OfflineBanner";
 import { useAppMode, useAppTabBar } from "@/hooks/useAppChrome";
@@ -317,6 +318,7 @@ const App = () => (
         <BrowserRouter>
           <HistoryTracker />
           <NativeBridge />
+          <AppUpdateGate />
           <RootErrorBoundary>
             <AuthProvider>
               <OrgProvider>

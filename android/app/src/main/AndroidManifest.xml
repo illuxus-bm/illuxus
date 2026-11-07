@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- No backups: the web view's storage holds the signed-in session, and a
+         copy restored on another device (or read from a cloud backup) would
+         be signed in as that person. Moving to a new phone means signing in
+         again. data_extraction_rules covers Android 12+, where allowBackup
+         alone no longer stops device-to-device transfer. -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"

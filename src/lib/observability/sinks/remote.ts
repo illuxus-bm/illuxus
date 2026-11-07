@@ -330,6 +330,17 @@ function dispatchRecord(client: SinkClient, record: LogRecord): void {
  * `BrowserClient` is constructed lazily on first emit (and only when
  * the DSN is non-empty per REQ 8.3).
  */
+/** "ios" / "android" inside the native app, "web" otherwise. */
+function shellPlatform(): string {
+  try {
+    const cap = (globalThis as { Capacitor?: { getPlatform?: () => string } }).Capacitor;
+    const p = cap?.getPlatform?.();
+    return p === "ios" || p === "android" ? p : "web";
+  } catch {
+    return "web";
+  }
+}
+
 export function createRemoteSink(
   opts: CreateRemoteSinkOptions = {},
 ): Sink {
@@ -370,6 +381,10 @@ export function createRemoteSink(
       const browserOpts = {
         dsn,
         release,
+        // Sentry's "distribution": which shell the same release ran in, so
+        // app crashes can be told from the website's. Read from the global
+        // the native shell injects, not by importing Capacitor here.
+        dist: shellPlatform(),
         sendDefaultPii: false,
         defaultIntegrations: false as const,
         integrations: [],

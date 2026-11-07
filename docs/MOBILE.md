@@ -115,28 +115,106 @@ illuxus project:
    It sends only CORS preflights, which change nothing, and exits non-zero if any function refuses
    either origin.
 
-## Before the first store release
+## Releasing
 
-1. **Signing.**
-   - Android: create an upload keystore and configure release signing in Android Studio.
-   - iOS: set the team in Xcode. The `com.illuxus.app` App ID needs the Associated Domains capability.
-     With automatic signing, Xcode adds it.
-2. **App Links and Universal Links.** These make illuxus.com links (password reset, ticket emails) open
-   the app. Both projects are already set up for `illuxus.com` and `www.illuxus.com`. The site still
-   has to vouch for the apps by serving these two files:
-   - `public/.well-known/assetlinks.json`, with the SHA-256 fingerprint of the release signing key
-     (Play Console → App integrity).
-   - `public/.well-known/apple-app-site-association`, with `<TeamID>.com.illuxus.app`. Serve it as
-     `application/json`, which needs a header rule in `vercel.json`.
+### One-time setup
 
-   Until those files are live, the links open in the browser, as they do today. The `illuxus://`
-   scheme works without them.
-3. **Supabase Auth.** Add `illuxus://**` to the allowed redirect URLs if any flow should return to the
+1. **Android upload key.** Create it once and keep the file and passwords in the team's password
+   manager. With Play App Signing (the default), Google holds the real signing key, and a lost upload
+   key can be reset through the Play Console.
+
+   ```sh
+   keytool -genkeypair -v -keystore illuxus-upload.jks -alias upload -keyalg RSA -keysize 4096 -validity 10000
+   cp android/keystore.properties.example android/keystore.properties   # then fill it in
+   ```
+
+   `*.jks`, `*.keystore` and `android/keystore.properties` are git-ignored. In CI, set
+   `ILLUXUS_UPLOAD_STORE_FILE`, `ILLUXUS_UPLOAD_STORE_PASSWORD`, `ILLUXUS_UPLOAD_KEY_ALIAS` and
+   `ILLUXUS_UPLOAD_KEY_PASSWORD` instead.
+2. **iOS signing.** In Xcode, set the team under Signing & Capabilities. The `com.illuxus.app` App ID
+   needs the Associated Domains capability; automatic signing adds it.
+3. **App Links and Universal Links.** These make illuxus.com links (password reset, ticket emails)
+   open the app. Both projects are already set up for `illuxus.com` and `www.illuxus.com`. Generate
+   the two files the site must serve, then commit and deploy them:
+
+   ```sh
+   bun run app:links --apple-team-id <TeamID> \
+     --android-sha256 <app signing key SHA-256> --android-sha256 <upload key SHA-256>
+   ```
+
+   The Team ID is under Membership in the Apple Developer account. Both fingerprints are in the Play
+   Console under App integrity → App signing. `vercel.json` already serves both files as JSON. Until
+   they are live, the links open in the browser. The `illuxus://` scheme works without them.
+4. **Supabase Auth.** Add `illuxus://**` to the allowed redirect URLs if any flow should return to the
    app by the custom scheme.
-4. **Store listings.** Both stores need a privacy policy URL (`/privacy`) and an account-deletion URL
-   (`/data-deletion`), plus the data-safety and privacy-label forms. The app asks for camera access
-   (ticket scanning, webinar video) and microphone access (webinars). The purpose strings are in
-   `ios/App/App/Info.plist`.
+5. **Store listings.**
+   - Both stores need a privacy policy URL (`/privacy`) and an account-deletion URL (`/data-deletion`),
+     plus the data-safety and privacy-label forms. Declare what the app collects (name, email, mobile,
+     company, photos people upload) and that GA4 and Clarity run only after consent.
+   - The app asks for camera access (ticket scanning, webinar video) and microphone access (webinars).
+     The purpose strings are in `ios/App/App/Info.plist`.
+   - Account deletion is requested in the app (Settings → Request deletion of my data) and carried
+     out by the privacy team. In App Review notes, say how long it takes. Apple prefers deletion that
+     completes in the app, so if review pushes back, a self-serve deletion is the fix.
+   - The iOS app runs on iPad (`TARGETED_DEVICE_FAMILY = 1,2`), so App Store Connect needs iPad
+     screenshots too.
+   - Give App Review a demo account with an organisation and an event. Most of the app is behind
+     sign-in.
+
+### Every release
+
+1. Set the version. The build number must go up with every upload to either store:
+
+   ```sh
+   bun run app:version 1.1.0 2     # version 1.1.0, build 2, for both apps
+   ```
+
+2. Build and copy the bundle into both projects. `app:release` runs the pre-release check first:
+
+   ```sh
+   bun run app:release
+   ```
+
+   The check ([`scripts/check-app-release.mjs`](../scripts/check-app-release.mjs), also run by the test
+   suite) refuses a build that loads a live-reload server, allows `http`, lets Android back up the
+   signed-in session, has different versions on the two platforms, or would lock itself out (see
+   below). It warns about anything still to finish: signing, app links, the App Store link.
+3. **Android:** in Android Studio, Build → Generate Signed App Bundle → release, then upload the
+   `.aab` to the Play Console. Run it on a device first: back button, a download (ticket PDF), a share,
+   the camera (check-in scanner) and an illuxus.com link.
+4. **iOS:** in Xcode, choose Any iOS Device, then Product → Archive → Distribute App → App Store
+   Connect. Test it in TestFlight with the same list.
+
+### Retiring an old version
+
+An installed app keeps the web bundle it shipped with until the person updates it, so a broken
+release can't be fixed in place. [`public/app-config.json`](../public/app-config.json) on illuxus.com
+names the oldest version each platform may still run:
+
+```json
+{ "minimumVersion": { "ios": "1.0.0", "android": "1.0.0" },
+  "storeUrl": { "ios": "https://apps.apple.com/app/id<App Store ID>", "android": "https://play.google.com/store/apps/details?id=com.illuxus.app" },
+  "message": null }
+```
+
+An older app shows an "Update illuxus" screen instead of the app, with a button to the store
+([`AppUpdateGate`](../src/components/native/AppUpdateGate.tsx)). It checks at launch and whenever the
+app returns to the foreground, and lets the app run if the file can't be fetched. Changing the file
+needs only a site deploy, not an app release.
+
+- Raise the minimum only for a release that is broken, or that no longer works with the server. It
+  locks everyone on an older version out until they update.
+- Raise it only once the new version is live in that store; the check refuses a minimum above the
+  app's own version.
+- Add the iOS `storeUrl` once the app is listed. Until then the screen says to open the App Store.
+- `message` replaces the default text.
+
+### Crash reports
+
+Errors reach the same Sentry project as the website's, with the same release (the commit). Their
+`dist` is `ios`, `android` or `web`, so app problems can be filtered. Android native crashes and ANRs
+appear in the Play Console (release builds upload native debug symbols). iOS crashes appear in Xcode's
+Organizer.
 
 ## Known gaps
 

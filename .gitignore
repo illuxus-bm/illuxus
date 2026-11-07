@@ -30,3 +30,10 @@ supabase/.temp/
 *.njsproj
 *.sln
 *.sw?
+
+# App signing keys and their passwords: never committed (docs/MOBILE.md).
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+android/keystore.properties

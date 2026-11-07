@@ -1,5 +1,24 @@
 apply plugin: 'com.android.application'
 
+// The version both stores see, shared with iOS: set it with
+// `node scripts/app-version.mjs <version> <build>` (docs/MOBILE.md).
+def appVersion = new Properties()
+file('../version.properties').withInputStream { appVersion.load(it) }
+
+// Release signing. Locally from android/keystore.properties (never committed);
+// in CI from ILLUXUS_UPLOAD_* environment variables. Without either, a release
+// build is left unsigned and the Play Console will refuse it.
+def signingProps = new Properties()
+def signingFile = rootProject.file('keystore.properties')
+if (signingFile.exists()) {
+    signingFile.withInputStream { signingProps.load(it) }
+}
+def signingValue = { String key, String env ->
+    def v = signingProps.getProperty(key) ?: System.getenv(env)
+    return v ? v.trim() : null
+}
+def uploadStoreFile = signingValue('storeFile', 'ILLUXUS_UPLOAD_STORE_FILE')
+
 android {
     namespace = "com.illuxus.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +26,8 @@ android {
         applicationId "com.illuxus.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersion.getProperty('versionCode') as Integer
+        versionName appVersion.getProperty('versionName')
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +35,27 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (uploadStoreFile) {
+            release {
+                storeFile rootProject.file(uploadStoreFile)
+                storePassword signingValue('storePassword', 'ILLUXUS_UPLOAD_STORE_PASSWORD')
+                keyAlias signingValue('keyAlias', 'ILLUXUS_UPLOAD_KEY_ALIAS')
+                keyPassword signingValue('keyPassword', 'ILLUXUS_UPLOAD_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (uploadStoreFile) signingConfig signingConfigs.release
+            // The app is a web view around the bundled web app, so shrinking
+            // the (small) native layer gains little; it stays off until it
+            // has been tried on a device, as R8 can strip classes plugins
+            // reach by reflection.
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Native crash and ANR stack traces in the Play Console.
+            ndk { debugSymbolLevel 'SYMBOL_TABLE' }
         }
     }
 }
