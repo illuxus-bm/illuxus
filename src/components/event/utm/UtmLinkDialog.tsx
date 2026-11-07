@@ -157,7 +157,7 @@ export function UtmLinkDialog({
         (denied
           ? "To keep links under “Saved UTM links”, apply the relevant UTM sections in supabase/migrations/000_full_schema.sql in the Supabase SQL Editor."
           : outdated
-            ? "To save links that differ by content or term, run supabase/RUN_ME_utm_link_variants.sql in the Supabase SQL Editor."
+            ? "To save links that differ by content or term, apply section 076 from supabase/migrations/000_full_schema.sql in the Supabase SQL Editor."
             : `Reason: ${error?.message ?? "unknown error"}`),
       duration: 15_000,
     });

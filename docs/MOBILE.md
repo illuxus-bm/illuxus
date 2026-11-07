@@ -92,9 +92,10 @@ places allow both origins:
 Deploy from `main` with the Supabase CLI, signed in as a member of the organisation that owns the
 illuxus project:
 
-1. In the SQL Editor, run `supabase/CHECK_schema_drift.sql`. If it lists `077_atomic_rate_limit.sql`,
-   run `supabase/RUN_ME_atomic_rate_limit.sql` first. The rate-limited functions refuse every request
-   while the database has no `take_rate_limit`.
+1. In the SQL Editor, run only the final `CHECK_SCHEMA_DRIFT` section from
+   `supabase/migrations/000_full_schema.sql`. If it lists `077_atomic_rate_limit.sql`, apply only
+   section 077 from that bundle before deploying; the rate-limited functions refuse requests until
+   the database has `take_rate_limit`.
 2. Deploy every function:
 
    ```sh

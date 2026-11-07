@@ -9,7 +9,7 @@ import { supabaseRpc } from "@/lib/observability";
 import { useMyBans, type MyBan } from "./useMyBans";
 
 /**
- * Unban requests (RUN_ME_security_fixes_B.sql, B-3). A ban is lifted only by
+ * Unban requests (section 080, B-3). A ban is lifted only by
  * approving the banned person's request: platform bans by a platform admin,
  * community bans by that community's organisers. The database enforces all of
  * this; these components are the screens for it.

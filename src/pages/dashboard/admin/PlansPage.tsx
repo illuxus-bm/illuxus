@@ -246,8 +246,8 @@ export default function PlansPage() {
           <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-[13px]">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
             <p>
-              Plan prices aren't in the database yet. Run <code>supabase/RUN_ME_plan_pricing.sql</code> in the Supabase
-              SQL Editor. Until then prices can't be changed; features and limits still save.
+              Plan prices aren't in the database yet. Run section <code>084_plan_pricing.sql</code> from{" "}
+              <code>supabase/migrations/000_full_schema.sql</code> in the Supabase SQL Editor. Until then prices can't be changed; features and limits still save.
             </p>
           </div>
         )}

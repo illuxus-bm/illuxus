@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
  * registering doesn't depend on it.
  *
  * The database records the answer with the date of this wording
- * (`_sponsor_share_notice_version()`, RUN_ME_sponsor_share_consent.sql).
+ * (`_sponsor_share_notice_version()`, section 079 in the SQL bundle).
  * Change that date whenever this wording changes.
  */
 export function SponsorShareChoice({

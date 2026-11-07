@@ -1,11 +1,13 @@
 -- Illuxus — consolidated Supabase SQL bundle
 --
--- Contains the base schema followed by every numbered migration in order.
+-- Contains the base schema, numbered migrations through 084, the site-editor
+-- correction in section 085, and a read-only schema-drift check at the end.
+-- Former RUN_ME scripts are incorporated in their corresponding sections.
 -- Run the complete file once only when provisioning a fresh database.
 -- For an existing database, apply only the needed section after checking
 -- its prerequisites. This file does not preserve Supabase CLI migration
 -- history, and must not be replayed as a new migration on an existing DB.
--- Manual/duplicate root scripts are retained as commented archival sections.
+-- Older manual/duplicate root scripts are retained as commented archival sections.
 --
 -- >>> BEGIN BASE SCHEMA: 000_full_schema.sql >>>
 -- SECTION: 000_full_schema.sql
@@ -16937,12 +16939,11 @@ NOTIFY pgrst, 'reload schema';
 -- <<< END SOURCE MIGRATION: 055_meeting_actor_by_caller.sql <<<
 
 -- >>> BEGIN SOURCE MIGRATION: 056_security_fixes_2026_10_28.sql >>>
--- Same as supabase/RUN_ME_security_fixes.sql (run that on an existing database).
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Security fixes from the 2026-10-27 review.
 --
 -- One section per finding. Every statement is safe to run more than once.
--- Paste the whole file into the Supabase SQL Editor and Run.
+-- For an existing database, run only this section from the bundle.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -16966,13 +16967,13 @@ NOTIFY pgrst, 'reload schema';
 -- Seats taken, counted past row security (an attendee only sees their own rows).
 CREATE OR REPLACE FUNCTION public._event_seats_taken(_event_id uuid)
 RETURNS integer
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT count(*)::int
     FROM registrations r
    WHERE r.event_id = _event_id
      AND r.status <> 'cancelled'
      AND COALESCE(r.approval_status, 'approved') NOT IN ('declined', 'waitlisted');
-$;
+$$;
 -- Called from the registration trigger, which runs as the inserting role.
 -- The count is what the public event page already shows.
 REVOKE ALL ON FUNCTION public._event_seats_taken(uuid) FROM PUBLIC;
@@ -16981,9 +16982,9 @@ GRANT EXECUTE ON FUNCTION public._event_seats_taken(uuid) TO authenticated, serv
 -- The signed-in user's own address, for pinning their self-registration to it.
 CREATE OR REPLACE FUNCTION public._auth_user_email()
 RETURNS text
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, auth AS $
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, auth AS $$
   SELECT lower(email) FROM auth.users WHERE id = auth.uid();
-$;
+$$;
 -- Returns only the caller's own address.
 REVOKE ALL ON FUNCTION public._auth_user_email() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public._auth_user_email() TO authenticated, service_role;
@@ -16995,7 +16996,7 @@ CREATE OR REPLACE FUNCTION public.registrations_validate()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = 'public','extensions'
-AS $
+AS $$
 DECLARE
   _ra            boolean;
   _p             numeric;
@@ -17071,7 +17072,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$;
+$$;
 
 
 -- ───────────────────────────────────────────────────────────────────────────────
@@ -17095,28 +17096,28 @@ $;
 -- True unless the caller has two-factor on and this session hasn't given the code.
 CREATE OR REPLACE FUNCTION public.mfa_satisfied()
 RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
   SELECT auth.uid() IS NULL
       OR COALESCE(auth.jwt() ->> 'aal', 'aal1') = 'aal2'
       OR NOT EXISTS (
            SELECT 1 FROM auth.mfa_factors f
             WHERE f.user_id = auth.uid() AND f.status = 'verified'
          );
-$;
+$$;
 REVOKE ALL ON FUNCTION public.mfa_satisfied() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.mfa_satisfied() TO anon, authenticated, service_role;
 
 -- Runs before every PostgREST request.
 CREATE OR REPLACE FUNCTION public.require_second_factor()
 RETURNS void
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $$
 BEGIN
   IF NOT public.mfa_satisfied() THEN
     RAISE EXCEPTION 'Two-factor verification required'
       USING ERRCODE = '42501', HINT = 'Enter the code from your authenticator app to continue.';
   END IF;
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION public.require_second_factor() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.require_second_factor() TO anon, authenticated, service_role;
 
@@ -17124,7 +17125,7 @@ ALTER ROLE authenticator SET pgrst.db_pre_request TO 'public.require_second_fact
 NOTIFY pgrst, 'reload config';
 
 -- The same rule on every table that has row security.
-DO $
+DO $$
 DECLARE
   t record;
 BEGIN
@@ -17142,7 +17143,7 @@ BEGIN
     );
   END LOOP;
 END;
-$;
+$$;
 
 
 -- ───────────────────────────────────────────────────────────────────────────────
@@ -17166,7 +17167,7 @@ CREATE OR REPLACE FUNCTION public.webinar_react(
   _speaker_token text DEFAULT NULL
 )
 RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   _event  uuid;
   _who    uuid;
@@ -17220,7 +17221,7 @@ BEGIN
 
   INSERT INTO webinar_reactions (session_id, user_id, emoji) VALUES (_session_id, _who, _emoji);
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION public.webinar_react(uuid, text, text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.webinar_react(uuid, text, text, text) TO anon, authenticated;
 
@@ -17264,7 +17265,7 @@ GRANT SELECT (id, section, content, published_at, created_at, updated_at) ON pub
 
 CREATE OR REPLACE FUNCTION public.get_site_drafts()
 RETURNS TABLE (section text, content jsonb, draft_content jsonb, published_at timestamptz, updated_at timestamptz)
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF NOT public.has_role(auth.uid(), 'admin') THEN
     RAISE EXCEPTION 'Unauthorized' USING ERRCODE = '42501';
@@ -17273,7 +17274,7 @@ BEGIN
     SELECT sc.section, sc.content, sc.draft_content, sc.published_at, sc.updated_at
       FROM public.site_content sc;
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION public.get_site_drafts() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_site_drafts() TO authenticated;
 
@@ -17287,6 +17288,7 @@ GRANT EXECUTE ON FUNCTION public.get_site_drafts() TO authenticated;
 -- ───────────────────────────────────────────────────────────────────────────────
 
 REVOKE EXECUTE ON FUNCTION public.ensure_event_community(uuid) FROM PUBLIC, anon, authenticated;
+
 -- <<< END SOURCE MIGRATION: 056_security_fixes_2026_10_28.sql <<<
 
 -- >>> BEGIN SOURCE MIGRATION: 057_recipient_lookup_access.sql >>>
@@ -17309,7 +17311,7 @@ REVOKE EXECUTE ON FUNCTION public.ensure_event_community(uuid) FROM PUBLIC, anon
 --     as before.
 --
 -- Same signatures as before, so CREATE OR REPLACE is enough.
--- Safe to run more than once. Paste into the Supabase SQL Editor and Run.
+-- Safe to run more than once. For an existing database, run only this section.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 -- True for the service role, or for code running outside any API request
@@ -17610,7 +17612,7 @@ COMMENT ON FUNCTION public.communications_resolve_recipients(uuid, jsonb) IS
 -- Requires Supabase Auth → Providers → Email → "Confirm email" to be ON;
 -- with it off, every sign-up counts as verified.
 --
--- Safe to run more than once. Paste into the Supabase SQL Editor and Run.
+-- Safe to run more than once. For an existing database, run only this section.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 -- Attaches records kept under an email address to the account that has just
@@ -17759,7 +17761,7 @@ UPDATE public.registrations r
 -- security and the plan guard apply exactly as they did to the separate
 -- requests — the plan is always Free here; upgrades go through the team.
 --
--- Safe to run more than once. Paste into the Supabase SQL Editor and Run.
+-- Safe to run more than once. For an existing database, run only this section.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION public.create_my_workspace(
@@ -17852,8 +17854,8 @@ COMMENT ON FUNCTION public.create_my_workspace(text, text, text) IS
 -- cases in src/lib/intelligence/__tests__/vectors.ts are checked against
 -- both.
 --
--- Run RUN_ME_signup_email_verification.sql (058) first.
--- Safe to run more than once. Paste into the Supabase SQL Editor and Run.
+-- Run section 058 (058) first.
+-- Safe to run more than once. For an existing database, run only this section.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -18843,8 +18845,8 @@ END $$;
 --     people, so one prank entry is never shown to anybody else. Visitors
 --     who aren't signed in are rate-limited per network address.
 --
--- Run RUN_ME_identity_foundation.sql (060) first.
--- Safe to run more than once. Paste into the Supabase SQL Editor and Run.
+-- Run section 060 (060) first.
+-- Safe to run more than once. For an existing database, run only this section.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -19180,8 +19182,8 @@ GRANT EXECUTE ON FUNCTION public.suggest_companies(text, integer) TO anon, authe
 -- migration 060 (the address is verified by the emailed link), so no second
 -- person or contact is created.
 --
--- Run RUN_ME_identity_foundation.sql (060) first.
--- Safe to run more than once. Paste into the Supabase SQL Editor and Run.
+-- Run section 060 (060) first.
+-- Safe to run more than once. For an existing database, run only this section.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -19465,8 +19467,8 @@ GRANT EXECUTE ON FUNCTION public.dismiss_profile_suggestion(text) TO authenticat
 -- One-off repair: anyone who already set up their account from a sponsor
 -- team link and whose invitation is still open is accepted now.
 --
--- Run RUN_ME_invitation_prefill.sql (062) first.
--- Safe to run more than once. Paste into the Supabase SQL Editor and Run.
+-- Run section 062 (062) first.
+-- Safe to run more than once. For an existing database, run only this section.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 /*
@@ -19559,7 +19561,7 @@ END $$;
 --     and the evidence. Formatting-only fixes can be approved in bulk;
 --     everything else one at a time.
 --
--- Run RUN_ME_company_suggestions.sql (061) and RUN_ME_invitation_prefill.sql
+-- Run section 061 (061) and section 062
 -- (062) first. Safe to run more than once. Paste into the SQL Editor and Run.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -21070,7 +21072,7 @@ END $$;
 --     same company, "Acme India" / "Acme Indian"), as possible matches only.
 --   • Rolling a merge back reopens its duplicate suggestions.
 --
--- Run RUN_ME_intelligence_centre.sql (064) first.
+-- Run section 064 (064) first.
 -- Safe to run more than once. Paste into the SQL Editor and Run.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -22106,7 +22108,7 @@ END $$;
 -- organiser edits their own; they are grouped by company instead. Nothing here
 -- merges anything by itself.
 --
--- Run RUN_ME_intelligence_part2.sql (065) first.
+-- Run section 065 (065) first.
 -- Safe to run more than once. Paste into the SQL Editor and Run.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -22120,7 +22122,7 @@ DECLARE
 BEGIN
   IF to_regclass('public.merge_operations') IS NULL
      OR NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.sponsors'::regclass AND attname = 'company_id' AND NOT attisdropped) THEN
-    RAISE EXCEPTION 'Run RUN_ME_intelligence_centre.sql and then RUN_ME_intelligence_part2.sql first';
+    RAISE EXCEPTION 'Run section 064 and then section 065 first';
   END IF;
   -- Older versions of these lists, left by running the Intelligence Centre script again, make them ambiguous to call.
   FOR f IN
@@ -23585,7 +23587,7 @@ END $$;
 --
 -- Combining still happens only when Super Admin asks for it, and can be rolled back.
 --
--- Run RUN_ME_sponsor_identity.sql (066) first.
+-- Run section 066 (066) first.
 -- Safe to run more than once. Paste into the SQL Editor and Run.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -24290,7 +24292,7 @@ END $$;
 -- is passed between organisations. A sponsor record missing a website or logo
 -- is offered the company's, and takes it only when the sponsor is added.
 --
--- Run RUN_ME_sponsor_consolidation.sql (067) first.
+-- Run section 067 (067) first.
 -- Safe to run more than once. Paste into the SQL Editor and Run.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -24482,7 +24484,7 @@ END $$;
 --
 -- Registrations themselves are never changed by sharing.
 --
--- Run RUN_ME_sponsor_identity.sql (066) first.
+-- Run section 066 (066) first.
 -- Safe to run more than once. Paste into the SQL Editor and Run.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -24989,7 +24991,7 @@ END $$;
 -- Shares already made keep exactly what they contained; sharing again makes a
 -- new version with the contact details.
 --
--- Run RUN_ME_sponsor_data_sharing.sql (069) first.
+-- Run section 069 (069) first.
 -- Safe to run more than once. Paste into the SQL Editor and Run.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -25152,7 +25154,7 @@ DROP TRIGGER IF EXISTS registrations_sponsor_consent ON public.registrations;
 --
 -- Shares already made keep what they contained; sharing again makes a new version.
 --
--- Run RUN_ME_sponsor_data_sharing_contacts.sql (070) first.
+-- Run section 070 (070) first.
 -- Safe to run more than once. Paste into the SQL Editor and Run.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -25333,7 +25335,7 @@ END $$;
 --
 -- Shares already made keep what they contained; sharing again makes a new version.
 --
--- Run RUN_ME_sponsor_data_sharing_people.sql (071) first.
+-- Run section 071 (071) first.
 -- Safe to run more than once. Paste into the SQL Editor and Run.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
@@ -26343,7 +26345,7 @@ NOTIFY pgrst, 'reload schema';
 -- (B-4, the support form, is an edge-function change: submit-support-ticket.)
 --
 -- One section per finding. Every statement is safe to run more than once.
--- Paste the whole file into the Supabase SQL Editor and Run.
+-- For an existing database, run only this section from the bundle.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -26351,7 +26353,7 @@ NOTIFY pgrst, 'reload schema';
 -- Shared helpers
 -- ───────────────────────────────────────────────────────────────────────────────
 
--- The signed-in user's own address (also defined by RUN_ME_security_fixes.sql).
+-- The signed-in user's own address (also defined by section 056).
 CREATE OR REPLACE FUNCTION public._auth_user_email()
 RETURNS text
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, auth AS $$
@@ -26955,9 +26957,9 @@ GRANT EXECUTE ON FUNCTION public.admin_unban_user(uuid) TO authenticated;
 --   C-6  Storage: no size limits; anyone signed in could upload anywhere in
 --        the community bucket.
 --
--- Run after RUN_ME_security_fixes_B.sql (uses _can_manage_event).
+-- Run after section 080 (uses _can_manage_event).
 -- One section per finding. Every statement is safe to run more than once.
--- Paste the whole file into the Supabase SQL Editor and Run.
+-- For an existing database, run only this section from the bundle.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -27196,7 +27198,7 @@ CREATE POLICY "Members write community" ON storage.objects
 --                                      public storage URL).
 --
 -- Existing post links that aren't http(s) are cleared first. Safe to run more
--- than once. Paste the whole file into the Supabase SQL Editor and Run.
+-- than once. For an existing database, run only this section from the bundle.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 UPDATE public.community_posts
@@ -27237,7 +27239,7 @@ $$;
 --             teammate who isn't a viewer;
 --   • delete: the same, except teammates need owner, admin or member.
 --
--- CHECK_schema_drift.sql also found four objects missing from the live
+-- CHECK_SCHEMA_DRIFT section also found four objects missing from the live
 -- database. They are recreated as the repo defines them:
 --   • my_applications()            a user's speaker and sponsor applications
 --   • registrant_audit_log         plus log_registrant_action(), the delete /
@@ -27248,6 +27250,7 @@ $$;
 -- Safe to run more than once. Paste into the SQL Editor and Run.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
+BEGIN;
 
 -- ── 1. A teammate's role, read without row security ─────────────────────────
 -- NULL when the user isn't in org_members for that workspace; a row with no
@@ -27436,8 +27439,10 @@ BEGIN
   END LOOP;
 END $$;
 
+COMMIT;
 
 NOTIFY pgrst, 'reload schema';
+
 -- <<< END SOURCE MIGRATION: 083_fix_event_publish.sql <<<
 
 -- >>> BEGIN SOURCE MIGRATION: 084_plan_pricing.sql >>>
@@ -27456,7 +27461,7 @@ NOTIFY pgrst, 'reload schema';
 --
 -- The first run seeds the prices the onboarding screen used to hard-code
 -- (Free $0, Starter $29, Pro $79, Business $199 a month). Later runs leave
--- prices alone. Run after 048_plan_features.sql.
+-- prices alone. Run after section 048 in this bundle.
 --
 -- Idempotent — safe to run more than once. Paste into the SQL Editor and Run.
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -27562,6 +27567,90 @@ GRANT EXECUTE ON FUNCTION public.admin_save_plan(text, text, text, int, boolean,
 
 NOTIFY pgrst, 'reload schema';
 -- <<< END SOURCE MIGRATION: 084_plan_pricing.sql <<<
+
+
+-- >>> BEGIN SOURCE MIGRATION: 085_site_editor_fix.sql >>>
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Site editor fix: "Could not find the function public.save_site_draft(_content,
+-- _section) in the schema cache".
+--
+-- The site editor calls save_site_draft(_section, _content),
+-- publish_site_section(_section) and discard_site_draft(_section). The
+-- database has these functions with differently named parameters (_s, _c),
+-- so the API can't match the call. Postgres can't rename parameters with
+-- CREATE OR REPLACE, so the old versions are dropped and recreated.
+--
+-- Safe to run more than once. For an existing database, run only this section.
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- What the functions need from site_content, in case an older database lacks it.
+CREATE TABLE IF NOT EXISTS public.site_content (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  section text NOT NULL,
+  content jsonb NOT NULL DEFAULT '{}'::jsonb,
+  draft_content jsonb,
+  published_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.site_content ADD COLUMN IF NOT EXISTS draft_content jsonb;
+ALTER TABLE public.site_content ADD COLUMN IF NOT EXISTS published_at timestamptz;
+ALTER TABLE public.site_content ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+-- ON CONFLICT (section) needs a unique index on section.
+CREATE UNIQUE INDEX IF NOT EXISTS site_content_section_key ON public.site_content (section);
+
+ALTER TABLE public.site_content ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Anyone view site_content" ON public.site_content;
+CREATE POLICY "Anyone view site_content" ON public.site_content FOR SELECT TO anon, authenticated USING (true);
+-- Published columns only: drafts are for admins, via get_site_drafts()
+-- (section 056, F-06).
+REVOKE SELECT ON public.site_content FROM anon, authenticated;
+GRANT SELECT (id, section, content, published_at, created_at, updated_at) ON public.site_content TO anon, authenticated;
+
+-- Old versions (either argument order), then the ones the app calls.
+DROP FUNCTION IF EXISTS public.save_site_draft(text, jsonb);
+DROP FUNCTION IF EXISTS public.save_site_draft(jsonb, text);
+DROP FUNCTION IF EXISTS public.publish_site_section(text);
+DROP FUNCTION IF EXISTS public.discard_site_draft(text);
+
+CREATE OR REPLACE FUNCTION public.save_site_draft(_section text, _content jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NOT public.has_role(auth.uid(), 'admin') THEN RAISE EXCEPTION 'Unauthorized'; END IF;
+  INSERT INTO public.site_content (section, content, draft_content)
+  VALUES (_section, '{}'::jsonb, _content)
+  ON CONFLICT (section) DO UPDATE SET draft_content = EXCLUDED.draft_content, updated_at = now();
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.publish_site_section(_section text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE _d jsonb;
+BEGIN
+  IF NOT public.has_role(auth.uid(), 'admin') THEN RAISE EXCEPTION 'Unauthorized'; END IF;
+  SELECT draft_content INTO _d FROM public.site_content WHERE section = _section;
+  IF _d IS NULL THEN RAISE EXCEPTION 'No draft'; END IF;
+  UPDATE public.site_content
+     SET content = _d, draft_content = NULL, published_at = now(), updated_at = now()
+   WHERE section = _section;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.discard_site_draft(_section text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NOT public.has_role(auth.uid(), 'admin') THEN RAISE EXCEPTION 'Unauthorized'; END IF;
+  UPDATE public.site_content SET draft_content = NULL, updated_at = now() WHERE section = _section;
+END; $$;
+
+REVOKE ALL ON FUNCTION public.save_site_draft(text, jsonb) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.publish_site_section(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.discard_site_draft(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.save_site_draft(text, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.publish_site_section(text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.discard_site_draft(text) TO authenticated;
+
+-- Make the API see the new functions immediately.
+NOTIFY pgrst, 'reload schema';
+-- <<< END SOURCE MIGRATION: 085_site_editor_fix.sql <<<
 
 -- >>> BEGIN ARCHIVED ROOT SCRIPT (disabled): RUN_ME_pending_updates.sql >>>
 -- The following source is commented out intentionally. Review and run
@@ -29090,3 +29179,1444 @@ NOTIFY pgrst, 'reload schema';
 -- END;
 -- $$;
 -- <<< END ARCHIVED ROOT SCRIPT: fix_missing_members.sql <<<
+
+
+-- >>> BEGIN READ-ONLY CHECK: CHECK_SCHEMA_DRIFT >>>
+-- Read-only check: what the repo's migrations (up to 063, plus what the iOS /
+-- Android release and the QA audit fixes need: the 069 consent columns, 077,
+-- 078, 079 and 083) should have created that this database does not have.
+-- Generated from 000_full_schema.sql, with those later entries added by hand.
+-- Changes nothing. Copy this section alone into the SQL Editor and Run; no rows means
+-- nothing is missing. Dropped objects are accounted for, but a name that a
+-- manual script replaced can still appear here.
+WITH expected(kind, name, col, section) AS (VALUES
+  ('table','user_roles',NULL::text,'000_full_schema.sql'),
+  ('table','profiles',NULL::text,'000_full_schema.sql'),
+  ('table','organizations',NULL::text,'000_full_schema.sql'),
+  ('table','org_members',NULL::text,'000_full_schema.sql'),
+  ('table','subscriptions',NULL::text,'000_full_schema.sql'),
+  ('table','org_invitations',NULL::text,'000_full_schema.sql'),
+  ('table','org_followers',NULL::text,'000_full_schema.sql'),
+  ('table','org_sponsor_tiers',NULL::text,'000_full_schema.sql'),
+  ('table','events',NULL::text,'000_full_schema.sql'),
+  ('table','speakers',NULL::text,'000_full_schema.sql'),
+  ('table','sponsors',NULL::text,'000_full_schema.sql'),
+  ('table','event_speakers',NULL::text,'000_full_schema.sql'),
+  ('table','event_sponsors',NULL::text,'000_full_schema.sql'),
+  ('table','sessions',NULL::text,'000_full_schema.sql'),
+  ('table','session_speakers',NULL::text,'000_full_schema.sql'),
+  ('table','registrations',NULL::text,'000_full_schema.sql'),
+  ('table','sponsor_members',NULL::text,'000_full_schema.sql'),
+  ('table','attendance_events',NULL::text,'000_full_schema.sql'),
+  ('table','event_emails',NULL::text,'000_full_schema.sql'),
+  ('table','site_content',NULL::text,'000_full_schema.sql'),
+  ('table','audit_logs',NULL::text,'000_full_schema.sql'),
+  ('table','email_settings',NULL::text,'000_full_schema.sql'),
+  ('table','email_otp_codes',NULL::text,'000_full_schema.sql'),
+  ('table','cities',NULL::text,'000_full_schema.sql'),
+  ('table','webinar_sessions',NULL::text,'000_full_schema.sql'),
+  ('table','webinar_speakers',NULL::text,'000_full_schema.sql'),
+  ('table','webinar_stage_requests',NULL::text,'000_full_schema.sql'),
+  ('table','webinar_qa',NULL::text,'000_full_schema.sql'),
+  ('table','webinar_polls',NULL::text,'000_full_schema.sql'),
+  ('table','webinar_poll_votes',NULL::text,'000_full_schema.sql'),
+  ('table','webinar_chat',NULL::text,'000_full_schema.sql'),
+  ('table','webinar_reactions',NULL::text,'000_full_schema.sql'),
+  ('table','webinar_announcements',NULL::text,'000_full_schema.sql'),
+  ('table','webinar_lounge_tables',NULL::text,'000_full_schema.sql'),
+  ('table','webinar_attendance',NULL::text,'000_full_schema.sql'),
+  ('table','webinar_browser_sessions',NULL::text,'000_full_schema.sql'),
+  ('table','speaker_applications',NULL::text,'000_full_schema.sql'),
+  ('table','sponsor_applications',NULL::text,'000_full_schema.sql'),
+  ('table','app_notifications',NULL::text,'000_full_schema.sql'),
+  ('table','communities',NULL::text,'004_community.sql'),
+  ('table','community_members',NULL::text,'004_community.sql'),
+  ('table','community_posts',NULL::text,'004_community.sql'),
+  ('table','community_comments',NULL::text,'004_community.sql'),
+  ('table','community_reactions',NULL::text,'004_community.sql'),
+  ('table','community_bookmarks',NULL::text,'004_community.sql'),
+  ('table','community_channels',NULL::text,'005_community_complete.sql'),
+  ('table','community_messages',NULL::text,'005_community_complete.sql'),
+  ('table','community_resources',NULL::text,'005_community_complete.sql'),
+  ('table','community_polls',NULL::text,'005_community_complete.sql'),
+  ('table','community_poll_votes',NULL::text,'005_community_complete.sql'),
+  ('table','community_reports',NULL::text,'005_community_complete.sql'),
+  ('table','community_connections',NULL::text,'005_community_complete.sql'),
+  ('table','community_badges',NULL::text,'005_community_complete.sql'),
+  ('table','community_user_badges',NULL::text,'005_community_complete.sql'),
+  ('table','communications',NULL::text,'009_communications.sql'),
+  ('table','communication_recipients',NULL::text,'009_communications.sql'),
+  ('table','whatsapp_templates',NULL::text,'012_communications_whatsapp.sql'),
+  ('table','app_settings',NULL::text,'013_communications_cron_invoke.sql'),
+  ('table','registrant_audit_log',NULL::text,'012_org_invitations_grants.sql'),
+  ('table','support_tickets',NULL::text,'005_support_tickets.sql'),
+  ('table','support_ticket_messages',NULL::text,'005_support_tickets.sql'),
+  ('table','utm_clicks',NULL::text,'008_utm_tracking.sql'),
+  ('table','utm_links',NULL::text,'009_utm_links.sql'),
+  ('table','event_creatives',NULL::text,'022_event_creatives.sql'),
+  ('table','event_creative_backgrounds',NULL::text,'023_creative_ai_backgrounds.sql'),
+  ('table','brand_kits',NULL::text,'025_brand_kits.sql'),
+  ('table','event_venue_selections',NULL::text,'027_event_venue_selections.sql'),
+  ('table','event_creative_ai_drafts',NULL::text,'029_event_creative_ai_drafts.sql'),
+  ('table','utm_partner_access',NULL::text,'040_utm_partner_access.sql'),
+  ('table','account_activation_tokens',NULL::text,'045_guest_registration.sql'),
+  ('table','guest_rate_limits',NULL::text,'045_guest_registration.sql'),
+  ('table','certificate_templates',NULL::text,'047_certificates.sql'),
+  ('table','certificate_template_versions',NULL::text,'047_certificates.sql'),
+  ('table','certificates',NULL::text,'047_certificates.sql'),
+  ('table','certificate_audit',NULL::text,'047_certificates.sql'),
+  ('table','plans',NULL::text,'048_plan_features.sql'),
+  ('table','sponsor_meeting_interests',NULL::text,'050_sponsor_meeting_interest.sql'),
+  ('table','meeting_events',NULL::text,'054_meeting_disputes_history.sql'),
+  ('table','dial_codes',NULL::text,'060_identity_foundation.sql'),
+  ('table','personal_email_domains',NULL::text,'060_identity_foundation.sql'),
+  ('table','people',NULL::text,'060_identity_foundation.sql'),
+  ('table','person_emails',NULL::text,'060_identity_foundation.sql'),
+  ('table','person_phones',NULL::text,'060_identity_foundation.sql'),
+  ('table','person_links',NULL::text,'060_identity_foundation.sql'),
+  ('table','companies',NULL::text,'060_identity_foundation.sql'),
+  ('table','company_aliases',NULL::text,'060_identity_foundation.sql'),
+  ('table','company_domains',NULL::text,'060_identity_foundation.sql'),
+  ('table','company_identifiers',NULL::text,'060_identity_foundation.sql'),
+  ('table','company_locations',NULL::text,'060_identity_foundation.sql'),
+  ('table','company_source_records',NULL::text,'060_identity_foundation.sql'),
+  ('table','person_company_affiliations',NULL::text,'060_identity_foundation.sql'),
+  ('table','identity_match_candidates',NULL::text,'060_identity_foundation.sql'),
+  ('table','company_mentions',NULL::text,'061_company_suggestions.sql'),
+  ('table','profile_suggestion_dismissals',NULL::text,'062_invitation_prefill.sql'),
+  ('column','user_roles','id','000_full_schema.sql'),
+  ('column','user_roles','user_id','000_full_schema.sql'),
+  ('column','user_roles','role','000_full_schema.sql'),
+  ('column','profiles','id','000_full_schema.sql'),
+  ('column','profiles','user_id','000_full_schema.sql'),
+  ('column','profiles','display_name','000_full_schema.sql'),
+  ('column','profiles','avatar_url','000_full_schema.sql'),
+  ('column','profiles','bio','000_full_schema.sql'),
+  ('column','profiles','account_type','000_full_schema.sql'),
+  ('column','profiles','username','000_full_schema.sql'),
+  ('column','profiles','headline','000_full_schema.sql'),
+  ('column','profiles','title','000_full_schema.sql'),
+  ('column','profiles','first_name','000_full_schema.sql'),
+  ('column','profiles','last_name','000_full_schema.sql'),
+  ('column','profiles','department','000_full_schema.sql'),
+  ('column','profiles','designation','000_full_schema.sql'),
+  ('column','profiles','company','000_full_schema.sql'),
+  ('column','profiles','mobile_country_code','000_full_schema.sql'),
+  ('column','profiles','mobile_number','000_full_schema.sql'),
+  ('column','profiles','mobile_verified','000_full_schema.sql'),
+  ('column','profiles','email_verified','000_full_schema.sql'),
+  ('column','profiles','linkedin_url','000_full_schema.sql'),
+  ('column','profiles','company_website','000_full_schema.sql'),
+  ('column','profiles','company_employee_count','000_full_schema.sql'),
+  ('column','profiles','industry','000_full_schema.sql'),
+  ('column','profiles','city_id','000_full_schema.sql'),
+  ('column','profiles','two_factor_enabled','000_full_schema.sql'),
+  ('column','profiles','profile_completed','000_full_schema.sql'),
+  ('column','profiles','onboarding_completed','000_full_schema.sql'),
+  ('column','profiles','video_fx_prefs','000_full_schema.sql'),
+  ('column','profiles','created_at','000_full_schema.sql'),
+  ('column','profiles','updated_at','000_full_schema.sql'),
+  ('column','organizations','id','000_full_schema.sql'),
+  ('column','organizations','name','000_full_schema.sql'),
+  ('column','organizations','slug','000_full_schema.sql'),
+  ('column','organizations','subdomain','000_full_schema.sql'),
+  ('column','organizations','custom_domain','000_full_schema.sql'),
+  ('column','organizations','custom_domain_verified','000_full_schema.sql'),
+  ('column','organizations','logo_url','000_full_schema.sql'),
+  ('column','organizations','owner_id','000_full_schema.sql'),
+  ('column','organizations','plan','000_full_schema.sql'),
+  ('column','organizations','plan_limits','000_full_schema.sql'),
+  ('column','organizations','addons','000_full_schema.sql'),
+  ('column','organizations','billing_email','000_full_schema.sql'),
+  ('column','organizations','landing_config','000_full_schema.sql'),
+  ('column','organizations','landing_published','000_full_schema.sql'),
+  ('column','organizations','webinar_branding_enabled','000_full_schema.sql'),
+  ('column','organizations','created_at','000_full_schema.sql'),
+  ('column','organizations','updated_at','000_full_schema.sql'),
+  ('column','org_members','id','000_full_schema.sql'),
+  ('column','org_members','org_id','000_full_schema.sql'),
+  ('column','org_members','user_id','000_full_schema.sql'),
+  ('column','org_members','role','000_full_schema.sql'),
+  ('column','org_members','joined_at','000_full_schema.sql'),
+  ('column','subscriptions','id','000_full_schema.sql'),
+  ('column','subscriptions','org_id','000_full_schema.sql'),
+  ('column','subscriptions','plan','000_full_schema.sql'),
+  ('column','subscriptions','status','000_full_schema.sql'),
+  ('column','subscriptions','current_period_start','000_full_schema.sql'),
+  ('column','subscriptions','current_period_end','000_full_schema.sql'),
+  ('column','subscriptions','created_at','000_full_schema.sql'),
+  ('column','subscriptions','updated_at','000_full_schema.sql'),
+  ('column','org_invitations','id','000_full_schema.sql'),
+  ('column','org_invitations','org_id','000_full_schema.sql'),
+  ('column','org_invitations','email','000_full_schema.sql'),
+  ('column','org_invitations','role','000_full_schema.sql'),
+  ('column','org_invitations','invited_by','000_full_schema.sql'),
+  ('column','org_invitations','status','000_full_schema.sql'),
+  ('column','org_invitations','token','000_full_schema.sql'),
+  ('column','org_invitations','created_at','000_full_schema.sql'),
+  ('column','org_invitations','updated_at','000_full_schema.sql'),
+  ('column','org_followers','id','000_full_schema.sql'),
+  ('column','org_followers','user_id','000_full_schema.sql'),
+  ('column','org_followers','org_id','000_full_schema.sql'),
+  ('column','org_followers','created_at','000_full_schema.sql'),
+  ('column','org_sponsor_tiers','id','000_full_schema.sql'),
+  ('column','org_sponsor_tiers','org_id','000_full_schema.sql'),
+  ('column','org_sponsor_tiers','label','000_full_schema.sql'),
+  ('column','org_sponsor_tiers','color','000_full_schema.sql'),
+  ('column','org_sponsor_tiers','display_order','000_full_schema.sql'),
+  ('column','org_sponsor_tiers','created_by','000_full_schema.sql'),
+  ('column','org_sponsor_tiers','created_at','000_full_schema.sql'),
+  ('column','org_sponsor_tiers','updated_at','000_full_schema.sql'),
+  ('column','events','id','000_full_schema.sql'),
+  ('column','events','user_id','000_full_schema.sql'),
+  ('column','events','org_id','000_full_schema.sql'),
+  ('column','events','title','000_full_schema.sql'),
+  ('column','events','description','000_full_schema.sql'),
+  ('column','events','slug','000_full_schema.sql'),
+  ('column','events','date','000_full_schema.sql'),
+  ('column','events','end_date','000_full_schema.sql'),
+  ('column','events','venue','000_full_schema.sql'),
+  ('column','events','location','000_full_schema.sql'),
+  ('column','events','capacity','000_full_schema.sql'),
+  ('column','events','tickets_sold','000_full_schema.sql'),
+  ('column','events','price','000_full_schema.sql'),
+  ('column','events','currency','000_full_schema.sql'),
+  ('column','events','timezone','000_full_schema.sql'),
+  ('column','events','status','000_full_schema.sql'),
+  ('column','events','event_format','000_full_schema.sql'),
+  ('column','events','virtual_provider','000_full_schema.sql'),
+  ('column','events','virtual_url','000_full_schema.sql'),
+  ('column','events','requires_approval','000_full_schema.sql'),
+  ('column','events','cover_video_url','000_full_schema.sql'),
+  ('column','events','image_url','000_full_schema.sql'),
+  ('column','events','banner_landscape_url','000_full_schema.sql'),
+  ('column','events','banner_portrait_url','000_full_schema.sql'),
+  ('column','events','page_config','000_full_schema.sql'),
+  ('column','events','attendance_target_pct','000_full_schema.sql'),
+  ('column','events','webinar_branding_enabled','000_full_schema.sql'),
+  ('column','events','created_at','000_full_schema.sql'),
+  ('column','events','updated_at','000_full_schema.sql'),
+  ('column','speakers','id','000_full_schema.sql'),
+  ('column','speakers','user_id','000_full_schema.sql'),
+  ('column','speakers','name','000_full_schema.sql'),
+  ('column','speakers','email','000_full_schema.sql'),
+  ('column','speakers','bio','000_full_schema.sql'),
+  ('column','speakers','photo_url','000_full_schema.sql'),
+  ('column','speakers','company','000_full_schema.sql'),
+  ('column','speakers','designation','000_full_schema.sql'),
+  ('column','speakers','title','000_full_schema.sql'),
+  ('column','speakers','first_name','000_full_schema.sql'),
+  ('column','speakers','last_name','000_full_schema.sql'),
+  ('column','speakers','mobile_country_code','000_full_schema.sql'),
+  ('column','speakers','mobile_number','000_full_schema.sql'),
+  ('column','speakers','linkedin_url','000_full_schema.sql'),
+  ('column','speakers','company_website','000_full_schema.sql'),
+  ('column','speakers','company_employee_count','000_full_schema.sql'),
+  ('column','speakers','industry','000_full_schema.sql'),
+  ('column','speakers','created_at','000_full_schema.sql'),
+  ('column','speakers','updated_at','000_full_schema.sql'),
+  ('column','sponsors','id','000_full_schema.sql'),
+  ('column','sponsors','user_id','000_full_schema.sql'),
+  ('column','sponsors','name','000_full_schema.sql'),
+  ('column','sponsors','email','000_full_schema.sql'),
+  ('column','sponsors','logo_url','000_full_schema.sql'),
+  ('column','sponsors','website','000_full_schema.sql'),
+  ('column','sponsors','tier','000_full_schema.sql'),
+  ('column','sponsors','tier_label','000_full_schema.sql'),
+  ('column','sponsors','description','000_full_schema.sql'),
+  ('column','sponsors','created_at','000_full_schema.sql'),
+  ('column','sponsors','updated_at','000_full_schema.sql'),
+  ('column','event_speakers','id','000_full_schema.sql'),
+  ('column','event_speakers','event_id','000_full_schema.sql'),
+  ('column','event_speakers','speaker_id','000_full_schema.sql'),
+  ('column','event_speakers','display_order','000_full_schema.sql'),
+  ('column','event_speakers','created_at','000_full_schema.sql'),
+  ('column','event_sponsors','id','000_full_schema.sql'),
+  ('column','event_sponsors','event_id','000_full_schema.sql'),
+  ('column','event_sponsors','sponsor_id','000_full_schema.sql'),
+  ('column','event_sponsors','tier_override','000_full_schema.sql'),
+  ('column','event_sponsors','display_order','000_full_schema.sql'),
+  ('column','event_sponsors','created_at','000_full_schema.sql'),
+  ('column','sessions','id','000_full_schema.sql'),
+  ('column','sessions','event_id','000_full_schema.sql'),
+  ('column','sessions','title','000_full_schema.sql'),
+  ('column','sessions','description','000_full_schema.sql'),
+  ('column','sessions','session_type','000_full_schema.sql'),
+  ('column','sessions','start_time','000_full_schema.sql'),
+  ('column','sessions','end_time','000_full_schema.sql'),
+  ('column','sessions','location','000_full_schema.sql'),
+  ('column','sessions','speaker_id','000_full_schema.sql'),
+  ('column','sessions','created_at','000_full_schema.sql'),
+  ('column','sessions','updated_at','000_full_schema.sql'),
+  ('column','session_speakers','session_id','000_full_schema.sql'),
+  ('column','session_speakers','speaker_id','000_full_schema.sql'),
+  ('column','session_speakers','position','000_full_schema.sql'),
+  ('column','session_speakers','created_at','000_full_schema.sql'),
+  ('column','registrations','id','000_full_schema.sql'),
+  ('column','registrations','event_id','000_full_schema.sql'),
+  ('column','registrations','user_id','000_full_schema.sql'),
+  ('column','registrations','name','000_full_schema.sql'),
+  ('column','registrations','email','000_full_schema.sql'),
+  ('column','registrations','ticket_type','000_full_schema.sql'),
+  ('column','registrations','status','000_full_schema.sql'),
+  ('column','registrations','approval_status','000_full_schema.sql'),
+  ('column','registrations','amount_paid','000_full_schema.sql'),
+  ('column','registrations','qr_code','000_full_schema.sql'),
+  ('column','registrations','join_token','000_full_schema.sql'),
+  ('column','registrations','active_session_id','000_full_schema.sql'),
+  ('column','registrations','active_session_started_at','000_full_schema.sql'),
+  ('column','registrations','checked_in','000_full_schema.sql'),
+  ('column','registrations','checked_in_at','000_full_schema.sql'),
+  ('column','registrations','checked_in_method','000_full_schema.sql'),
+  ('column','registrations','attendance_state','000_full_schema.sql'),
+  ('column','registrations','last_in_at','000_full_schema.sql'),
+  ('column','registrations','last_out_at','000_full_schema.sql'),
+  ('column','registrations','total_minutes','000_full_schema.sql'),
+  ('column','registrations','title','000_full_schema.sql'),
+  ('column','registrations','first_name','000_full_schema.sql'),
+  ('column','registrations','last_name','000_full_schema.sql'),
+  ('column','registrations','company','000_full_schema.sql'),
+  ('column','registrations','designation','000_full_schema.sql'),
+  ('column','registrations','mobile_country_code','000_full_schema.sql'),
+  ('column','registrations','mobile_number','000_full_schema.sql'),
+  ('column','registrations','linkedin_url','000_full_schema.sql'),
+  ('column','registrations','company_website','000_full_schema.sql'),
+  ('column','registrations','company_employee_count','000_full_schema.sql'),
+  ('column','registrations','industry','000_full_schema.sql'),
+  ('column','registrations','approved_by','000_full_schema.sql'),
+  ('column','registrations','approved_at','000_full_schema.sql'),
+  ('column','registrations','decline_reason','000_full_schema.sql'),
+  ('column','registrations','created_at','000_full_schema.sql'),
+  ('column','registrations','updated_at','000_full_schema.sql'),
+  ('column','sponsor_members','id','000_full_schema.sql'),
+  ('column','sponsor_members','sponsor_id','000_full_schema.sql'),
+  ('column','sponsor_members','user_id','000_full_schema.sql'),
+  ('column','sponsor_members','email','000_full_schema.sql'),
+  ('column','sponsor_members','display_name','000_full_schema.sql'),
+  ('column','sponsor_members','role','000_full_schema.sql'),
+  ('column','sponsor_members','invite_token','000_full_schema.sql'),
+  ('column','sponsor_members','accepted_at','000_full_schema.sql'),
+  ('column','sponsor_members','title','000_full_schema.sql'),
+  ('column','sponsor_members','first_name','000_full_schema.sql'),
+  ('column','sponsor_members','last_name','000_full_schema.sql'),
+  ('column','sponsor_members','company','000_full_schema.sql'),
+  ('column','sponsor_members','designation','000_full_schema.sql'),
+  ('column','sponsor_members','mobile_country_code','000_full_schema.sql'),
+  ('column','sponsor_members','mobile_number','000_full_schema.sql'),
+  ('column','sponsor_members','linkedin_url','000_full_schema.sql'),
+  ('column','sponsor_members','company_website','000_full_schema.sql'),
+  ('column','sponsor_members','company_employee_count','000_full_schema.sql'),
+  ('column','sponsor_members','industry','000_full_schema.sql'),
+  ('column','sponsor_members','created_at','000_full_schema.sql'),
+  ('column','sponsor_members','updated_at','000_full_schema.sql'),
+  ('column','attendance_events','id','000_full_schema.sql'),
+  ('column','attendance_events','registration_id','000_full_schema.sql'),
+  ('column','attendance_events','event_id','000_full_schema.sql'),
+  ('column','attendance_events','event_day','000_full_schema.sql'),
+  ('column','attendance_events','kind','000_full_schema.sql'),
+  ('column','attendance_events','method','000_full_schema.sql'),
+  ('column','attendance_events','occurred_at','000_full_schema.sql'),
+  ('column','attendance_events','actor_id','000_full_schema.sql'),
+  ('column','attendance_events','created_at','000_full_schema.sql'),
+  ('column','event_emails','id','000_full_schema.sql'),
+  ('column','event_emails','event_id','000_full_schema.sql'),
+  ('column','event_emails','created_by','000_full_schema.sql'),
+  ('column','event_emails','subject','000_full_schema.sql'),
+  ('column','event_emails','body','000_full_schema.sql'),
+  ('column','event_emails','recipient_filter','000_full_schema.sql'),
+  ('column','event_emails','recipients','000_full_schema.sql'),
+  ('column','event_emails','status','000_full_schema.sql'),
+  ('column','event_emails','sent_at','000_full_schema.sql'),
+  ('column','event_emails','created_at','000_full_schema.sql'),
+  ('column','event_emails','updated_at','000_full_schema.sql'),
+  ('column','site_content','id','000_full_schema.sql'),
+  ('column','site_content','section','000_full_schema.sql'),
+  ('column','site_content','content','000_full_schema.sql'),
+  ('column','site_content','draft_content','000_full_schema.sql'),
+  ('column','site_content','published_at','000_full_schema.sql'),
+  ('column','site_content','created_at','000_full_schema.sql'),
+  ('column','site_content','updated_at','000_full_schema.sql'),
+  ('column','audit_logs','id','000_full_schema.sql'),
+  ('column','audit_logs','actor_id','000_full_schema.sql'),
+  ('column','audit_logs','actor_email','000_full_schema.sql'),
+  ('column','audit_logs','action','000_full_schema.sql'),
+  ('column','audit_logs','target_type','000_full_schema.sql'),
+  ('column','audit_logs','target_id','000_full_schema.sql'),
+  ('column','audit_logs','details','000_full_schema.sql'),
+  ('column','audit_logs','created_at','000_full_schema.sql'),
+  ('column','email_settings','id','000_full_schema.sql'),
+  ('column','email_settings','singleton','000_full_schema.sql'),
+  ('column','email_settings','domain_configured','000_full_schema.sql'),
+  ('column','email_settings','send_ticket_emails','000_full_schema.sql'),
+  ('column','email_settings','send_approval_emails','000_full_schema.sql'),
+  ('column','email_settings','require_2fa_for_admins','000_full_schema.sql'),
+  ('column','email_settings','notes','000_full_schema.sql'),
+  ('column','email_settings','updated_at','000_full_schema.sql'),
+  ('column','email_otp_codes','id','000_full_schema.sql'),
+  ('column','email_otp_codes','user_id','000_full_schema.sql'),
+  ('column','email_otp_codes','email','000_full_schema.sql'),
+  ('column','email_otp_codes','code_hash','000_full_schema.sql'),
+  ('column','email_otp_codes','attempts','000_full_schema.sql'),
+  ('column','email_otp_codes','expires_at','000_full_schema.sql'),
+  ('column','email_otp_codes','consumed_at','000_full_schema.sql'),
+  ('column','email_otp_codes','created_at','000_full_schema.sql'),
+  ('column','cities','id','000_full_schema.sql'),
+  ('column','cities','geoname_id','000_full_schema.sql'),
+  ('column','cities','name','000_full_schema.sql'),
+  ('column','cities','ascii_name','000_full_schema.sql'),
+  ('column','cities','region','000_full_schema.sql'),
+  ('column','cities','region_code','000_full_schema.sql'),
+  ('column','cities','country','000_full_schema.sql'),
+  ('column','cities','country_code','000_full_schema.sql'),
+  ('column','cities','population','000_full_schema.sql'),
+  ('column','cities','latitude','000_full_schema.sql'),
+  ('column','cities','longitude','000_full_schema.sql'),
+  ('column','cities','timezone','000_full_schema.sql'),
+  ('column','cities','created_at','000_full_schema.sql'),
+  ('column','webinar_sessions','id','000_full_schema.sql'),
+  ('column','webinar_sessions','event_id','000_full_schema.sql'),
+  ('column','webinar_sessions','livekit_room','000_full_schema.sql'),
+  ('column','webinar_sessions','status','000_full_schema.sql'),
+  ('column','webinar_sessions','layout','000_full_schema.sql'),
+  ('column','webinar_sessions','branding','000_full_schema.sql'),
+  ('column','webinar_sessions','record_enabled','000_full_schema.sql'),
+  ('column','webinar_sessions','recording_url','000_full_schema.sql'),
+  ('column','webinar_sessions','egress_id','000_full_schema.sql'),
+  ('column','webinar_sessions','lobby_open_at','000_full_schema.sql'),
+  ('column','webinar_sessions','reactions_enabled','000_full_schema.sql'),
+  ('column','webinar_sessions','lounge_enabled','000_full_schema.sql'),
+  ('column','webinar_sessions','started_at','000_full_schema.sql'),
+  ('column','webinar_sessions','ended_at','000_full_schema.sql'),
+  ('column','webinar_sessions','viewer_peak','000_full_schema.sql'),
+  ('column','webinar_sessions','viewer_total','000_full_schema.sql'),
+  ('column','webinar_sessions','publisher_peak','000_full_schema.sql'),
+  ('column','webinar_sessions','attendance_minutes','000_full_schema.sql'),
+  ('column','webinar_sessions','created_by','000_full_schema.sql'),
+  ('column','webinar_sessions','created_at','000_full_schema.sql'),
+  ('column','webinar_sessions','updated_at','000_full_schema.sql'),
+  ('column','webinar_speakers','id','000_full_schema.sql'),
+  ('column','webinar_speakers','session_id','000_full_schema.sql'),
+  ('column','webinar_speakers','user_id','000_full_schema.sql'),
+  ('column','webinar_speakers','email','000_full_schema.sql'),
+  ('column','webinar_speakers','display_name','000_full_schema.sql'),
+  ('column','webinar_speakers','role','000_full_schema.sql'),
+  ('column','webinar_speakers','invite_token','000_full_schema.sql'),
+  ('column','webinar_speakers','accepted_at','000_full_schema.sql'),
+  ('column','webinar_speakers','created_at','000_full_schema.sql'),
+  ('column','webinar_stage_requests','id','000_full_schema.sql'),
+  ('column','webinar_stage_requests','session_id','000_full_schema.sql'),
+  ('column','webinar_stage_requests','user_id','000_full_schema.sql'),
+  ('column','webinar_stage_requests','status','000_full_schema.sql'),
+  ('column','webinar_stage_requests','created_at','000_full_schema.sql'),
+  ('column','webinar_qa','id','000_full_schema.sql'),
+  ('column','webinar_qa','session_id','000_full_schema.sql'),
+  ('column','webinar_qa','user_id','000_full_schema.sql'),
+  ('column','webinar_qa','question','000_full_schema.sql'),
+  ('column','webinar_qa','upvotes','000_full_schema.sql'),
+  ('column','webinar_qa','answered','000_full_schema.sql'),
+  ('column','webinar_qa','pinned','000_full_schema.sql'),
+  ('column','webinar_qa','created_at','000_full_schema.sql'),
+  ('column','webinar_polls','id','000_full_schema.sql'),
+  ('column','webinar_polls','session_id','000_full_schema.sql'),
+  ('column','webinar_polls','question','000_full_schema.sql'),
+  ('column','webinar_polls','options','000_full_schema.sql'),
+  ('column','webinar_polls','open','000_full_schema.sql'),
+  ('column','webinar_polls','created_at','000_full_schema.sql'),
+  ('column','webinar_poll_votes','id','000_full_schema.sql'),
+  ('column','webinar_poll_votes','poll_id','000_full_schema.sql'),
+  ('column','webinar_poll_votes','user_id','000_full_schema.sql'),
+  ('column','webinar_poll_votes','option_index','000_full_schema.sql'),
+  ('column','webinar_poll_votes','created_at','000_full_schema.sql'),
+  ('column','webinar_chat','id','000_full_schema.sql'),
+  ('column','webinar_chat','session_id','000_full_schema.sql'),
+  ('column','webinar_chat','user_id','000_full_schema.sql'),
+  ('column','webinar_chat','message','000_full_schema.sql'),
+  ('column','webinar_chat','deleted','000_full_schema.sql'),
+  ('column','webinar_chat','created_at','000_full_schema.sql'),
+  ('column','webinar_reactions','id','000_full_schema.sql'),
+  ('column','webinar_reactions','session_id','000_full_schema.sql'),
+  ('column','webinar_reactions','user_id','000_full_schema.sql'),
+  ('column','webinar_reactions','emoji','000_full_schema.sql'),
+  ('column','webinar_reactions','created_at','000_full_schema.sql'),
+  ('column','webinar_announcements','id','000_full_schema.sql'),
+  ('column','webinar_announcements','session_id','000_full_schema.sql'),
+  ('column','webinar_announcements','message','000_full_schema.sql'),
+  ('column','webinar_announcements','created_at','000_full_schema.sql'),
+  ('column','webinar_lounge_tables','id','000_full_schema.sql'),
+  ('column','webinar_lounge_tables','session_id','000_full_schema.sql'),
+  ('column','webinar_lounge_tables','name','000_full_schema.sql'),
+  ('column','webinar_lounge_tables','capacity','000_full_schema.sql'),
+  ('column','webinar_lounge_tables','livekit_subroom','000_full_schema.sql'),
+  ('column','webinar_lounge_tables','created_at','000_full_schema.sql'),
+  ('column','webinar_attendance','id','000_full_schema.sql'),
+  ('column','webinar_attendance','session_id','000_full_schema.sql'),
+  ('column','webinar_attendance','user_id','000_full_schema.sql'),
+  ('column','webinar_attendance','identity','000_full_schema.sql'),
+  ('column','webinar_attendance','display_name','000_full_schema.sql'),
+  ('column','webinar_attendance','role','000_full_schema.sql'),
+  ('column','webinar_attendance','joined_at','000_full_schema.sql'),
+  ('column','webinar_attendance','left_at','000_full_schema.sql'),
+  ('column','webinar_attendance','duration_seconds','000_full_schema.sql'),
+  ('column','webinar_browser_sessions','id','000_full_schema.sql'),
+  ('column','webinar_browser_sessions','registration_id','000_full_schema.sql'),
+  ('column','webinar_browser_sessions','browser_session_id','000_full_schema.sql'),
+  ('column','webinar_browser_sessions','fingerprint','000_full_schema.sql'),
+  ('column','webinar_browser_sessions','created_at','000_full_schema.sql'),
+  ('column','webinar_browser_sessions','last_seen_at','000_full_schema.sql'),
+  ('column','speaker_applications','id','000_full_schema.sql'),
+  ('column','speaker_applications','event_id','000_full_schema.sql'),
+  ('column','speaker_applications','user_id','000_full_schema.sql'),
+  ('column','speaker_applications','full_name','000_full_schema.sql'),
+  ('column','speaker_applications','email','000_full_schema.sql'),
+  ('column','speaker_applications','mobile_country_code','000_full_schema.sql'),
+  ('column','speaker_applications','mobile_number','000_full_schema.sql'),
+  ('column','speaker_applications','linkedin_url','000_full_schema.sql'),
+  ('column','speaker_applications','portfolio_url','000_full_schema.sql'),
+  ('column','speaker_applications','job_title','000_full_schema.sql'),
+  ('column','speaker_applications','company','000_full_schema.sql'),
+  ('column','speaker_applications','years_experience','000_full_schema.sql'),
+  ('column','speaker_applications','industry','000_full_schema.sql'),
+  ('column','speaker_applications','bio','000_full_schema.sql'),
+  ('column','speaker_applications','expertise','000_full_schema.sql'),
+  ('column','speaker_applications','topics','000_full_schema.sql'),
+  ('column','speaker_applications','past_experience','000_full_schema.sql'),
+  ('column','speaker_applications','session_title','000_full_schema.sql'),
+  ('column','speaker_applications','session_description','000_full_schema.sql'),
+  ('column','speaker_applications','key_takeaways','000_full_schema.sql'),
+  ('column','speaker_applications','target_audience','000_full_schema.sql'),
+  ('column','speaker_applications','session_category','000_full_schema.sql'),
+  ('column','speaker_applications','session_duration_minutes','000_full_schema.sql'),
+  ('column','speaker_applications','past_videos_url','000_full_schema.sql'),
+  ('column','speaker_applications','resume_url','000_full_schema.sql'),
+  ('column','speaker_applications','notes','000_full_schema.sql'),
+  ('column','speaker_applications','status','000_full_schema.sql'),
+  ('column','speaker_applications','rejection_reason','000_full_schema.sql'),
+  ('column','speaker_applications','reviewed_by','000_full_schema.sql'),
+  ('column','speaker_applications','reviewed_at','000_full_schema.sql'),
+  ('column','speaker_applications','created_at','000_full_schema.sql'),
+  ('column','speaker_applications','updated_at','000_full_schema.sql'),
+  ('column','sponsor_applications','id','000_full_schema.sql'),
+  ('column','sponsor_applications','event_id','000_full_schema.sql'),
+  ('column','sponsor_applications','user_id','000_full_schema.sql'),
+  ('column','sponsor_applications','company_name','000_full_schema.sql'),
+  ('column','sponsor_applications','company_website','000_full_schema.sql'),
+  ('column','sponsor_applications','industry','000_full_schema.sql'),
+  ('column','sponsor_applications','company_description','000_full_schema.sql'),
+  ('column','sponsor_applications','logo_url','000_full_schema.sql'),
+  ('column','sponsor_applications','contact_name','000_full_schema.sql'),
+  ('column','sponsor_applications','contact_email','000_full_schema.sql'),
+  ('column','sponsor_applications','contact_mobile_country_code','000_full_schema.sql'),
+  ('column','sponsor_applications','contact_mobile_number','000_full_schema.sql'),
+  ('column','sponsor_applications','contact_designation','000_full_schema.sql'),
+  ('column','sponsor_applications','sponsorship_tier','000_full_schema.sql'),
+  ('column','sponsor_applications','budget_range','000_full_schema.sql'),
+  ('column','sponsor_applications','objectives','000_full_schema.sql'),
+  ('column','sponsor_applications','expected_outcomes','000_full_schema.sql'),
+  ('column','sponsor_applications','brochure_url','000_full_schema.sql'),
+  ('column','sponsor_applications','deck_url','000_full_schema.sql'),
+  ('column','sponsor_applications','promotional_url','000_full_schema.sql'),
+  ('column','sponsor_applications','notes','000_full_schema.sql'),
+  ('column','sponsor_applications','status','000_full_schema.sql'),
+  ('column','sponsor_applications','rejection_reason','000_full_schema.sql'),
+  ('column','sponsor_applications','reviewed_by','000_full_schema.sql'),
+  ('column','sponsor_applications','reviewed_at','000_full_schema.sql'),
+  ('column','sponsor_applications','created_at','000_full_schema.sql'),
+  ('column','sponsor_applications','updated_at','000_full_schema.sql'),
+  ('column','app_notifications','id','000_full_schema.sql'),
+  ('column','app_notifications','user_id','000_full_schema.sql'),
+  ('column','app_notifications','type','000_full_schema.sql'),
+  ('column','app_notifications','title','000_full_schema.sql'),
+  ('column','app_notifications','body','000_full_schema.sql'),
+  ('column','app_notifications','link','000_full_schema.sql'),
+  ('column','app_notifications','read','000_full_schema.sql'),
+  ('column','app_notifications','created_at','000_full_schema.sql'),
+  ('column','communities','id','004_community.sql'),
+  ('column','communities','kind','004_community.sql'),
+  ('column','communities','category','004_community.sql'),
+  ('column','communities','parent_id','004_community.sql'),
+  ('column','communities','event_id','004_community.sql'),
+  ('column','communities','org_id','004_community.sql'),
+  ('column','communities','slug','004_community.sql'),
+  ('column','communities','name','004_community.sql'),
+  ('column','communities','description','004_community.sql'),
+  ('column','communities','banner_url','004_community.sql'),
+  ('column','communities','logo_url','004_community.sql'),
+  ('column','communities','visibility','004_community.sql'),
+  ('column','communities','rules','004_community.sql'),
+  ('column','communities','member_count','004_community.sql'),
+  ('column','communities','post_count','004_community.sql'),
+  ('column','communities','created_by','004_community.sql'),
+  ('column','communities','created_at','004_community.sql'),
+  ('column','communities','updated_at','004_community.sql'),
+  ('column','community_members','id','004_community.sql'),
+  ('column','community_members','community_id','004_community.sql'),
+  ('column','community_members','user_id','004_community.sql'),
+  ('column','community_members','role','004_community.sql'),
+  ('column','community_members','status','004_community.sql'),
+  ('column','community_members','auto','004_community.sql'),
+  ('column','community_members','joined_at','004_community.sql'),
+  ('column','community_members','notify_email','004_community.sql'),
+  ('column','community_members','notify_push','004_community.sql'),
+  ('column','community_members','last_read_at','004_community.sql'),
+  ('column','community_posts','id','004_community.sql'),
+  ('column','community_posts','community_id','004_community.sql'),
+  ('column','community_posts','author_id','004_community.sql'),
+  ('column','community_posts','type','004_community.sql'),
+  ('column','community_posts','title','004_community.sql'),
+  ('column','community_posts','body_md','004_community.sql'),
+  ('column','community_posts','attachments','004_community.sql'),
+  ('column','community_posts','link_url','004_community.sql'),
+  ('column','community_posts','pinned','004_community.sql'),
+  ('column','community_posts','important','004_community.sql'),
+  ('column','community_posts','hidden','004_community.sql'),
+  ('column','community_posts','comment_count','004_community.sql'),
+  ('column','community_posts','reaction_count','004_community.sql'),
+  ('column','community_posts','view_count','004_community.sql'),
+  ('column','community_posts','ts_search','004_community.sql'),
+  ('column','community_posts','created_at','004_community.sql'),
+  ('column','community_posts','updated_at','004_community.sql'),
+  ('column','community_posts','edited_at','004_community.sql'),
+  ('column','community_posts','deleted_at','004_community.sql'),
+  ('column','community_comments','id','004_community.sql'),
+  ('column','community_comments','post_id','004_community.sql'),
+  ('column','community_comments','parent_id','004_community.sql'),
+  ('column','community_comments','author_id','004_community.sql'),
+  ('column','community_comments','body_md','004_community.sql'),
+  ('column','community_comments','hidden','004_community.sql'),
+  ('column','community_comments','reaction_count','004_community.sql'),
+  ('column','community_comments','created_at','004_community.sql'),
+  ('column','community_comments','updated_at','004_community.sql'),
+  ('column','community_reactions','id','004_community.sql'),
+  ('column','community_reactions','user_id','004_community.sql'),
+  ('column','community_reactions','post_id','004_community.sql'),
+  ('column','community_reactions','comment_id','004_community.sql'),
+  ('column','community_reactions','emoji','004_community.sql'),
+  ('column','community_reactions','created_at','004_community.sql'),
+  ('column','community_bookmarks','user_id','004_community.sql'),
+  ('column','community_bookmarks','post_id','004_community.sql'),
+  ('column','community_bookmarks','created_at','004_community.sql'),
+  ('column','community_channels','id','005_community_complete.sql'),
+  ('column','community_channels','community_id','005_community_complete.sql'),
+  ('column','community_channels','kind','005_community_complete.sql'),
+  ('column','community_channels','name','005_community_complete.sql'),
+  ('column','community_channels','description','005_community_complete.sql'),
+  ('column','community_channels','archived','005_community_complete.sql'),
+  ('column','community_channels','created_at','005_community_complete.sql'),
+  ('column','community_messages','id','005_community_complete.sql'),
+  ('column','community_messages','channel_id','005_community_complete.sql'),
+  ('column','community_messages','author_id','005_community_complete.sql'),
+  ('column','community_messages','body','005_community_complete.sql'),
+  ('column','community_messages','attachments','005_community_complete.sql'),
+  ('column','community_messages','reply_to','005_community_complete.sql'),
+  ('column','community_messages','edited_at','005_community_complete.sql'),
+  ('column','community_messages','deleted_at','005_community_complete.sql'),
+  ('column','community_messages','created_at','005_community_complete.sql'),
+  ('column','community_resources','id','005_community_complete.sql'),
+  ('column','community_resources','community_id','005_community_complete.sql'),
+  ('column','community_resources','uploaded_by','005_community_complete.sql'),
+  ('column','community_resources','category','005_community_complete.sql'),
+  ('column','community_resources','title','005_community_complete.sql'),
+  ('column','community_resources','description','005_community_complete.sql'),
+  ('column','community_resources','file_url','005_community_complete.sql'),
+  ('column','community_resources','file_name','005_community_complete.sql'),
+  ('column','community_resources','file_size','005_community_complete.sql'),
+  ('column','community_resources','mime_type','005_community_complete.sql'),
+  ('column','community_resources','download_count','005_community_complete.sql'),
+  ('column','community_resources','created_at','005_community_complete.sql'),
+  ('column','community_polls','id','005_community_complete.sql'),
+  ('column','community_polls','post_id','005_community_complete.sql'),
+  ('column','community_polls','multi','005_community_complete.sql'),
+  ('column','community_polls','options','005_community_complete.sql'),
+  ('column','community_polls','closes_at','005_community_complete.sql'),
+  ('column','community_polls','created_at','005_community_complete.sql'),
+  ('column','community_poll_votes','poll_id','005_community_complete.sql'),
+  ('column','community_poll_votes','user_id','005_community_complete.sql'),
+  ('column','community_poll_votes','option_id','005_community_complete.sql'),
+  ('column','community_poll_votes','created_at','005_community_complete.sql'),
+  ('column','community_reports','id','005_community_complete.sql'),
+  ('column','community_reports','community_id','005_community_complete.sql'),
+  ('column','community_reports','reporter_id','005_community_complete.sql'),
+  ('column','community_reports','post_id','005_community_complete.sql'),
+  ('column','community_reports','comment_id','005_community_complete.sql'),
+  ('column','community_reports','reason','005_community_complete.sql'),
+  ('column','community_reports','notes','005_community_complete.sql'),
+  ('column','community_reports','status','005_community_complete.sql'),
+  ('column','community_reports','resolved_by','005_community_complete.sql'),
+  ('column','community_reports','resolved_at','005_community_complete.sql'),
+  ('column','community_reports','created_at','005_community_complete.sql'),
+  ('column','community_connections','id','005_community_complete.sql'),
+  ('column','community_connections','requester_id','005_community_complete.sql'),
+  ('column','community_connections','target_id','005_community_complete.sql'),
+  ('column','community_connections','kind','005_community_complete.sql'),
+  ('column','community_connections','status','005_community_complete.sql'),
+  ('column','community_connections','context_community_id','005_community_complete.sql'),
+  ('column','community_connections','created_at','005_community_complete.sql'),
+  ('column','community_connections','responded_at','005_community_complete.sql'),
+  ('column','community_badges','id','005_community_complete.sql'),
+  ('column','community_badges','label','005_community_complete.sql'),
+  ('column','community_badges','icon','005_community_complete.sql'),
+  ('column','community_badges','description','005_community_complete.sql'),
+  ('column','community_badges','rule_kind','005_community_complete.sql'),
+  ('column','community_badges','threshold','005_community_complete.sql'),
+  ('column','community_user_badges','community_id','005_community_complete.sql'),
+  ('column','community_user_badges','user_id','005_community_complete.sql'),
+  ('column','community_user_badges','badge_id','005_community_complete.sql'),
+  ('column','community_user_badges','awarded_at','005_community_complete.sql'),
+  ('column','events','previous_event_id','008_event_series.sql'),
+  ('column','events','speaker_applications_enabled','009_application_toggles.sql'),
+  ('column','events','sponsor_applications_enabled','009_application_toggles.sql'),
+  ('column','events','create_community','009_event_community_options.sql'),
+  ('column','events','community_category','009_event_community_options.sql'),
+  ('column','communications','id','009_communications.sql'),
+  ('column','communications','org_id','009_communications.sql'),
+  ('column','communications','event_id','009_communications.sql'),
+  ('column','communications','community_id','009_communications.sql'),
+  ('column','communications','channels','009_communications.sql'),
+  ('column','communications','recipient_filter','009_communications.sql'),
+  ('column','communications','subject','009_communications.sql'),
+  ('column','communications','body_text','009_communications.sql'),
+  ('column','communications','body_html','009_communications.sql'),
+  ('column','communications','status','009_communications.sql'),
+  ('column','communications','scheduled_for','009_communications.sql'),
+  ('column','communications','recipient_count','009_communications.sql'),
+  ('column','communications','sent_count','009_communications.sql'),
+  ('column','communications','failed_count','009_communications.sql'),
+  ('column','communications','created_by','009_communications.sql'),
+  ('column','communications','created_at','009_communications.sql'),
+  ('column','communications','updated_at','009_communications.sql'),
+  ('column','communications','sent_at','009_communications.sql'),
+  ('column','communication_recipients','id','009_communications.sql'),
+  ('column','communication_recipients','communication_id','009_communications.sql'),
+  ('column','communication_recipients','user_id','009_communications.sql'),
+  ('column','communication_recipients','email','009_communications.sql'),
+  ('column','communication_recipients','phone','009_communications.sql'),
+  ('column','communication_recipients','name','009_communications.sql'),
+  ('column','communication_recipients','email_status','009_communications.sql'),
+  ('column','communication_recipients','whatsapp_status','009_communications.sql'),
+  ('column','communication_recipients','email_sent_at','009_communications.sql'),
+  ('column','communication_recipients','email_delivered_at','009_communications.sql'),
+  ('column','communication_recipients','email_opened_at','009_communications.sql'),
+  ('column','communication_recipients','email_clicked_at','009_communications.sql'),
+  ('column','communication_recipients','whatsapp_sent_at','009_communications.sql'),
+  ('column','communication_recipients','whatsapp_delivered_at','009_communications.sql'),
+  ('column','communication_recipients','whatsapp_read_at','009_communications.sql'),
+  ('column','communication_recipients','error_message','009_communications.sql'),
+  ('column','communication_recipients','created_at','009_communications.sql'),
+  ('column','whatsapp_templates','id','012_communications_whatsapp.sql'),
+  ('column','whatsapp_templates','org_id','012_communications_whatsapp.sql'),
+  ('column','whatsapp_templates','name','012_communications_whatsapp.sql'),
+  ('column','whatsapp_templates','language','012_communications_whatsapp.sql'),
+  ('column','whatsapp_templates','category','012_communications_whatsapp.sql'),
+  ('column','whatsapp_templates','status','012_communications_whatsapp.sql'),
+  ('column','whatsapp_templates','components','012_communications_whatsapp.sql'),
+  ('column','whatsapp_templates','variable_count','012_communications_whatsapp.sql'),
+  ('column','whatsapp_templates','synced_at','012_communications_whatsapp.sql'),
+  ('column','whatsapp_templates','created_at','012_communications_whatsapp.sql'),
+  ('column','communications','whatsapp_template_name','012_communications_whatsapp.sql'),
+  ('column','communications','whatsapp_template_language','012_communications_whatsapp.sql'),
+  ('column','communications','whatsapp_template_variables','012_communications_whatsapp.sql'),
+  ('column','communication_recipients','rendered_subject','014_communications_render.sql'),
+  ('column','communication_recipients','rendered_body','014_communications_render.sql'),
+  ('column','app_settings','key','013_communications_cron_invoke.sql'),
+  ('column','app_settings','value','013_communications_cron_invoke.sql'),
+  ('column','app_settings','updated_at','013_communications_cron_invoke.sql'),
+  ('column','communications','last_error','014_communications_diagnostics.sql'),
+  ('column','events','video_provider','012_org_invitations_grants.sql'),
+  ('column','registrant_audit_log','id','012_org_invitations_grants.sql'),
+  ('column','registrant_audit_log','action','012_org_invitations_grants.sql'),
+  ('column','registrant_audit_log','reg_id','012_org_invitations_grants.sql'),
+  ('column','registrant_audit_log','actor_id','012_org_invitations_grants.sql'),
+  ('column','registrant_audit_log','details','012_org_invitations_grants.sql'),
+  ('column','registrant_audit_log','created_at','012_org_invitations_grants.sql'),
+  ('column','support_tickets','id','005_support_tickets.sql'),
+  ('column','support_tickets','ticket_number','005_support_tickets.sql'),
+  ('column','support_tickets','name','005_support_tickets.sql'),
+  ('column','support_tickets','email','005_support_tickets.sql'),
+  ('column','support_tickets','user_id','005_support_tickets.sql'),
+  ('column','support_tickets','subject','005_support_tickets.sql'),
+  ('column','support_tickets','category','005_support_tickets.sql'),
+  ('column','support_tickets','message','005_support_tickets.sql'),
+  ('column','support_tickets','status','005_support_tickets.sql'),
+  ('column','support_tickets','priority','005_support_tickets.sql'),
+  ('column','support_tickets','assigned_to','005_support_tickets.sql'),
+  ('column','support_tickets','source','005_support_tickets.sql'),
+  ('column','support_tickets','user_agent','005_support_tickets.sql'),
+  ('column','support_tickets','ip_hash','005_support_tickets.sql'),
+  ('column','support_tickets','page_url','005_support_tickets.sql'),
+  ('column','support_tickets','internal_notes','005_support_tickets.sql'),
+  ('column','support_tickets','first_response_at','005_support_tickets.sql'),
+  ('column','support_tickets','resolved_at','005_support_tickets.sql'),
+  ('column','support_tickets','closed_at','005_support_tickets.sql'),
+  ('column','support_tickets','created_at','005_support_tickets.sql'),
+  ('column','support_tickets','updated_at','005_support_tickets.sql'),
+  ('column','support_ticket_messages','id','005_support_tickets.sql'),
+  ('column','support_ticket_messages','ticket_id','005_support_tickets.sql'),
+  ('column','support_ticket_messages','author_type','005_support_tickets.sql'),
+  ('column','support_ticket_messages','author_id','005_support_tickets.sql'),
+  ('column','support_ticket_messages','author_name','005_support_tickets.sql'),
+  ('column','support_ticket_messages','author_email','005_support_tickets.sql'),
+  ('column','support_ticket_messages','body','005_support_tickets.sql'),
+  ('column','support_ticket_messages','is_internal','005_support_tickets.sql'),
+  ('column','support_ticket_messages','email_sent_at','005_support_tickets.sql'),
+  ('column','support_ticket_messages','email_status','005_support_tickets.sql'),
+  ('column','support_ticket_messages','created_at','005_support_tickets.sql'),
+  ('column','profiles','banned_at','006_admin_activity_log.sql'),
+  ('column','profiles','banned_reason','006_admin_activity_log.sql'),
+  ('column','events','published','006_admin_activity_log.sql'),
+  ('column','events','deleted_at','006_admin_activity_log.sql'),
+  ('column','subscriptions','cancelled_at','006_admin_activity_log.sql'),
+  ('column','registrations','utm_source','008_utm_tracking.sql'),
+  ('column','registrations','utm_medium','008_utm_tracking.sql'),
+  ('column','registrations','utm_campaign','008_utm_tracking.sql'),
+  ('column','registrations','utm_content','008_utm_tracking.sql'),
+  ('column','registrations','utm_term','008_utm_tracking.sql'),
+  ('column','utm_clicks','id','008_utm_tracking.sql'),
+  ('column','utm_clicks','event_id','008_utm_tracking.sql'),
+  ('column','utm_clicks','utm_source','008_utm_tracking.sql'),
+  ('column','utm_clicks','utm_medium','008_utm_tracking.sql'),
+  ('column','utm_clicks','utm_campaign','008_utm_tracking.sql'),
+  ('column','utm_clicks','utm_content','008_utm_tracking.sql'),
+  ('column','utm_clicks','utm_term','008_utm_tracking.sql'),
+  ('column','utm_clicks','referrer','008_utm_tracking.sql'),
+  ('column','utm_clicks','path','008_utm_tracking.sql'),
+  ('column','utm_clicks','session_key','008_utm_tracking.sql'),
+  ('column','utm_clicks','clicked_at','008_utm_tracking.sql'),
+  ('column','utm_links','id','009_utm_links.sql'),
+  ('column','utm_links','event_id','009_utm_links.sql'),
+  ('column','utm_links','created_by','009_utm_links.sql'),
+  ('column','utm_links','utm_source','009_utm_links.sql'),
+  ('column','utm_links','utm_medium','009_utm_links.sql'),
+  ('column','utm_links','utm_campaign','009_utm_links.sql'),
+  ('column','utm_links','utm_content','009_utm_links.sql'),
+  ('column','utm_links','utm_term','009_utm_links.sql'),
+  ('column','utm_links','label','009_utm_links.sql'),
+  ('column','utm_links','url','009_utm_links.sql'),
+  ('column','utm_links','created_at','009_utm_links.sql'),
+  ('column','utm_links','updated_at','009_utm_links.sql'),
+  ('column','event_creatives','id','022_event_creatives.sql'),
+  ('column','event_creatives','event_id','022_event_creatives.sql'),
+  ('column','event_creatives','creative_type','022_event_creatives.sql'),
+  ('column','event_creatives','speaker_id','022_event_creatives.sql'),
+  ('column','event_creatives','sponsor_id','022_event_creatives.sql'),
+  ('column','event_creatives','template_id','022_event_creatives.sql'),
+  ('column','event_creatives','platform_format','022_event_creatives.sql'),
+  ('column','event_creatives','asset_url','022_event_creatives.sql'),
+  ('column','event_creatives','storage_path','022_event_creatives.sql'),
+  ('column','event_creatives','created_by','022_event_creatives.sql'),
+  ('column','event_creatives','created_at','022_event_creatives.sql'),
+  ('column','event_creative_backgrounds','id','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','event_id','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','cache_key','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','prompt','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','prompt_normalized','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','style_preset','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','aspect_ratio','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','asset_url','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','storage_path','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','storage_bucket','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','media_type','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','width','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','height','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','size_bytes','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','provider','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','model','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','created_by','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','created_at','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','updated_at','023_creative_ai_backgrounds.sql'),
+  ('column','event_creative_backgrounds','expires_at','023_creative_ai_backgrounds.sql'),
+  ('column','event_creatives','metadata','023_creative_ai_backgrounds.sql'),
+  ('column','event_creatives','customization','024_event_creatives_customization.sql'),
+  ('column','brand_kits','id','025_brand_kits.sql'),
+  ('column','brand_kits','org_id','025_brand_kits.sql'),
+  ('column','brand_kits','name','025_brand_kits.sql'),
+  ('column','brand_kits','snapshot','025_brand_kits.sql'),
+  ('column','brand_kits','created_by','025_brand_kits.sql'),
+  ('column','brand_kits','created_at','025_brand_kits.sql'),
+  ('column','speaker_applications','utm_source','026_utm_attribution_coverage.sql'),
+  ('column','speaker_applications','utm_medium','026_utm_attribution_coverage.sql'),
+  ('column','speaker_applications','utm_campaign','026_utm_attribution_coverage.sql'),
+  ('column','speaker_applications','utm_content','026_utm_attribution_coverage.sql'),
+  ('column','speaker_applications','utm_term','026_utm_attribution_coverage.sql'),
+  ('column','sponsor_applications','utm_source','026_utm_attribution_coverage.sql'),
+  ('column','sponsor_applications','utm_medium','026_utm_attribution_coverage.sql'),
+  ('column','sponsor_applications','utm_campaign','026_utm_attribution_coverage.sql'),
+  ('column','sponsor_applications','utm_content','026_utm_attribution_coverage.sql'),
+  ('column','sponsor_applications','utm_term','026_utm_attribution_coverage.sql'),
+  ('column','profiles','utm_source','026_utm_attribution_coverage.sql'),
+  ('column','profiles','utm_medium','026_utm_attribution_coverage.sql'),
+  ('column','profiles','utm_campaign','026_utm_attribution_coverage.sql'),
+  ('column','profiles','utm_content','026_utm_attribution_coverage.sql'),
+  ('column','profiles','utm_term','026_utm_attribution_coverage.sql'),
+  ('column','event_venue_selections','id','027_event_venue_selections.sql'),
+  ('column','event_venue_selections','event_id','027_event_venue_selections.sql'),
+  ('column','event_venue_selections','vendor_id','027_event_venue_selections.sql'),
+  ('column','event_venue_selections','org_id','027_event_venue_selections.sql'),
+  ('column','event_venue_selections','selected_by','027_event_venue_selections.sql'),
+  ('column','event_venue_selections','status','027_event_venue_selections.sql'),
+  ('column','event_venue_selections','notes','027_event_venue_selections.sql'),
+  ('column','event_venue_selections','notified_at','027_event_venue_selections.sql'),
+  ('column','event_venue_selections','responded_at','027_event_venue_selections.sql'),
+  ('column','event_venue_selections','created_at','027_event_venue_selections.sql'),
+  ('column','event_venue_selections','updated_at','027_event_venue_selections.sql'),
+  ('column','event_creative_ai_drafts','id','029_event_creative_ai_drafts.sql'),
+  ('column','event_creative_ai_drafts','event_id','029_event_creative_ai_drafts.sql'),
+  ('column','event_creative_ai_drafts','entity_type','029_event_creative_ai_drafts.sql'),
+  ('column','event_creative_ai_drafts','entity_id','029_event_creative_ai_drafts.sql'),
+  ('column','event_creative_ai_drafts','copy','029_event_creative_ai_drafts.sql'),
+  ('column','event_creative_ai_drafts','source','029_event_creative_ai_drafts.sql'),
+  ('column','event_creative_ai_drafts','status','029_event_creative_ai_drafts.sql'),
+  ('column','event_creative_ai_drafts','created_at','029_event_creative_ai_drafts.sql'),
+  ('column','event_creative_ai_drafts','updated_at','029_event_creative_ai_drafts.sql'),
+  ('column','event_creative_ai_drafts','created_by','029_event_creative_ai_drafts.sql'),
+  ('column','event_venue_selections','selected_service_ids','032_venue_selection_service_details.sql'),
+  ('column','event_venue_selections','event_type','035_venue_booking_context.sql'),
+  ('column','event_venue_selections','event_duration_hours','035_venue_booking_context.sql'),
+  ('column','event_venue_selections','expected_attendees','035_venue_booking_context.sql'),
+  ('column','event_venue_selections','seating_capacity','035_venue_booking_context.sql'),
+  ('column','event_venue_selections','seating_arrangement','035_venue_booking_context.sql'),
+  ('column','event_venue_selections','needs_pre_function_area','035_venue_booking_context.sql'),
+  ('column','event_venue_selections','needs_vip_area','035_venue_booking_context.sql'),
+  ('column','event_venue_selections','needs_additional_rooms','035_venue_booking_context.sql'),
+  ('column','event_venue_selections','venue_link','035_venue_booking_context.sql'),
+  ('column','event_venue_selections','venue_id','036_selections_reference_venue.sql'),
+  ('column','registrations','created_by','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','id','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','event_id','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','utm_source','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','utm_medium','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','utm_campaign','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','invited_email','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','partner_user_id','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','can_register','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','can_view_approval','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','can_view_checkin','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','can_export','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','status','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','granted_by','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','granted_at','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','accepted_at','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','revoked_at','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','created_at','040_utm_partner_access.sql'),
+  ('column','utm_partner_access','updated_at','040_utm_partner_access.sql'),
+  ('column','account_activation_tokens','id','045_guest_registration.sql'),
+  ('column','account_activation_tokens','email','045_guest_registration.sql'),
+  ('column','account_activation_tokens','token_hash','045_guest_registration.sql'),
+  ('column','account_activation_tokens','registration_id','045_guest_registration.sql'),
+  ('column','account_activation_tokens','expires_at','045_guest_registration.sql'),
+  ('column','account_activation_tokens','used_at','045_guest_registration.sql'),
+  ('column','account_activation_tokens','created_at','045_guest_registration.sql'),
+  ('column','guest_rate_limits','id','045_guest_registration.sql'),
+  ('column','guest_rate_limits','bucket','045_guest_registration.sql'),
+  ('column','guest_rate_limits','key_hash','045_guest_registration.sql'),
+  ('column','guest_rate_limits','created_at','045_guest_registration.sql'),
+  ('column','registrations','confirmation_email_sent_at','045_guest_registration.sql'),
+  ('column','org_invitations','token_hash','046_team_invitation_onboarding.sql'),
+  ('column','org_invitations','expires_at','046_team_invitation_onboarding.sql'),
+  ('column','org_invitations','accepted_at','046_team_invitation_onboarding.sql'),
+  ('column','org_invitations','accepted_by','046_team_invitation_onboarding.sql'),
+  ('column','org_invitations','claimed_at','046_team_invitation_onboarding.sql'),
+  ('column','certificate_templates','id','047_certificates.sql'),
+  ('column','certificate_templates','org_id','047_certificates.sql'),
+  ('column','certificate_templates','event_id','047_certificates.sql'),
+  ('column','certificate_templates','name','047_certificates.sql'),
+  ('column','certificate_templates','category','047_certificates.sql'),
+  ('column','certificate_templates','orientation','047_certificates.sql'),
+  ('column','certificate_templates','source_template','047_certificates.sql'),
+  ('column','certificate_templates','design','047_certificates.sql'),
+  ('column','certificate_templates','settings','047_certificates.sql'),
+  ('column','certificate_templates','status','047_certificates.sql'),
+  ('column','certificate_templates','current_version','047_certificates.sql'),
+  ('column','certificate_templates','published_version_id','047_certificates.sql'),
+  ('column','certificate_templates','published_at','047_certificates.sql'),
+  ('column','certificate_templates','created_by','047_certificates.sql'),
+  ('column','certificate_templates','created_at','047_certificates.sql'),
+  ('column','certificate_templates','updated_at','047_certificates.sql'),
+  ('column','certificate_template_versions','id','047_certificates.sql'),
+  ('column','certificate_template_versions','template_id','047_certificates.sql'),
+  ('column','certificate_template_versions','org_id','047_certificates.sql'),
+  ('column','certificate_template_versions','version','047_certificates.sql'),
+  ('column','certificate_template_versions','name','047_certificates.sql'),
+  ('column','certificate_template_versions','design','047_certificates.sql'),
+  ('column','certificate_template_versions','settings','047_certificates.sql'),
+  ('column','certificate_template_versions','published_by','047_certificates.sql'),
+  ('column','certificate_template_versions','published_at','047_certificates.sql'),
+  ('column','certificates','id','047_certificates.sql'),
+  ('column','certificates','event_id','047_certificates.sql'),
+  ('column','certificates','org_id','047_certificates.sql'),
+  ('column','certificates','registration_id','047_certificates.sql'),
+  ('column','certificates','template_version_id','047_certificates.sql'),
+  ('column','certificates','code','047_certificates.sql'),
+  ('column','certificates','recipient_name','047_certificates.sql'),
+  ('column','certificates','recipient_email','047_certificates.sql'),
+  ('column','certificates','field_values','047_certificates.sql'),
+  ('column','certificates','status','047_certificates.sql'),
+  ('column','certificates','issued_at','047_certificates.sql'),
+  ('column','certificates','issued_by','047_certificates.sql'),
+  ('column','certificates','revoked_at','047_certificates.sql'),
+  ('column','certificates','revoked_by','047_certificates.sql'),
+  ('column','certificates','revoked_reason','047_certificates.sql'),
+  ('column','certificates','emailed_at','047_certificates.sql'),
+  ('column','certificates','email_count','047_certificates.sql'),
+  ('column','certificate_audit','id','047_certificates.sql'),
+  ('column','certificate_audit','certificate_id','047_certificates.sql'),
+  ('column','certificate_audit','event_id','047_certificates.sql'),
+  ('column','certificate_audit','action','047_certificates.sql'),
+  ('column','certificate_audit','actor','047_certificates.sql'),
+  ('column','certificate_audit','detail','047_certificates.sql'),
+  ('column','certificate_audit','created_at','047_certificates.sql'),
+  ('column','plans','key','048_plan_features.sql'),
+  ('column','plans','name','048_plan_features.sql'),
+  ('column','plans','description','048_plan_features.sql'),
+  ('column','plans','sort_order','048_plan_features.sql'),
+  ('column','plans','is_public','048_plan_features.sql'),
+  ('column','plans','limits','048_plan_features.sql'),
+  ('column','plans','features','048_plan_features.sql'),
+  ('column','plans','created_at','048_plan_features.sql'),
+  ('column','plans','updated_at','048_plan_features.sql'),
+  ('column','organizations','feature_overrides','048_plan_features.sql'),
+  ('column','org_invitations','transfer_ownership','049_admin_provisioned_organizations.sql'),
+  ('column','org_invitations','prefill','049_admin_provisioned_organizations.sql'),
+  ('column','sponsor_meeting_interests','id','050_sponsor_meeting_interest.sql'),
+  ('column','sponsor_meeting_interests','event_id','050_sponsor_meeting_interest.sql'),
+  ('column','sponsor_meeting_interests','sponsor_id','050_sponsor_meeting_interest.sql'),
+  ('column','sponsor_meeting_interests','registration_id','050_sponsor_meeting_interest.sql'),
+  ('column','sponsor_meeting_interests','created_by','050_sponsor_meeting_interest.sql'),
+  ('column','sponsor_meeting_interests','created_at','050_sponsor_meeting_interest.sql'),
+  ('column','sponsor_meeting_interests','updated_at','050_sponsor_meeting_interest.sql'),
+  ('column','sponsor_meeting_interests','speaker_id','051_meeting_interest_speakers_realtime.sql'),
+  ('column','sponsor_meeting_interests','status','052_meeting_status.sql'),
+  ('column','sponsor_meeting_interests','scheduled_at','052_meeting_status.sql'),
+  ('column','sponsor_meeting_interests','location','052_meeting_status.sql'),
+  ('column','sponsor_meeting_interests','met_at','052_meeting_status.sql'),
+  ('column','sponsor_meeting_interests','status_reason','052_meeting_status.sql'),
+  ('column','sponsor_meeting_interests','note','052_meeting_status.sql'),
+  ('column','sponsor_meeting_interests','status_by','052_meeting_status.sql'),
+  ('column','sponsor_meeting_interests','status_by_side','052_meeting_status.sql'),
+  ('column','sponsor_meeting_interests','status_changed_at','052_meeting_status.sql'),
+  ('column','sponsor_meeting_interests','status_cause','054_meeting_disputes_history.sql'),
+  ('column','sponsor_meeting_interests','ever_progressed','054_meeting_disputes_history.sql'),
+  ('column','sponsor_meeting_interests','outcome_at','054_meeting_disputes_history.sql'),
+  ('column','sponsor_meeting_interests','dispute_status','054_meeting_disputes_history.sql'),
+  ('column','sponsor_meeting_interests','dispute_reason','054_meeting_disputes_history.sql'),
+  ('column','sponsor_meeting_interests','dispute_requested_status','054_meeting_disputes_history.sql'),
+  ('column','sponsor_meeting_interests','disputed_at','054_meeting_disputes_history.sql'),
+  ('column','sponsor_meeting_interests','dispute_resolution','054_meeting_disputes_history.sql'),
+  ('column','sponsor_meeting_interests','dispute_note','054_meeting_disputes_history.sql'),
+  ('column','sponsor_meeting_interests','resolved_at','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','id','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','meeting_id','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','event_id','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','sponsor_id','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','registration_id','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','speaker_id','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','action','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','from_status','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','to_status','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','side','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','actor_id','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','reason','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','cause','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','scheduled_at','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','location','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','backfilled','054_meeting_disputes_history.sql'),
+  ('column','meeting_events','created_at','054_meeting_disputes_history.sql'),
+  ('column','dial_codes','iso','060_identity_foundation.sql'),
+  ('column','dial_codes','dial','060_identity_foundation.sql'),
+  ('column','personal_email_domains','domain','060_identity_foundation.sql'),
+  ('column','people','id','060_identity_foundation.sql'),
+  ('column','people','user_id','060_identity_foundation.sql'),
+  ('column','people','display_name','060_identity_foundation.sql'),
+  ('column','people','name_key','060_identity_foundation.sql'),
+  ('column','people','created_via','060_identity_foundation.sql'),
+  ('column','people','created_at','060_identity_foundation.sql'),
+  ('column','people','updated_at','060_identity_foundation.sql'),
+  ('column','person_emails','id','060_identity_foundation.sql'),
+  ('column','person_emails','person_id','060_identity_foundation.sql'),
+  ('column','person_emails','email','060_identity_foundation.sql'),
+  ('column','person_emails','email_key','060_identity_foundation.sql'),
+  ('column','person_emails','verified_at','060_identity_foundation.sql'),
+  ('column','person_emails','source','060_identity_foundation.sql'),
+  ('column','person_emails','created_at','060_identity_foundation.sql'),
+  ('column','person_phones','id','060_identity_foundation.sql'),
+  ('column','person_phones','person_id','060_identity_foundation.sql'),
+  ('column','person_phones','country_code','060_identity_foundation.sql'),
+  ('column','person_phones','number','060_identity_foundation.sql'),
+  ('column','person_phones','phone_e164','060_identity_foundation.sql'),
+  ('column','person_phones','verified_at','060_identity_foundation.sql'),
+  ('column','person_phones','source','060_identity_foundation.sql'),
+  ('column','person_phones','created_at','060_identity_foundation.sql'),
+  ('column','person_links','id','060_identity_foundation.sql'),
+  ('column','person_links','person_id','060_identity_foundation.sql'),
+  ('column','person_links','kind','060_identity_foundation.sql'),
+  ('column','person_links','url','060_identity_foundation.sql'),
+  ('column','person_links','url_key','060_identity_foundation.sql'),
+  ('column','person_links','created_at','060_identity_foundation.sql'),
+  ('column','companies','id','060_identity_foundation.sql'),
+  ('column','companies','name','060_identity_foundation.sql'),
+  ('column','companies','name_key','060_identity_foundation.sql'),
+  ('column','companies','legal_name','060_identity_foundation.sql'),
+  ('column','companies','description','060_identity_foundation.sql'),
+  ('column','companies','website','060_identity_foundation.sql'),
+  ('column','companies','industry','060_identity_foundation.sql'),
+  ('column','companies','sub_industry','060_identity_foundation.sql'),
+  ('column','companies','employee_range','060_identity_foundation.sql'),
+  ('column','companies','revenue_range','060_identity_foundation.sql'),
+  ('column','companies','hq_city','060_identity_foundation.sql'),
+  ('column','companies','hq_country','060_identity_foundation.sql'),
+  ('column','companies','technologies','060_identity_foundation.sql'),
+  ('column','companies','parent_company_id','060_identity_foundation.sql'),
+  ('column','companies','corporate_group','060_identity_foundation.sql'),
+  ('column','companies','verification_status','060_identity_foundation.sql'),
+  ('column','companies','source','060_identity_foundation.sql'),
+  ('column','companies','last_enriched_at','060_identity_foundation.sql'),
+  ('column','companies','created_by','060_identity_foundation.sql'),
+  ('column','companies','created_at','060_identity_foundation.sql'),
+  ('column','companies','updated_at','060_identity_foundation.sql'),
+  ('column','company_aliases','id','060_identity_foundation.sql'),
+  ('column','company_aliases','company_id','060_identity_foundation.sql'),
+  ('column','company_aliases','alias','060_identity_foundation.sql'),
+  ('column','company_aliases','alias_key','060_identity_foundation.sql'),
+  ('column','company_aliases','kind','060_identity_foundation.sql'),
+  ('column','company_domains','id','060_identity_foundation.sql'),
+  ('column','company_domains','company_id','060_identity_foundation.sql'),
+  ('column','company_domains','domain','060_identity_foundation.sql'),
+  ('column','company_domains','kind','060_identity_foundation.sql'),
+  ('column','company_domains','created_at','060_identity_foundation.sql'),
+  ('column','company_identifiers','id','060_identity_foundation.sql'),
+  ('column','company_identifiers','company_id','060_identity_foundation.sql'),
+  ('column','company_identifiers','scheme','060_identity_foundation.sql'),
+  ('column','company_identifiers','value','060_identity_foundation.sql'),
+  ('column','company_identifiers','verified','060_identity_foundation.sql'),
+  ('column','company_locations','id','060_identity_foundation.sql'),
+  ('column','company_locations','company_id','060_identity_foundation.sql'),
+  ('column','company_locations','kind','060_identity_foundation.sql'),
+  ('column','company_locations','city','060_identity_foundation.sql'),
+  ('column','company_locations','region','060_identity_foundation.sql'),
+  ('column','company_locations','country','060_identity_foundation.sql'),
+  ('column','company_source_records','id','060_identity_foundation.sql'),
+  ('column','company_source_records','company_id','060_identity_foundation.sql'),
+  ('column','company_source_records','provider','060_identity_foundation.sql'),
+  ('column','company_source_records','external_id','060_identity_foundation.sql'),
+  ('column','company_source_records','data','060_identity_foundation.sql'),
+  ('column','company_source_records','licence','060_identity_foundation.sql'),
+  ('column','company_source_records','fetched_at','060_identity_foundation.sql'),
+  ('column','person_company_affiliations','id','060_identity_foundation.sql'),
+  ('column','person_company_affiliations','person_id','060_identity_foundation.sql'),
+  ('column','person_company_affiliations','company_id','060_identity_foundation.sql'),
+  ('column','person_company_affiliations','designation','060_identity_foundation.sql'),
+  ('column','person_company_affiliations','designation_key','060_identity_foundation.sql'),
+  ('column','person_company_affiliations','is_current','060_identity_foundation.sql'),
+  ('column','person_company_affiliations','started_on','060_identity_foundation.sql'),
+  ('column','person_company_affiliations','ended_on','060_identity_foundation.sql'),
+  ('column','person_company_affiliations','source','060_identity_foundation.sql'),
+  ('column','person_company_affiliations','created_at','060_identity_foundation.sql'),
+  ('column','identity_match_candidates','id','060_identity_foundation.sql'),
+  ('column','identity_match_candidates','person_a','060_identity_foundation.sql'),
+  ('column','identity_match_candidates','person_b','060_identity_foundation.sql'),
+  ('column','identity_match_candidates','reasons','060_identity_foundation.sql'),
+  ('column','identity_match_candidates','status','060_identity_foundation.sql'),
+  ('column','identity_match_candidates','reviewed_by','060_identity_foundation.sql'),
+  ('column','identity_match_candidates','reviewed_at','060_identity_foundation.sql'),
+  ('column','identity_match_candidates','created_at','060_identity_foundation.sql'),
+  ('column','registrations','person_id','060_identity_foundation.sql'),
+  ('column','registrations','company_id','060_identity_foundation.sql'),
+  ('column','speakers','person_id','060_identity_foundation.sql'),
+  ('column','sponsor_members','person_id','060_identity_foundation.sql'),
+  ('column','companies','entry_count','061_company_suggestions.sql'),
+  ('column','company_mentions','company_id','061_company_suggestions.sql'),
+  ('column','company_mentions','person_id','061_company_suggestions.sql'),
+  ('column','company_mentions','created_at','061_company_suggestions.sql'),
+  ('column','account_activation_tokens','purpose','062_invitation_prefill.sql'),
+  ('column','account_activation_tokens','next_path','062_invitation_prefill.sql'),
+  ('column','account_activation_tokens','person_id','062_invitation_prefill.sql'),
+  ('column','profile_suggestion_dismissals','user_id','062_invitation_prefill.sql'),
+  ('column','profile_suggestion_dismissals','field','062_invitation_prefill.sql'),
+  ('column','profile_suggestion_dismissals','value_key','062_invitation_prefill.sql'),
+  ('column','profile_suggestion_dismissals','created_at','062_invitation_prefill.sql'),
+  ('function','update_updated_at_column',NULL::text,'000_full_schema.sql'),
+  ('function','has_role',NULL::text,'000_full_schema.sql'),
+  ('function','is_org_member',NULL::text,'000_full_schema.sql'),
+  ('function','is_org_owner',NULL::text,'007_co_owner_management.sql'),
+  ('function','is_event_approved_attendee',NULL::text,'000_full_schema.sql'),
+  ('function','is_event_owner',NULL::text,'000_full_schema.sql'),
+  ('function','validate_organization_domains',NULL::text,'000_full_schema.sql'),
+  ('function','_validate_person_title',NULL::text,'000_full_schema.sql'),
+  ('function','_record_audit',NULL::text,'000_full_schema.sql'),
+  ('function','handle_new_user',NULL::text,'058_signup_email_verification.sql'),
+  ('function','get_my_profile',NULL::text,'000_full_schema.sql'),
+  ('function','slugify',NULL::text,'000_full_schema.sql'),
+  ('function','generate_event_slug',NULL::text,'000_full_schema.sql'),
+  ('function','events_set_slug',NULL::text,'000_full_schema.sql'),
+  ('function','registrations_validate',NULL::text,'056_security_fixes_2026_10_28.sql'),
+  ('function','event_tracking_closed',NULL::text,'000_full_schema.sql'),
+  ('function','_attendance_recompute',NULL::text,'000_full_schema.sql'),
+  ('function','_attendance_after_insert',NULL::text,'000_full_schema.sql'),
+  ('function','_attendance_after_delete',NULL::text,'000_full_schema.sql'),
+  ('function','toggle_attendance',NULL::text,'000_full_schema.sql'),
+  ('function','undo_attendance',NULL::text,'000_full_schema.sql'),
+  ('function','admin_list_orgs',NULL::text,'000_full_schema.sql'),
+  ('function','admin_list_users',NULL::text,'000_full_schema.sql'),
+  ('function','admin_set_user_role',NULL::text,'000_full_schema.sql'),
+  ('function','admin_delete_org',NULL::text,'000_full_schema.sql'),
+  ('function','admin_update_org_plan',NULL::text,'048_plan_features.sql'),
+  ('function','admin_update_org',NULL::text,'048_plan_features.sql'),
+  ('function','admin_list_audit_logs',NULL::text,'000_full_schema.sql'),
+  ('function','save_site_draft',NULL::text,'000_full_schema.sql'),
+  ('function','publish_site_section',NULL::text,'000_full_schema.sql'),
+  ('function','discard_site_draft',NULL::text,'000_full_schema.sql'),
+  ('function','get_event_by_slug',NULL::text,'032_anon_rpc_hardening.sql'),
+  ('function','get_event_attendees_public',NULL::text,'032_anon_rpc_hardening.sql'),
+  ('function','get_public_org_by_slug',NULL::text,'000_full_schema.sql'),
+  ('function','get_public_org_brief',NULL::text,'000_full_schema.sql'),
+  ('function','search_cities',NULL::text,'000_full_schema.sql'),
+  ('function','is_sponsor_member',NULL::text,'000_full_schema.sql'),
+  ('function','sponsor_portal_events',NULL::text,'015_communications_resolver_cron_auth.sql'),
+  ('function','speaker_portal_events',NULL::text,'015_communications_resolver_cron_auth.sql'),
+  ('function','speaker_portal_event_details',NULL::text,'015_communications_resolver_cron_auth.sql'),
+  ('function','user_role_assignments',NULL::text,'015_communications_resolver_cron_auth.sql'),
+  ('function','approve_speaker_application',NULL::text,'000_full_schema.sql'),
+  ('function','reject_speaker_application',NULL::text,'000_full_schema.sql'),
+  ('function','approve_sponsor_application',NULL::text,'000_full_schema.sql'),
+  ('function','reject_sponsor_application',NULL::text,'000_full_schema.sql'),
+  ('function','my_applications',NULL::text,'000_full_schema.sql'),
+  ('function','claim_join_session',NULL::text,'000_full_schema.sql'),
+  ('function','event_branding_enabled',NULL::text,'000_full_schema.sql'),
+  ('function','resolve_browser_session',NULL::text,'000_full_schema.sql'),
+  ('function','get_webinar_analytics',NULL::text,'000_full_schema.sql'),
+  ('function','sync_profile_to_registrations',NULL::text,'000_full_schema.sql'),
+  ('function','_apply_attendance',NULL::text,'004_apply_attendance_helper.sql'),
+  ('function','set_attendance',NULL::text,'005_set_attendance_rpc.sql'),
+  ('function','bulk_set_attendance',NULL::text,'006_bulk_set_attendance_per_row.sql'),
+  ('function','is_community_member',NULL::text,'004_community.sql'),
+  ('function','community_role_of',NULL::text,'004_community.sql'),
+  ('function','can_moderate_community',NULL::text,'004_community.sql'),
+  ('function','community_slugify',NULL::text,'004_community.sql'),
+  ('function','_community_posts_tsvector',NULL::text,'004_community.sql'),
+  ('function','_cmembers_count_trg',NULL::text,'004_community.sql'),
+  ('function','_cposts_count_trg',NULL::text,'004_community.sql'),
+  ('function','_ccomments_count_trg',NULL::text,'004_community.sql'),
+  ('function','_creactions_count_trg',NULL::text,'004_community.sql'),
+  ('function','_map_event_category_to_community',NULL::text,'004_community.sql'),
+  ('function','ensure_parent_community',NULL::text,'004_community.sql'),
+  ('function','ensure_event_community',NULL::text,'009_event_community_options.sql'),
+  ('function','_events_after_insert_community',NULL::text,'009_event_community_options.sql'),
+  ('function','_auto_join_event_community',NULL::text,'004_community.sql'),
+  ('function','_registrations_join_community',NULL::text,'004_community.sql'),
+  ('function','_event_speakers_join_community',NULL::text,'004_community.sql'),
+  ('function','_event_sponsors_join_community',NULL::text,'004_community.sql'),
+  ('function','community_join',NULL::text,'004_community.sql'),
+  ('function','community_leave',NULL::text,'004_community.sql'),
+  ('function','community_create_post',NULL::text,'004_community.sql'),
+  ('function','community_react',NULL::text,'004_community.sql'),
+  ('function','community_resolve_event',NULL::text,'004_community.sql'),
+  ('function','_communities_after_insert_channels',NULL::text,'005_community_complete.sql'),
+  ('function','_community_comments_notify',NULL::text,'006_community_notif_urls.sql'),
+  ('function','_community_announcement_notify',NULL::text,'006_community_notif_urls.sql'),
+  ('function','_community_connections_notify',NULL::text,'006_community_notif_urls.sql'),
+  ('function','community_connect',NULL::text,'005_community_complete.sql'),
+  ('function','community_respond_connection',NULL::text,'005_community_complete.sql'),
+  ('function','community_report',NULL::text,'005_community_complete.sql'),
+  ('function','community_moderate',NULL::text,'005_community_complete.sql'),
+  ('function','community_set_member_status',NULL::text,'005_community_complete.sql'),
+  ('function','community_create_poll',NULL::text,'005_community_complete.sql'),
+  ('function','community_vote',NULL::text,'005_community_complete.sql'),
+  ('function','community_search',NULL::text,'005_community_complete.sql'),
+  ('function','_events_after_update_community',NULL::text,'009_event_community_options.sql'),
+  ('function','_events_validate_previous',NULL::text,'008_event_series.sql'),
+  ('function','_copy_community_members_from_previous',NULL::text,'008_event_series.sql'),
+  ('function','community_resync_from_previous',NULL::text,'008_event_series.sql'),
+  ('function','community_set_member_role',NULL::text,'008_event_series.sql'),
+  ('function','_recompute_tickets_sold',NULL::text,'009_tickets_sold_trigger.sql'),
+  ('function','_registrations_tickets_sold_trg',NULL::text,'009_tickets_sold_trigger.sql'),
+  ('function','communications_resolve_recipients',NULL::text,'057_recipient_lookup_access.sql'),
+  ('function','communications_dispatch',NULL::text,'013_communications_community.sql'),
+  ('function','_communications_set_updated_at',NULL::text,'009_communications.sql'),
+  ('function','_communications_dispatch_impl',NULL::text,'016_communications_email_pending.sql'),
+  ('function','communications_schedule',NULL::text,'013_communications_community.sql'),
+  ('function','communications_unschedule',NULL::text,'010_communications_schedule.sql'),
+  ('function','communications_duplicate',NULL::text,'010_communications_schedule.sql'),
+  ('function','whatsapp_templates_list',NULL::text,'012_communications_whatsapp.sql'),
+  ('function','_whatsapp_recipient_update',NULL::text,'012_communications_whatsapp.sql'),
+  ('function','communications_resolve_community_recipients',NULL::text,'057_recipient_lookup_access.sql'),
+  ('function','communications_retry_failed',NULL::text,'013_communications_community.sql'),
+  ('function','_communications_render_text',NULL::text,'015_communications_render_strip.sql'),
+  ('function','communications_recompute_email_counts',NULL::text,'016_communications_email_pending.sql'),
+  ('function','communications_run_scheduled',NULL::text,'014_communications_diagnostics.sql'),
+  ('function','communications_diagnose',NULL::text,'014_communications_diagnostics.sql'),
+  ('function','is_event_speaker',NULL::text,'012_org_invitations_grants.sql'),
+  ('function','event_attendance_audit',NULL::text,'012_org_invitations_grants.sql'),
+  ('function','registration_attendance_audit',NULL::text,'012_org_invitations_grants.sql'),
+  ('function','log_registrant_action',NULL::text,'012_org_invitations_grants.sql'),
+  ('function','_is_event_organizer',NULL::text,'012_org_invitations_grants.sql'),
+  ('function','organizer_update_speaker',NULL::text,'012_org_invitations_grants.sql'),
+  ('function','organizer_update_sponsor_member',NULL::text,'012_org_invitations_grants.sql'),
+  ('function','generate_ticket_number',NULL::text,'005_support_tickets.sql'),
+  ('function','support_tickets_before_insert',NULL::text,'005_support_tickets.sql'),
+  ('function','support_tickets_touch_updated_at',NULL::text,'005_support_tickets.sql'),
+  ('function','get_my_ticket',NULL::text,'005_support_tickets.sql'),
+  ('function','get_my_ticket_messages',NULL::text,'005_support_tickets.sql'),
+  ('function','admin_ticket_stats',NULL::text,'005_support_tickets.sql'),
+  ('function','admin_list_super_admins',NULL::text,'005_support_tickets.sql'),
+  ('function','_audit_actor_email',NULL::text,'006_admin_activity_log.sql'),
+  ('function','audit_log_row_change',NULL::text,'006_admin_activity_log.sql'),
+  ('function','admin_user_activity_feed',NULL::text,'006_admin_activity_log.sql'),
+  ('function','admin_recent_activity',NULL::text,'006_admin_activity_log.sql'),
+  ('function','admin_ban_user',NULL::text,'006_admin_activity_log.sql'),
+  ('function','admin_unban_user',NULL::text,'006_admin_activity_log.sql'),
+  ('function','admin_force_password_reset',NULL::text,'006_admin_activity_log.sql'),
+  ('function','admin_delete_user',NULL::text,'006_admin_activity_log.sql'),
+  ('function','admin_event_force_unpublish',NULL::text,'006_admin_activity_log.sql'),
+  ('function','admin_event_force_delete',NULL::text,'006_admin_activity_log.sql'),
+  ('function','admin_revenue_summary',NULL::text,'006_admin_activity_log.sql'),
+  ('function','admin_health_snapshot',NULL::text,'006_admin_activity_log.sql'),
+  ('function','is_user_banned',NULL::text,'006_admin_activity_log.sql'),
+  ('function','record_utm_click',NULL::text,'008_utm_tracking.sql'),
+  ('function','event_utm_summary',NULL::text,'008_utm_tracking.sql'),
+  ('function','platform_utm_summary',NULL::text,'008_utm_tracking.sql'),
+  ('function','utm_link_has_data',NULL::text,'009_utm_links.sql'),
+  ('function','utm_links_set_updated_at',NULL::text,'009_utm_links.sql'),
+  ('function','get_event_og',NULL::text,'015_event_og_rpc.sql'),
+  ('function','is_org_manager',NULL::text,'030_org_admin_can_manage.sql'),
+  ('function','is_vendor_member',NULL::text,'031_venue_selection_notifications.sql'),
+  ('function','event_venue_selections_touch_updated_at',NULL::text,'031_venue_selection_notifications.sql'),
+  ('function','notify_organizer_venue_response',NULL::text,'031_venue_selection_notifications.sql'),
+  ('function','self_check_in',NULL::text,'032_anon_rpc_hardening.sql'),
+  ('function','self_check_out',NULL::text,'032_anon_rpc_hardening.sql'),
+  ('function','org_member_emails',NULL::text,'037_org_member_emails.sql'),
+  ('function','admin_user_id_by_email',NULL::text,'038_security_hardening.sql'),
+  ('function','delete_utm_tracking',NULL::text,'043_utm_partner_remove.sql'),
+  ('function','_utm_partner_manages_event',NULL::text,'040_utm_partner_access.sql'),
+  ('function','_utm_partner_grant',NULL::text,'040_utm_partner_access.sql'),
+  ('function','_utm_partner_stats',NULL::text,'040_utm_partner_access.sql'),
+  ('function','_utm_partner_audit',NULL::text,'040_utm_partner_access.sql'),
+  ('function','_utm_partner_notify',NULL::text,'040_utm_partner_access.sql'),
+  ('function','_utm_partner_row',NULL::text,'040_utm_partner_access.sql'),
+  ('function','utm_partner_share',NULL::text,'040_utm_partner_access.sql'),
+  ('function','utm_partner_list',NULL::text,'040_utm_partner_access.sql'),
+  ('function','utm_partner_update',NULL::text,'040_utm_partner_access.sql'),
+  ('function','utm_partner_revoke',NULL::text,'040_utm_partner_access.sql'),
+  ('function','partner_utm_has_access',NULL::text,'040_utm_partner_access.sql'),
+  ('function','partner_utm_grants',NULL::text,'040_utm_partner_access.sql'),
+  ('function','partner_utm_participants',NULL::text,'040_utm_partner_access.sql'),
+  ('function','partner_utm_export',NULL::text,'040_utm_partner_access.sql'),
+  ('function','partner_utm_register',NULL::text,'040_utm_partner_access.sql'),
+  ('function','partner_utm_analytics',NULL::text,'042_partner_utm_analytics.sql'),
+  ('function','utm_partner_remove',NULL::text,'043_utm_partner_remove.sql'),
+  ('function','complete_org_invitation',NULL::text,'046_team_invitation_onboarding.sql'),
+  ('function','org_invitations_guard',NULL::text,'046_team_invitation_onboarding.sql'),
+  ('function','accept_org_invitation',NULL::text,'046_team_invitation_onboarding.sql'),
+  ('function','can_manage_org_certificates',NULL::text,'047_certificates.sql'),
+  ('function','can_manage_event_certificates',NULL::text,'047_certificates.sql'),
+  ('function','certificate_templates_guard',NULL::text,'047_certificates.sql'),
+  ('function','publish_certificate_template',NULL::text,'047_certificates.sql'),
+  ('function','certificate_date_text',NULL::text,'047_certificates.sql'),
+  ('function','new_certificate_code',NULL::text,'047_certificates.sql'),
+  ('function','issue_certificates',NULL::text,'047_certificates.sql'),
+  ('function','revoke_certificate',NULL::text,'047_certificates.sql'),
+  ('function','record_certificate_emails',NULL::text,'047_certificates.sql'),
+  ('function','get_certificate_public',NULL::text,'047_certificates.sql'),
+  ('function','plans_touch_updated_at',NULL::text,'048_plan_features.sql'),
+  ('function','_plan_audit',NULL::text,'048_plan_features.sql'),
+  ('function','_org_entitlements',NULL::text,'048_plan_features.sql'),
+  ('function','org_entitlements',NULL::text,'048_plan_features.sql'),
+  ('function','org_has_feature',NULL::text,'048_plan_features.sql'),
+  ('function','guard_org_plan_columns',NULL::text,'048_plan_features.sql'),
+  ('function','guard_subscription_plan',NULL::text,'048_plan_features.sql'),
+  ('function','enforce_plan_feature',NULL::text,'048_plan_features.sql'),
+  ('function','admin_save_plan',NULL::text,'048_plan_features.sql'),
+  ('function','admin_delete_plan',NULL::text,'048_plan_features.sql'),
+  ('function','admin_set_org_features',NULL::text,'048_plan_features.sql'),
+  ('function','org_invitations_transfer_guard',NULL::text,'049_admin_provisioned_organizations.sql'),
+  ('function','org_invitations_hand_over',NULL::text,'049_admin_provisioned_organizations.sql'),
+  ('function','_my_event_sponsors',NULL::text,'050_sponsor_meeting_interest.sql'),
+  ('function','_can_view_event_registrations',NULL::text,'050_sponsor_meeting_interest.sql'),
+  ('function','sponsor_set_meeting_interest',NULL::text,'054_meeting_disputes_history.sql'),
+  ('function','_signal_event_live',NULL::text,'051_meeting_interest_speakers_realtime.sql'),
+  ('function','_meeting_actor',NULL::text,'055_meeting_actor_by_caller.sql'),
+  ('function','_meeting_person_check',NULL::text,'052_meeting_status.sql'),
+  ('function','set_meeting_note',NULL::text,'054_meeting_disputes_history.sql'),
+  ('function','_organises_sponsor_event',NULL::text,'053_accept_sponsor_invite.sql'),
+  ('function','accept_sponsor_invite',NULL::text,'053_accept_sponsor_invite.sql'),
+  ('function','_meeting_events_append_only',NULL::text,'054_meeting_disputes_history.sql'),
+  ('function','_event_over',NULL::text,'054_meeting_disputes_history.sql'),
+  ('function','_log_meeting',NULL::text,'054_meeting_disputes_history.sql'),
+  ('function','set_meeting_status',NULL::text,'054_meeting_disputes_history.sql'),
+  ('function','dispute_meeting',NULL::text,'054_meeting_disputes_history.sql'),
+  ('function','resolve_meeting_dispute',NULL::text,'054_meeting_disputes_history.sql'),
+  ('function','meeting_history',NULL::text,'054_meeting_disputes_history.sql'),
+  ('function','sponsor_portal_people',NULL::text,'054_meeting_disputes_history.sql'),
+  ('function','event_meeting_interests',NULL::text,'054_meeting_disputes_history.sql'),
+  ('function','sponsor_meeting_report',NULL::text,'054_meeting_disputes_history.sql'),
+  ('function','_event_seats_taken',NULL::text,'056_security_fixes_2026_10_28.sql'),
+  ('function','_auth_user_email',NULL::text,'056_security_fixes_2026_10_28.sql'),
+  ('function','mfa_satisfied',NULL::text,'056_security_fixes_2026_10_28.sql'),
+  ('function','require_second_factor',NULL::text,'056_security_fixes_2026_10_28.sql'),
+  ('function','webinar_react',NULL::text,'056_security_fixes_2026_10_28.sql'),
+  ('function','get_site_drafts',NULL::text,'056_security_fixes_2026_10_28.sql'),
+  ('function','_is_internal_caller',NULL::text,'057_recipient_lookup_access.sql'),
+  ('function','link_verified_email_records',NULL::text,'060_identity_foundation.sql'),
+  ('function','handle_auth_email_verified',NULL::text,'058_signup_email_verification.sql'),
+  ('function','create_my_workspace',NULL::text,'059_create_my_workspace.sql'),
+  ('function','norm_text',NULL::text,'060_identity_foundation.sql'),
+  ('function','fold_text',NULL::text,'060_identity_foundation.sql'),
+  ('function','norm_email',NULL::text,'060_identity_foundation.sql'),
+  ('function','email_domain',NULL::text,'060_identity_foundation.sql'),
+  ('function','norm_country_code',NULL::text,'060_identity_foundation.sql'),
+  ('function','norm_phone',NULL::text,'060_identity_foundation.sql'),
+  ('function','person_name_key',NULL::text,'060_identity_foundation.sql'),
+  ('function','company_name_key',NULL::text,'060_identity_foundation.sql'),
+  ('function','norm_website_domain',NULL::text,'060_identity_foundation.sql'),
+  ('function','linkedin_key',NULL::text,'060_identity_foundation.sql'),
+  ('function','_queue_identity_candidate',NULL::text,'060_identity_foundation.sql'),
+  ('function','ensure_contact_person',NULL::text,'060_identity_foundation.sql'),
+  ('function','claim_person_for_verified_email',NULL::text,'060_identity_foundation.sql'),
+  ('function','reliable_company_match',NULL::text,'060_identity_foundation.sql'),
+  ('function','registrations_link_person',NULL::text,'060_identity_foundation.sql'),
+  ('function','speakers_link_person',NULL::text,'060_identity_foundation.sql'),
+  ('function','sponsor_members_link_person',NULL::text,'060_identity_foundation.sql'),
+  ('function','_is_organiser',NULL::text,'060_identity_foundation.sql'),
+  ('function','_person_visible_to',NULL::text,'060_identity_foundation.sql'),
+  ('function','identity_candidates',NULL::text,'060_identity_foundation.sql'),
+  ('function','company_candidates',NULL::text,'060_identity_foundation.sql'),
+  ('function','create_provisional_company',NULL::text,'060_identity_foundation.sql'),
+  ('function','_company_name_usable',NULL::text,'061_company_suggestions.sql'),
+  ('function','_ensure_company_for_name',NULL::text,'061_company_suggestions.sql'),
+  ('function','_note_company_mention',NULL::text,'061_company_suggestions.sql'),
+  ('function','_ensure_company_for_sponsor',NULL::text,'061_company_suggestions.sql'),
+  ('function','note_company_from_entry',NULL::text,'061_company_suggestions.sql'),
+  ('function','note_company_from_profile',NULL::text,'061_company_suggestions.sql'),
+  ('function','note_company_from_sponsor',NULL::text,'061_company_suggestions.sql'),
+  ('function','suggest_companies',NULL::text,'061_company_suggestions.sql'),
+  ('function','invitation_prefill',NULL::text,'062_invitation_prefill.sql'),
+  ('function','issue_invitation_activation',NULL::text,'062_invitation_prefill.sql'),
+  ('function','pending_invitation_path',NULL::text,'062_invitation_prefill.sql'),
+  ('function','my_profile_suggestions',NULL::text,'062_invitation_prefill.sql'),
+  ('function','apply_profile_suggestion',NULL::text,'062_invitation_prefill.sql'),
+  ('function','dismiss_profile_suggestion',NULL::text,'062_invitation_prefill.sql'),
+  ('function','accept_sponsor_invite_as',NULL::text,'063_sponsor_contact_activation.sql'),
+  ('column','registrations','sponsor_share_consent','069_sponsor_data_sharing.sql'),
+  ('column','registrations','sponsor_share_consent_at','069_sponsor_data_sharing.sql'),
+  ('function','take_rate_limit',NULL::text,'077_atomic_rate_limit.sql'),
+  ('function','_session_reactions_public',NULL::text,'078_reaction_reads.sql'),
+  ('column','registrations','sponsor_share_notice','079_sponsor_share_consent.sql'),
+  ('function','_sponsor_share_notice_version',NULL::text,'079_sponsor_share_consent.sql'),
+  ('function','set_my_sponsor_share_consent',NULL::text,'079_sponsor_share_consent.sql'),
+  ('function','_sponsor_share_contact_keys',NULL::text,'079_sponsor_share_consent.sql'),
+  ('function','_sponsor_share_without_permission',NULL::text,'079_sponsor_share_consent.sql'),
+  ('function','_sponsor_share_rows_forget',NULL::text,'079_sponsor_share_consent.sql'),
+  ('function','_sponsor_share_rows_withdraw',NULL::text,'079_sponsor_share_consent.sql'),
+  ('function','org_member_role',NULL::text,'083_fix_event_publish.sql'),
+  ('column','plans','price_monthly','084_plan_pricing.sql'),
+  ('column','plans','price_yearly','084_plan_pricing.sql'),
+  ('column','plans','currency','084_plan_pricing.sql')
+)
+SELECT e.section, e.kind, e.name, e.col
+  FROM expected e
+ WHERE CASE e.kind
+         WHEN 'table'    THEN NOT EXISTS (SELECT 1 FROM information_schema.tables t WHERE t.table_schema = 'public' AND t.table_name = e.name)
+         WHEN 'column'   THEN EXISTS (SELECT 1 FROM information_schema.tables t WHERE t.table_schema = 'public' AND t.table_name = e.name)
+                              AND NOT EXISTS (SELECT 1 FROM information_schema.columns c WHERE c.table_schema = 'public' AND c.table_name = e.name AND c.column_name = e.col)
+         WHEN 'function' THEN NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = e.name)
+       END
+ ORDER BY e.section, e.kind, e.name, e.col;
+-- <<< END READ-ONLY CHECK: CHECK_SCHEMA_DRIFT <<<

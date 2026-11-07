@@ -147,7 +147,7 @@ const DATE_OPTIONS: { label: string; value: DateRange; days: number | null }[] =
 
 /** Shown when the database function behind link deletion (migration 039) is not installed. */
 const NEEDS_DB_UPDATE =
-  "Removing a link's click history needs a one-time database update: apply the 039_utm_delete_tracking.sql section from supabase/migrations/000_full_schema.sql in the Supabase SQL Editor, then delete again.";
+  "Removing a link's click history needs a one-time database update: apply section 039_utm_delete_tracking.sql from supabase/migrations/000_full_schema.sql in the Supabase SQL Editor, then delete again.";
 
 /** PostgREST / Postgres "no such function" — the RPC hasn't been deployed. */
 const isMissingFunction = (e: { code?: string; message?: string }) =>

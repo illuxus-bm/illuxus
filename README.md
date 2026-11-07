@@ -284,47 +284,14 @@ replacement for the existing Supabase migration history. Regenerate
 > newer tables (for example `event_emails`, `video_provider`). Regenerate them before relying on
 > type checking for those files.
 
-### One-off SQL for an existing database
+### SQL sections for an existing database
 
-`supabase/migrations/000_full_schema.sql` is the record of the schema; a fresh database gets
-everything from it. Changes made after a database was created also ship as a
-`supabase/RUN_ME_*.sql` script to paste into the Supabase SQL Editor once. Each one is safe to run
-more than once, and its change is already in the bundle, so nothing here is outside the record:
-
-| Script | What it does | In the bundle |
-| --- | --- | --- |
-| `RUN_ME_048_plan_features.sql` | Subscription plans and feature gates | section 048 |
-| `RUN_ME_admin_provisioned_organizations.sql` | Columns and triggers for Super Admin creating an organisation; `org_invitations.prefill` | section 049 |
-| `RUN_ME_site_editor_fix.sql` | Site-editor function argument names; public reads of published content only | baseline functions; grants in section 056 |
-| `RUN_ME_speaker_event_banners.sql` | Event banner on speaker dashboard cards | `speaker_portal_events()` |
-| `RUN_ME_custom_sponsor_contacts.sql` | Custom-selection emails reach sponsor contacts | `communications_resolve_recipients()` |
-| `RUN_ME_security_fixes.sql` | Security review fixes F-01, F-02, F-05, F-06, F-08 (2026-10-28) | section 056 |
-| `RUN_ME_recipient_lookup_access.sql` | Event and community recipient lookups no longer readable with the anon key | section 057 |
-| `RUN_ME_signup_email_verification.sql` | Sign-up can no longer mark its own email verified; registrations attach only to verified addresses | section 058 |
-| `RUN_ME_create_my_workspace.sql` | Onboarding creates the workspace, owner membership and Free subscription in one transaction | section 059 |
-| `RUN_ME_identity_foundation.sql` | One record per person and per company; registrations, speakers and sponsor contacts linked; possible-duplicate queue (run after 058) | section 060 |
-| `RUN_ME_company_suggestions.sql` | Company suggestions while typing: seeds companies from typed names and sponsors, `suggest_companies()` (run after 060) | section 061 |
-| `RUN_ME_invitation_prefill.sql` | Invitations reuse what the organiser entered: prefilled set-up links, profile suggestions for existing accounts (run after 060) | section 062 |
-| `RUN_ME_sponsor_contact_activation.sql` | Sponsor team members get access when they set up their account; repairs anyone stuck without it (run after 062) | section 063 |
-| `RUN_ME_intelligence_centre.sql` | Super Admin Intelligence Centre: contact and company correction, duplicate scores, merges with rollback, field history (run after 061 and 062) | section 064 |
-| `RUN_ME_intelligence_part2.sql` | Merged companies leave suggestions; sponsors connect to company records; server-side paging and sorting; near-identical name matching (run after 064) | section 065 |
-| `RUN_ME_sponsor_identity.sql` | Sponsor identity: per-event partnership titles and details, event-specific contacts, sponsor record merges with rollback, review queue (run after 065) | section 066 |
-| `RUN_ME_sponsor_consolidation.sql` | One sponsor record per company within an organisation: combining across teammates, a single add-sponsor function, one row per company for Super Admin (run after 066) | section 067 |
-| `RUN_ME_sponsor_add_details.sql` | Adding a sponsor brings the company's website and its already-public logo (run after 067) | section 068 |
-| `RUN_ME_sponsor_data_sharing.sql` | Share Data: per-sponsorship participant data sharing with versions, revoke, access log; contact details only with recorded participant permission (run after 066) | section 069 |
-| `RUN_ME_sponsor_data_sharing_contacts.sql` | Shares carry email, mobile and LinkedIn for every participant, matching the updated Privacy Policy and registration wording (run after 069) | section 070 |
-| `RUN_ME_sponsor_data_sharing_people.sql` | Shares hold speakers and attendees only, marked as which, with type and attendance filters (run after 070) | section 071 |
-| `RUN_ME_sponsor_data_sharing_speakers.sql` | Shares include every listed speaker, leave out sponsors' contact emails, and drop the raw ticket type (run after 071) | section 072 |
-| `RUN_ME_sponsor_event_counts.sql` | The sponsor's event page counts registrations, speakers and check-ins by the organiser's analytics rules | section 073 |
-| `RUN_ME_service_role_subscriptions.sql` | Lets the server create an organization's subscription (fixes "permission denied for table subscriptions" when creating an organization) | section 074 |
-| `RUN_ME_sponsor_share_speaker_details.sql` | Shared participant data fills a registered speaker's missing designation, company, mobile and LinkedIn from their speaker profile | section 075 |
-| `RUN_ME_security_fixes_B.sql` | Security review B (2026-11-03): speaker and sponsor contact details only for organisers (public pages read `speakers_public` / `sponsors_public`); website files in `site-assets` only for platform admins, organisers only in their own event and organisation folders; bans can't be lifted by the banned user and only by approving their unban request; `can_moderate_community` no longer lets non-members moderate | section 080 |
-| `RUN_ME_security_fixes_C.sql` | Security review B, remaining items: organisation billing email/plan hidden from the public (column grants — re-run C-1 after adding an `organizations` column); external join links moved to `event_private_details` (`get_event_join_url()`); community views respect row security; `has_role` / `is_user_banned` answer only about the caller; text length limits; storage size limits and member-only community uploads (run after B) | section 081 |
-| `RUN_ME_security_fixes_D.sql` | Browser review: community post links must be http(s) and resource file URLs https (no stored `javascript:` links); clears existing bad post links | section 082 |
-
-Most can run in any order; a script says so at the top when it needs another first.
-
-`supabase/CHECK_schema_drift.sql` is a read-only check that lists what the migrations should have created but a database doesn't have. It is generated from the bundle.
+All schema updates, including the former `RUN_ME_*.sql` scripts, are kept in
+`supabase/migrations/000_full_schema.sql` under source migration markers. For a fresh database,
+run the complete bundle once. For an existing database, apply only the needed section after
+checking its prerequisites; do not replay the bundle or use it as a replacement for Supabase
+migration history. The final `CHECK_SCHEMA_DRIFT` section is read-only and can be copied and run
+on its own to see which expected objects are missing.
 
 ### Main tables
 
