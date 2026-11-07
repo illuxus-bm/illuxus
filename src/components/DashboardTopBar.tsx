@@ -269,9 +269,9 @@ export function DashboardTopBar() {
             title="Super Admin · Platform Control Tower"
           >
             <Shield className="h-3.5 w-3.5" />
-            {/* Just the shield on phones, and in the narrow band where the
-                navigation has only just gained its names. */}
-            <span className="hidden sm:inline xl:hidden min-[1340px]:inline">Super Admin</span>
+            {/* Just the shield on phones, and on small laptops and tablets in
+                landscape, where the navigation needs the room. */}
+            <span className="hidden sm:inline lg:max-xl:hidden">Super Admin</span>
           </span>
         ) : undefined}
         nav={isAdminRoute ? <AdminNav /> : tabBar ? undefined : <OrganiserNav />}

@@ -5,6 +5,16 @@ import { SidebarTrigger, useOptionalSidebar } from "@/components/ui/sidebar";
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import { Link } from "react-router-dom";
 import { useAppMode } from "@/hooks/useAppChrome";
+import { HeaderNavRoom } from "@/components/layout/header-nav-room";
+
+/** Width of an element's visible children, first left edge to last right edge. */
+function childrenSpan(el: HTMLElement): number {
+  const rects = Array.from(el.children)
+    .map((c) => c.getBoundingClientRect())
+    .filter((r) => r.width > 0);
+  if (rects.length === 0) return 0;
+  return Math.max(...rects.map((r) => r.right)) - Math.min(...rects.map((r) => r.left));
+}
 
 /**
  * The one app header. Every surface — public site, organiser dashboard,
@@ -101,6 +111,53 @@ export function AppHeaderBar({
     return () => observer.disconnect();
   }, [collapsible]);
 
+  // From `lg` the nav shares the row with both sides, which never shrink below
+  // their chips; what is left is the nav's room (HeaderNavRoom). Measured from
+  // the sides' contents, not the nav, so the nav switching between names and
+  // icons never feeds back into the measurement.
+  const leftRef = useRef<HTMLDivElement>(null);
+  const rightRef = useRef<HTMLDivElement>(null);
+  const [navRoom, setNavRoom] = useState<number | null>(null);
+  const hasNav = !!nav;
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    const left = leftRef.current;
+    const right = rightRef.current;
+    if (!hasNav || !header || !left || !right) return;
+    const wide = typeof window.matchMedia === "function" ? window.matchMedia("(min-width: 1024px)") : null;
+    const measure = () => {
+      if (!wide?.matches) return setNavRoom(null);
+      const cs = getComputedStyle(header);
+      const inner = header.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+      const gap = parseFloat(cs.columnGap) || 0;
+      setNavRoom(Math.max(0, Math.floor(inner - childrenSpan(left) - childrenSpan(right) - 2 * gap)));
+    };
+    measure();
+    wide?.addEventListener?.("change", measure);
+    if (typeof ResizeObserver === "undefined") return () => wide?.removeEventListener?.("change", measure);
+    // The header for the window's width; each chip for its own (a name
+    // loading, the badge's label appearing); and chips coming and going
+    // without this component re-rendering (the avatar once the user loads).
+    const observer = new ResizeObserver(measure);
+    const watchChips = () => {
+      observer.disconnect();
+      observer.observe(header);
+      for (const el of [...Array.from(left.children), ...Array.from(right.children)]) observer.observe(el);
+    };
+    watchChips();
+    const mutations = typeof MutationObserver === "undefined" ? null : new MutationObserver(() => {
+      watchChips();
+      measure();
+    });
+    mutations?.observe(left, { childList: true });
+    mutations?.observe(right, { childList: true });
+    return () => {
+      observer.disconnect();
+      mutations?.disconnect();
+      wide?.removeEventListener?.("change", measure);
+    };
+  });
+
   const canvas = canvasColor ? hexToRgb(canvasColor) : null;
   // Fading only — no size change, so nothing below moves.
   const topRow = cn(
@@ -127,11 +184,11 @@ export function AppHeaderBar({
         "--float-haze-solid": `rgb(${canvas.r} ${canvas.g} ${canvas.b} / 0.94)`,
       } as CSSProperties) : undefined}
       className={cn(
-        "float-header app-chrome sticky top-0 z-50 flex flex-wrap items-center gap-x-2 gap-y-2.5 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-4 lg:gap-x-3 lg:px-6 lg:pb-4 lg:pt-[calc(1rem+env(safe-area-inset-top))]",
+        "float-header app-chrome sticky top-0 z-50 flex flex-wrap items-center lg:flex-nowrap gap-x-2 gap-y-2.5 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-4 lg:gap-x-3 lg:px-6 lg:pb-4 lg:pt-[calc(1rem+env(safe-area-inset-top))]",
         className,
       )}
     >
-      <div className={cn("flex min-w-0 items-center gap-2 lg:flex-1", topRow)}>
+      <div ref={leftRef} className={cn("flex min-w-0 items-center gap-2 lg:min-w-max lg:flex-1", topRow)}>
         {hasSidebar && (
           <SidebarTrigger className="shell-icon-btn float-chip shrink-0" aria-label="Toggle sidebar" />
         )}
@@ -144,10 +201,10 @@ export function AppHeaderBar({
       </div>
       {nav && (
         <div ref={menuRowRef} className={cn("min-w-0 justify-center lg:flex", navWideOnly ? "hidden" : "order-last flex w-full lg:order-none lg:w-auto")}>
-          {nav}
+          <HeaderNavRoom.Provider value={navRoom}>{nav}</HeaderNavRoom.Provider>
         </div>
       )}
-      <div className={cn("ml-auto flex shrink-0 items-center gap-1.5 lg:flex-1 lg:justify-end", topRow)}>{actions}</div>
+      <div ref={rightRef} className={cn("ml-auto flex shrink-0 items-center gap-1.5 lg:min-w-max lg:flex-1 lg:justify-end", topRow)}>{actions}</div>
     </header>
   );
 }

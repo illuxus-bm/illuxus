@@ -90,7 +90,7 @@ describe("PlansPage", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Certificates on Free" }));
     fireEvent.click(screen.getByRole("button", { name: /Save \(1\)/ }));
     await waitFor(() => expect(rpc).toHaveBeenCalledTimes(1));
-    expect(rpc.mock.calls[0][1]).not.toHaveProperty("_pricing");
+    expect((rpc.mock.calls[0] as unknown as [string, Record<string, unknown>])[1]).not.toHaveProperty("_pricing");
   });
 
   it("treats an empty limit as unlimited", async () => {

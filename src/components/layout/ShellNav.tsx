@@ -10,7 +10,8 @@ import {
   Building2, Users, MoreHorizontal, ChevronsUpDown, Check, Shield, BarChart3,
   Activity, DollarSign, Edit, ScrollText, Layers, Lock, Database, type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type Ref } from "react";
+import { HeaderNavRoom } from "@/components/layout/header-nav-room";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { HEADER_CHIP } from "@/components/layout/header-chip";
@@ -28,15 +29,27 @@ const CHIP = cn(HEADER_CHIP, "min-w-9 lg:min-w-10");
 // With its name showing it is a pill; with only its icon, a circle the size
 // of its height. Only the current one may give way when a phone runs short.
 const CHIP_NAMED = "px-2.5 max-lg:shrink-0 sm:px-3 2xl:px-3.5";
-const CHIP_ICON = "shrink-0 max-lg:px-3 xl:px-3 2xl:px-3.5";
+const CHIP_ICON = "shrink-0";
+// Gaps between chips; the measuring rows below use the same.
+const ROW_GAP = "gap-1 sm:gap-1.5 2xl:gap-2";
+// A row too long for its space scrolls sideways, faded at the edges.
+const ROW_SCROLL =
+  "overflow-x-auto px-3 py-1 [mask-image:linear-gradient(to_right,transparent,#000_12px,#000_calc(100%-24px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+
+/**
+ * How the row is drawn:
+ *   • `phone` — below `lg` the row has its own line: every name, scrolling.
+ *   • `full` — every name fits beside the logo and the actions.
+ *   • `compact` — only icons, the current destination keeping its name.
+ *   • `scroll` — even that doesn't fit: icons, scrolling sideways.
+ * From `lg` up it is chosen by measuring (HeaderNavRoom), not by breakpoint,
+ * so it holds on 13" laptops, tablets in landscape, and with long names.
+ */
+type RowMode = "phone" | "full" | "compact" | "scroll";
 
 /**
  * A surface's destinations: one floating chip each, the current one dark,
- * and the less-used ones behind a last "More" chip. Names show on wide
- * screens and on phones and small tablets, where the row has its own line
- * and scrolls sideways (faded at the edges, the current chip brought into
- * view). In between, each destination is its icon and only the current one
- * keeps its name.
+ * and the less-used ones behind a last "More" chip.
  */
 function NavChips({
   label,
@@ -54,7 +67,54 @@ function NavChips({
   const navRef = useRef<HTMLElement>(null);
   const activeUrl = [...main, ...more].find((item) => isActive(item.url))?.url;
 
-  // Phones: keep the current chip in view in the scrolling row.
+  // What each layout needs, from two hidden copies of the row.
+  const room = useContext(HeaderNavRoom);
+  const fullRef = useRef<HTMLDivElement>(null);
+  const compactRef = useRef<HTMLDivElement>(null);
+  const [needs, setNeeds] = useState<{ full: number; compact: number } | null>(null);
+  useLayoutEffect(() => {
+    const full = fullRef.current;
+    const compact = compactRef.current;
+    if (!full || !compact) return;
+    const measure = () => {
+      const next = { full: Math.ceil(full.scrollWidth), compact: Math.ceil(compact.scrollWidth) };
+      setNeeds((prev) => (prev && prev.full === next.full && prev.compact === next.compact ? prev : next));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    // Sizes change with the breakpoint paddings and once the web font loads.
+    const observer = new ResizeObserver(measure);
+    observer.observe(full);
+    observer.observe(compact);
+    return () => observer.disconnect();
+  }, [activeUrl]);
+
+  // Until measured, icons only: a guess that never overlaps the logo.
+  const mode: RowMode =
+    room === null ? "phone"
+    : !needs || needs.compact > room ? (needs ? "scroll" : "compact")
+    : needs.full <= room ? "full"
+    : "compact";
+  // Phone: names below `lg` only, so a wide header that hasn't been measured
+  // (no ResizeObserver, say) still shows icons rather than overflowing.
+  const named = (active: boolean) => active || mode === "full";
+  const chipClass = (active: boolean) =>
+    cn(
+      CHIP,
+      named(active) ? CHIP_NAMED : mode === "phone" ? "shrink-0 max-lg:px-3" : CHIP_ICON,
+      // A scrolling row scrolls; nothing in it is squeezed.
+      mode === "scroll" && "shrink-0",
+    );
+  const name = (active: boolean, title: string) =>
+    named(active) ? (
+      <span className={nameClass(active)}>{title}</span>
+    ) : mode === "phone" ? (
+      <span className="hidden whitespace-nowrap max-lg:inline">{title}</span>
+    ) : (
+      <span className="sr-only">{title}</span>
+    );
+
+  // A scrolling row: keep the current chip in view.
   useEffect(() => {
     const nav = navRef.current;
     const chip = nav?.querySelector<HTMLElement>('[aria-current="page"], [data-active="true"]');
@@ -63,51 +123,88 @@ function NavChips({
     if (left < nav.scrollLeft || left + chip.offsetWidth > nav.scrollLeft + nav.clientWidth) {
       nav.scrollLeft = Math.max(0, left - 16);
     }
-  }, [activeUrl]);
+  }, [activeUrl, mode]);
 
-  return (
-    <nav
-      ref={navRef}
-      aria-label={label}
-      className="app-chrome flex min-w-0 max-w-full items-center gap-1 sm:gap-1.5 2xl:gap-2 max-lg:-mx-3 max-lg:w-[calc(100%+1.5rem)] max-lg:max-w-none max-lg:justify-start max-lg:gap-2 max-lg:overflow-x-auto max-lg:px-3 max-lg:py-1 max-lg:[mask-image:linear-gradient(to_right,transparent,#000_12px,#000_calc(100%-24px),transparent)] max-lg:[scrollbar-width:none] sm:max-lg:-mx-4 sm:max-lg:w-[calc(100%+2rem)] sm:max-lg:px-4 [&::-webkit-scrollbar]:hidden"
-    >
-      {main.map((item) => {
-        const active = isActive(item.url);
+  const nameClass = (active: boolean) =>
+    active ? "min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-nowrap" : "whitespace-nowrap";
+  const moreItem = moreActive ?? { title: "More", icon: MoreHorizontal };
+
+  // The hidden copies: plain spans, so they are never links, focusable or read out.
+  const measureRow = (allNamed: boolean, ref: Ref<HTMLDivElement>) => (
+    <div ref={ref} className={cn("flex w-max items-center", ROW_GAP)}>
+      {[...main, moreItem].map((item, i) => {
+        const showName = allNamed || (i < main.length ? isActive((item as NavItem).url) : !!moreActive);
         return (
-          <Link
-            key={item.url}
-            to={item.url}
-            title={item.title}
-            aria-current={active ? "page" : undefined}
-            data-active={active}
-            className={cn(CHIP, active ? CHIP_NAMED : CHIP_ICON)}
-          >
+          <span key={i} className={cn(CHIP, showName ? CHIP_NAMED : CHIP_ICON)}>
             <item.icon className="h-4 w-4 shrink-0" />
-            <span className={active ? "min-w-0 truncate max-lg:overflow-visible max-lg:whitespace-nowrap" : "hidden whitespace-nowrap max-lg:inline xl:inline"}>{item.title}</span>
-          </Link>
+            {showName && <span className="whitespace-nowrap">{item.title}</span>}
+          </span>
         );
       })}
+    </div>
+  );
 
-      {more.length > 0 && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button type="button" title="More" data-active={!!moreActive} className={cn(CHIP, moreActive ? CHIP_NAMED : CHIP_ICON)}>
-              {moreActive ? <moreActive.icon className="h-4 w-4 shrink-0" /> : <MoreHorizontal className="h-4 w-4 shrink-0" />}
-              <span className={moreActive ? "min-w-0 truncate" : "hidden xl:inline"}>{moreActive ? moreActive.title : "More"}</span>
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
-            {more.map((item) => (
-              <DropdownMenuItem key={item.url} asChild>
-                <Link to={item.url}>
-                  <item.icon className="mr-2 h-3.5 w-3.5" /> {item.title}
-                </Link>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-    </nav>
+  return (
+    <>
+      <div aria-hidden="true" className="pointer-events-none invisible absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden max-lg:hidden">
+        {measureRow(true, fullRef)}
+        {measureRow(false, compactRef)}
+      </div>
+      <nav
+        ref={navRef}
+        aria-label={label}
+        data-mode={mode}
+        className={cn(
+          "app-chrome flex min-w-0 max-w-full items-center",
+          ROW_GAP,
+          mode === "phone" &&
+            "max-lg:-mx-3 max-lg:w-[calc(100%+1.5rem)] max-lg:max-w-none max-lg:justify-start max-lg:gap-2 max-lg:overflow-x-auto max-lg:px-3 max-lg:py-1 max-lg:[mask-image:linear-gradient(to_right,transparent,#000_12px,#000_calc(100%-24px),transparent)] max-lg:[scrollbar-width:none] sm:max-lg:-mx-4 sm:max-lg:w-[calc(100%+2rem)] sm:max-lg:px-4 [&::-webkit-scrollbar]:hidden",
+          mode === "scroll" && cn(ROW_SCROLL, "-my-1 justify-start"),
+        )}
+      >
+        {main.map((item) => {
+          const active = isActive(item.url);
+          return (
+            <Link
+              key={item.url}
+              to={item.url}
+              title={item.title}
+              aria-current={active ? "page" : undefined}
+              data-active={active}
+              className={chipClass(active)}
+            >
+              <item.icon className="h-4 w-4 shrink-0" />
+              {name(active, item.title)}
+            </Link>
+          );
+        })}
+
+        {more.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                title="More"
+                data-active={!!moreActive}
+                className={chipClass(!!moreActive)}
+              >
+                <moreItem.icon className="h-4 w-4 shrink-0" />
+                {name(!!moreActive, moreItem.title)}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              {more.map((item) => (
+                <DropdownMenuItem key={item.url} asChild>
+                  <Link to={item.url}>
+                    <item.icon className="mr-2 h-3.5 w-3.5" /> {item.title}
+                  </Link>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </nav>
+    </>
   );
 }
 
