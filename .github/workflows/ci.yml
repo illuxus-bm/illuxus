@@ -41,6 +41,11 @@ jobs:
 
       - name: Build
         run: bun run build
+        # CI only checks that the bundle compiles. Never deploy this bundle;
+        # use non-routable placeholders instead of requiring production secrets.
+        env:
+          VITE_SUPABASE_URL: https://ci.invalid
+          VITE_SUPABASE_PUBLISHABLE_KEY: ci-only-build-placeholder
 
       # The paste-into-Dashboard copies must match the functions' real code.
       - name: Dashboard function copies are current
