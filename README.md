@@ -9,21 +9,24 @@ public pages.
 ## Get the app
 
 <p>
-  <a href="https://github.com/illuxus-bm/illuxus/releases/latest/download/illuxus.apk"><img alt="Download for Android" src="https://img.shields.io/badge/Download-Android%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white" height="40"></a>
+  <a href="https://github.com/illuxus-bm/illuxus/releases/latest/download/illuxus.apk"><img alt="Download for Android" src="https://img.shields.io/badge/Android-Download%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white" height="40"></a>
   &nbsp;
-  <a href="#iphone-and-ipad"><img alt="iPhone and iPad: coming soon to the App Store" src="https://img.shields.io/badge/iOS-Coming%20soon-000000?style=for-the-badge&logo=apple&logoColor=white" height="40"></a>
+  <a href="#iphone-ipad-and-mac"><img alt="iPhone, iPad and Mac: coming soon to the App Store" src="https://img.shields.io/badge/iPhone%20%C2%B7%20iPad%20%C2%B7%20Mac-Coming%20soon-000000?style=for-the-badge&logo=apple&logoColor=white" height="40"></a>
+  &nbsp;
+  <a href="#windows-chromebook-and-linux"><img alt="Install on Windows, Chromebook and Linux" src="https://img.shields.io/badge/Windows%20%C2%B7%20ChromeOS%20%C2%B7%20Linux-Install-0078D4?style=for-the-badge&logo=googlechrome&logoColor=white" height="40"></a>
 </p>
 
-**Android.** Tap the button on your phone to download the latest `illuxus.apk`, open it, and allow
-installs from your browser when Android asks. Updates install over the old version. Every version
-is listed on the [Releases](https://github.com/illuxus-bm/illuxus/releases) page with its SHA-256
-checksum.
+| Device | How to get it |
+| --- | --- |
+| **Android** phones, tablets and foldables (Android 7+) | Tap **Android** above on the device to download `illuxus.apk`, open it, and allow installs from your browser when asked. Updates install over the old version. Coming to Google Play. |
+| **iPhone and iPad** (iOS 15+) | Coming to the App Store. Until then, open [illuxus.com](https://illuxus.com) in Safari → Share → **Add to Home Screen**. |
+| **Mac** (Apple silicon) | The iPad app will also run on M-series Macs from the Mac App Store. Until then: [illuxus.com](https://illuxus.com) in Safari → File → **Add to Dock**, or in Chrome → ⋮ → Cast, save and share → **Install page as app**. |
+| **Windows, Chromebook, Linux** | Open [illuxus.com](https://illuxus.com) in Edge or Chrome and choose **Install illuxus** in the address bar (Edge: ⋯ → Apps → Install this site as an app). It opens in its own window, with a Start menu / launcher icon, and updates itself. Chromebooks can also install the Android app. |
 
-<a id="iphone-and-ipad"></a>**iPhone and iPad.** Apple only allows apps to be installed from the App
-Store or TestFlight, so there's no file to download here. The iOS app is on its way to the App Store.
-Until then, use [illuxus.com](https://illuxus.com) in Safari and choose Share → Add to Home Screen.
-
-Building the apps yourself: [`docs/MOBILE.md`](./docs/MOBILE.md).
+<a id="iphone-ipad-and-mac"></a><a id="windows-chromebook-and-linux"></a>Every version is listed on
+the [Releases](https://github.com/illuxus-bm/illuxus/releases) page with its SHA-256 checksum. Apple
+only allows apps to be installed from the App Store or TestFlight, so there is no iOS file to
+download. Building and releasing the apps: [`docs/MOBILE.md`](./docs/MOBILE.md).
 
 > **New here?** Read [Project layout](#project-layout) and [Conventions](#conventions) first, then
 > [`ROADMAP.md`](./ROADMAP.md) for direction and the product mindmap, and

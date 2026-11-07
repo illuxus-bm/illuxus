@@ -34,6 +34,7 @@ import PersonFieldsForm, {
 import { callGuestRegistration } from "@/lib/guest-registration";
 import { isValidEmailFormat } from "@/lib/email-format";
 import { friendlyError } from "@/lib/friendly-error";
+import { useDarkScreenBars } from "@/lib/native/system-bars";
 
 /** Digit range accepted for the sign-up verification code. Supabase's
  *  "Email OTP Length" decides what is emailed (6–10); this project sends 8,
@@ -87,6 +88,8 @@ const LoginPage = () => {
   // In the app, phones get a full-screen sign-in: the brand across the top
   // and the form on a sheet over it, with app-sized fields (index.css).
   const appMode = useAppMode();
+  // In the app on phones, the dark art tops the screen (below the lg layout).
+  useDarkScreenBars(appMode, 1024);
 
   // Capture UTM query params on mount so they persist across the sign-in /
   // sign-up two-step flow and are still available when the sign-up submit
