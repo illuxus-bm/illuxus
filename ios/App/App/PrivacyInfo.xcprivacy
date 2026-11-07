@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The app's privacy manifest, required for App Store uploads.
+
+  Required-reason APIs: @capacitor/filesystem reads file creation and
+  modification dates (its stat call), and ships no manifest of its own, so the
+  app declares it. C617.1: only files inside the app's own container (the
+  exports it writes to the cache before sharing them). Capacitor itself ships
+  its own manifest. Re-check this list when adding a native plugin: its README
+  says what it needs declared.
+
+  Tracking: false. The only analytics are GA4 (IP anonymised) and Microsoft
+  Clarity, after the user agrees to analytics cookies, for the app's own
+  measurement; nothing is used for advertising or shared with data brokers.
+  If ads features (Google Signals, ad pixels) are ever added, this becomes
+  true, their domains go in NSPrivacyTrackingDomains, and the app must ask for
+  App Tracking Transparency permission.
+
+  The data the app collects (name, email, mobile, company and so on) is
+  declared in App Store Connect's privacy questionnaire.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

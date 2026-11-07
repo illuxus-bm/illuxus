@@ -1,5 +1,7 @@
--- Read-only check: what the repo's migrations (up to 063) should have created
--- that this database does not have. Generated from 000_full_schema.sql.
+-- Read-only check: what the repo's migrations (up to 063, plus what the iOS /
+-- Android release and the QA audit fixes need: the 069 consent columns, 077,
+-- 078, 079 and 083) should have created that this database does not have.
+-- Generated from 000_full_schema.sql, with those later entries added by hand.
 -- Changes nothing. Paste into the Supabase SQL Editor and Run; no rows means
 -- nothing is missing. Dropped objects are accounted for, but a name that a
 -- manual script replaced can still appear here.
@@ -1408,6 +1410,17 @@ WITH expected(kind, name, col, section) AS (VALUES
   ('function','apply_profile_suggestion',NULL::text,'062_invitation_prefill.sql'),
   ('function','dismiss_profile_suggestion',NULL::text,'062_invitation_prefill.sql'),
   ('function','accept_sponsor_invite_as',NULL::text,'063_sponsor_contact_activation.sql'),
+  ('column','registrations','sponsor_share_consent','069_sponsor_data_sharing.sql'),
+  ('column','registrations','sponsor_share_consent_at','069_sponsor_data_sharing.sql'),
+  ('function','take_rate_limit',NULL::text,'077_atomic_rate_limit.sql'),
+  ('function','_session_reactions_public',NULL::text,'078_reaction_reads.sql'),
+  ('column','registrations','sponsor_share_notice','079_sponsor_share_consent.sql'),
+  ('function','_sponsor_share_notice_version',NULL::text,'079_sponsor_share_consent.sql'),
+  ('function','set_my_sponsor_share_consent',NULL::text,'079_sponsor_share_consent.sql'),
+  ('function','_sponsor_share_contact_keys',NULL::text,'079_sponsor_share_consent.sql'),
+  ('function','_sponsor_share_without_permission',NULL::text,'079_sponsor_share_consent.sql'),
+  ('function','_sponsor_share_rows_forget',NULL::text,'079_sponsor_share_consent.sql'),
+  ('function','_sponsor_share_rows_withdraw',NULL::text,'079_sponsor_share_consent.sql'),
   ('function','org_member_role',NULL::text,'083_fix_event_publish.sql')
 )
 SELECT e.section, e.kind, e.name, e.col

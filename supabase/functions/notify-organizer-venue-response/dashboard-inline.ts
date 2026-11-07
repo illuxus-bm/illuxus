@@ -121,6 +121,7 @@ var DEV_ORIGINS = [
   "http://127.0.0.1:5173",
   "http://127.0.0.1:8080"
 ];
+var NATIVE_APP_ORIGINS = ["capacitor://localhost", "https://localhost"];
 function buildCorsHeaders(req) {
   const headers = {
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-correlation-id",
@@ -129,7 +130,7 @@ function buildCorsHeaders(req) {
     "Vary": "Origin"
   };
   const strip = (s) => s.trim().replace(/\/$/, "");
-  const allowed = new Set(DEV_ORIGINS);
+  const allowed = /* @__PURE__ */ new Set([...DEV_ORIGINS, ...NATIVE_APP_ORIGINS]);
   for (const o of (Deno.env.get("ALLOWED_ORIGINS") || "").split(",")) {
     if (o.trim()) allowed.add(strip(o));
   }

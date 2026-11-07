@@ -95,6 +95,9 @@ const DEV_ORIGINS = new Set<string>([
   "http://127.0.0.1:8080",
 ]);
 
+/** The iOS and Android apps (capacitor.config.ts), as in _shared/cors.ts. */
+const NATIVE_APP_ORIGINS = ["capacitor://localhost", "https://localhost"];
+
 const ALLOWED_HEADERS =
   "authorization, x-client-info, apikey, content-type, x-correlation-id";
 
@@ -103,7 +106,7 @@ function stripTrailingSlash(s: string): string {
 }
 
 function envAllowedOrigins(): Set<string> {
-  const set = new Set<string>(DEV_ORIGINS);
+  const set = new Set<string>([...DEV_ORIGINS, ...NATIVE_APP_ORIGINS]);
   const fromSecret = (Deno.env.get("ALLOWED_ORIGINS") || "")
     .split(",")
     .map((s) => s.trim())

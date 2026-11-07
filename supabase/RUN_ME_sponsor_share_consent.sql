@@ -18,7 +18,11 @@
 --     speaker deletes their rows from every share, and withdrawing agreement
 --     removes their contact details from shares already made.
 --
--- Run after the sponsor-sharing migrations (069–075).
+-- Run after the sponsor-sharing migrations (069–075), and once the app that
+-- asks the question (commit 09455c6 or later) is live. Running it earlier
+-- breaks nothing, but until people can answer, nobody has agreed, so shares
+-- made in between carry no contact details. Section 5 at the end is left
+-- commented out on purpose: read it before deciding to run it.
 -- Safe to run more than once. Paste into the SQL Editor and Run.
 -- ═══════════════════════════════════════════════════════════════════════════════
 

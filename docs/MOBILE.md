@@ -79,13 +79,40 @@ These changes apply only in the native app:
 The app's web view runs on `capacitor://localhost` (iOS) and `https://localhost` (Android). These
 places allow both origins:
 
-- The edge functions' CORS list ([`_shared/cors.ts`](../supabase/functions/_shared/cors.ts)).
-- The three functions with their own CORS list: `guest-registration`, `team-invitation` and
-  `generate-creative-copy`.
+- The edge functions' shared CORS list ([`_shared/cors.ts`](../supabase/functions/_shared/cors.ts)).
+- The eight functions with their own CORS list: `generate-creative-background`,
+  `generate-creative-copy`, `guest-registration`, `notify-organizer-venue-response`,
+  `notify-venue-selection`, `send-ticket-reply`, `submit-support-ticket` and `team-invitation`.
+  `src/lib/__tests__/edge-cors-app-origins.test.ts` fails if a function's own list leaves the app
+  origins out.
 - [`/api/geo`](../api/geo.ts).
 
-Redeploy those functions before releasing the apps. For the dashboard-pasted functions, run
-`npm run functions:inline` first.
+### Deploying the functions
+
+Deploy from `main` with the Supabase CLI, signed in as a member of the organisation that owns the
+illuxus project:
+
+1. In the SQL Editor, run `supabase/CHECK_schema_drift.sql`. If it lists `077_atomic_rate_limit.sql`,
+   run `supabase/RUN_ME_atomic_rate_limit.sql` first. The rate-limited functions refuse every request
+   while the database has no `take_rate_limit`.
+2. Deploy every function:
+
+   ```sh
+   supabase login
+   supabase link --project-ref xhjdcimginceibzcwzlk
+   supabase functions deploy
+   ```
+
+   For a function deployed by pasting into the dashboard instead, run `npm run functions:inline`
+   and paste its `dashboard-inline.ts`.
+3. Check every function from both app origins:
+
+   ```sh
+   node scripts/check-app-cors.mjs https://xhjdcimginceibzcwzlk.supabase.co
+   ```
+
+   It sends only CORS preflights, which change nothing, and exits non-zero if any function refuses
+   either origin.
 
 ## Before the first store release
 
