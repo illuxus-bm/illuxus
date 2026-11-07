@@ -6,6 +6,25 @@ brochures and certificates. After the event, they keep attendees together in a c
 codebase leans hard on observability, property-based tests, row-level security and honest
 public pages.
 
+## Get the app
+
+<p>
+  <a href="https://github.com/illuxus-bm/illuxus/releases/latest/download/illuxus.apk"><img alt="Download for Android" src="https://img.shields.io/badge/Download-Android%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white" height="40"></a>
+  &nbsp;
+  <a href="#iphone-and-ipad"><img alt="iPhone and iPad: coming soon to the App Store" src="https://img.shields.io/badge/iOS-Coming%20soon-000000?style=for-the-badge&logo=apple&logoColor=white" height="40"></a>
+</p>
+
+**Android.** Tap the button on your phone to download the latest `illuxus.apk`, open it, and allow
+installs from your browser when Android asks. Updates install over the old version. Every version
+is listed on the [Releases](https://github.com/illuxus-bm/illuxus/releases) page with its SHA-256
+checksum.
+
+<a id="iphone-and-ipad"></a>**iPhone and iPad.** Apple only allows apps to be installed from the App
+Store or TestFlight, so there's no file to download here. The iOS app is on its way to the App Store.
+Until then, use [illuxus.com](https://illuxus.com) in Safari and choose Share → Add to Home Screen.
+
+Building the apps yourself: [`docs/MOBILE.md`](./docs/MOBILE.md).
+
 > **New here?** Read [Project layout](#project-layout) and [Conventions](#conventions) first, then
 > [`ROADMAP.md`](./ROADMAP.md) for direction and the product mindmap, and
 > [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md) before touching anything legal, payments or
