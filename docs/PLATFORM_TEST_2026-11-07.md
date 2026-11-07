@@ -160,4 +160,4 @@ behave on a device. That needs a device or simulator build.
   deep links from email.
 - Flows against the live backend: sign-in, registration, emails, sponsor shares. No credentials were
   used, and the e2e suite needs the live database.
-- Security. See `SECURITY-REVIEW.md` and the QA audit; F-10 to F-15 are still in progress.
+- Production security and data exposure were not tested in this run. The current checkout's source review is recorded in [`PLATFORM_AUDIT_2026-11-07.md`](./PLATFORM_AUDIT_2026-11-07.md).

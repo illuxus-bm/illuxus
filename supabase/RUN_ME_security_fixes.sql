@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
--- Security fixes from the 2026-10-27 review (SECURITY-REVIEW.md).
+-- Security fixes from the 2026-10-27 review.
 --
 -- One section per finding. Every statement is safe to run more than once.
 -- Paste the whole file into the Supabase SQL Editor and Run.

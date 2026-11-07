@@ -16929,7 +16929,7 @@ NOTIFY pgrst, 'reload schema';
 -- >>> BEGIN SOURCE MIGRATION: 056_security_fixes_2026_10_28.sql >>>
 -- Same as supabase/RUN_ME_security_fixes.sql (run that on an existing database).
 -- ═══════════════════════════════════════════════════════════════════════════════
--- Security fixes from the 2026-10-27 review (SECURITY-REVIEW.md).
+-- Security fixes from the 2026-10-27 review.
 --
 -- One section per finding. Every statement is safe to run more than once.
 -- Paste the whole file into the Supabase SQL Editor and Run.

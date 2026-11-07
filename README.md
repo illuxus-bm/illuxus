@@ -491,7 +491,7 @@ Update it whenever a legal page, sub-processor or market changes.
 - Hardening on 9 October 2026: open email relay, account-takeover paths and data-exposure holes closed (migration `038_security_hardening.sql`).
 - HSTS (preload), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, and a `Permissions-Policy` that allows only the camera and microphone.
 - PII redaction in all logs.
-- Still open: a Content-Security-Policy header, and 180-day log retention for CERT-In (see `docs/COMPLIANCE.md`).
+- A Content-Security-Policy header is configured in `vercel.json`; deployed headers have not been rechecked. 180-day log retention for CERT-In remains open (see `docs/COMPLIANCE.md`).
 
 **Observability** (`src/lib/observability/`)
 
@@ -523,7 +523,7 @@ Capacity estimates (from the 27 August 2026 audit):
 | One live event page | ~500 attendees | ~1,000 | WAL volume |
 | Agora / LiveKit video | 3,000 viewers per room | 10,000 | Bandwidth and licence tier |
 
-Details and remediation: [`docs/PLATFORM_AUDIT.md`](./docs/PLATFORM_AUDIT.md).
+These are historical capacity estimates from August 2026, not revalidated in the current source review: [`docs/PLATFORM_AUDIT_2026-11-07.md`](./docs/PLATFORM_AUDIT_2026-11-07.md).
 
 **Optimisations:**
 
@@ -608,6 +608,10 @@ Source-map upload in CI needs `OBSERVABILITY_AUTH_TOKEN`, `OBSERVABILITY_ORG` an
 
 ## Recent updates
 
+### November 2026
+
+- Fresh repository source audit: [`docs/PLATFORM_AUDIT_2026-11-07.md`](./docs/PLATFORM_AUDIT_2026-11-07.md).
+
 ### October 2026
 
 - **Compliance pass:**
@@ -633,10 +637,6 @@ Source-map upload in CI needs `OBSERVABILITY_AUTH_TOKEN`, `OBSERVABILITY_ORG` an
 
 - Venue-scoped email notifications; badge fit engine and thermal-printer centring.
 
-### August 2026
-
-- Platform, security and QA audits ([`docs/PLATFORM_AUDIT.md`](./docs/PLATFORM_AUDIT.md), [`docs/SECURITY_AUDIT_2026-08-27.md`](./docs/SECURITY_AUDIT_2026-08-27.md)).
-
 ### July 2026
 
 - PWA, schema consolidation, a mobile pass down to 375 px, and theme size sliders.
@@ -651,8 +651,7 @@ Source-map upload in CI needs `OBSERVABILITY_AUTH_TOKEN`, `OBSERVABILITY_ORG` an
 | --- | --- |
 | [`ROADMAP.md`](./ROADMAP.md) | Product mindmap, Now / Next / Later, epics |
 | [`docs/COMPLIANCE.md`](./docs/COMPLIANCE.md) | Global IT and data-protection review, open gaps, action plan |
-| [`docs/PLATFORM_AUDIT.md`](./docs/PLATFORM_AUDIT.md) | Scalability, code quality and dependency audit |
-| [`docs/SECURITY_AUDIT_2026-08-27.md`](./docs/SECURITY_AUDIT_2026-08-27.md) | Security, QA and reliability audit |
+| [`docs/PLATFORM_AUDIT_2026-11-07.md`](./docs/PLATFORM_AUDIT_2026-11-07.md) | Current repository source audit and findings |
 | [`docs/observability.md`](./docs/observability.md), [`docs/observability-privacy.md`](./docs/observability-privacy.md) | Logger, sinks, redaction, opt-out |
 | [`docs/utm-attribution.md`](./docs/utm-attribution.md) | UTM capture, storage and the tripwire |
 | [`docs/agora-setup.md`](./docs/agora-setup.md), [`docs/gemini-setup.md`](./docs/gemini-setup.md) | Third-party setup |
