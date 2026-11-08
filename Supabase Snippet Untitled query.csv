@@ -1,0 +1,41 @@
+k,tgname,pg_get_triggerdef
+auth_trigger,on_auth_user_created,CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION handle_new_user()
+auth_trigger,on_auth_user_email_verified,"CREATE TRIGGER on_auth_user_email_verified AFTER UPDATE OF email_confirmed_at, email ON auth.users FOR EACH ROW WHEN (((new.email IS NOT NULL) AND (new.email_confirmed_at IS NOT NULL) AND ((old.email_confirmed_at IS NULL) OR ((new.email)::text IS DISTINCT FROM (old.email)::text)))) EXECUTE FUNCTION handle_auth_email_verified()"
+storage_policy,Avatars are publicly readable,"SELECT (bucket_id = 'avatars'::text) | "
+storage_policy,Avatars readable,"SELECT (bucket_id = 'avatars'::text) | "
+storage_policy,Members write community,"INSERT  | ((bucket_id = 'community'::text) AND (split_part(name, '/'::text, 1) ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'::text) AND (is_community_member(auth.uid(), (split_part(name, '/'::text, 1))::uuid) OR can_moderate_community(auth.uid(), (split_part(name, '/'::text, 1))::uuid)))"
+storage_policy,Public can read site-assets,"SELECT (bucket_id = 'site-assets'::text) | "
+storage_policy,Public read community,"SELECT (bucket_id = 'community'::text) | "
+storage_policy,Public read site-assets,"SELECT (bucket_id = 'site-assets'::text) | "
+storage_policy,Users can delete their own avatar,"DELETE ((bucket_id = 'avatars'::text) AND ((auth.uid())::text = (storage.foldername(name))[1])) | "
+storage_policy,Users can update their own avatar,"UPDATE ((bucket_id = 'avatars'::text) AND ((auth.uid())::text = (storage.foldername(name))[1])) | "
+storage_policy,Users can upload their own avatar,INSERT  | ((bucket_id = 'avatars'::text) AND ((auth.uid())::text = (storage.foldername(name))[1]))
+storage_policy,Users delete avatar,"DELETE ((bucket_id = 'avatars'::text) AND ((auth.uid())::text = (storage.foldername(name))[1])) | "
+storage_policy,Users update avatar,"UPDATE ((bucket_id = 'avatars'::text) AND ((auth.uid())::text = (storage.foldername(name))[1])) | "
+storage_policy,Users upload avatar,INSERT  | ((bucket_id = 'avatars'::text) AND ((auth.uid())::text = (storage.foldername(name))[1]))
+storage_policy,site-assets delete by folder,"DELETE ((bucket_id = 'site-assets'::text) AND site_asset_writable(name, COALESCE(owner_id, (owner)::text))) | "
+storage_policy,site-assets update by folder,"UPDATE ((bucket_id = 'site-assets'::text) AND site_asset_writable(name, COALESCE(owner_id, (owner)::text))) | ((bucket_id = 'site-assets'::text) AND site_asset_writable(name, COALESCE(owner_id, (owner)::text)))"
+storage_policy,site-assets upload by folder,"INSERT  | ((bucket_id = 'site-assets'::text) AND site_asset_writable(name, COALESCE(owner_id, (owner)::text)))"
+storage_policy,vendor_media_member_delete,"DELETE ((bucket_id = 'vendor-media'::text) AND is_vendor_member(((storage.foldername(name))[1])::uuid)) | "
+storage_policy,vendor_media_member_insert,INSERT  | ((bucket_id = 'vendor-media'::text) AND is_vendor_member(((storage.foldername(name))[1])::uuid))
+storage_policy,vendor_media_member_update,"UPDATE ((bucket_id = 'vendor-media'::text) AND is_vendor_member(((storage.foldername(name))[1])::uuid)) | "
+storage_policy,vendor_media_public_read,"SELECT (bucket_id = 'vendor-media'::text) | "
+storage_policy,venue_media_auth_insert,INSERT  | (bucket_id = 'venue-media'::text)
+storage_policy,venue_media_owner_delete,"DELETE ((bucket_id = 'venue-media'::text) AND (owner = auth.uid())) | "
+storage_policy,venue_media_owner_update,UPDATE ((bucket_id = 'venue-media'::text) AND (owner = auth.uid())) | ((bucket_id = 'venue-media'::text) AND (owner = auth.uid()))
+storage_policy,venue_media_public_read,"SELECT (bucket_id = 'venue-media'::text) | "
+bucket,webinar-recordings,"false  "
+bucket,vendor-media,"true 52428800 {image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,application/pdf}"
+bucket,venue-media,"true 52428800 {image/jpeg,image/png,image/webp,image/gif,image/avif,image/svg+xml,application/pdf,video/mp4,video/webm,video/quicktime}"
+bucket,site-assets,"true 26214400 "
+bucket,community,"true 26214400 "
+bucket,avatars,"true 5242880 {image/png,image/jpeg,image/webp,image/gif}"
+extension,plpgsql,1.0
+extension,pg_stat_statements,1.11
+extension,uuid-ossp,1.1
+extension,pgcrypto,1.3
+extension,supabase_vault,0.3.1
+extension,pg_trgm,1.6
+extension,pg_net,0.20.3
+extension,pg_cron,1.6.4
+cron,communications-tick,"* * * * *  SELECT public.communications_run_scheduled() "

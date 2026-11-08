@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { safeUrl } from "@/lib/safe-url";
 import { Bell, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -68,7 +69,7 @@ export function NotificationBell() {
                 return (
                   <li key={n.id}>
                     {n.link ? (
-                      <Link to={n.link} onClick={() => { mark.mutate([n.id]); setOpen(false); }}>{inner}</Link>
+                      <Link to={safeUrl(n.link) ?? "#"} onClick={() => { mark.mutate([n.id]); setOpen(false); }}>{inner}</Link>
                     ) : inner}
                   </li>
                 );
