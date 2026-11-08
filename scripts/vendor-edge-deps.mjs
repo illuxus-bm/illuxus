@@ -15,6 +15,7 @@
  * To add or upgrade a library: edit LIBRARIES, run the script, then
  * `npm run functions:inline`, and commit _vendor/ with the functions.
  */
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, relative, resolve } from "node:path";
@@ -263,6 +264,17 @@ export async function checkVendoredEdgeDeps() {
     if (!existsSync(file)) problems.push(`_vendor/${local} is missing.`);
     else if (sha256(readFileSync(file)) !== expected) problems.push(`_vendor/${local} was changed by hand (checksum differs).`);
   }
+  // A .gitignore rule (like `dist`) would keep files out of commits: they'd
+  // exist here and be missing everywhere else.
+  const ignored = spawnSync("git", ["check-ignore", "--stdin"], {
+    cwd: VENDOR,
+    input: Object.keys(manifest.files).join("\n"),
+    encoding: "utf8",
+  });
+  for (const local of (ignored.stdout ?? "").split("\n").filter(Boolean)) {
+    problems.push(`_vendor/${local} is ignored by .gitignore, so it wouldn't be committed.`);
+  }
+
   for (const [local] of Object.entries(manifest.files)) {
     if (!/\.(m?js|ts)$/.test(local) || local.endsWith(".d.mts")) continue;
     const file = join(VENDOR, local);
