@@ -108,6 +108,26 @@ function resolveBuildSha(): string {
 }
 
 const BUILD_SHA = resolveBuildSha();
+/**
+ * Unique per build (the commit alone isn't: a redeploy with new settings
+ * rebuilds the same commit). Open tabs compare it with /version.json to
+ * notice a newer deploy; see src/lib/web-update.ts.
+ */
+const BUILD_ID = `${BUILD_SHA}.${Date.now().toString(36)}`;
+
+/** The part of the service worker's Cache Storage the page-load rule uses. */
+type CacheLookup = { match(url: string, options: { ignoreSearch: boolean }): Promise<Response | undefined> };
+
+/** Writes /version.json, the build open tabs compare themselves against. */
+function buildVersionFile(): Plugin {
+  return {
+    name: "illuxus-build-version",
+    apply: "build",
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "version.json", source: `${JSON.stringify({ build: BUILD_ID })}\n` });
+    },
+  };
+}
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -136,6 +156,7 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       "import.meta.env.VITE_BUILD_SHA": JSON.stringify(BUILD_SHA),
+      "import.meta.env.VITE_BUILD_ID": JSON.stringify(BUILD_ID),
     },
     build: {
       // The app bundle carries no source maps unless they are uploaded (and
@@ -146,31 +167,30 @@ export default defineConfig(({ mode }) => {
       react(),
       nonBlockingAppCss(),
       !isNativeApp && seoPrerender(),
+      !isNativeApp && buildVersionFile(),
       // PWA / service-worker layer.
       //
-      // - registerType: 'prompt' — we control update timing via PWAUpdatePrompt
-      //   so users see a non-intrusive toast rather than a surprise reload.
-      // - manifest: false — we already ship `public/site.webmanifest` referenced
-      //   from `index.html`. The plugin's generator would produce a duplicate.
-      // - workbox.navigateFallback — single-page app shell served from cached
-      //   `index.html` so already-visited pages keep working offline.
-      // - runtimeCaching — Google Fonts (cache-first, long lived) and Supabase
-      //   storage assets (cache-first, ~30 days). The Supabase REST API is
-      //   network-first with a 3s timeout so a slow link still falls back to
-      //   the last-known response without locking the user out of fresh data.
-      // - skipWaiting: true — a new deploy's worker activates as soon as it
-      //   installs, so a normal refresh / next visit shows the latest release.
-      //   With `false` it waited until every illuxus tab was closed, leaving
-      //   users on stale builds after each deploy. Open pages are NOT
-      //   reloaded (no lost form state); a page that later fails to fetch a
-      //   chunk removed by the deploy reloads itself once (see main.tsx).
-      // - clientsClaim: true — once activated, take control of all open tabs.
-      // - cleanupOutdatedCaches: true — drop precached assets from prior
-      //   deploys so users don't accumulate stale chunks over time.
-      // - navigationPreload: false — page navigations are answered from the
-      //   precached `index.html` (navigateFallback), so a preload request would
-      //   never be consumed: it wastes a network round trip and Chrome logs
-      //   "navigation preload request was cancelled" on every page load.
+      // Every deploy must reach people without them clearing site data, so:
+      //
+      // - Pages come from the network first. The worker answers a page load
+      //   with the latest index.html from Vercel and falls back to the cached
+      //   copy only offline or after 4 s, so the app still opens on a dead
+      //   connection. (It used to answer every load from the cache, which kept
+      //   people on the build they first installed.) No HTML is precached
+      //   except that offline copy, and `directoryIndex: null` stops "/" from
+      //   being answered out of the precache.
+      // - navigationPreload: the page request starts while the worker boots,
+      //   so going to the network first costs no extra time.
+      // - skipWaiting + clientsClaim: a new worker takes over as soon as it
+      //   has installed; cleanupOutdatedCaches drops the old build's files.
+      // - An open tab notices a newer deploy through /version.json and
+      //   reloads at a moment nothing is lost (src/lib/web-update.ts,
+      //   WebAppUpdater). A chunk the deploy removed reloads once (main.tsx).
+      // - registerType 'prompt' / injectRegister false: WebAppUpdater
+      //   registers the worker itself.
+      // - manifest: false: public/site.webmanifest is the manifest.
+      // - Supabase REST/auth/realtime/functions are never cached: answers
+      //   carry a person's data and must be current.
       VitePWA({
         // Still provides `virtual:pwa-register` (as a no-op) in the app build.
         disable: isNativeApp,
@@ -196,23 +216,49 @@ export default defineConfig(({ mode }) => {
         },
         workbox: {
           globPatterns: [
-            "**/*.{js,css,html,svg,png,ico,webmanifest,woff,woff2}",
+            "**/*.{js,css,svg,png,ico,webmanifest,woff,woff2}",
+            // The offline copy of the app. The prerendered pages are left
+            // out: they're the same app, and pages load from the network.
+            "index.html",
           ],
           // Don't precache the giant source maps; they're huge and not used at runtime.
           globIgnores: ["**/*.map", "sw.js", "workbox-*.js"],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-          navigateFallback: "/index.html",
-          navigateFallbackDenylist: [
-            // Auth callback / supabase URLs must always hit the network.
-            /^\/api\//,
-            /^\/auth\//,
-            // Edge function URLs (full https URLs are denylisted automatically).
-          ],
-          navigationPreload: false,
+          navigateFallback: null,
+          directoryIndex: null,
+          navigationPreload: true,
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
           runtimeCaching: [
+            {
+              // Page loads: the latest HTML from the network; the offline
+              // copy only when that fails or takes over 4 s. Server routes
+              // and the sign-in callback are left alone.
+              urlPattern: ({ request, url }) =>
+                request.mode === "navigate" &&
+                !url.pathname.startsWith("/api/") &&
+                !url.pathname.startsWith("/auth/"),
+              handler: "NetworkFirst",
+              options: {
+                cacheName: "illuxus-pages",
+                networkTimeoutSeconds: 4,
+                plugins: [
+                  {
+                    // Never keep individual pages: one offline copy, always
+                    // the one installed with this worker, can't go stale.
+                    cacheWillUpdate: async () => null,
+                    // Offline or slow: answer with the precached index.html.
+                    // (Written out in full: workbox copies this function into
+                    // sw.js as text, so it can't refer to anything here.)
+                    cachedResponseWillBeUsed: async ({ cachedResponse }) =>
+                      cachedResponse ??
+                      (await (globalThis as unknown as { caches: CacheLookup }).caches.match("/index.html", { ignoreSearch: true })) ??
+                      null,
+                  },
+                ],
+              },
+            },
             {
               urlPattern: ({ url }) =>
                 url.origin === "https://fonts.googleapis.com",
@@ -250,27 +296,11 @@ export default defineConfig(({ mode }) => {
               },
             },
             {
-              // Supabase REST API — try the network first, fall back to a
-              // recent cached response if the network is slow or offline.
+              // Supabase data, sign-in, realtime and functions: network only.
               urlPattern: ({ url }) =>
                 /supabase\.co$/.test(url.host) &&
-                url.pathname.startsWith("/rest/v1/"),
-              handler: "NetworkFirst",
-              options: {
-                cacheName: "illuxus-supabase-rest",
-                networkTimeoutSeconds: 3,
-                expiration: {
-                  maxEntries: 100,
-                  maxAgeSeconds: 60 * 5, // 5 minutes — fallback only
-                },
-                cacheableResponse: { statuses: [0, 200] },
-              },
-            },
-            {
-              // Realtime + edge functions must always hit the network.
-              urlPattern: ({ url }) =>
-                /supabase\.co$/.test(url.host) &&
-                (url.pathname.startsWith("/realtime/") ||
+                (url.pathname.startsWith("/rest/v1/") ||
+                  url.pathname.startsWith("/realtime/") ||
                   url.pathname.startsWith("/functions/v1/") ||
                   url.pathname.startsWith("/auth/v1/")),
               handler: "NetworkOnly",
