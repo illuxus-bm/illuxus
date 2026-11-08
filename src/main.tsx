@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { bootNativeApp } from "./lib/native/boot";
+// Catch the browser's install offer before any page needs it (/download).
+import "./lib/pwa-install";
 
 // The iOS / Android app's native glue (downloads, sharing, links, keyboard);
 // a no-op in the browser beyond tagging an installed PWA as `app-mode`.
