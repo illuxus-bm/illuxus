@@ -1,0 +1,30 @@
+// Builds the Android app from the native archive instead of Google's Maven,
+// Maven Central or the Gradle plugin portal (scripts/native-archive.mjs).
+//
+//   ILLUXUS_MAVEN_ARCHIVE=<restored archive>/android/maven \
+//     ./gradlew --offline --init-script ../scripts/gradle-archive.init.gradle assembleRelease
+//
+// Every remote Maven repository the build declares is pointed at the archive.
+
+def archive = System.getenv("ILLUXUS_MAVEN_ARCHIVE")
+if (!archive) throw new GradleException("Set ILLUXUS_MAVEN_ARCHIVE to the restored archive's android/maven folder.")
+def archiveUri = new File(archive).toURI()
+if (!new File(archive).isDirectory()) throw new GradleException("ILLUXUS_MAVEN_ARCHIVE (${archive}) isn't a folder.")
+
+def useArchive = { RepositoryHandler repos ->
+    repos.configureEach { repo ->
+        if (repo instanceof MavenArtifactRepository && repo.url.scheme != "file") {
+            repo.url = archiveUri
+        }
+    }
+}
+
+settingsEvaluated { settings ->
+    useArchive(settings.pluginManagement.repositories)
+    useArchive(settings.dependencyResolutionManagement.repositories)
+}
+
+allprojects {
+    useArchive(buildscript.repositories)
+    useArchive(repositories)
+}

@@ -1,0 +1,110 @@
+# Keeps an archive of everything the Android and iOS apps download to build
+# (Gradle libraries and distribution, Swift packages and their frameworks) on
+# the "native-archive" GitHub release. See scripts/native-archive.mjs and
+# docs/DEPENDENCY_ARCHIVE.md.
+#
+# Runs when a native build input changes on main (or by hand). Each archive
+# is checked by building Android --offline from it with an empty Gradle home
+# and the network blocked, and by checking out each iOS Swift package from it
+# with its frameworks; the newest 5 are kept. The release is a pre-release
+# and never "Latest", so the app download links (releases/latest/download/…)
+# are unaffected.
+name: native archive
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - bun.lock
+      - android/build.gradle
+      - android/app/build.gradle
+      - android/app/capacitor.build.gradle
+      - android/capacitor.settings.gradle
+      - android/settings.gradle
+      - android/variables.gradle
+      - android/gradle.properties
+      - android/gradle/wrapper/gradle-wrapper.properties
+      - ios/App/CapApp-SPM/Package.swift
+      - scripts/native-archive.mjs
+      - scripts/gradle-archive.init.gradle
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: native-archive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KEEP: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.23
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Already archived?
+        id: have
+        run: |
+          name="$(node scripts/native-archive.mjs name)"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          if gh release view native-archive --json assets -q '.assets[].name' 2>/dev/null | grep -qx "$name"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "$name is already on the release."
+          fi
+
+      - name: Install
+        if: steps.have.outputs.exists != 'true'
+        run: bun install --frozen-lockfile
+
+      # The same app build as a release, so Gradle downloads the same things.
+      # Placeholders only: this bundle is never shipped.
+      - name: Build the app and sync Android
+        if: steps.have.outputs.exists != 'true'
+        env:
+          VITE_SUPABASE_URL: https://ci.invalid
+          VITE_SUPABASE_PUBLISHABLE_KEY: ci-only-build-placeholder
+        run: |
+          bun run build:app
+          bunx cap sync android
+
+      - name: Pack
+        if: steps.have.outputs.exists != 'true'
+        run: node scripts/native-archive.mjs pack --out out
+
+      - name: Prove it builds on its own
+        if: steps.have.outputs.exists != 'true'
+        run: node scripts/native-archive.mjs verify "out/${{ steps.have.outputs.name }}"
+
+      - name: Attach to the native-archive release
+        if: steps.have.outputs.exists != 'true'
+        run: |
+          if ! gh release view native-archive >/dev/null 2>&1; then
+            gh release create native-archive --prerelease --latest=false \
+              --title "Native build archive" \
+              --notes "Everything the Android and iOS apps download to build (Gradle libraries and distribution, Swift packages with their frameworks), one archive per set of build files (illuxus-native-<hash>.tar). Restore with: node scripts/native-archive.mjs restore <file>. See docs/DEPENDENCY_ARCHIVE.md. Not an app release."
+          fi
+          gh release upload native-archive "out/${{ steps.have.outputs.name }}"
+
+      - name: Keep the newest ${{ env.KEEP }} archives
+        if: steps.have.outputs.exists != 'true'
+        run: |
+          gh release view native-archive --json assets \
+            -q ".assets | sort_by(.createdAt) | reverse | .[${KEEP}:] | .[].name" |
+          while read -r old; do
+            [ -n "$old" ] && gh release delete-asset native-archive "$old" -y
+          done

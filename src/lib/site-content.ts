@@ -137,7 +137,7 @@ export const DEFAULT_SITE_CONTENT: SiteContentMap = {
       "Create, manage, and scale unforgettable events with Illuxus. Ticketing, speaker management, analytics, and more — all in one platform.",
     author: "Illuxus",
     ogImageUrl:
-      "https://dcfygmgjqldvynbvmwdy.supabase.co/storage/v1/object/public/site-assets/favicon/1777010462147-m60zhn.png",
+      "https://illuxus.com/og-image.png",
     faviconUrl: "/favicon.ico",
     siteUrl: "",
     themeColor: "#121212",

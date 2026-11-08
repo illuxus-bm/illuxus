@@ -26,7 +26,8 @@
     "deps:edge": "node scripts/vendor-edge-deps.mjs",
     "deps:fonts": "node scripts/vendor-fonts.mjs",
     "deps:archive": "node scripts/npm-archive.mjs pack",
-    "deps:restore": "node scripts/npm-archive.mjs restore"
+    "deps:restore": "node scripts/npm-archive.mjs restore",
+    "deps:native": "node scripts/native-archive.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",
@@ -77,6 +78,7 @@
     "@radix-ui/react-tooltip": "^1.2.7",
     "@react-three/fiber": "^8.18.0",
     "@sentry/browser": "^10.57.0",
+    "@sentry/core": "^10.57.0",
     "@supabase/supabase-js": "^2.107.0",
     "@tanstack/query-core": "^5.100.1",
     "@tanstack/react-query": "^5.83.0",
@@ -126,6 +128,7 @@
   "devDependencies": {
     "@capacitor/assets": "^4.0.0",
     "@capacitor/cli": "^8.6.0",
+    "@electric-sql/pglite": "^0.5.10",
     "@eslint/js": "^9.32.0",
     "@playwright/test": "^1.57.0",
     "@sentry/vite-plugin": "^5.3.0",
@@ -140,6 +143,8 @@
     "@vitejs/plugin-react-swc": "^3.11.0",
     "agora-token": "^2.0.5",
     "autoprefixer": "^10.4.21",
+    "es-module-lexer": "^1.7.0",
+    "esbuild": "^0.21.5",
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
@@ -147,6 +152,7 @@
     "fast-check": "^3.23.2",
     "globals": "^15.15.0",
     "jsdom": "^20.0.3",
+    "playwright": "^1.59.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
