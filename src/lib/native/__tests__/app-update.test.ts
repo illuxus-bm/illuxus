@@ -30,6 +30,7 @@ describe("parseAppConfig", () => {
       minimumVersion: { ios: "1.2.0" },
       storeUrl: { ios: "https://apps.apple.com/app/id1" },
       message: "Please update",
+      liveUpdates: true,
     });
   });
 
@@ -45,6 +46,11 @@ describe("parseAppConfig", () => {
     expect(config?.minimumVersion.ios).toMatch(/^\d+\.\d+\.\d+$/);
     expect(config?.minimumVersion.android).toMatch(/^\d+\.\d+\.\d+$/);
   });
+});
+
+it("pauses live updates only when the config says false", () => {
+  expect(parseAppConfig({})?.liveUpdates).toBe(true);
+  expect(parseAppConfig({ liveUpdates: false })?.liveUpdates).toBe(false);
 });
 
 describe("updateRequired", () => {

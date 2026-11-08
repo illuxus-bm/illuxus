@@ -186,7 +186,8 @@ illuxus project:
    bun run app:version 1.1.0 2     # version 1.1.0, build 2, for both apps
    ```
 
-2. Build and copy the bundle into both projects. `app:release` runs the pre-release check first:
+2. Build and copy the bundle into both projects. `app:release` runs the pre-release check first;
+   then `node scripts/app-bundle.mjs` packages the live update (the release workflow does both):
 
    ```sh
    bun run app:release
@@ -201,6 +202,39 @@ illuxus project:
    the camera (check-in scanner) and an illuxus.com link.
 4. **iOS:** in Xcode, choose Any iOS Device, then Product → Archive → Distribute App → App Store
    Connect. Test it in TestFlight with the same list.
+
+### Live updates
+
+Installed apps update themselves: each release's web code reaches them without a reinstall, through
+[`@capgo/capacitor-updater`](https://github.com/Cap-go/capacitor-updater) in self-hosted mode
+([`live-update.ts`](../src/lib/native/live-update.ts), [`AppLiveUpdate`](../src/components/native/AppLiveUpdate.tsx)).
+Nothing goes through Capgo's servers, and its usage reporting is off (`statsUrl: ""`).
+
+1. Each GitHub release carries `illuxus-web.zip` (the `vite build --mode capacitor` output) and
+   `illuxus-web.json`: version, build, SHA-256, and `minNativeBuild`, the oldest app shell it runs on.
+   [`scripts/app-bundle.mjs`](../scripts/app-bundle.mjs) makes both; the release workflow attaches them.
+2. A few seconds after launch, and when the app returns after 6+ hours away, the app reads the latest
+   release's `illuxus-web.json`. If it's newer and the shell is new enough, the zip downloads in the
+   background and its checksum is verified.
+3. At the next fresh launch the app switches to it in the first second, under the splash, so nobody
+   loses what they were doing.
+4. A version that doesn't confirm it started (`notifyAppReady`) is rolled back to the previous one, and
+   that device never tries it again. Publish a fixed release to move on.
+5. When a release needs a newer shell (native code changed), older apps show "illuxus x.y.z is
+   available" once, with an **Update** button to the APK (or the store, once listed).
+
+`minNativeBuild` is kept for you. `bun run app:version` fingerprints the native project (`android/`,
+`ios/`, `capacitor.config.ts`, the native plugins). When that changed since the last shell, the new
+build becomes the minimum, and `bun run app:check` refuses a release that skipped the bump. Set
+`"liveUpdates": false` in `public/app-config.json` and deploy the site to pause live updates everywhere.
+
+Apps from before 1.0.3 have no updater. To move them onto it, set `minimumVersion` to `1.0.3` in
+`public/app-config.json` once 1.0.3 is out: they then show the "Update illuxus" screen, with a button to
+the APK.
+
+To test against a local server, build with `VITE_LIVE_UPDATE_BASE=http://10.0.2.2:8787` (laid out like
+the GitHub releases); the updater downloads only over `https` unless `httpsOnly: false` is set in a
+throwaway test build.
 
 ### Retiring an old version
 

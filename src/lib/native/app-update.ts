@@ -25,6 +25,8 @@ export interface AppConfig {
   storeUrl: Partial<Record<AppPlatform, string>>;
   /** Shown on the update screen in place of the default text. */
   message: string | null;
+  /** `false` pauses live updates (lib/native/live-update) on every installed app. */
+  liveUpdates: boolean;
 }
 
 export const APP_CONFIG_URL = `${SITE_ORIGIN}/app-config.json`;
@@ -62,6 +64,7 @@ export function parseAppConfig(raw: unknown): AppConfig | null {
     minimumVersion: pick(r.minimumVersion, (v) => VERSION.test(v)),
     storeUrl: pick(r.storeUrl, isStoreUrl),
     message: typeof r.message === "string" && r.message.trim() ? r.message.trim().slice(0, 500) : null,
+    liveUpdates: r.liveUpdates !== false,
   };
 }
 

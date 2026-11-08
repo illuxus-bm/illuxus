@@ -55,6 +55,22 @@ const config: CapacitorConfig = {
       // Android and warns that the two conflict.)
       resize: "native",
     },
+    CapacitorUpdater: {
+      // Live updates (src/lib/native/live-update.ts), self-hosted on the
+      // GitHub releases: the app decides when to download and switch, and
+      // nothing goes to Capgo's servers. statsUrl "" turns off its usage and
+      // health reporting, which would send device data to a third party.
+      autoUpdate: false,
+      statsUrl: "",
+      // A downloaded version that doesn't confirm it started (markAppReady)
+      // within 10 s is rolled back to the previous one.
+      appReadyTimeout: 10000,
+      autoDeleteFailed: true,
+      autoDeletePrevious: true,
+      // A new app shell from the store or an APK starts on its own built-in
+      // code, dropping live updates made for the old shell.
+      resetWhenUpdate: true,
+    },
     SystemBars: {
       // Edge to edge on Android, with the insets as env() values like iOS.
       insetsHandling: "css",

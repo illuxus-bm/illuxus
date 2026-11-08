@@ -9,7 +9,18 @@
  * go up with every upload to either store, even for the same version. Android
  * reads both from android/version.properties; iOS from MARKETING_VERSION and
  * CURRENT_PROJECT_VERSION in the Xcode project.
+ *
+ * Live updates (src/lib/native/live-update.ts) send a release's web code to
+ * installed apps without a reinstall, but only to app shells it works with.
+ * version.properties records that: `liveUpdateMinBuild`, the oldest build
+ * whose native code matches, and `nativeFingerprint`, a hash of every native
+ * input (the android/ and ios/ projects, capacitor.config.ts, the native
+ * plugins in package.json). A bump checks the fingerprint: when native code
+ * has changed, the new build becomes the minimum, so older shells are asked
+ * to update instead of receiving code they can't run.
  */
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -20,11 +31,79 @@ export const IOS_PROJECT_FILE = resolve(ROOT, "ios/App/App.xcodeproj/project.pbx
 
 export const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 
-/** { versionName, versionCode } from version.properties text. */
+/** { versionName, versionCode, liveUpdateMinBuild, nativeFingerprint } from version.properties text. */
 export function readAndroidVersion(text) {
   const get = (key) => text.match(new RegExp(`^${key}=(.*)$`, "m"))?.[1]?.trim() ?? null;
   const code = get("versionCode");
-  return { versionName: get("versionName"), versionCode: code === null ? null : Number(code) };
+  const min = get("liveUpdateMinBuild");
+  return {
+    versionName: get("versionName"),
+    versionCode: code === null ? null : Number(code),
+    liveUpdateMinBuild: min === null ? null : Number(min),
+    nativeFingerprint: get("nativeFingerprint"),
+  };
+}
+
+/** Sets (or adds) one key in version.properties text. */
+export function setProperty(text, key, value) {
+  const line = `${key}=${value}`;
+  return new RegExp(`^${key}=.*$`, "m").test(text)
+    ? text.replace(new RegExp(`^${key}=.*$`, "m"), line)
+    : `${text.replace(/\n*$/, "\n")}${line}\n`;
+}
+
+// Package names whose code runs natively: adding, removing or upgrading one
+// needs a new app shell.
+const NATIVE_PACKAGE = /^(@capacitor\/(?!cli$|assets$)|@capgo\/|@capawesome|cordova-|capacitor-)/;
+
+/**
+ * A hash of everything native in the repository at `root`: the git-tracked
+ * files under android/ and ios/ (without the version numbers, which change
+ * every release), capacitor.config.ts, and the native plugins' versions.
+ */
+export function nativeFingerprint(root = ROOT) {
+  const hash = createHash("sha256");
+  const tracked = execFileSync("git", ["ls-files", "-z", "android", "ios", "capacitor.config.ts"], { cwd: root })
+    .toString()
+    .split("\0")
+    .filter(Boolean)
+    .filter((f) => f !== "android/version.properties")
+    .sort();
+  for (const file of tracked) {
+    let content;
+    try {
+      content = readFileSync(resolve(root, file));
+    } catch {
+      continue; // deleted in the working tree
+    }
+    if (file.endsWith("project.pbxproj")) {
+      content = Buffer.from(content.toString("utf8").replace(/(MARKETING_VERSION|CURRENT_PROJECT_VERSION) = [^;]+;/g, "$1;"));
+    }
+    hash.update(file).update("\0").update(content).update("\0");
+  }
+  const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+  const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+  for (const name of Object.keys(deps).filter((n) => NATIVE_PACKAGE.test(n)).sort()) {
+    hash.update(`${name}@${deps[name]}\0`);
+  }
+  return hash.digest("hex").slice(0, 16);
+}
+
+/** Problems with the live-update fields; empty when consistent. */
+export function liveUpdateProblems(android, fingerprint) {
+  const problems = [];
+  if (!Number.isInteger(android.liveUpdateMinBuild) || android.liveUpdateMinBuild < 1) {
+    problems.push("android/version.properties has no liveUpdateMinBuild: bump the version with scripts/app-version.mjs.");
+  } else if (Number.isInteger(android.versionCode) && android.liveUpdateMinBuild > android.versionCode) {
+    problems.push(`liveUpdateMinBuild ${android.liveUpdateMinBuild} is above this build (${android.versionCode}).`);
+  }
+  if (android.nativeFingerprint !== fingerprint) {
+    problems.push(
+      `Native code has changed since build ${android.liveUpdateMinBuild ?? "?"} (fingerprint ${android.nativeFingerprint ?? "none"} → ${fingerprint}). ` +
+        "Bump the build with scripts/app-version.mjs, so older app shells are asked to update instead of getting code they can't run.",
+    );
+  }
+  return problems;
 }
 
 export function writeAndroidVersion(text, versionName, versionCode) {
@@ -72,8 +151,8 @@ function main(args) {
   const current = readAndroidVersion(androidText);
 
   if (args.length === 0) {
-    const problems = versionProblems(current, readIosVersions(iosText));
-    console.log(`Version ${current.versionName}, build ${current.versionCode}`);
+    const problems = [...versionProblems(current, readIosVersions(iosText)), ...liveUpdateProblems(current, nativeFingerprint())];
+    console.log(`Version ${current.versionName}, build ${current.versionCode} (live updates reach build ${current.liveUpdateMinBuild ?? "?"} and later)`);
     for (const p of problems) console.error(`✗ ${p}`);
     return problems.length ? 1 : 0;
   }
@@ -87,9 +166,21 @@ function main(args) {
   if (Number.isInteger(current.versionCode) && versionCode <= current.versionCode) {
     console.warn(`! Build ${versionCode} isn't above the current ${current.versionCode}; the stores refuse a build number they've seen.`);
   }
-  writeFileSync(ANDROID_VERSION_FILE, writeAndroidVersion(androidText, versionName, versionCode));
+  const fingerprint = nativeFingerprint();
+  const nativeChanged = current.nativeFingerprint !== fingerprint || !Number.isInteger(current.liveUpdateMinBuild);
+  let props = writeAndroidVersion(androidText, versionName, versionCode);
+  if (nativeChanged) {
+    props = setProperty(props, "liveUpdateMinBuild", versionCode);
+    props = setProperty(props, "nativeFingerprint", fingerprint);
+  }
+  writeFileSync(ANDROID_VERSION_FILE, props);
   writeFileSync(IOS_PROJECT_FILE, writeIosVersion(iosText, versionName, versionCode));
   console.log(`Set version ${versionName}, build ${versionCode} for Android and iOS.`);
+  console.log(
+    nativeChanged
+      ? `Native code changed: this release needs the new app shell. Live updates of it go to build ${versionCode} and later; older apps are asked to update.`
+      : `Native code unchanged: installed apps from build ${current.liveUpdateMinBuild} up get this release as a live update.`,
+  );
   return 0;
 }
 
