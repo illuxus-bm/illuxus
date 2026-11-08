@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - "v*"
+  # Build only, to test the pipeline: the signed APK is attached to the run
+  # as an artifact and nothing is published.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -33,18 +36,21 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_AGORA_APP_ID: ${{ secrets.VITE_AGORA_APP_ID }}
           ILLUXUS_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ILLUXUS_UPLOAD_KEYSTORE_BASE64 }}
           ILLUXUS_UPLOAD_STORE_PASSWORD: ${{ secrets.ILLUXUS_UPLOAD_STORE_PASSWORD }}
           ILLUXUS_UPLOAD_KEY_ALIAS: ${{ secrets.ILLUXUS_UPLOAD_KEY_ALIAS }}
           ILLUXUS_UPLOAD_KEY_PASSWORD: ${{ secrets.ILLUXUS_UPLOAD_KEY_PASSWORD }}
         run: |
-          tag_version="${GITHUB_REF_NAME#v}"
-          app_version="$(sed -n 's/^versionName=//p' android/version.properties)"
-          if [ "$tag_version" != "$app_version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match app version $app_version."
-            exit 1
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            app_version="$(sed -n 's/^versionName=//p' android/version.properties)"
+            if [ "$tag_version" != "$app_version" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match app version $app_version."
+              exit 1
+            fi
           fi
-          for name in VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY ILLUXUS_UPLOAD_KEYSTORE_BASE64 ILLUXUS_UPLOAD_STORE_PASSWORD ILLUXUS_UPLOAD_KEY_ALIAS ILLUXUS_UPLOAD_KEY_PASSWORD; do
+          for name in VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY VITE_AGORA_APP_ID ILLUXUS_UPLOAD_KEYSTORE_BASE64 ILLUXUS_UPLOAD_STORE_PASSWORD ILLUXUS_UPLOAD_KEY_ALIAS ILLUXUS_UPLOAD_KEY_PASSWORD; do
             if [ -z "${!name}" ]; then
               echo "::error::Configure the $name GitHub Actions secret before publishing an Android release."
               exit 1
@@ -57,10 +63,14 @@ jobs:
       - name: Check app release configuration
         run: bun run app:check
 
+      # The same public settings the website is built with on Vercel.
       - name: Build app bundle
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_AGORA_APP_ID: ${{ secrets.VITE_AGORA_APP_ID }}
+          VITE_WEBINAR_PROVIDER: ${{ vars.VITE_WEBINAR_PROVIDER || 'agora' }}
+          VITE_PUBLIC_ORIGIN: https://illuxus.com
         run: bun run build:app
 
       - name: Sync Android project
@@ -82,6 +92,18 @@ jobs:
           ILLUXUS_UPLOAD_KEY_PASSWORD: ${{ secrets.ILLUXUS_UPLOAD_KEY_PASSWORD }}
         run: ./gradlew --no-daemon assembleRelease
 
+      # Everyone who installed the app has it signed with this certificate;
+      # an APK signed with any other key can't update their copy.
+      - name: Check the APK is signed with the illuxus key
+        run: |
+          expected="0bd98751c9992b9ea74689021eac587859c25178789c0b75fe1a3b0499012242"
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+          actual="$("$apksigner" verify --print-certs android/app/build/outputs/apk/release/app-release.apk | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::The APK is signed with $actual, not the illuxus upload key ($expected). Check the ILLUXUS_UPLOAD_* secrets."
+            exit 1
+          fi
+
       - name: Prepare release assets
         run: |
           mkdir -p release-assets
@@ -89,7 +111,15 @@ jobs:
           cd release-assets
           sha256sum illuxus.apk > illuxus.apk.sha256
 
+      - name: Keep the APK with the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: illuxus-apk
+          path: release-assets/
+          retention-days: 14
+
       - name: Publish GitHub release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
