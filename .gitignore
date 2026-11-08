@@ -40,3 +40,6 @@ android/keystore.properties
 
 # Release files built locally (scripts/app-bundle.mjs, the release workflow).
 release-assets/
+
+# Vendored edge-function libraries ship whole, build folders included.
+!supabase/functions/_vendor/**/dist/
