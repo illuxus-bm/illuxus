@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Hash, Send } from "lucide-react";
 import { format } from "date-fns";
+import { useBlockedIds } from "@/hooks/community/useBlocks";
+import { ContentActionsMenu } from "@/components/community/safety/ContentActionsMenu";
 import { toast } from "sonner";
 import { friendlyError } from "@/lib/friendly-error";
 
@@ -25,6 +27,7 @@ export default function CommunityChatPage() {
   }, [activeChannelId, channels.data]);
 
   const messages = useChannelMessages(activeChannelId ?? undefined);
+  const blocked = useBlockedIds();
   const send = useSendMessage(activeChannelId ?? undefined);
   const [body, setBody] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -83,11 +86,11 @@ export default function CommunityChatPage() {
             ) : !messages.data?.length ? (
               <p className="text-[12px] text-muted-foreground text-center py-6">Start the conversation.</p>
             ) : (
-              messages.data.map((m) => {
+              messages.data.filter((m) => !blocked.has(m.author_id)).map((m) => {
                 const author = m.author?.display_name || "Anonymous";
                 const initials = author.slice(0, 2).toUpperCase();
                 return (
-                  <div key={m.id} className="flex gap-2">
+                  <div key={m.id} className="group flex gap-2">
                     <div className="h-7 w-7 rounded-full bg-muted text-foreground flex items-center justify-center text-[10px] font-semibold shrink-0 overflow-hidden">
                       {m.author?.avatar_url ? (
                         <img loading="lazy" decoding="async" src={m.author.avatar_url} alt="" className="h-full w-full object-cover" />
@@ -104,6 +107,7 @@ export default function CommunityChatPage() {
                       </p>
                       <p className="text-[13px] mt-0.5 whitespace-pre-wrap break-words">{m.body}</p>
                     </div>
+                    <ContentActionsMenu target={{ messageId: m.id }} authorId={m.author_id} authorName={author} className="self-start" />
                   </div>
                 );
               })

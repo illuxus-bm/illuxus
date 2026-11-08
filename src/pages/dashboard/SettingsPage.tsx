@@ -16,6 +16,7 @@ import {
 import type { Tables } from "@/integrations/supabase/types";
 import PersonFieldsForm, { type PersonFields, emptyPersonFields, displayName as buildDisplayName } from "@/components/people/PersonFieldsForm";
 import { TwoFactorSettings } from "@/components/auth/TwoFactorSettings";
+import { BlockedPeople } from "@/components/community/safety/BlockedPeople";
 import { ProfileSuggestions } from "@/components/intelligence/ProfileSuggestions";
 import { friendlyError } from "@/lib/friendly-error";
 
@@ -243,6 +244,7 @@ const SettingsPage = () => {
                   </div>
                 </div>
                 <TwoFactorSettings />
+                <BlockedPeople />
                 <div className="border-t border-border pt-4">
                   <h3 className="text-[13px] font-semibold">Delete my data</h3>
                   <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">

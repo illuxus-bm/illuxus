@@ -835,7 +835,9 @@ html.page-scroll-soft::-webkit-scrollbar { display: none; }
   padding: 0.25rem;
   border-radius: 9999px;
   border: 1px solid hsl(var(--border));
-  background: hsl(var(--card) / 0.82);
+  /* Mostly opaque, so busy content scrolling underneath never competes
+     with the labels; fully opaque where the device can't blur. */
+  background: hsl(var(--card) / 0.92);
   -webkit-backdrop-filter: saturate(1.6) blur(18px);
   backdrop-filter: saturate(1.6) blur(18px);
   box-shadow: var(--pop-shadow, 0 12px 32px -12px hsl(0 0% 0% / 0.25));
@@ -899,3 +901,7 @@ html.native-app :is(a, img) { -webkit-user-drag: none; }
   transition: transform 0.25s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s;
 }
 html.keyboard-open .app-fab { opacity: 0; pointer-events: none; }
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .app-tab-bar { background: hsl(var(--card)); }
+}
