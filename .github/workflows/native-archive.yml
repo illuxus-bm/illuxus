@@ -5,8 +5,9 @@
 #
 # Runs when a native build input changes on main (or by hand). Each archive
 # is checked by building Android --offline from it with an empty Gradle home
-# and the network blocked, and by checking out each iOS Swift package from it
-# with its frameworks; the newest 5 are kept. The release is a pre-release
+# and the network blocked, and by building the iOS app with Xcode from its
+# Swift packages alone with GitHub unreachable; the newest 5 are kept. It runs
+# on macOS for Xcode (free for public repositories). The release is a pre-release
 # and never "Latest", so the app download links (releases/latest/download/…)
 # are unaffected.
 name: native archive
@@ -38,7 +39,7 @@ concurrency:
 
 jobs:
   archive:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     timeout-minutes: 60
     env:
       GH_TOKEN: ${{ github.token }}
@@ -73,14 +74,14 @@ jobs:
 
       # The same app build as a release, so Gradle downloads the same things.
       # Placeholders only: this bundle is never shipped.
-      - name: Build the app and sync Android
+      - name: Build the app and sync Android and iOS
         if: steps.have.outputs.exists != 'true'
         env:
           VITE_SUPABASE_URL: https://ci.invalid
           VITE_SUPABASE_PUBLISHABLE_KEY: ci-only-build-placeholder
         run: |
           bun run build:app
-          bunx cap sync android
+          bunx cap sync
 
       - name: Pack
         if: steps.have.outputs.exists != 'true'
