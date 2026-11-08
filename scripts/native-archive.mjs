@@ -19,15 +19,16 @@
  *
  *   node scripts/native-archive.mjs verify <file.tar>
  *       Restores into a temporary folder, builds Android with --offline, an
- *       empty Gradle home and the network blocked, and checks each iOS Swift
- *       package checks out from the archive with its published frameworks.
+ *       empty Gradle home and the network blocked, checks each iOS Swift
+ *       package checks out from the archive with its published frameworks,
+ *       and (with Xcode) builds the iOS app from them with GitHub unreachable.
  *
  *   node scripts/native-archive.mjs name
  *       The archive's file name for the current native build inputs.
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, symlinkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -259,6 +260,16 @@ async function packSwiftPackage(pkg, stage) {
   }
 }
 
+/** Makes git fail on GitHub and never ask the keychain or a terminal. */
+const NO_GITHUB = {
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_CONFIG_COUNT: "2",
+  GIT_CONFIG_KEY_0: "url.https://github.invalid/.insteadOf",
+  GIT_CONFIG_VALUE_0: "https://github.com/",
+  GIT_CONFIG_KEY_1: "credential.helper",
+  GIT_CONFIG_VALUE_1: "",
+};
+
 // ── Archive ────────────────────────────────────────────────────────────────
 
 async function pack(outDir) {
@@ -370,9 +381,7 @@ async function verify(source) {
 
     // iOS: each package checks out from its archived copy at the pinned
     // version, nothing in it points at the internet, and its frameworks are
-    // the ones the original Package.swift's checksums name. (Resolving the
-    // whole app with SwiftPM needs Xcode: the Command Line Tools' SwiftPM
-    // fails on prebuilt frameworks even online.)
+    // the ones the original Package.swift's checksums name.
     installSwiftMirrors(dir, manifest);
     for (const pkg of manifest.swiftPackages) {
       const checkout = join(work, "spm", pkg.name);
@@ -387,6 +396,28 @@ async function verify(source) {
       }
     }
     console.log(`ios: ${manifest.swiftPackages.map((p) => `${p.name} ${p.version}`).join(", ")} check out from the archive with their frameworks`);
+
+    // With Xcode (macOS): build the app itself from the archived packages,
+    // in a copy of the project, with GitHub unreachable and empty caches.
+    if (process.platform === "darwin" && spawnSync("xcodebuild", ["-version"], { stdio: "ignore" }).status === 0) {
+      const proj = join(work, "project");
+      cpSync(join(ROOT, "ios"), join(proj, "ios"), {
+        recursive: true,
+        filter: (src) => !/[\\/](build|DerivedData|xcuserdata|\.build)([\\/]|$)/.test(src) && !src.endsWith("Package.resolved"),
+      });
+      symlinkSync(join(ROOT, "node_modules"), join(proj, "node_modules"));
+      const xcodeProject = join(proj, "ios", "App", "App.xcodeproj");
+      writeMirrors(installSwiftMirrors(dir, manifest), join(xcodeProject, "project.xcworkspace", "xcshareddata", "swiftpm", "configuration"));
+      run("xcodebuild", [
+        "-quiet", "-scmProvider", "system", "-project", xcodeProject, "-scheme", "App", "-configuration", "Release",
+        "-destination", "generic/platform=iOS", "-derivedDataPath", join(work, "xcode-dd"),
+        "-clonedSourcePackagesDirPath", join(work, "xcode-spm"), "-packageCachePath", join(work, "xcode-spm-cache"),
+        "CODE_SIGNING_ALLOWED=NO", "build",
+      ], { env: { ...process.env, ...NO_GITHUB } });
+      console.log("ios: built the app from the archive alone, with GitHub unreachable");
+    } else {
+      console.log("ios: Xcode isn't available here, so the app build from the archive was skipped");
+    }
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
