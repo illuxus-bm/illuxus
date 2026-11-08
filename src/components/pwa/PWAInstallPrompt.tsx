@@ -4,18 +4,7 @@ import { useStandaloneMode } from "@/hooks/useStandaloneMode";
 import { isNativeApp } from "@/lib/native/platform";
 import { logger } from "@/lib/observability";
 import { cn } from "@/lib/utils";
-
-/**
- * Chrome / Edge / Android-Chrome BeforeInstallPrompt event.
- *
- * Not in lib.dom yet; we narrow the relevant fields ourselves so we can capture
- * the event, defer it, and re-trigger from our own UI.
- */
-interface BeforeInstallPromptEvent extends Event {
-  readonly platforms: string[];
-  readonly userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
-  prompt(): Promise<void>;
-}
+import { promptInstall, useInstallPrompt } from "@/lib/pwa-install";
 
 const DISMISSED_KEY = "illuxus.pwa-install.dismissed";
 // Re-show the prompt after 14 days even if dismissed previously.
@@ -55,7 +44,7 @@ function markDismissed() {
 export function PWAInstallPrompt() {
   // The iOS / Android app is already installed.
   const standalone = useStandaloneMode() || isNativeApp();
-  const [installEvent, setInstallEvent] = useState<BeforeInstallPromptEvent | null>(null);
+  const { canInstall } = useInstallPrompt();
   const [showIosTip, setShowIosTip] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -68,20 +57,6 @@ export function PWAInstallPrompt() {
       return;
     }
 
-    const handler = (event: Event) => {
-      event.preventDefault();
-      setInstallEvent(event as BeforeInstallPromptEvent);
-      logger.debug("pwa.install_available");
-    };
-
-    const installedHandler = () => {
-      logger.info("pwa.installed");
-      setInstallEvent(null);
-    };
-
-    window.addEventListener("beforeinstallprompt", handler);
-    window.addEventListener("appinstalled", installedHandler);
-
     // iOS Safari / iPadOS: show a passive tip about Add to Home Screen.
     const ua = window.navigator.userAgent;
     const isIos = /iPad|iPhone|iPod/.test(ua) && !(window as Window & { MSStream?: unknown }).MSStream;
@@ -89,18 +64,11 @@ export function PWAInstallPrompt() {
     if (isIos && isSafari) {
       setShowIosTip(true);
     }
-
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handler);
-      window.removeEventListener("appinstalled", installedHandler);
-    };
   }, [standalone]);
 
   const handleInstall = useCallback(async () => {
-    if (!installEvent) return;
     try {
-      await installEvent.prompt();
-      const { outcome } = await installEvent.userChoice;
+      const outcome = await promptInstall();
       logger.info("pwa.install_choice", { outcome });
       if (outcome === "dismissed") {
         markDismissed();
@@ -110,24 +78,23 @@ export function PWAInstallPrompt() {
       logger.warn("pwa.install_prompt_failed", {
         error_message: (err as Error)?.message,
       });
-    } finally {
-      setInstallEvent(null);
     }
-  }, [installEvent]);
+  }, []);
 
   const handleDismiss = useCallback(() => {
     markDismissed();
     setDismissed(true);
-    setInstallEvent(null);
     setShowIosTip(false);
     logger.debug("pwa.install_dismissed");
   }, []);
 
   if (standalone) return null;
   if (dismissed) return null;
+  // The download page has its own, larger install button.
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/download")) return null;
 
   // Chromium prompt — programmatic install.
-  if (installEvent) {
+  if (canInstall) {
     return (
       <div
         className={cn(

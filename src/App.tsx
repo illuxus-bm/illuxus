@@ -70,6 +70,7 @@ const CertificateVerifyPage = lazyWithLog("CertificateVerifyPage", () => import(
 const OnboardingPage = lazyWithLog("OnboardingPage", () => import("./pages/OnboardingPage.tsx"));
 const FeaturesPage = lazyWithLog("FeaturesPage", () => import("./pages/FeaturesPage.tsx"));
 const PublicPricingPage = lazyWithLog("PublicPricingPage", () => import("./pages/PricingPage.tsx"));
+const DownloadPage = lazyWithLog("DownloadPage", () => import("./pages/DownloadPage.tsx"));
 const AboutPage = lazyWithLog("AboutPage", () => import("./pages/AboutPage.tsx"));
 const ContactPage = lazyWithLog("ContactPage", () => import("./pages/ContactPage.tsx"));
 const PrivacyPage = lazyWithLog("PrivacyPage", () => import("./pages/PrivacyPage.tsx"));
@@ -351,6 +352,8 @@ const App = () => (
                 {/* Static marketing / legal pages */}
                 <Route path="/features" element={<RouteErrorBoundary><FeaturesPage /></RouteErrorBoundary>} />
                 <Route path="/pricing" element={<RouteErrorBoundary><PublicPricingPage /></RouteErrorBoundary>} />
+                <Route path="/download" element={<RouteErrorBoundary><DownloadPage /></RouteErrorBoundary>} />
+                <Route path="/get-app" element={<Navigate to="/download" replace />} />
                 <Route path="/about" element={<RouteErrorBoundary><AboutPage /></RouteErrorBoundary>} />
                 <Route path="/contact" element={<RouteErrorBoundary><ContactPage /></RouteErrorBoundary>} />
                 {/* High-intent SEO landing pages — commercial-intent keywords. */}

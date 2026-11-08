@@ -218,7 +218,7 @@ export const DEFAULT_SITE_CONTENT: SiteContentMap = {
     brandName: "Illuxus",
     tagline: "The all-in-one event management platform.",
     columns: [
-      { title: "Product", links: [{ label: "Features", href: "/features" }, { label: "Pricing", href: "/pricing" }, { label: "Integrations", href: "/features" }] },
+      { title: "Product", links: [{ label: "Features", href: "/features" }, { label: "Pricing", href: "/pricing" }, { label: "Get the app", href: "/download" }, { label: "Integrations", href: "/features" }] },
       { title: "Resources", links: [{ label: "Documentation", href: "/docs" }, { label: "FAQs", href: "/faqs" }, { label: "Community", href: "/community" }, { label: "Events", href: "/events" }] },
       { title: "Company", links: [{ label: "About", href: "/about" }, { label: "Contact", href: "/contact" }, { label: "Discover", href: "/discover" }] },
       { title: "Legal", links: [{ label: "Privacy", href: "/privacy" }, { label: "Terms", href: "/terms" }, { label: "Accessibility", href: "/accessibility" }, { label: "GDPR", href: "/gdpr" }] },

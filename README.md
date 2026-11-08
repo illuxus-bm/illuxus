@@ -11,22 +11,25 @@ public pages.
 <p>
   <a href="https://github.com/illuxus-bm/illuxus/releases/latest/download/illuxus.apk"><img alt="Download for Android" src="https://img.shields.io/badge/Android-Download%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white" height="40"></a>
   &nbsp;
-  <a href="#iphone-ipad-and-mac"><img alt="iPhone, iPad and Mac: coming soon to the App Store" src="https://img.shields.io/badge/iPhone%20%C2%B7%20iPad%20%C2%B7%20Mac-Coming%20soon-000000?style=for-the-badge&logo=apple&logoColor=white" height="40"></a>
+  <a href="https://illuxus.com/download#ios"><img alt="Install on iPhone and iPad" src="https://img.shields.io/badge/iPhone%20%C2%B7%20iPad-Install-000000?style=for-the-badge&logo=apple&logoColor=white" height="40"></a>
   &nbsp;
-  <a href="#windows-chromebook-and-linux"><img alt="Install on Windows, Chromebook and Linux" src="https://img.shields.io/badge/Windows%20%C2%B7%20ChromeOS%20%C2%B7%20Linux-Install-0078D4?style=for-the-badge&logo=googlechrome&logoColor=white" height="40"></a>
+  <a href="https://illuxus.com/download#mac"><img alt="Install on Mac" src="https://img.shields.io/badge/Mac-Install-555555?style=for-the-badge&logo=apple&logoColor=white" height="40"></a>
+  &nbsp;
+  <a href="https://illuxus.com/download#desktop"><img alt="Install on Windows, ChromeOS and Linux" src="https://img.shields.io/badge/Windows%20%C2%B7%20ChromeOS%20%C2%B7%20Linux-Install-0078D4?style=for-the-badge&logo=googlechrome&logoColor=white" height="40"></a>
 </p>
 
-| Device | How to get it |
-| --- | --- |
-| **Android** phones, tablets and foldables (Android 7+) | Tap **Android** above on the device to download `illuxus.apk`, open it, and allow installs from your browser when asked. Updates install over the old version. Coming to Google Play. |
-| **iPhone and iPad** (iOS 15+) | Coming to the App Store. Until then, open [illuxus.com](https://illuxus.com) in Safari → Share → **Add to Home Screen**. |
-| **Mac** (Apple silicon) | The iPad app will also run on M-series Macs from the Mac App Store. Until then: [illuxus.com](https://illuxus.com) in Safari → File → **Add to Dock**, or in Chrome → ⋮ → Cast, save and share → **Install page as app**. |
-| **Windows, Chromebook, Linux** | Open [illuxus.com](https://illuxus.com) in Edge or Chrome and choose **Install illuxus** in the address bar (Edge: ⋯ → Apps → Install this site as an app). It opens in its own window, with a Start menu / launcher icon, and updates itself. Chromebooks can also install the Android app. |
+Every button works today. [illuxus.com/download](https://illuxus.com/download) shows the steps for the
+device you're on, with a one-click **Install** button where the browser offers one.
 
-<a id="iphone-ipad-and-mac"></a><a id="windows-chromebook-and-linux"></a>Every version is listed on
-the [Releases](https://github.com/illuxus-bm/illuxus/releases) page with its SHA-256 checksum. Apple
-only allows apps to be installed from the App Store or TestFlight, so there is no iOS file to
-download. Building and releasing the apps: [`docs/MOBILE.md`](./docs/MOBILE.md).
+| Device | How it installs |
+| --- | --- |
+| **Android** phones, tablets, foldables (Android 7+) | The Android app: download `illuxus.apk`, open it, allow installs from your browser if asked. Updates install over it. Google Play listing to follow. |
+| **iPhone and iPad** | From Safari: Share → **Add to Home Screen**. Opens full screen from the Home Screen, signed in. The App Store version is on its way; Apple allows no other install route until then. |
+| **Mac** | Safari (macOS Sonoma+): File → **Add to Dock**. Chrome or Edge: the **Install** button. Opens in its own window from the Dock. |
+| **Windows, ChromeOS, Linux** | Edge, Chrome or Chromium: the **Install** button, or the install icon in the address bar. Own window, Start menu / launcher icon, updates itself. Chromebooks can also run the Android app. |
+
+Every Android version is on the [Releases](https://github.com/illuxus-bm/illuxus/releases) page with
+its SHA-256 checksum. Building and releasing the apps: [`docs/MOBILE.md`](./docs/MOBILE.md).
 
 > **New here?** Read [Project layout](#project-layout) and [Conventions](#conventions) first, then
 > [`ROADMAP.md`](./ROADMAP.md) for direction and the product mindmap, and
