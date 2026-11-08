@@ -6,7 +6,8 @@ The app depends on code and files published by other people: npm packages, the l
 | --- | --- | --- |
 | Edge function libraries (supabase-js, LiveKit, Agora, denomailer, zip.js, imagescript) | `supabase/functions/_vendor/`, in the repo | `bun run deps:edge` |
 | Site fonts (Poppins, DM Sans, Space Grotesk, Comfortaa, JetBrains Mono) | `public/fonts/google/`, in the repo | `bun run deps:fonts` |
-| Every npm package in `bun.lock` (1,213 packages, about 530 MB) | The [`npm-archive`](https://github.com/illuxus-bm/illuxus/releases/tag/npm-archive) GitHub release, one file per `bun.lock` | CI, whenever `bun.lock` changes on `main` |
+| Every npm package in `bun.lock` (about 1,200 packages, about 530 MB) | The [`npm-archive`](https://github.com/illuxus-bm/illuxus/releases/tag/npm-archive) GitHub release, one file per `bun.lock` | CI, whenever `bun.lock` changes on `main` |
+| Android build libraries (Google Maven, Maven Central, Gradle plugins) and the Gradle distribution; iOS Swift packages (`capacitor-swift-pm` with its prebuilt frameworks, `ion-ios-filesystem`) | The [`native-archive`](https://github.com/illuxus-bm/illuxus/releases/tag/native-archive) GitHub release, one file per set of native build files | CI, whenever those files change on `main` |
 
 ## Edge functions
 
@@ -52,8 +53,33 @@ This serves the archive as a registry on localhost and runs `bun install --froze
 
 **For a copy off GitHub:** download the archive for the current `bun.lock` (`node scripts/npm-archive.mjs name` prints its file name) and keep it with your backups.
 
+## Android and iOS
+
+When a native build file changes on `main` (`bun.lock`, the Gradle files, the wrapper version, or `ios/App/CapApp-SPM/Package.swift`), the `native archive` workflow does the following:
+1. Builds Android with an empty Gradle cache.
+2. Keeps every library Gradle downloaded, as a Maven repository. It includes `aapt2` for macOS, Linux and Windows, so any machine can build.
+3. Keeps the Gradle distribution.
+4. Downloads the iOS Swift packages and their prebuilt `Capacitor`/`Cordova` frameworks, checked against the checksums in their `Package.swift`. It stores them as git repositories that need nothing from GitHub.
+5. Proves the archive is complete. Android: it builds with `--offline` and an empty Gradle cache, with all network access blocked. iOS: each Swift package checks out from its archived copy at the pinned version, nothing in it downloads from the internet, and its frameworks match the published checksums. Resolving the whole iOS app needs Xcode, so that last step is confirmed when the app is built on a Mac.
+6. Attaches it to the `native-archive` release.
+
+The workflow keeps the newest 5 archives. Like the npm archive, the release is a pre-release and never "Latest".
+
+**To build from it:**
+
+```sh
+node scripts/native-archive.mjs restore illuxus-native-<hash>.tar     # or its release URL
+# Android (from android/):
+ILLUXUS_MAVEN_ARCHIVE=~/.illuxus-offline/<hash>/android/maven \
+  ./gradlew --offline --init-script ../scripts/gradle-archive.init.gradle assembleRelease
+# iOS: open the project in Xcode as usual; restore pointed its Swift packages at the local copies.
+```
+
+`restore` prints the exact paths. To send Xcode back to GitHub, delete `ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/configuration/mirrors.json` and `ios/App/CapApp-SPM/.swiftpm/configuration/mirrors.json`.
+
 ## Not covered
 
 - **The services themselves:** Supabase, Vercel, GitHub, Agora, LiveKit, Stripe. The archive keeps code, not hosting.
-- **Android build libraries:** Gradle downloads them from Google's Maven and Maven Central. Those repositories don't delete published versions.
+- **The Android SDK and Xcode:** the SDK platforms, build tools and Xcode come from Google and Apple installers, not from the build.
+- **Packages used without being declared:** every package the code imports must be in `package.json`. `@electric-sql/pglite` (used by the database tests), `esbuild`, `es-module-lexer`, `playwright` and `@sentry/core` were used but only arrived as other packages' dependencies; they're declared now.
 - **The Vercel API routes (`api/`):** Vercel installs their packages with npm at deploy time. The same packages are in the npm archive.

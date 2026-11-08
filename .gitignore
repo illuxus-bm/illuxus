@@ -43,3 +43,7 @@ release-assets/
 
 # Vendored edge-function libraries ship whole, build folders included.
 !supabase/functions/_vendor/**/dist/
+
+# Written by `node scripts/native-archive.mjs restore`: paths on one machine.
+ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/configuration/mirrors.json
+ios/App/CapApp-SPM/.swiftpm/configuration/mirrors.json
