@@ -73,6 +73,11 @@ jobs:
           VITE_PUBLIC_ORIGIN: https://illuxus.com
         run: bun run build:app
 
+      # The same web code as a live update for installed apps
+      # (src/lib/native/live-update.ts).
+      - name: Package live update
+        run: node scripts/app-bundle.mjs release-assets
+
       - name: Sync Android project
         run: bunx cap sync android
 
@@ -127,6 +132,8 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" \
               release-assets/illuxus.apk \
               release-assets/illuxus.apk.sha256 \
+              release-assets/illuxus-web.zip \
+              release-assets/illuxus-web.json \
               --clobber
           else
             gh release create "$GITHUB_REF_NAME" \
@@ -135,5 +142,7 @@ jobs:
               --generate-notes \
               --latest \
               release-assets/illuxus.apk \
-              release-assets/illuxus.apk.sha256
+              release-assets/illuxus.apk.sha256 \
+              release-assets/illuxus-web.zip \
+              release-assets/illuxus-web.json
           fi

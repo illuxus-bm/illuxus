@@ -24,6 +24,7 @@ import { SkipToContent } from "@/components/SkipToContent";
 import { PlatformBanNotice } from "@/components/bans/UnbanRequests";
 import { NativeBridge } from "@/components/native/NativeBridge";
 import { AppUpdateGate } from "@/components/native/AppUpdateGate";
+import { AppLiveUpdate } from "@/components/native/AppLiveUpdate";
 import { MobileTabBar } from "@/components/native/MobileTabBar";
 import { OfflineBanner } from "@/components/native/OfflineBanner";
 import { useAppMode, useAppTabBar } from "@/hooks/useAppChrome";
@@ -320,6 +321,7 @@ const App = () => (
           <HistoryTracker />
           <NativeBridge />
           <AppUpdateGate />
+          <AppLiveUpdate />
           <RootErrorBoundary>
             <AuthProvider>
               <OrgProvider>

@@ -13,7 +13,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { readAndroidVersion, readIosVersions, versionProblems } from "./app-version.mjs";
+import { liveUpdateProblems, nativeFingerprint, readAndroidVersion, readIosVersions, versionProblems } from "./app-version.mjs";
 import { APP_ID, SHA256_PATTERN } from "./app-links.mjs";
 
 const DEFAULT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -58,6 +58,19 @@ export function checkAppRelease(root = DEFAULT_ROOT, env = process.env) {
   const android = readAndroidVersion(read("android/version.properties") ?? "");
   const ios = readIosVersions(read("ios/App/App.xcodeproj/project.pbxproj") ?? "");
   errors.push(...versionProblems(android, ios));
+
+  // ── Live updates ───────────────────────────────────────────────────────────
+  // A release whose native code changed must not reach older app shells.
+  let fingerprint = null;
+  try { fingerprint = nativeFingerprint(root); } catch { /* not a git checkout */ }
+  if (fingerprint) errors.push(...liveUpdateProblems(android, fingerprint));
+  const updaterBlock = cap.match(/CapacitorUpdater:\s*\{([\s\S]*?)\n\s{4}\}/)?.[1] ?? "";
+  if (!/autoUpdate:\s*false/.test(updaterBlock)) {
+    errors.push("capacitor.config.ts CapacitorUpdater must set autoUpdate: false (the app runs live updates itself).");
+  }
+  if (!/statsUrl:\s*""/.test(updaterBlock)) {
+    errors.push('capacitor.config.ts CapacitorUpdater must set statsUrl: "": otherwise device and usage data goes to Capgo.');
+  }
 
   // ── Android ────────────────────────────────────────────────────────────────
   const manifest = read("android/app/src/main/AndroidManifest.xml") ?? "";

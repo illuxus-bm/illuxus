@@ -99,9 +99,33 @@ describe("check-app-release", () => {
 describe("app-version", () => {
   it("rewrites both projects' versions", () => {
     const props = "# c\nversionName=1.0.0\nversionCode=1\n";
-    expect(versions.readAndroidVersion(versions.writeAndroidVersion(props, "1.4.0", 12))).toEqual({ versionName: "1.4.0", versionCode: 12 });
+    expect(versions.readAndroidVersion(versions.writeAndroidVersion(props, "1.4.0", 12))).toMatchObject({ versionName: "1.4.0", versionCode: 12 });
     const pbx = "MARKETING_VERSION = 1.0;\nCURRENT_PROJECT_VERSION = 1;\nMARKETING_VERSION = 1.0;\nCURRENT_PROJECT_VERSION = 1;\n";
     expect(versions.readIosVersions(versions.writeIosVersion(pbx, "1.4.0", 12))).toEqual({ marketing: ["1.4.0", "1.4.0"], build: ["12", "12"] });
+  });
+});
+
+describe("live updates", () => {
+  it("records a native change as the new minimum shell, and leaves it alone otherwise", async () => {
+    const v = await load("app-version.mjs");
+    const props = "versionName=1.0.2\nversionCode=3\n";
+    const bumped = v.setProperty(v.setProperty(props, "liveUpdateMinBuild", 4), "nativeFingerprint", "abc");
+    expect(v.readAndroidVersion(bumped)).toMatchObject({ liveUpdateMinBuild: 4, nativeFingerprint: "abc" });
+    expect(v.liveUpdateProblems({ versionCode: 4, liveUpdateMinBuild: 4, nativeFingerprint: "abc" }, "abc")).toEqual([]);
+    expect(v.liveUpdateProblems({ versionCode: 4, liveUpdateMinBuild: 4, nativeFingerprint: "abc" }, "def").join()).toMatch(/Native code has changed/);
+    expect(v.liveUpdateProblems({ versionCode: 4, liveUpdateMinBuild: 5, nativeFingerprint: "abc" }, "abc").join()).toMatch(/above this build/);
+  });
+
+  it("describes the packaged web code for the app", async () => {
+    const { bundleManifest } = await load("app-bundle.mjs");
+    expect(bundleManifest({ versionName: "1.0.3", versionCode: 4, liveUpdateMinBuild: 4 }, "f".repeat(64)))
+      .toEqual({ version: "1.0.3", build: 4, minNativeBuild: 4, sha256: "f".repeat(64) });
+  });
+
+  it("refuses an updater that reports to Capgo", () => {
+    const root = makeFixture();
+    edit(root, "capacitor.config.ts", (s) => s.replace('statsUrl: "",', ""));
+    expect(checkAppRelease(root).errors.join("\n")).toMatch(/statsUrl/);
   });
 });
 

@@ -37,3 +37,6 @@ supabase/.temp/
 *.p12
 *.mobileprovision
 android/keystore.properties
+
+# Release files built locally (scripts/app-bundle.mjs, the release workflow).
+release-assets/
