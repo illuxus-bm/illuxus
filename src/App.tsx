@@ -16,7 +16,7 @@ import { LazyRouteBoundary } from "@/components/LazyRouteBoundary";
 import RootErrorBoundary from "@/lib/observability/boundaries/RootErrorBoundary";
 import RouteErrorBoundary from "@/lib/observability/boundaries/RouteErrorBoundary";
 import { logger } from "@/lib/observability";
-import { PWAUpdatePrompt } from "@/components/pwa/PWAUpdatePrompt";
+import { WebAppUpdater } from "@/components/pwa/WebAppUpdater";
 import { PWAInstallPrompt } from "@/components/pwa/PWAInstallPrompt";
 import { SecondFactorGate } from "@/components/auth/SecondFactorGate";
 import { loginPath } from "@/lib/safe-redirect";
@@ -315,13 +315,13 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <PWAUpdatePrompt />
         <PWAInstallPrompt />
         <BrowserRouter>
           <HistoryTracker />
           <NativeBridge />
           <AppUpdateGate />
           <AppLiveUpdate />
+          <WebAppUpdater />
           <RootErrorBoundary>
             <AuthProvider>
               <OrgProvider>
