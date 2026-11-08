@@ -16,7 +16,7 @@
  *   { sent: number, failed: number, errors: Array<{ recipient_id, error }> }
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_entry.mjs";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger } from "../_shared/edge-logger.ts";
 import { featureNotIncluded, orgHasFeature } from "../_shared/entitlements.ts";

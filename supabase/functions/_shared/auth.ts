@@ -6,7 +6,7 @@
  * key must therefore identify the signed-in user themselves and check what
  * that user is allowed to do. These helpers centralise that.
  */
-import { createClient, type SupabaseClient, type User } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient, type User } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_entry.mjs";
 
 /** Service-role client (bypasses RLS). Never return its results unchecked. */
 export function serviceClient(): SupabaseClient {

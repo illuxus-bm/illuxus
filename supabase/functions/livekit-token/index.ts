@@ -1,5 +1,5 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { AccessToken } from "https://esm.sh/livekit-server-sdk@2.9.7";
+import { createClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_entry.mjs";
+import { AccessToken } from "../_vendor/esm.sh/livekit-server-sdk@2.9.7/_entry.mjs";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { sessionMeetsTwoFactor } from "../_shared/auth.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";

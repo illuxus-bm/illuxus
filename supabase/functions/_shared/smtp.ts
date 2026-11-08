@@ -40,7 +40,7 @@
 
 // denomailer is the most maintained SMTP client for Deno. Pinned to a
 // minor so an upstream breaking change can't silently brick deployments.
-import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+import { SMTPClient } from "../_vendor/deno.land/x/denomailer@1.6.0/mod.ts";
 
 export interface SmtpEmailPayload {
   from: string;

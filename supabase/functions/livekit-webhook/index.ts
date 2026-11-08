@@ -1,5 +1,5 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { WebhookReceiver } from "https://esm.sh/livekit-server-sdk@2.9.7";
+import { createClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_entry.mjs";
+import { WebhookReceiver } from "../_vendor/esm.sh/livekit-server-sdk@2.9.7/_entry.mjs";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
 
 const log = createEdgeLogger("livekit-webhook");

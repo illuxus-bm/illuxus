@@ -30,7 +30,7 @@
  *                            X-Hub-Signature-256 verification on POST.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_entry.mjs";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
 

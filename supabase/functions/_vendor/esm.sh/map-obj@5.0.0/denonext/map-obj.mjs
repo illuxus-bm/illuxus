@@ -1,0 +1,3 @@
+/* esm.sh - map-obj@5.0.0 */
+var g=t=>typeof t=="object"&&t!==null,o=t=>g(t)&&!(t instanceof RegExp)&&!(t instanceof Error)&&!(t instanceof Date),d=Symbol("mapObjectSkip"),s=(t,a,r,n=new WeakMap)=>{if(r={deep:!1,target:{},...r},n.has(t))return n.get(t);n.set(t,r.target);let{target:u}=r;delete r.target;let y=f=>f.map(c=>o(c)?s(c,a,r,n):c);if(Array.isArray(t))return y(t);for(let[f,c]of Object.entries(t)){let p=a(f,c,t);if(p===d)continue;let[i,e,{shouldRecurse:O=!0}={}]=p;i!=="__proto__"&&(r.deep&&O&&o(e)&&(e=Array.isArray(e)?y(e):s(e,a,r,n)),u[i]=e)}return u};function l(t,a,r){if(!g(t))throw new TypeError(`Expected an object, got \`${t}\` (${typeof t})`);return s(t,a,r)}export{l as default,d as mapObjectSkip};
+//# sourceMappingURL=map-obj.mjs.map

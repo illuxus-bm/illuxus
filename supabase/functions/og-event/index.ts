@@ -26,8 +26,8 @@
  * not in the browser app where the project's `logger` is mandated.
  */
 
-import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { Image } from "../_vendor/deno.land/x/imagescript@1.2.17/mod.ts";
+import { createClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_entry.mjs";
 import { MAX_IMAGE_BYTES, decodable, imageSize, isOwnStorageUrl, readCapped } from "./image-guard.ts";
 
 // ---------------------------------------------------------------------------

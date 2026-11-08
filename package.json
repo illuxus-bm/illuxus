@@ -22,7 +22,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "audit:tokens": "node scripts/audit-quickview-tokens.mjs",
-    "functions:inline": "node scripts/build-dashboard-functions.mjs"
+    "functions:inline": "node scripts/build-dashboard-functions.mjs",
+    "deps:edge": "node scripts/vendor-edge-deps.mjs",
+    "deps:fonts": "node scripts/vendor-fonts.mjs",
+    "deps:archive": "node scripts/npm-archive.mjs pack",
+    "deps:restore": "node scripts/npm-archive.mjs restore"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",

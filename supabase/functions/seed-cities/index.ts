@@ -1,7 +1,7 @@
 // Seeds the global `cities` table from the GeoNames cities5000 dataset.
 // Admin-only. Idempotent — safe to re-run.
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { BlobReader, ZipReader, TextWriter } from "https://deno.land/x/zipjs@v2.7.45/index.js";
+import { createClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.45.0/_entry.mjs";
+import { BlobReader, ZipReader, TextWriter } from "../_vendor/deno.land/x/zipjs@v2.7.45/index.js";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
 import { isPlatformAdmin, resolveCaller } from "../_shared/auth.ts";

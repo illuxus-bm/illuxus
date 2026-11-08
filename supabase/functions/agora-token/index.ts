@@ -42,8 +42,8 @@
  * Errors are returned as `{ error: string }` with an appropriate HTTP status.
  */
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { RtcRole, RtcTokenBuilder, RtmTokenBuilder } from "npm:agora-token@2.0.5";
+import type { SupabaseClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_entry.mjs";
+import { RtcRole, RtcTokenBuilder, RtmTokenBuilder } from "../_vendor/esm.sh/agora-token@2.0.5/_entry.mjs";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { getCallerUser, getManagedEvent, isUuid, serviceClient } from "../_shared/auth.ts";
 import { eventHasFeature, featureNotIncluded } from "../_shared/entitlements.ts";
