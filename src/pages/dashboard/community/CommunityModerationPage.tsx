@@ -8,6 +8,8 @@ import { canModerate } from "@/lib/community/rbac";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { friendlyError } from "@/lib/friendly-error";
+import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function CommunityModerationPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -15,6 +17,15 @@ export default function CommunityModerationPage() {
   const role = data?.membership?.role ?? null;
   const reports = useReports(data?.community?.id);
   const moderate = useModerate();
+  const qc = useQueryClient();
+
+  // Chat messages have no hidden state; moderators delete them directly
+  // (the "delete own messages" policy lets moderators delete any).
+  const deleteMessage = async (messageId: string) => {
+    const { error } = await supabase.from("community_messages" as never).delete().eq("id", messageId);
+    if (error) throw error;
+    await qc.invalidateQueries({ queryKey: ["community"] });
+  };
 
   if (!data?.community) return null;
   if (!canModerate(role)) return <Navigate to={`/community/${slug}/feed`} replace />;
@@ -48,7 +59,7 @@ export default function CommunityModerationPage() {
                       : "bg-blue-500/10 text-blue-600"
                     }`}>{r.status}</span>
                     <span className="text-[12px] text-muted-foreground">
-                      {r.post_id ? "Post" : "Comment"} · {r.reason}
+                      {r.post_id ? "Post" : r.comment_id ? "Comment" : "Message"} · {r.reason}
                     </span>
                     <span className="text-[11px] text-muted-foreground ml-auto">
                       {format(new Date(r.created_at), "MMM d · h:mm a")}
@@ -56,10 +67,11 @@ export default function CommunityModerationPage() {
                   </div>
                   {r.notes && <p className="text-[12px] mt-1 text-foreground/90">{r.notes}</p>}
                   <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                    Target id: <span className="font-mono">{r.post_id ?? r.comment_id}</span>
+                    Target id: <span className="font-mono">{r.post_id ?? r.comment_id ?? r.message_id}</span>
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5">
+                  {!r.message_id && (<>
                   <Button
                     size="sm"
                     variant="outline"
@@ -99,6 +111,7 @@ export default function CommunityModerationPage() {
                   >
                     <Eye className="h-3 w-3" /> Show
                   </Button>
+                  </>)}
                   <Button
                     size="sm"
                     variant="outline"
@@ -106,7 +119,8 @@ export default function CommunityModerationPage() {
                     onClick={async () => {
                       if (!confirm("Delete this content permanently?")) return;
                       try {
-                        await moderate.mutateAsync({
+                        if (r.message_id) await deleteMessage(r.message_id);
+                        else await moderate.mutateAsync({
                           postId: r.post_id ?? undefined,
                           commentId: r.comment_id ?? undefined,
                           action: "delete",

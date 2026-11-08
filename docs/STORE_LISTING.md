@@ -109,10 +109,11 @@ keep them in step when either changes.
   (community posts and chat) and user-to-user communication. No violence, gambling or purchases of
   digital goods.
 - **Apple age rating:** 12+ (unrestricted web content is not offered; user-generated content is).
-- **User-generated content (Apple 1.2):** posts can be reported (the flag on a post) and moderators
-  can hide and remove them. Apple also asks that people can **block** abusive users. Confirm the
-  community has this before submitting, or add it: it's the most common rejection for apps with
-  feeds or chat.
+- **User-generated content (Apple 1.2):** every post, comment and chat message has a ⋯ menu with
+  **Report…** (a reason, optional details; reviewed by the community's moderators, who can hide or
+  delete it) and **Block** (that person's posts, comments and messages disappear for you in every
+  community; manage blocked people in Settings → Account). Point the reviewer to both. Needs the database
+  section `086_ugc_safety.sql` (in `supabase/migrations/000_full_schema.sql`) run in the Supabase SQL Editor.
 - **Account deletion (Apple 5.1.1(v)):** deletion is requested in the app and carried out by the
   privacy team. Say in the review notes how long it takes (for example, "within 7 days").
 - **Sign-in for review:** give a demo account (email and password) that belongs to an organisation

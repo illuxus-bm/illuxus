@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAddComment, usePostComments } from "@/hooks/community/useCommunityFeed";
 import { formatDistanceToNow } from "date-fns";
+import { useBlockedIds } from "@/hooks/community/useBlocks";
+import { ContentActionsMenu } from "../safety/ContentActionsMenu";
 import { toast } from "sonner";
 import { friendlyError } from "@/lib/friendly-error";
 
@@ -11,6 +13,7 @@ export function CommentList({ postId }: { postId: string }) {
   const { data: comments, isLoading } = usePostComments(postId);
   const add = useAddComment(postId);
   const [body, setBody] = useState("");
+  const blocked = useBlockedIds();
 
   const handleAdd = async () => {
     if (!body.trim()) return;
@@ -50,11 +53,11 @@ export function CommentList({ postId }: { postId: string }) {
         <p className="text-[12px] text-muted-foreground text-center py-2">Be the first to comment.</p>
       ) : (
         <ul className="space-y-2.5">
-          {comments.map((c) => {
+          {comments.filter((c) => !blocked.has(c.author_id)).map((c) => {
             const author = c.author?.display_name || "Anonymous";
             const initials = author.slice(0, 2).toUpperCase();
             return (
-              <li key={c.id} className="flex gap-2">
+              <li key={c.id} className="group flex gap-2">
                 <div className="h-7 w-7 rounded-full bg-muted text-foreground flex items-center justify-center text-[10px] font-semibold shrink-0 overflow-hidden">
                   {c.author?.avatar_url ? (
                     <img loading="lazy" decoding="async" src={c.author.avatar_url} alt="" className="h-full w-full object-cover" />
@@ -71,6 +74,7 @@ export function CommentList({ postId }: { postId: string }) {
                   </p>
                   <p className="text-[13px] mt-0.5 whitespace-pre-wrap break-words">{c.body_md}</p>
                 </div>
+                <ContentActionsMenu target={{ commentId: c.id }} authorId={c.author_id} authorName={author} className="-mr-1 self-start" />
               </li>
             );
           })}

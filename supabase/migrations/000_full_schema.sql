@@ -27652,6 +27652,163 @@ GRANT EXECUTE ON FUNCTION public.discard_site_draft(text) TO authenticated;
 NOTIFY pgrst, 'reload schema';
 -- <<< END SOURCE MIGRATION: 085_site_editor_fix.sql <<<
 
+-- >>> BEGIN SOURCE MIGRATION: 086_ugc_safety.sql >>>
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 086_ugc_safety.sql
+--
+-- Blocking people, and reporting chat messages, in communities. App Store
+-- guideline 1.2 requires both for apps with user-generated content.
+--
+--   • user_blocks: one row per person someone has blocked. Only the person
+--     who blocked can see, add or remove their rows.
+--   • A blocked person's posts, comments and chat messages are hidden from
+--     the person who blocked them, in the database (RESTRICTIVE policies), so
+--     every screen and live chat update leaves them out, not only the ones
+--     the app remembers to filter. Nothing changes for anyone else, and the
+--     blocked person isn't told.
+--   • community_report() also takes a chat message (_message_id); the report
+--     queue (community_reports.message_id) shows it to moderators, who can
+--     already delete messages.
+--
+-- Run after the community migrations (005). Idempotent — safe to run more than
+-- once. Paste into the Supabase SQL Editor and Run.
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- ── 1. Blocks ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.user_blocks (
+  blocker_id  uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  blocked_id  uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (blocker_id, blocked_id),
+  CHECK (blocker_id <> blocked_id)
+);
+
+ALTER TABLE public.user_blocks ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "own blocks read" ON public.user_blocks;
+CREATE POLICY "own blocks read" ON public.user_blocks FOR SELECT TO authenticated
+  USING (blocker_id = (SELECT auth.uid()));
+DROP POLICY IF EXISTS "own blocks add" ON public.user_blocks;
+CREATE POLICY "own blocks add" ON public.user_blocks FOR INSERT TO authenticated
+  WITH CHECK (blocker_id = (SELECT auth.uid()));
+DROP POLICY IF EXISTS "own blocks remove" ON public.user_blocks;
+CREATE POLICY "own blocks remove" ON public.user_blocks FOR DELETE TO authenticated
+  USING (blocker_id = (SELECT auth.uid()));
+
+-- The two-factor rule every table with row security has (security fix F-02).
+DO $$
+BEGIN
+  IF to_regprocedure('public.mfa_satisfied()') IS NOT NULL THEN
+    DROP POLICY IF EXISTS "Require two-factor when enabled" ON public.user_blocks;
+    CREATE POLICY "Require two-factor when enabled" ON public.user_blocks AS RESTRICTIVE FOR ALL TO authenticated
+      USING ((SELECT public.mfa_satisfied())) WITH CHECK ((SELECT public.mfa_satisfied()));
+  END IF;
+END $$;
+
+REVOKE ALL ON public.user_blocks FROM anon;
+GRANT SELECT, INSERT, DELETE ON public.user_blocks TO authenticated;
+GRANT ALL ON public.user_blocks TO service_role;
+
+-- Whether the signed-in person has blocked `_author`. Reads only their own
+-- rows, so it needs no extra rights.
+CREATE OR REPLACE FUNCTION public.is_blocked_by_me(_author uuid)
+RETURNS boolean LANGUAGE sql STABLE SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_blocks b
+     WHERE b.blocker_id = (SELECT auth.uid()) AND b.blocked_id = _author
+  );
+$$;
+REVOKE ALL ON FUNCTION public.is_blocked_by_me(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_blocked_by_me(uuid) TO anon, authenticated, service_role;
+
+-- ── 2. Hide what blocked people post ──────────────────────────────────────────
+DO $$
+DECLARE _t text;
+BEGIN
+  FOREACH _t IN ARRAY ARRAY['community_posts', 'community_comments', 'community_messages'] LOOP
+    IF to_regclass('public.' || _t) IS NOT NULL THEN
+      EXECUTE format('DROP POLICY IF EXISTS "Hide blocked people" ON public.%I', _t);
+      EXECUTE format(
+        'CREATE POLICY "Hide blocked people" ON public.%I AS RESTRICTIVE FOR SELECT TO authenticated '
+        'USING (NOT public.is_blocked_by_me(author_id))',
+        _t
+      );
+    END IF;
+  END LOOP;
+END $$;
+
+-- ── 3. Reporting chat messages ────────────────────────────────────────────────
+ALTER TABLE public.community_reports
+  ADD COLUMN IF NOT EXISTS message_id uuid REFERENCES public.community_messages(id) ON DELETE CASCADE;
+
+-- Exactly one target: a post, a comment or a message.
+DO $$
+DECLARE _c record;
+BEGIN
+  FOR _c IN
+    SELECT conname FROM pg_constraint
+     WHERE conrelid = 'public.community_reports'::regclass AND contype = 'c'
+       AND pg_get_constraintdef(oid) LIKE '%post_id%' AND pg_get_constraintdef(oid) LIKE '%comment_id%'
+       AND conname <> 'community_reports_one_target'
+  LOOP
+    EXECUTE format('ALTER TABLE public.community_reports DROP CONSTRAINT %I', _c.conname);
+  END LOOP;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'public.community_reports'::regclass AND conname = 'community_reports_one_target'
+  ) THEN
+    ALTER TABLE public.community_reports ADD CONSTRAINT community_reports_one_target CHECK (
+      (post_id IS NOT NULL)::int + (comment_id IS NOT NULL)::int + (message_id IS NOT NULL)::int = 1
+    );
+  END IF;
+END $$;
+
+-- One function, not two overloads: a call naming only the first four
+-- arguments would otherwise be ambiguous.
+DROP FUNCTION IF EXISTS public.community_report(uuid, uuid, text, text);
+
+CREATE OR REPLACE FUNCTION public.community_report(
+  _post_id uuid DEFAULT NULL, _comment_id uuid DEFAULT NULL,
+  _reason text DEFAULT 'inappropriate', _notes text DEFAULT NULL,
+  _message_id uuid DEFAULT NULL
+) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE _community_id uuid; _id uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Must be signed in'; END IF;
+  IF (_post_id IS NOT NULL)::int + (_comment_id IS NOT NULL)::int + (_message_id IS NOT NULL)::int <> 1 THEN
+    RAISE EXCEPTION 'Provide exactly one of post_id, comment_id or message_id';
+  END IF;
+  IF _reason IS NULL OR length(btrim(_reason)) = 0 OR length(_reason) > 60 THEN
+    RAISE EXCEPTION 'Give a reason';
+  END IF;
+
+  IF _post_id IS NOT NULL THEN
+    SELECT community_id INTO _community_id FROM community_posts WHERE id = _post_id;
+  ELSIF _comment_id IS NOT NULL THEN
+    SELECT p.community_id INTO _community_id FROM community_comments c
+      JOIN community_posts p ON p.id = c.post_id WHERE c.id = _comment_id;
+  ELSE
+    SELECT ch.community_id INTO _community_id FROM community_messages m
+      JOIN community_channels ch ON ch.id = m.channel_id WHERE m.id = _message_id;
+  END IF;
+
+  IF _community_id IS NULL THEN RAISE EXCEPTION 'Target not found'; END IF;
+  IF NOT is_community_member(auth.uid(), _community_id) THEN
+    RAISE EXCEPTION 'Not a member';
+  END IF;
+
+  INSERT INTO community_reports (community_id, reporter_id, post_id, comment_id, message_id, reason, notes)
+  VALUES (_community_id, auth.uid(), _post_id, _comment_id, _message_id, btrim(_reason), nullif(left(btrim(coalesce(_notes, '')), 1000), ''))
+  RETURNING id INTO _id;
+  RETURN _id;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.community_report(uuid, uuid, text, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.community_report(uuid, uuid, text, text, uuid) TO authenticated;
+
+NOTIFY pgrst, 'reload schema';
+-- <<< END SOURCE MIGRATION: 086_ugc_safety.sql <<<
+
 -- >>> BEGIN ARCHIVED ROOT SCRIPT (disabled): RUN_ME_pending_updates.sql >>>
 -- The following source is commented out intentionally. Review and run
 -- it separately only if its original one-off/manual purpose is needed.
@@ -30608,7 +30765,10 @@ WITH expected(kind, name, col, section) AS (VALUES
   ('function','org_member_role',NULL::text,'083_fix_event_publish.sql'),
   ('column','plans','price_monthly','084_plan_pricing.sql'),
   ('column','plans','price_yearly','084_plan_pricing.sql'),
-  ('column','plans','currency','084_plan_pricing.sql')
+  ('column','plans','currency','084_plan_pricing.sql'),
+  ('table','user_blocks',NULL::text,'086_ugc_safety.sql'),
+  ('function','is_blocked_by_me',NULL::text,'086_ugc_safety.sql'),
+  ('column','community_reports','message_id','086_ugc_safety.sql')
 )
 SELECT e.section, e.kind, e.name, e.col
   FROM expected e

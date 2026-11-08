@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ThumbsUp, MessageCircle, Pin, MoreHorizontal, Flag, EyeOff, Trash2 } from "lucide-react";
+import { ThumbsUp, MessageCircle, Pin, MoreHorizontal, Flag, EyeOff, Trash2, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CommentList } from "../comments/CommentList";
 import {
@@ -9,7 +9,14 @@ import type { PostWithAuthor } from "@/lib/community/types";
 import { COMMUNITY_POST_TYPE_LABEL } from "@/lib/community/rbac";
 import { formatDistanceToNow } from "date-fns";
 import { useToggleReaction } from "@/hooks/community/useCommunityFeed";
-import { useModerate, useReport } from "@/hooks/community/useCommunityExtras";
+import { useModerate } from "@/hooks/community/useCommunityExtras";
+import { useBlockedIds } from "@/hooks/community/useBlocks";
+import { ReportDialog } from "../safety/ReportDialog";
+import { BlockUserDialog } from "../safety/BlockUserDialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { friendlyError } from "@/lib/friendly-error";
@@ -27,7 +34,10 @@ const TYPE_BADGE: Record<string, string> = {
 export function PostCard({ post, canModerate = false }: { post: PostWithAuthor; canModerate?: boolean }) {
   const [showComments, setShowComments] = useState(false);
   const react = useToggleReaction();
-  const report = useReport();
+  const [reporting, setReporting] = useState(false);
+  const [blocking, setBlocking] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const blocked = useBlockedIds();
   const moderate = useModerate();
   const { user } = useAuth();
   const isAuthor = user?.id === post.author_id;
@@ -35,6 +45,11 @@ export function PostCard({ post, canModerate = false }: { post: PostWithAuthor; 
   const author = post.author?.display_name || "Anonymous";
   const initials = (author || "?").slice(0, 2).toUpperCase();
   const when = formatDistanceToNow(new Date(post.created_at), { addSuffix: true });
+  const hasActions = canModerate || (!isAuthor && !!user);
+
+  // Someone the viewer has blocked: the database leaves their posts out; this
+  // covers the moment between blocking and the feed refreshing.
+  if (blocked.has(post.author_id)) return null;
 
   return (
     <article className="bg-card border border-border rounded-xl p-4 space-y-3">
@@ -61,28 +76,23 @@ export function PostCard({ post, canModerate = false }: { post: PostWithAuthor; 
           </div>
           {post.title && <h3 className="text-[15px] font-semibold mt-0.5 leading-tight">{post.title}</h3>}
         </div>
+        {hasActions && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="icon" variant="ghost" className="h-7 w-7 -mr-1" aria-label="More">
-              <MoreHorizontal className="h-3.5 w-3.5" />
+            <Button size="icon" variant="ghost" className="-mr-1.5 h-9 w-9" aria-label="More actions for this post">
+              <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
-            {!isAuthor && (
-              <DropdownMenuItem
-                onClick={async () => {
-                  const reason = prompt("Why are you reporting this post?", "inappropriate");
-                  if (!reason) return;
-                  try {
-                    await report.mutateAsync({ postId: post.id, reason });
-                    toast.success("Report submitted");
-                  } catch (err: unknown) {
-                    toast.error(friendlyError(err, "Failed"));
-                  }
-                }}
-              >
-                <Flag className="h-3.5 w-3.5 mr-2" /> Report
-              </DropdownMenuItem>
+            {!isAuthor && user && (
+              <>
+                <DropdownMenuItem onSelect={() => setReporting(true)}>
+                  <Flag className="h-3.5 w-3.5 mr-2" /> Report…
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setBlocking(true)} className="text-destructive focus:text-destructive">
+                  <Ban className="h-3.5 w-3.5 mr-2" /> Block {author}
+                </DropdownMenuItem>
+              </>
             )}
             {canModerate && (
               <>
@@ -110,24 +120,14 @@ export function PostCard({ post, canModerate = false }: { post: PostWithAuthor; 
                 >
                   <Pin className="h-3.5 w-3.5 mr-2" /> {post.pinned ? "Unpin" : "Pin"}
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="text-destructive"
-                  onClick={async () => {
-                    if (!confirm("Delete this post permanently?")) return;
-                    try {
-                      await moderate.mutateAsync({ postId: post.id, action: "delete" });
-                      toast.success("Deleted");
-                    } catch (err: unknown) {
-                      toast.error(friendlyError(err, "Failed"));
-                    }
-                  }}
-                >
+                <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setDeleting(true)}>
                   <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
                 </DropdownMenuItem>
               </>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        )}
       </header>
 
       {post.body_md && (
@@ -164,6 +164,32 @@ export function PostCard({ post, canModerate = false }: { post: PostWithAuthor; 
       </footer>
 
       {showComments && <CommentList postId={post.id} />}
+      <ReportDialog target={{ postId: post.id }} open={reporting} onOpenChange={setReporting} />
+      <BlockUserDialog userId={post.author_id} name={author} open={blocking} onOpenChange={setBlocking} />
+      <AlertDialog open={deleting} onOpenChange={setDeleting}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this post?</AlertDialogTitle>
+            <AlertDialogDescription>It's removed for everyone, with its comments. This can't be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                try {
+                  await moderate.mutateAsync({ postId: post.id, action: "delete" });
+                  toast.success("Post deleted");
+                } catch (err: unknown) {
+                  toast.error(friendlyError(err, "Couldn't delete the post"));
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </article>
   );
 }

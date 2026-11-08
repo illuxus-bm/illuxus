@@ -115,12 +115,15 @@ export function useReports(communityId: string | undefined) {
 
 export function useReport() {
   return useMutation({
-    mutationFn: async (input: { postId?: string; commentId?: string; reason: string; notes?: string }) => {
+    mutationFn: async (input: { postId?: string; commentId?: string; messageId?: string; reason: string; notes?: string }) => {
       const { error } = await supabaseRpc("community_report" as never, {
         _post_id: input.postId ?? null,
         _comment_id: input.commentId ?? null,
         _reason: input.reason,
         _notes: input.notes ?? null,
+        // Only sent for messages (migration 086), so post and comment
+        // reports keep working on a database that predates it.
+        ...(input.messageId ? { _message_id: input.messageId } : {}),
       } as never);
       if (error) throw error;
     },

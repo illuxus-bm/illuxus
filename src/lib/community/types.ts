@@ -144,6 +144,8 @@ export interface CommunityReport {
   reporter_id: string;
   post_id: string | null;
   comment_id: string | null;
+  /** A chat message (migration 086). */
+  message_id?: string | null;
   reason: string;
   notes: string | null;
   status: "open" | "reviewing" | "actioned" | "dismissed";
