@@ -1,0 +1,4 @@
+# Third-party code kept in the repo (docs/DEPENDENCY_ARCHIVE.md): collapsed in
+# pull requests and left out of the language statistics.
+supabase/functions/_vendor/** linguist-vendored linguist-generated
+public/fonts/google/** linguist-vendored

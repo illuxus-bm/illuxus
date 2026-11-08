@@ -2,7 +2,7 @@
  * A fixed-window limit on how often something may happen, kept in the
  * `guest_rate_limits` table (service role only). Keys are stored hashed.
  */
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_entry.mjs";
 
 async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));

@@ -1,0 +1,77 @@
+# Keeps an archive of every npm package in bun.lock on the "npm-archive"
+# GitHub release, so the app can still be installed and built if a package
+# is unpublished or the registry is down. See scripts/npm-archive.mjs and
+# docs/DEPENDENCY_ARCHIVE.md.
+#
+# Runs when bun.lock changes on main (or by hand). Each archive is named after
+# its bun.lock, is checked by installing from it alone, and the newest 10 are
+# kept. The release is a pre-release and never "Latest", so the app download
+# links (releases/latest/download/…) are unaffected.
+name: npm archive
+
+on:
+  push:
+    branches: [main]
+    paths: [bun.lock, scripts/npm-archive.mjs]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: npm-archive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KEEP: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.23
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Already archived?
+        id: have
+        run: |
+          name="$(node scripts/npm-archive.mjs name)"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          if gh release view npm-archive --json assets -q '.assets[].name' 2>/dev/null | grep -qx "$name"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "$name is already on the release."
+          fi
+
+      - name: Pack every package in bun.lock
+        if: steps.have.outputs.exists != 'true'
+        run: node scripts/npm-archive.mjs pack --out out
+
+      - name: Prove it installs on its own
+        if: steps.have.outputs.exists != 'true'
+        run: node scripts/npm-archive.mjs restore "out/${{ steps.have.outputs.name }}"
+
+      - name: Attach to the npm-archive release
+        if: steps.have.outputs.exists != 'true'
+        run: |
+          if ! gh release view npm-archive >/dev/null 2>&1; then
+            gh release create npm-archive --prerelease --latest=false \
+              --title "npm package archive" \
+              --notes "Every npm package the app installs, one archive per bun.lock (illuxus-npm-<lock hash>.tar), kept so the app can be installed if a package or the registry goes away. Restore with: node scripts/npm-archive.mjs restore. See docs/DEPENDENCY_ARCHIVE.md. Not an app release."
+          fi
+          gh release upload npm-archive "out/${{ steps.have.outputs.name }}"
+
+      - name: Keep the newest ${{ env.KEEP }} archives
+        if: steps.have.outputs.exists != 'true'
+        run: |
+          gh release view npm-archive --json assets \
+            -q ".assets | sort_by(.createdAt) | reverse | .[${KEEP}:] | .[].name" |
+          while read -r old; do
+            [ -n "$old" ] && gh release delete-asset npm-archive "$old" -y
+          done

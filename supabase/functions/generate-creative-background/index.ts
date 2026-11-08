@@ -53,7 +53,7 @@
  * See `docs/gemini-setup.md` for the full setup + troubleshooting guide.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_entry.mjs";
 
 /**
  * Preview deployments (e.g. Vercel branch builds) are trusted only when they

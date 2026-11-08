@@ -6,7 +6,7 @@
  * request is allowed: a hiccup must not take a feature away from an organiser
  * who is entitled to it, and the database triggers still guard the writes.
  */
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_entry.mjs";
 
 export async function orgHasFeature(
   admin: SupabaseClient,

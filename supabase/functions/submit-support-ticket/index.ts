@@ -32,8 +32,8 @@
  *   PUBLIC_DOMAIN / VITE_PUBLIC_DOMAIN                    (for tracking URL)
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+import { createClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_entry.mjs";
+import { SMTPClient } from "../_vendor/deno.land/x/denomailer@1.6.0/mod.ts";
 
 /**
  * Preview deployments (e.g. Vercel branch builds) are trusted only when they

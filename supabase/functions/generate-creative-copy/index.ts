@@ -52,7 +52,7 @@
  *   GEMINI_COPY_DAILY_QUOTA           default 50 — max calls/event/24h
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_entry.mjs";
 
 /**
  * Preview deployments (e.g. Vercel branch builds) are trusted only when they
