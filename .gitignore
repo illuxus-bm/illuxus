@@ -47,3 +47,6 @@ release-assets/
 # Written by `node scripts/native-archive.mjs restore`: paths on one machine.
 ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/configuration/mirrors.json
 ios/App/CapApp-SPM/.swiftpm/configuration/mirrors.json
+# Xcode pins the Swift packages here; Package.swift already pins them exactly,
+# and archived copies (scripts/native-archive.mjs) have their own commit IDs.
+ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved

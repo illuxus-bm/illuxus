@@ -60,7 +60,7 @@ When a native build file changes on `main` (`bun.lock`, the Gradle files, the wr
 2. Keeps every library Gradle downloaded, as a Maven repository. It includes `aapt2` for macOS, Linux and Windows, so any machine can build.
 3. Keeps the Gradle distribution.
 4. Downloads the iOS Swift packages and their prebuilt `Capacitor`/`Cordova` frameworks, checked against the checksums in their `Package.swift`. It stores them as git repositories that need nothing from GitHub.
-5. Proves the archive is complete. Android: it builds with `--offline` and an empty Gradle cache, with all network access blocked. iOS: each Swift package checks out from its archived copy at the pinned version, nothing in it downloads from the internet, and its frameworks match the published checksums. Resolving the whole iOS app needs Xcode, so that last step is confirmed when the app is built on a Mac.
+5. Proves the archive is complete. Android: it builds with `--offline` and an empty Gradle cache, with all network access blocked. iOS: each Swift package checks out from its archived copy at the pinned version with frameworks matching the published checksums, and Xcode builds the app from those copies alone, with GitHub unreachable and empty package caches. The workflow runs on macOS for Xcode.
 6. Attaches it to the `native-archive` release.
 
 The workflow keeps the newest 5 archives. Like the npm archive, the release is a pre-release and never "Latest".
