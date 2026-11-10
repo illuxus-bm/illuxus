@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
     const now = new Date().toISOString();
     let query = supabase
       .from("events")
-      .select("id, slug, title, description, date, end_date, location, venue, image_url, banner_landscape_url, price, status")
+      .select("id, slug, title, description, date, end_date, location, venue, event_format, image_url, banner_landscape_url, price, status")
       .eq("org_id", org.id)
       .eq("status", "published")
       .limit(limit);

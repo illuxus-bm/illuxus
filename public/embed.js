@@ -117,9 +117,7 @@
         "--text:#111827;",
         "--text-muted:#6b7280;",
         "--accent:#6366f1;",
-        "--free-bg:#dcfce7;",
-        "--free-text:#15803d;",
-        "--radius:16px;",
+                "--radius:16px;",
         "--shadow-hover:0 16px 40px rgba(0,0,0,.12);",
       "}",
 
@@ -130,9 +128,7 @@
         "--text:#f1f5f9;",
         "--text-muted:#94a3b8;",
         "--accent:#818cf8;",
-        "--free-bg:#14532d;",
-        "--free-text:#86efac;",
-        "--shadow-hover:0 16px 40px rgba(0,0,0,.5);",
+                "--shadow-hover:0 16px 40px rgba(0,0,0,.5);",
       "}",
 
       /* ── Base reset ───────────────────────────────────────────── */
@@ -222,29 +218,6 @@
       "}",
       "[data-illuxus-embed] .eix-thumb-ph svg{opacity:.2;}",
 
-      /* ── Date badge (top-left, frosted glass) ─────────────────── */
-      "[data-illuxus-embed] .eix-date-badge{",
-        "position:absolute;",
-        "top:10px;",
-        "left:10px;",
-        "background:rgba(255,255,255,0.88);",
-        "backdrop-filter:blur(6px);",
-        "-webkit-backdrop-filter:blur(6px);",
-        "border-radius:999px;",
-        "padding:3px 10px;",
-        "font-size:11px;",
-        "font-weight:700;",
-        "color:#111827;",
-        "letter-spacing:.02em;",
-        "white-space:nowrap;",
-        "line-height:1.6;",
-        "z-index:1;",
-      "}",
-      "[data-illuxus-embed][data-theme=dark] .eix-date-badge{",
-        "background:rgba(0,0,0,0.62);",
-        "color:#f1f5f9;",
-      "}",
-
       /* ── Card body ────────────────────────────────────────────── */
       "[data-illuxus-embed] .eix-body{",
         "padding:14px 16px 16px;",
@@ -252,6 +225,14 @@
         "flex-direction:column;",
         "flex:1;",
         "gap:6px;",
+      "}",
+
+      /* Date line (above title) */
+      "[data-illuxus-embed] .eix-date{",
+        "font-size:12px;",
+        "font-weight:600;",
+        "color:var(--accent);",
+        "letter-spacing:.02em;",
       "}",
 
       /* Title — 2-line clamp */
@@ -264,22 +245,6 @@
         "display:-webkit-box;",
         "-webkit-line-clamp:2;",
         "-webkit-box-orient:vertical;",
-      "}",
-
-      /* Price badge row */
-      "[data-illuxus-embed] .eix-price{",
-        "display:inline-block;",
-        "width:fit-content;",
-        "font-size:11px;",
-        "font-weight:700;",
-        "padding:2px 10px;",
-        "border-radius:999px;",
-        "background:var(--accent);",
-        "color:#ffffff;",
-      "}",
-      "[data-illuxus-embed] .eix-price.eix-free{",
-        "background:var(--free-bg);",
-        "color:var(--free-text);",
       "}",
 
       /* Location row */
@@ -393,11 +358,11 @@
       .replace(/'/g, "&#39;");
   }
 
-  /* Format a date string as "Jun 30" or "Dec 1". */
+  /* Format a date string as "Thu, Nov 12". */
   function fmtDate(raw) {
     if (!raw) return "";
     try {
-      return new Date(raw).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      return new Date(raw).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
     } catch (_) {
       return raw;
     }
@@ -465,8 +430,8 @@
 
       /* ── Build card HTML ────────────────────────────────────── */
       var cards = data.events.map(function (ev, idx) {
-        /* Date badge label */
-        var dateBadge = fmtDate(ev.date || ev.start_date || ev.starts_at || "");
+        /* Date label (shown above the title) */
+        var dateLabel = fmtDate(ev.date || ev.start_date || ev.starts_at || "");
 
         /* Thumbnail */
         var imgSrc = ev.banner_landscape_url || ev.image_url || "";
@@ -474,14 +439,9 @@
           ? '<img src="' + h(imgSrc) + '" alt="" loading="lazy" />'
           : '<div class="eix-thumb-ph">' + CAL_SVG + '</div>';
 
-        /* Price badge */
-        var price = Number(ev.price);
-        var priceBadge = (!price || price <= 0)
-          ? '<span class="eix-price eix-free">Free</span>'
-          : '<span class="eix-price">&#8377;' + price.toLocaleString() + '</span>';
-
-        /* Location */
-        var loc = [ev.venue, ev.location].filter(Boolean).join(" \u00b7 ");
+        /* Location — venue/address, or "Online" for virtual events */
+        var loc = [ev.venue, ev.location].filter(Boolean).join(" \u00b7 ")
+               || (ev.event_format === "virtual" ? "Online" : "");
         var locRow = loc
           ? '<div class="eix-loc">' + PIN_SVG + '<span>' + h(loc) + '</span></div>'
           : '';
@@ -496,11 +456,10 @@
         return '<a class="eix-card" href="' + h(href) + '" target="_blank" rel="noopener noreferrer" style="animation-delay:' + delay + '">' +
           '<div class="eix-thumb">' +
             thumbContent +
-            (dateBadge ? '<div class="eix-date-badge">' + h(dateBadge) + '</div>' : '') +
           '</div>' +
           '<div class="eix-body">' +
+            (dateLabel ? '<div class="eix-date">' + h(dateLabel) + '</div>' : '') +
             '<div class="eix-title">' + h(ev.title) + '</div>' +
-            priceBadge +
             locRow +
           '</div>' +
         '</a>';
