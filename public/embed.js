@@ -235,18 +235,6 @@
         "letter-spacing:.02em;",
       "}",
 
-      /* Title — 2-line clamp */
-      "[data-illuxus-embed] .eix-title{",
-        "font-size:14px;",
-        "font-weight:600;",
-        "line-height:1.4;",
-        "color:var(--text);",
-        "overflow:hidden;",
-        "display:-webkit-box;",
-        "-webkit-line-clamp:2;",
-        "-webkit-box-orient:vertical;",
-      "}",
-
       /* Location row */
       "[data-illuxus-embed] .eix-loc{",
         "display:flex;",
@@ -453,13 +441,14 @@
         /* Staggered entrance: each card delayed by 60ms × index */
         var delay = (idx * 60) + "ms";
 
-        return '<a class="eix-card" href="' + h(href) + '" target="_blank" rel="noopener noreferrer" style="animation-delay:' + delay + '">' +
+        /* Title is not shown (the banner carries it) but stays as the
+           link's accessible name for screen readers. */
+        return '<a class="eix-card" href="' + h(href) + '" aria-label="' + h(ev.title) + '" target="_blank" rel="noopener noreferrer" style="animation-delay:' + delay + '">' +
           '<div class="eix-thumb">' +
             thumbContent +
           '</div>' +
           '<div class="eix-body">' +
             (dateLabel ? '<div class="eix-date">' + h(dateLabel) + '</div>' : '') +
-            '<div class="eix-title">' + h(ev.title) + '</div>' +
             locRow +
           '</div>' +
         '</a>';
