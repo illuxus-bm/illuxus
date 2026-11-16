@@ -25,6 +25,13 @@ const PreJoinCheck = lazy(() =>
   import("@/components/webinar/PreJoinCheck").then((m) => ({ default: m.PreJoinCheck })),
 );
 
+/** What webinar_link_access returns for a valid join or speaker link (migration 088). */
+interface WebinarLinkAccess {
+  session: Tables<"webinar_sessions"> | null;
+  visitor_name: string | null;
+  visitor_role: "speaker" | "attendee";
+}
+
 export default function EventLivePage() {
   const { id: eventId } = useParams();
   const { user, loading } = useAuth();
@@ -62,6 +69,7 @@ export default function EventLivePage() {
   // Lets us grant publish permission on the Agora path even though they
   // arrived without a `?speaker=<token>` URL.
   const [isEventSpeaker, setIsEventSpeaker] = useState(false);
+  const [linkVisitor, setLinkVisitor] = useState<{ name: string | null; role: "speaker" | "attendee" } | null>(null);
   const [eventMeta, setEventMeta] = useState<{
     title: string | null;
     banner: string | null;
@@ -82,15 +90,30 @@ export default function EventLivePage() {
 
   useEffect(() => {
     if (!eventId) return;
-    const load = () => supabase.from("webinar_sessions").select("*").eq("event_id", eventId)
-      .order("created_at", { ascending: false }).limit(1).maybeSingle()
-      .then(({ data }) => setSession(data));
-    load();
+    const hasLink = !!(joinToken || speakerToken);
+    const load = async () => {
+      const { data } = await supabase.from("webinar_sessions").select("*").eq("event_id", eventId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (data || !hasLink) { setSession(data); return; }
+      // Guests and invited speakers who aren't signed in can't read the table;
+      // their link is checked server-side instead (webinar_link_access, 088).
+      const { data: access } = await supabaseRpc<WebinarLinkAccess | null>("webinar_link_access", {
+        _event_id: eventId, _join_token: joinToken, _speaker_token: speakerToken,
+      });
+      setSession(access?.session ?? null);
+      if (access?.visitor_role) {
+        setLinkVisitor({ name: access.visitor_name, role: access.visitor_role });
+      }
+    };
+    void load();
     const ch = supabase.channel(`session-${eventId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "webinar_sessions" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "webinar_sessions" }, () => { void load(); })
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [eventId]);
+    // Live updates only reach visitors who can read the table, so link
+    // visitors re-check now and then to see the session go live.
+    const poll = hasLink && !user ? window.setInterval(() => { void load(); }, 20_000) : undefined;
+    return () => { supabase.removeChannel(ch); if (poll) window.clearInterval(poll); };
+  }, [eventId, joinToken, speakerToken, user]);
 
   // Fetch event title + landscape banner for the empty-stage placeholder.
   useEffect(() => {
@@ -112,6 +135,13 @@ export default function EventLivePage() {
   // Resolve visitor name + role for the lobby welcome.
   useEffect(() => {
     (async () => {
+      // A link visitor who isn't signed in was identified by webinar_link_access.
+      if (!user && linkVisitor) {
+        setVisitorName(linkVisitor.name);
+        setVisitorRole(linkVisitor.role);
+        if (linkVisitor.role === "speaker") setIsEventSpeaker(true);
+        return;
+      }
       if (speakerToken && session?.id) {
         const { data: sp } = await supabase
           .from("webinar_speakers")
@@ -165,7 +195,7 @@ export default function EventLivePage() {
         }
       }
     })();
-  }, [user, joinToken, speakerToken, session?.id, eventId]);
+  }, [user, joinToken, speakerToken, session?.id, eventId, linkVisitor]);
 
   const requestToken = async () => {
     setError(null);

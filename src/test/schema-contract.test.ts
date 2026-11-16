@@ -18,19 +18,35 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const ROOT = path.resolve(__dirname, "../..");
-const SCHEMA = fs.readFileSync(path.join(ROOT, "supabase/prod_schema.sql"), "utf8");
+const read = (p: string) => fs.readFileSync(path.join(ROOT, p), "utf8").replace(/\r\n/g, "\n");
+
+/** Migrations applied after the dump was taken (supabase/post-dump-migrations.json). */
+function postDumpSql(): string {
+  const { migrations } = JSON.parse(read("supabase/post-dump-migrations.json")) as { migrations: string[] };
+  const bundle = read("supabase/migrations/000_full_schema.sql");
+  return migrations.map((name) => {
+    const start = bundle.indexOf(`-- >>> BEGIN SOURCE MIGRATION: ${name} >>>`);
+    const end = bundle.indexOf(`-- <<< END SOURCE MIGRATION: ${name} <<<`, start);
+    if (start < 0 || end < 0) throw new Error(`Migration section not found: ${name}`);
+    return bundle.slice(start, end);
+  }).join("\n");
+}
+
+const SCHEMA = read("supabase/prod_schema.sql") + "\n" + postDumpSql();
 
 type Signature = { params: Set<string>; required: Set<string> };
 
 /** Function signatures from the dump, keyed by name (overloads kept apart). */
 function functionSignatures(): Map<string, Signature[]> {
   const out = new Map<string, Signature[]>();
-  const re = /CREATE OR REPLACE FUNCTION "public"\."(\w+)"\(([\s\S]*?)\) RETURNS/g;
-  for (const [, name, args] of SCHEMA.matchAll(re)) {
+  // The dump quotes names ("public"."fn"("_a" "uuid")); migrations don't (public.fn(_a uuid)).
+  const re = /CREATE OR REPLACE FUNCTION (?:"public"\."(\w+)"|public\.(\w+))\s*\(([\s\S]*?)\)\s+RETURNS/g;
+  for (const [, quoted, plain, args] of SCHEMA.matchAll(re)) {
+    const name = quoted ?? plain;
     const sig: Signature = { params: new Set(), required: new Set() };
     for (const raw of args.split(/,(?![^(]*\))/).map((a) => a.trim()).filter(Boolean)) {
       if (/^OUT\s/.test(raw)) continue;
-      const m = raw.match(/^(?:(?:IN|INOUT|VARIADIC)\s+)?"(\w+)"/);
+      const m = raw.match(/^(?:(?:IN|INOUT|VARIADIC)\s+)?"?(\w+)"?\s/);
       if (!m) continue;
       sig.params.add(m[1]);
       if (!/\sDEFAULT\s/.test(raw)) sig.required.add(m[1]);

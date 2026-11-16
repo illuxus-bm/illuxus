@@ -63,11 +63,12 @@ Set the secrets (**Project Settings → Edge Functions → Secrets**, or `npx su
 | WhatsApp | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_API_VERSION` |
 | AI creatives | `GEMINI_API_KEY`, `GEMINI_COPY_MODEL`, `GEMINI_COPY_DAILY_QUOTA`, `GEMINI_PER_EVENT_DAILY_QUOTA` |
 
-Deploy every function. The CLI bundles the shared code itself:
+Deploy every function:
 ```bash
 npx supabase login
-npx supabase functions deploy --project-ref <NEW-REF> --use-api
+npm run functions:deploy -- --project-ref <NEW-REF>
 ```
+The script bundles each function into one file first and then runs `supabase functions deploy --use-api`. A plain `supabase functions deploy --use-api` fails with "Module not found" for the vendored libraries, because the CLI doesn't upload imports nested that deep. Name functions to deploy only those, for example `npm run functions:deploy -- livekit-token`.
 Then update the webhooks that point at the old project:
 - **LiveKit:** webhook URL → `https://<NEW-REF>.supabase.co/functions/v1/livekit-webhook`.
 - **Meta / WhatsApp:** callback URL → `.../functions/v1/whatsapp-webhook`, with the same `WHATSAPP_VERIFY_TOKEN`.
@@ -106,6 +107,8 @@ npx supabase db dump --linked -f supabase/prod_schema.sql   # needs Docker runni
 node scripts/build-install-sql.mjs
 ```
 If the reference data changed, regenerate `supabase/install/seed.sql` as its header explains.
+
+Without Docker you can't re-dump. Instead, list the migration in `supabase/post-dump-migrations.json`, and `install.sql` runs it after the dump. This is how 087 and 088 get in. They're safe to re-run, so they can stay listed after the next dump.
 
 The generator also declares the parts a dump doesn't include: triggers on `auth.users`, storage buckets and policies, and the cron job. Update them in `scripts/build-install-sql.mjs` when those change.
 
