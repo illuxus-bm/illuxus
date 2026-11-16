@@ -74,7 +74,7 @@ export function WaitingLobby({ eventId, visitorName, role, sessionStatus, onJoin
         // square cover (image_url) which is reserved for listing thumbnails.
         setEvent({ ...(data as EventInfo), image_url: null });
         if (data.org_id) {
-          const { data: org } = await supabaseRpc("get_public_org_brief", { _org_id: data.org_id });
+          const { data: org } = await supabaseRpc("get_public_org_brief", { _oid: data.org_id });
           const row = Array.isArray(org) ? org[0] : org;
           if (row) { setOrgName(row.name ?? null); setOrgLogo(row.logo_url ?? null); }
         }

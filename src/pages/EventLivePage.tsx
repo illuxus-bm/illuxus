@@ -181,7 +181,7 @@ export default function EventLivePage() {
   useEffect(() => {
     if (!eventId) return;
     (async () => {
-      const { data } = await supabaseRpc("event_branding_enabled", { _event_id: eventId });
+      const { data } = await supabaseRpc("event_branding_enabled", { _eid: eventId });
       if (typeof data === "boolean") setBrandingEnabled(data);
     })();
   }, [eventId]);
@@ -192,7 +192,7 @@ export default function EventLivePage() {
     if (!joinToken || !user) return;
     (async () => {
       const { data, error } = await supabaseRpc("claim_join_session", {
-        _join_token: joinToken, _session_id: browserSessionId,
+        _jt: joinToken, _sid: browserSessionId,
       });
       if (error) { return; }
       const row = (data as Array<{ registration_id: string }>)?.[0];
