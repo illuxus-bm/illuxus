@@ -1,7 +1,7 @@
 -- Illuxus — consolidated Supabase SQL bundle
 --
--- Contains the base schema, numbered migrations through 084, the site-editor
--- correction in section 085, and a read-only schema-drift check at the end.
+-- Contains the base schema, numbered migrations through 087 (085 is the
+-- site-editor correction), and a read-only schema-drift check at the end.
 -- Former RUN_ME scripts are incorporated in their corresponding sections.
 -- Run the complete file once only when provisioning a fresh database.
 -- For an existing database, apply only the needed section after checking
@@ -27808,6 +27808,634 @@ GRANT EXECUTE ON FUNCTION public.community_report(uuid, uuid, text, text, uuid) 
 
 NOTIFY pgrst, 'reload schema';
 -- <<< END SOURCE MIGRATION: 086_ugc_safety.sql <<<
+
+-- >>> BEGIN SOURCE MIGRATION: 087_security_hardening.sql >>>
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 087_security_hardening.sql
+--
+-- Fixes from the platform audit of 16 November 2026. Safe to run more than
+-- once. Run it in the SQL Editor of the live project, then re-dump
+-- supabase/prod_schema.sql and rebuild supabase/install.sql.
+--
+--   1. Vendor bank details and tax IDs move out of `vendors`, which anyone
+--      can read, into `vendor_payout_details`, which only the vendor's own
+--      team and platform admins can. The old columns stay (always empty) so
+--      existing `select *` queries keep working; anything written to them is
+--      moved across by a trigger, the way events.virtual_url already is.
+--   2. Vendor teams can no longer set their own verification status,
+--      commission rate or rating, and neither side of a booking can change
+--      its commission or who it is between.
+--   3. accept_quote, cancel_booking, instant_book_service and release_escrow
+--      check who is calling. They could be called by anyone, signed in or
+--      not, and took the "actor" written to the audit log as an argument.
+--   4. Internal helpers that only triggers should call (_auto_join_event_
+--      community, which could make anyone a moderator of any community, and
+--      four recount helpers) are no longer callable through the API.
+--
+-- Needs the illuxus-venue marketplace tables (vendors, vendor_bookings,
+-- quotes, payment_escrow…), like event_venue_selections above.
+--
+-- Tests: supabase/tests/087_security_hardening.test.mjs (runs against the
+-- production schema dump).
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- ── 1. Vendor payout details ─────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS public.vendor_payout_details (
+  vendor_id           uuid PRIMARY KEY
+                      REFERENCES public.vendors(id) ON DELETE CASCADE
+                      DEFERRABLE INITIALLY DEFERRED,
+  bank_name           text,
+  bank_account_number text,
+  bank_routing        text,
+  bank_country        text,
+  tax_id              text,
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.vendor_payout_details IS
+  'Bank details and tax ID of a vendor. Readable and editable only by that vendor''s team and platform admins (087). Writes to the matching vendors columns are moved here by vendors_stash_payout_details.';
+
+ALTER TABLE public.vendor_payout_details ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.vendor_payout_details FROM PUBLIC, anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.vendor_payout_details TO authenticated;
+GRANT ALL ON TABLE public.vendor_payout_details TO service_role;
+
+DROP POLICY IF EXISTS "Vendor team and admins manage payout details" ON public.vendor_payout_details;
+CREATE POLICY "Vendor team and admins manage payout details" ON public.vendor_payout_details
+  FOR ALL TO authenticated
+  USING (public.is_vendor_member(vendor_id) OR public.has_role(auth.uid(), 'admin'))
+  WITH CHECK (public.is_vendor_member(vendor_id) OR public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS "Require two-factor when enabled" ON public.vendor_payout_details;
+CREATE POLICY "Require two-factor when enabled" ON public.vendor_payout_details
+  AS RESTRICTIVE TO authenticated
+  USING ((SELECT public.mfa_satisfied())) WITH CHECK ((SELECT public.mfa_satisfied()));
+
+DROP TRIGGER IF EXISTS vendor_payout_details_updated ON public.vendor_payout_details;
+CREATE TRIGGER vendor_payout_details_updated BEFORE UPDATE ON public.vendor_payout_details
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- Copy what is there now, then empty the public columns.
+INSERT INTO public.vendor_payout_details AS d
+       (vendor_id, bank_name, bank_account_number, bank_routing, bank_country, tax_id)
+SELECT id, bank_name, bank_account_number, bank_routing, bank_country, tax_id
+  FROM public.vendors
+ WHERE num_nonnulls(bank_name, bank_account_number, bank_routing, bank_country, tax_id) > 0
+ON CONFLICT (vendor_id) DO UPDATE SET
+  bank_name           = COALESCE(excluded.bank_name, d.bank_name),
+  bank_account_number = COALESCE(excluded.bank_account_number, d.bank_account_number),
+  bank_routing        = COALESCE(excluded.bank_routing, d.bank_routing),
+  bank_country        = COALESCE(excluded.bank_country, d.bank_country),
+  tax_id              = COALESCE(excluded.tax_id, d.tax_id),
+  updated_at          = now();
+
+UPDATE public.vendors
+   SET bank_name = NULL, bank_account_number = NULL, bank_routing = NULL,
+       bank_country = NULL, tax_id = NULL
+ WHERE num_nonnulls(bank_name, bank_account_number, bank_routing, bank_country, tax_id) > 0;
+
+-- From now on, anything written to those columns goes to the private table.
+-- An empty value leaves the stored one as it is; clear a field by updating
+-- vendor_payout_details itself.
+CREATE OR REPLACE FUNCTION public.vendors_stash_payout_details() RETURNS trigger
+  LANGUAGE plpgsql SECURITY DEFINER
+  SET search_path TO 'public'
+AS $$
+BEGIN
+  IF num_nonnulls(NEW.bank_name, NEW.bank_account_number, NEW.bank_routing,
+                  NEW.bank_country, NEW.tax_id) > 0 THEN
+    INSERT INTO public.vendor_payout_details AS d
+           (vendor_id, bank_name, bank_account_number, bank_routing, bank_country, tax_id)
+    VALUES (NEW.id,
+            NULLIF(btrim(NEW.bank_name), ''),
+            NULLIF(btrim(NEW.bank_account_number), ''),
+            NULLIF(btrim(NEW.bank_routing), ''),
+            NULLIF(btrim(NEW.bank_country), ''),
+            NULLIF(btrim(NEW.tax_id), ''))
+    ON CONFLICT (vendor_id) DO UPDATE SET
+      bank_name           = COALESCE(excluded.bank_name, d.bank_name),
+      bank_account_number = COALESCE(excluded.bank_account_number, d.bank_account_number),
+      bank_routing        = COALESCE(excluded.bank_routing, d.bank_routing),
+      bank_country        = COALESCE(excluded.bank_country, d.bank_country),
+      tax_id              = COALESCE(excluded.tax_id, d.tax_id),
+      updated_at          = now();
+    NEW.bank_name := NULL;
+    NEW.bank_account_number := NULL;
+    NEW.bank_routing := NULL;
+    NEW.bank_country := NULL;
+    NEW.tax_id := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS vendors_stash_payout_details ON public.vendors;
+CREATE TRIGGER vendors_stash_payout_details
+  BEFORE INSERT OR UPDATE OF bank_name, bank_account_number, bank_routing, bank_country, tax_id
+  ON public.vendors FOR EACH ROW EXECUTE FUNCTION public.vendors_stash_payout_details();
+
+-- ── 2. Columns only the platform sets ────────────────────────────────────────
+-- Not SECURITY DEFINER: current_user is the caller's role, so a direct API
+-- write ('authenticated') is told apart from the platform's own functions
+-- (recompute_vendor_rating, admin tools), which run as their owner.
+
+CREATE OR REPLACE FUNCTION public.guard_vendor_platform_columns() RETURNS trigger
+  LANGUAGE plpgsql
+  SET search_path TO 'public'
+AS $$
+BEGIN
+  IF current_user NOT IN ('authenticated', 'anon') OR public.has_role(auth.uid(), 'admin') THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    NEW.verification_status := 'unverified';
+    NEW.kyc_verified_at := NULL;
+    NEW.commission_rate := 10.00;
+    NEW.rating_avg := NULL;
+    NEW.rating_count := 0;
+  ELSE
+    NEW.verification_status := OLD.verification_status;
+    NEW.kyc_verified_at := OLD.kyc_verified_at;
+    NEW.commission_rate := OLD.commission_rate;
+    NEW.rating_avg := OLD.rating_avg;
+    NEW.rating_count := OLD.rating_count;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS vendors_guard_platform_columns ON public.vendors;
+CREATE TRIGGER vendors_guard_platform_columns BEFORE INSERT OR UPDATE ON public.vendors
+  FOR EACH ROW EXECUTE FUNCTION public.guard_vendor_platform_columns();
+
+-- A booking's parties and the platform's cut are fixed when it is made. If
+-- the total changes, the commission follows it at the booked rate.
+CREATE OR REPLACE FUNCTION public.guard_vendor_booking_terms() RETURNS trigger
+  LANGUAGE plpgsql
+  SET search_path TO 'public'
+AS $$
+BEGIN
+  IF current_user NOT IN ('authenticated', 'anon') OR public.has_role(auth.uid(), 'admin') THEN
+    RETURN NEW;
+  END IF;
+  NEW.org_id := OLD.org_id;
+  NEW.vendor_id := OLD.vendor_id;
+  NEW.quote_id := OLD.quote_id;
+  NEW.rfq_id := OLD.rfq_id;
+  NEW.commission_rate := OLD.commission_rate;
+  IF NEW.total IS DISTINCT FROM OLD.total THEN
+    NEW.commission_amount := ROUND(NEW.total * (OLD.commission_rate / 100));
+  ELSE
+    NEW.commission_amount := OLD.commission_amount;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS vendor_bookings_guard_terms ON public.vendor_bookings;
+CREATE TRIGGER vendor_bookings_guard_terms BEFORE UPDATE ON public.vendor_bookings
+  FOR EACH ROW EXECUTE FUNCTION public.guard_vendor_booking_terms();
+
+-- ── 3. Marketplace functions check who is calling ────────────────────────────
+
+-- The organisation's side of a booking: its owner, a team member who isn't a
+-- read-only viewer, or a platform admin.
+CREATE OR REPLACE FUNCTION public._marketplace_org_actor(_org_id uuid) RETURNS boolean
+  LANGUAGE sql STABLE SECURITY DEFINER
+  SET search_path TO 'public'
+AS $$
+  SELECT auth.uid() IS NOT NULL AND (
+       public.is_org_owner(auth.uid(), _org_id)
+    OR EXISTS (SELECT 1 FROM public.org_members m
+                WHERE m.org_id = _org_id AND m.user_id = auth.uid()
+                  AND COALESCE(m.role, 'member') <> 'viewer')
+    OR public.has_role(auth.uid(), 'admin'));
+$$;
+REVOKE ALL ON FUNCTION public._marketplace_org_actor(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public._marketplace_org_actor(uuid) TO service_role;
+
+CREATE OR REPLACE FUNCTION "public"."accept_quote"("p_quote_id" "uuid") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_quote quotes%ROWTYPE;
+  v_rfq rfqs%ROWTYPE;
+  v_vendor vendors%ROWTYPE;
+  v_booking_id uuid;
+  v_commission bigint;
+BEGIN
+  -- 087: only the organiser side of the RFQ (or a platform admin) may accept.
+  IF NOT public._is_internal_caller() AND NOT EXISTS (
+       SELECT 1 FROM public.quotes q JOIN public.rfqs r ON r.id = q.rfq_id
+        WHERE q.id = p_quote_id AND public._marketplace_org_actor(r.org_id)) THEN
+    RAISE EXCEPTION 'Not authorized to accept this quote' USING ERRCODE = '42501';
+  END IF;
+
+  -- Lock and fetch the quote
+  SELECT * INTO v_quote FROM quotes WHERE id = p_quote_id FOR UPDATE;
+  IF v_quote IS NULL THEN
+    RAISE EXCEPTION 'Quote not found';
+  END IF;
+  IF v_quote.status != 'sent' THEN
+    RAISE EXCEPTION 'Quote is not in sent status';
+  END IF;
+
+  -- Fetch related RFQ
+  SELECT * INTO v_rfq FROM rfqs WHERE id = v_quote.rfq_id;
+
+  -- Fetch vendor for commission rate
+  SELECT * INTO v_vendor FROM vendors WHERE id = v_quote.vendor_id;
+
+  -- Calculate commission
+  v_commission := ROUND(v_quote.total * (v_vendor.commission_rate / 100));
+
+  -- Create the booking
+  INSERT INTO vendor_bookings (
+    quote_id, rfq_id, org_id, vendor_id, event_id,
+    total, currency, commission_amount, commission_rate,
+    status, deposit_status, event_date
+  ) VALUES (
+    v_quote.id, v_quote.rfq_id, v_rfq.org_id, v_quote.vendor_id, v_rfq.event_id,
+    v_quote.total, v_quote.currency, v_commission, v_vendor.commission_rate,
+    'pending', 'pending', v_rfq.event_date
+  ) RETURNING id INTO v_booking_id;
+
+  -- Create default milestones (30/40/30 split)
+  INSERT INTO booking_milestones (booking_id, label, amount, sort_order) VALUES
+    (v_booking_id, 'Deposit (30%)', ROUND(v_quote.total * 0.3), 1),
+    (v_booking_id, 'Midway Payment (40%)', ROUND(v_quote.total * 0.4), 2),
+    (v_booking_id, 'Final Payment (30%)', v_quote.total - ROUND(v_quote.total * 0.3) - ROUND(v_quote.total * 0.4), 3);
+
+  -- Mark event date as booked in availability (if date is set)
+  IF v_rfq.event_date IS NOT NULL THEN
+    INSERT INTO vendor_availability (vendor_id, date, status, booking_id)
+    VALUES (v_quote.vendor_id, v_rfq.event_date, 'booked', v_booking_id)
+    ON CONFLICT (vendor_id, date)
+    DO UPDATE SET status = 'booked', booking_id = v_booking_id;
+  END IF;
+
+  -- Update quote status
+  UPDATE quotes SET status = 'accepted', updated_at = now() WHERE id = p_quote_id;
+
+  -- Update RFQ status
+  UPDATE rfqs SET status = 'accepted' WHERE id = v_quote.rfq_id;
+
+  RETURN v_booking_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."accept_quote"("p_quote_id" "uuid", "p_actor_id" "uuid") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_quote quotes%ROWTYPE;
+  v_rfq rfqs%ROWTYPE;
+  v_vendor vendors%ROWTYPE;
+  v_booking_id uuid;
+  v_commission bigint;
+  v_deposit bigint;
+  v_midway bigint;
+  v_final bigint;
+BEGIN
+  -- 087: only the organiser side of the RFQ (or a platform admin) may accept,
+  -- and a signed-in caller is recorded as themselves, whatever p_actor_id says.
+  IF NOT public._is_internal_caller() THEN
+    IF NOT EXISTS (
+         SELECT 1 FROM public.quotes q JOIN public.rfqs r ON r.id = q.rfq_id
+          WHERE q.id = p_quote_id AND public._marketplace_org_actor(r.org_id)) THEN
+      RAISE EXCEPTION 'Not authorized to accept this quote' USING ERRCODE = '42501';
+    END IF;
+    p_actor_id := auth.uid();
+  END IF;
+
+  -- Lock and fetch the quote
+  SELECT * INTO v_quote FROM quotes WHERE id = p_quote_id FOR UPDATE;
+  IF v_quote IS NULL THEN
+    RAISE EXCEPTION 'Quote not found';
+  END IF;
+  IF v_quote.status != 'sent' THEN
+    RAISE EXCEPTION 'Quote must be in "sent" status to accept (current: %)', v_quote.status;
+  END IF;
+
+  -- Fetch related RFQ
+  SELECT * INTO v_rfq FROM rfqs WHERE id = v_quote.rfq_id;
+  IF v_rfq IS NULL THEN
+    RAISE EXCEPTION 'RFQ not found for quote';
+  END IF;
+
+  -- Fetch vendor for commission rate
+  SELECT * INTO v_vendor FROM vendors WHERE id = v_quote.vendor_id;
+
+  -- Calculate commission
+  v_commission := ROUND(v_quote.total * (v_vendor.commission_rate / 100));
+
+  -- Calculate milestone split (30/40/30)
+  v_deposit := ROUND(v_quote.total * 0.3);
+  v_midway := ROUND(v_quote.total * 0.4);
+  v_final := v_quote.total - v_deposit - v_midway;
+
+  -- 1. Create the booking
+  INSERT INTO vendor_bookings (
+    quote_id, rfq_id, org_id, vendor_id, event_id,
+    total, currency, commission_amount, commission_rate,
+    status, deposit_status, event_date
+  ) VALUES (
+    v_quote.id, v_quote.rfq_id, v_rfq.org_id, v_quote.vendor_id, v_rfq.event_id,
+    v_quote.total, v_quote.currency, v_commission, v_vendor.commission_rate,
+    'pending', 'pending', v_rfq.event_date
+  ) RETURNING id INTO v_booking_id;
+
+  -- 2. Create milestones (30/40/30)
+  INSERT INTO booking_milestones (booking_id, label, amount, sort_order, status)
+  VALUES
+    (v_booking_id, 'Deposit (30%)', v_deposit, 1, 'pending'),
+    (v_booking_id, 'Midway Payment (40%)', v_midway, 2, 'pending'),
+    (v_booking_id, 'Final Payment (30%)', v_final, 3, 'pending');
+
+  -- 3. Mark event date as booked in availability (conflict check via trigger)
+  IF v_rfq.event_date IS NOT NULL THEN
+    INSERT INTO vendor_availability (vendor_id, date, status, booking_id, note)
+    VALUES (v_quote.vendor_id, v_rfq.event_date, 'booked', v_booking_id, 'Auto-booked from quote acceptance')
+    ON CONFLICT (vendor_id, date)
+    DO UPDATE SET status = 'booked', booking_id = v_booking_id,
+                  note = 'Auto-booked from quote acceptance';
+  END IF;
+
+  -- 4. Update quote status
+  UPDATE quotes SET status = 'accepted', updated_at = now() WHERE id = p_quote_id;
+
+  -- 5. Update RFQ status
+  UPDATE rfqs SET status = 'accepted' WHERE id = v_quote.rfq_id;
+
+  -- 6. Mark invitee as responded
+  UPDATE rfq_invitees
+  SET responded_at = now()
+  WHERE rfq_id = v_quote.rfq_id AND vendor_id = v_quote.vendor_id;
+
+  -- 7. Audit log entry
+  INSERT INTO vendor_audit_log (actor_id, action, entity_type, entity_id, metadata)
+  VALUES (
+    p_actor_id, 'quote_accepted', 'vendor_bookings', v_booking_id,
+    jsonb_build_object(
+      'quote_id', p_quote_id,
+      'rfq_id', v_quote.rfq_id,
+      'total', v_quote.total,
+      'commission', v_commission
+    )
+  );
+
+  RETURN v_booking_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."cancel_booking"("p_booking_id" "uuid", "p_actor_id" "uuid", "p_reason" "text" DEFAULT NULL::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_booking vendor_bookings%ROWTYPE;
+BEGIN
+  -- 087: either party to the booking (or a platform admin) may cancel it,
+  -- and a signed-in caller is recorded as themselves, whatever p_actor_id says.
+  IF NOT public._is_internal_caller() THEN
+    IF NOT EXISTS (
+         SELECT 1 FROM public.vendor_bookings b
+          WHERE b.id = p_booking_id
+            AND (public._marketplace_org_actor(b.org_id) OR public.is_vendor_member(b.vendor_id))) THEN
+      RAISE EXCEPTION 'Not authorized to cancel this booking' USING ERRCODE = '42501';
+    END IF;
+    p_actor_id := auth.uid();
+  END IF;
+
+  SELECT * INTO v_booking FROM vendor_bookings WHERE id = p_booking_id FOR UPDATE;
+  IF v_booking IS NULL THEN
+    RAISE EXCEPTION 'Booking not found';
+  END IF;
+  IF v_booking.status IN ('completed', 'cancelled') THEN
+    RAISE EXCEPTION 'Cannot cancel a % booking', v_booking.status;
+  END IF;
+
+  -- 1. Cancel the booking
+  UPDATE vendor_bookings
+  SET status = 'cancelled', updated_at = now()
+  WHERE id = p_booking_id;
+
+  -- 2. Refund all held escrow
+  UPDATE payment_escrow
+  SET status = 'refunded', refunded_at = now(),
+      notes = COALESCE(notes, '') || ' | Refunded due to cancellation'
+  WHERE booking_id = p_booking_id AND status = 'held';
+
+  -- 3. Free the calendar date
+  DELETE FROM vendor_availability
+  WHERE booking_id = p_booking_id AND status = 'booked';
+
+  -- 4. Audit log
+  INSERT INTO vendor_audit_log (actor_id, action, entity_type, entity_id, metadata)
+  VALUES (
+    p_actor_id, 'booking_cancelled', 'vendor_bookings', p_booking_id,
+    jsonb_build_object(
+      'previous_status', v_booking.status,
+      'reason', COALESCE(p_reason, 'No reason provided')
+    )
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."instant_book_service"("p_service_id" "uuid", "p_org_id" "uuid", "p_event_id" "uuid", "p_event_date" "date", "p_actor_id" "uuid") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_service vendor_services%ROWTYPE;
+  v_vendor vendors%ROWTYPE;
+  v_booking_id uuid;
+  v_commission bigint;
+  v_deposit bigint;
+  v_midway bigint;
+  v_final bigint;
+  v_conflict_count int;
+BEGIN
+  -- 087: only the booking organisation's side (or a platform admin) may book,
+  -- only for one of that organisation's events, and a signed-in caller is
+  -- recorded as themselves, whatever p_actor_id says.
+  IF NOT public._is_internal_caller() THEN
+    IF NOT public._marketplace_org_actor(p_org_id) THEN
+      RAISE EXCEPTION 'Not authorized to book for this organisation' USING ERRCODE = '42501';
+    END IF;
+    IF p_event_id IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM public.events e WHERE e.id = p_event_id AND e.org_id = p_org_id) THEN
+      RAISE EXCEPTION 'That event does not belong to this organisation' USING ERRCODE = '42501';
+    END IF;
+    p_actor_id := auth.uid();
+  END IF;
+
+  -- Fetch service
+  SELECT * INTO v_service FROM vendor_services WHERE id = p_service_id;
+  IF v_service IS NULL THEN
+    RAISE EXCEPTION 'Service not found';
+  END IF;
+  IF NOT v_service.is_instant_book THEN
+    RAISE EXCEPTION 'Service does not support instant booking';
+  END IF;
+
+  -- Fetch vendor + check verification
+  SELECT * INTO v_vendor FROM vendors WHERE id = v_service.vendor_id;
+  IF v_vendor.verification_status != 'verified' THEN
+    RAISE EXCEPTION 'Vendor must be verified for instant booking';
+  END IF;
+
+  -- Hard conflict check: is the date already booked?
+  SELECT COUNT(*) INTO v_conflict_count
+  FROM vendor_availability
+  WHERE vendor_id = v_service.vendor_id
+    AND date = p_event_date
+    AND status = 'booked';
+
+  IF v_conflict_count > 0 THEN
+    RAISE EXCEPTION 'Vendor is already booked on %', p_event_date;
+  END IF;
+
+  -- Calculate commission
+  v_commission := ROUND(v_service.base_price * (v_vendor.commission_rate / 100));
+
+  -- Milestone split (30/40/30)
+  v_deposit := ROUND(v_service.base_price * 0.3);
+  v_midway := ROUND(v_service.base_price * 0.4);
+  v_final := v_service.base_price - v_deposit - v_midway;
+
+  -- Create booking (status: confirmed for instant-book)
+  INSERT INTO vendor_bookings (
+    org_id, vendor_id, event_id, total, currency,
+    commission_amount, commission_rate, status, deposit_status, event_date
+  ) VALUES (
+    p_org_id, v_service.vendor_id, p_event_id, v_service.base_price,
+    v_service.currency, v_commission, v_vendor.commission_rate,
+    'confirmed', 'pending', p_event_date
+  ) RETURNING id INTO v_booking_id;
+
+  -- Create milestones
+  INSERT INTO booking_milestones (booking_id, label, amount, sort_order, status)
+  VALUES
+    (v_booking_id, 'Deposit (30%)', v_deposit, 1, 'pending'),
+    (v_booking_id, 'Midway Payment (40%)', v_midway, 2, 'pending'),
+    (v_booking_id, 'Final Payment (30%)', v_final, 3, 'pending');
+
+  -- Mark date as booked
+  INSERT INTO vendor_availability (vendor_id, date, status, booking_id, note)
+  VALUES (v_service.vendor_id, p_event_date, 'booked', v_booking_id, 'Instant book')
+  ON CONFLICT (vendor_id, date)
+  DO UPDATE SET status = 'booked', booking_id = v_booking_id, note = 'Instant book';
+
+  -- Audit log
+  INSERT INTO vendor_audit_log (actor_id, action, entity_type, entity_id, metadata)
+  VALUES (
+    p_actor_id, 'instant_book', 'vendor_bookings', v_booking_id,
+    jsonb_build_object(
+      'service_id', p_service_id,
+      'total', v_service.base_price,
+      'commission', v_commission,
+      'event_date', p_event_date
+    )
+  );
+
+  RETURN v_booking_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION "public"."release_escrow"("p_escrow_id" "uuid", "p_actor_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_escrow payment_escrow%ROWTYPE;
+  v_booking vendor_bookings%ROWTYPE;
+  v_commission_share bigint;
+  v_vendor_share bigint;
+BEGIN
+  -- 087: only the paying organisation's side (or a platform admin) may release
+  -- a payment to the vendor, and a signed-in caller is recorded as themselves.
+  IF NOT public._is_internal_caller() THEN
+    IF NOT EXISTS (
+         SELECT 1 FROM public.payment_escrow pe
+           JOIN public.vendor_bookings b ON b.id = pe.booking_id
+          WHERE pe.id = p_escrow_id AND public._marketplace_org_actor(b.org_id)) THEN
+      RAISE EXCEPTION 'Not authorized to release this payment' USING ERRCODE = '42501';
+    END IF;
+    p_actor_id := auth.uid();
+  END IF;
+
+  SELECT * INTO v_escrow FROM payment_escrow WHERE id = p_escrow_id FOR UPDATE;
+  IF v_escrow IS NULL THEN
+    RAISE EXCEPTION 'Escrow entry not found';
+  END IF;
+  IF v_escrow.status != 'held' THEN
+    RAISE EXCEPTION 'Escrow must be in "held" status to release (current: %)', v_escrow.status;
+  END IF;
+
+  -- Get booking for commission rate
+  SELECT * INTO v_booking FROM vendor_bookings WHERE id = v_escrow.booking_id;
+
+  -- Calculate split for this milestone payment
+  v_commission_share := ROUND(v_escrow.amount * (v_booking.commission_rate / 100));
+  v_vendor_share := v_escrow.amount - v_commission_share;
+
+  -- Release
+  UPDATE payment_escrow
+  SET status = 'released', released_at = now(),
+      payout_amount = v_vendor_share, platform_fee = v_commission_share
+  WHERE id = p_escrow_id;
+
+  -- Audit
+  INSERT INTO vendor_audit_log (actor_id, action, entity_type, entity_id, metadata)
+  VALUES (
+    p_actor_id, 'escrow_released', 'payment_escrow', p_escrow_id,
+    jsonb_build_object(
+      'booking_id', v_escrow.booking_id,
+      'amount', v_escrow.amount,
+      'vendor_payout', v_vendor_share,
+      'platform_fee', v_commission_share
+    )
+  );
+END;
+$$;
+
+
+-- Signed-in users may call these (the vendor portal does); anonymous callers
+-- may not, and each function now checks the caller itself.
+REVOKE ALL ON FUNCTION public.accept_quote(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.accept_quote(uuid, uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.cancel_booking(uuid, uuid, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.instant_book_service(uuid, uuid, uuid, date, uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.release_escrow(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.accept_quote(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.accept_quote(uuid, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.cancel_booking(uuid, uuid, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.instant_book_service(uuid, uuid, uuid, date, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.release_escrow(uuid, uuid) TO authenticated, service_role;
+
+-- ── 4. Helpers only triggers call ────────────────────────────────────────────
+-- Every caller is a SECURITY DEFINER trigger or function (running as the
+-- owner) or an edge function using the service role, so nothing loses access.
+
+REVOKE ALL ON FUNCTION public._auto_join_event_community(uuid, uuid, public.community_role) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public._attendance_recompute(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public._recompute_tickets_sold(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.ensure_parent_community(public.community_category) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.communications_recompute_email_counts(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public._auto_join_event_community(uuid, uuid, public.community_role) TO service_role;
+GRANT EXECUTE ON FUNCTION public._attendance_recompute(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public._recompute_tickets_sold(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.ensure_parent_community(public.community_category) TO service_role;
+GRANT EXECUTE ON FUNCTION public.communications_recompute_email_counts(uuid) TO service_role;
+
+-- Make the API see the changes immediately.
+NOTIFY pgrst, 'reload schema';
+-- <<< END SOURCE MIGRATION: 087_security_hardening.sql <<<
+
 
 -- >>> BEGIN ARCHIVED ROOT SCRIPT (disabled): RUN_ME_pending_updates.sql >>>
 -- The following source is commented out intentionally. Review and run

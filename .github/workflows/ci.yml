@@ -1,7 +1,7 @@
 # Checks every push and pull request.
 #
-# Blocking: unit tests, the production build, and critical dependency
-# advisories — these pass today and must keep passing.
+# Blocking: unit tests, database tests, the production build, and critical
+# dependency advisories — these pass today and must keep passing.
 #
 # Reported but not yet blocking: TypeScript and ESLint. Both have a backlog
 # from before this workflow existed (most type errors come from an outdated
@@ -38,6 +38,16 @@ jobs:
 
       - name: Unit tests
         run: bun run test
+
+      # Row security, grants and SQL functions, on an in-memory Postgres.
+      # 087 and later run against the production schema dump.
+      - name: Database tests
+        run: |
+          for t in supabase/tests/*.test.mjs; do
+            echo "::group::$t"
+            node "$t"
+            echo "::endgroup::"
+          done
 
       - name: Build
         run: bun run build
