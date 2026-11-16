@@ -1,6 +1,6 @@
 -- Illuxus — consolidated Supabase SQL bundle
 --
--- Contains the base schema, numbered migrations through 087 (085 is the
+-- Contains the base schema, numbered migrations through 088 (085 is the
 -- site-editor correction), and a read-only schema-drift check at the end.
 -- Former RUN_ME scripts are incorporated in their corresponding sections.
 -- Run the complete file once only when provisioning a fresh database.
@@ -28435,6 +28435,168 @@ GRANT EXECUTE ON FUNCTION public.communications_recompute_email_counts(uuid) TO 
 -- Make the API see the changes immediately.
 NOTIFY pgrst, 'reload schema';
 -- <<< END SOURCE MIGRATION: 087_security_hardening.sql <<<
+
+-- >>> BEGIN SOURCE MIGRATION: 088_audit_followups.sql >>>
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 088_audit_followups.sql
+--
+-- The rest of the 16 November 2026 platform audit. Safe to run more than once.
+--
+--   1. Vendors can change a booking's status again (confirm, cancel,
+--      complete in illuxus-venue). Every such update failed: the
+--      audit_booking_status_change trigger ran as the caller, who can't
+--      write vendor_audit_log, and with nobody signed in it logged an
+--      all-zero actor that breaks the foreign key. It now runs as its owner
+--      and records a system change with no actor.
+--   2. venue-media uploads only into a venue the uploader's vendor team
+--      manages (<venue id>/<file>), as illuxus-venue already names them.
+--      Any signed-in user could upload anything anywhere in this public
+--      bucket. SVG (which can carry script) is no longer accepted.
+--   3. whatsapp_templates_list only lists an organisation's templates to
+--      that organisation's team (it listed any organisation's to anyone).
+--   4. webinar_link_access: a guest or speaker with a join / invite link can
+--      load the event's webinar session and their own name without signing
+--      in (audit A-02, first reported 7 November). The browser can't read
+--      webinar_sessions, registrations or webinar_speakers anonymously, so
+--      those links opened an empty page.
+--
+-- Needs the illuxus-venue marketplace tables, like 087. Storage policies
+-- are skipped where the storage schema doesn't exist (tests).
+-- Tests: supabase/tests/088_audit_followups.test.mjs
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- ── 1. Booking status audit ──────────────────────────────────────────────────
+
+ALTER TABLE public.vendor_audit_log ALTER COLUMN actor_id DROP NOT NULL;
+COMMENT ON COLUMN public.vendor_audit_log.actor_id IS
+  'Who made the change; NULL for the platform itself (service role, scheduled jobs).';
+
+CREATE OR REPLACE FUNCTION public.audit_booking_status_change() RETURNS trigger
+  LANGUAGE plpgsql SECURITY DEFINER
+  SET search_path TO 'public'
+AS $$
+BEGIN
+  IF OLD.status IS DISTINCT FROM NEW.status THEN
+    INSERT INTO public.vendor_audit_log (actor_id, action, entity_type, entity_id, metadata)
+    VALUES (
+      auth.uid(),
+      'booking_status_changed',
+      'vendor_bookings',
+      NEW.id,
+      jsonb_build_object('from', OLD.status, 'to', NEW.status)
+    );
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- ── 2. venue-media uploads ───────────────────────────────────────────────────
+
+DO $storage$
+BEGIN
+  IF to_regclass('storage.objects') IS NULL THEN
+    RAISE NOTICE '088: no storage schema here; venue-media policies skipped';
+    RETURN;
+  END IF;
+
+  UPDATE storage.buckets
+     SET allowed_mime_types = array_remove(allowed_mime_types, 'image/svg+xml')
+   WHERE id = 'venue-media';
+
+  DROP POLICY IF EXISTS "venue_media_auth_insert" ON storage.objects;
+  DROP POLICY IF EXISTS "venue_media_team_insert" ON storage.objects;
+  CREATE POLICY "venue_media_team_insert" ON storage.objects FOR INSERT TO authenticated
+    WITH CHECK (
+      bucket_id = 'venue-media'
+      AND EXISTS (
+        SELECT 1 FROM public.venues v
+         -- objects.name, not name: inside this subquery name is venues.name.
+         WHERE v.id::text = (storage.foldername(objects.name))[1]
+           AND public.is_vendor_member(v.vendor_id)
+      )
+    );
+END
+$storage$;
+
+-- ── 3. WhatsApp templates ────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.whatsapp_templates_list(_org_id uuid)
+  RETURNS TABLE(name text, language text, category text, status text,
+                variable_count integer, components jsonb, synced_at timestamptz)
+  LANGUAGE sql STABLE SECURITY DEFINER
+  SET search_path TO 'public'
+AS $$
+  SELECT t.name, t.language, t.category, t.status, t.variable_count, t.components, t.synced_at
+    FROM whatsapp_templates t
+   WHERE t.org_id = _org_id
+     AND t.status = 'APPROVED'
+     AND (public._is_internal_caller()
+          OR public.is_org_owner(auth.uid(), _org_id)
+          OR public.is_org_member(auth.uid(), _org_id)
+          OR public.has_role(auth.uid(), 'admin'))
+   ORDER BY t.name, t.language;
+$$;
+REVOKE ALL ON FUNCTION public.whatsapp_templates_list(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.whatsapp_templates_list(uuid) TO authenticated, service_role;
+
+-- ── 4. Webinar links without signing in ──────────────────────────────────────
+-- Returns the event's current webinar session (the newest, as the live page
+-- shows) and who the link belongs to, or NULL when neither link is valid for
+-- this event. A join link counts only for an approved, not-cancelled
+-- registration; a speaker link only for a session of this event.
+
+CREATE OR REPLACE FUNCTION public.webinar_link_access(
+  _event_id uuid, _join_token text DEFAULT NULL, _speaker_token text DEFAULT NULL)
+  RETURNS jsonb
+  LANGUAGE plpgsql STABLE SECURITY DEFINER
+  SET search_path TO 'public'
+AS $$
+DECLARE
+  _session public.webinar_sessions;
+  _name text;
+  _role text;
+BEGIN
+  IF _event_id IS NULL OR (NULLIF(_join_token, '') IS NULL AND NULLIF(_speaker_token, '') IS NULL) THEN
+    RETURN NULL;
+  END IF;
+
+  IF NULLIF(_speaker_token, '') IS NOT NULL THEN
+    SELECT COALESCE(NULLIF(btrim(sp.display_name), ''), sp.email) INTO _name
+      FROM public.webinar_speakers sp
+      JOIN public.webinar_sessions s ON s.id = sp.session_id
+     WHERE sp.invite_token = _speaker_token AND s.event_id = _event_id
+     LIMIT 1;
+    IF FOUND THEN _role := 'speaker'; END IF;
+  END IF;
+
+  IF _role IS NULL AND NULLIF(_join_token, '') IS NOT NULL THEN
+    SELECT COALESCE(NULLIF(btrim(r.name), ''), r.email) INTO _name
+      FROM public.registrations r
+     WHERE r.join_token = _join_token AND r.event_id = _event_id
+       AND r.approval_status = 'approved' AND r.status <> 'cancelled'
+     LIMIT 1;
+    IF FOUND THEN _role := 'attendee'; END IF;
+  END IF;
+
+  IF _role IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT * INTO _session FROM public.webinar_sessions
+   WHERE event_id = _event_id ORDER BY created_at DESC LIMIT 1;
+
+  RETURN jsonb_build_object(
+    'session', CASE WHEN _session.id IS NULL THEN NULL ELSE to_jsonb(_session) END,
+    'visitor_name', _name,
+    'visitor_role', _role);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.webinar_link_access(uuid, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.webinar_link_access(uuid, text, text) TO anon, authenticated, service_role;
+
+-- Make the API see the changes immediately.
+NOTIFY pgrst, 'reload schema';
+-- <<< END SOURCE MIGRATION: 088_audit_followups.sql <<<
 
 
 -- >>> BEGIN ARCHIVED ROOT SCRIPT (disabled): RUN_ME_pending_updates.sql >>>

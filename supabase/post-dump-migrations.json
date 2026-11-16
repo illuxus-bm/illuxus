@@ -1,0 +1,4 @@
+{
+  "_comment": "Migrations applied to production after supabase/prod_schema.sql was dumped, in order. Each is a section of supabase/migrations/000_full_schema.sql. Read by scripts/build-install-sql.mjs (appended to install.sql) and src/test/schema-contract.test.ts. Clear the list after re-dumping prod_schema.sql.",
+  "migrations": ["087_security_hardening.sql", "088_audit_followups.sql"]
+}

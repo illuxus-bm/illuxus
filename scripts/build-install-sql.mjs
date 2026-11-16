@@ -22,6 +22,21 @@ const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n");
 const schema = read("supabase/prod_schema.sql");
 const seed = read("supabase/install/seed.sql");
 
+// Migrations applied to production after prod_schema.sql was dumped
+// (supabase/post-dump-migrations.json). Each is a section of
+// supabase/migrations/000_full_schema.sql, safe to run on a schema that
+// already has it, so the list can stay until the dump is refreshed.
+const POST_DUMP_MIGRATIONS = JSON.parse(read("supabase/post-dump-migrations.json")).migrations;
+const bundle = read("supabase/migrations/000_full_schema.sql");
+const postDump = POST_DUMP_MIGRATIONS.map((name) => {
+  const start = `-- >>> BEGIN SOURCE MIGRATION: ${name} >>>\n`;
+  const end = `-- <<< END SOURCE MIGRATION: ${name} <<<`;
+  const a = bundle.indexOf(start);
+  const b = bundle.indexOf(end, a + start.length);
+  if (a < 0 || b < 0) throw new Error(`Migration section not found: ${name}`);
+  return `-- ── ${name} ──\n` + bundle.slice(a + start.length, b).trim();
+}).join("\n\n");
+
 const count = (re) => (schema.match(re) || []).length;
 const expected = {
   tables: count(/^CREATE TABLE IF NOT EXISTS "public"\./gm),
@@ -206,7 +221,14 @@ ${seed.trim()}
 
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- 6. Check: everything was created
+-- 6. Migrations newer than the schema dump (${POST_DUMP_MIGRATIONS.join(", ")})
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+${postDump}
+
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 7. Check: everything was created
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 -- The schema dump turned notices off; show the result line.
