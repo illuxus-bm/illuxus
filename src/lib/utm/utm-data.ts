@@ -108,10 +108,12 @@ export function fetchEventClicksSince(eventId: string, sinceIso: string): Promis
   return fetchAllPages<UtmClick>((from, to) =>
     supabase
       .from("utm_clicks" as never)
-      .select("utm_source, utm_medium, utm_campaign, utm_content, utm_term, created_at")
+      // The table's timestamp is clicked_at; callers read it as created_at.
+      .select("utm_source, utm_medium, utm_campaign, utm_content, utm_term, created_at:clicked_at")
       .eq("event_id", eventId)
-      .gte("created_at", sinceIso)
-      .order("created_at", { ascending: false })
+      .gte("clicked_at", sinceIso)
+      .order("clicked_at", { ascending: false })
+      .order("id", { ascending: true })
       .range(from, to),
   );
 }

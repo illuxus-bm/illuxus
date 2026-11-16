@@ -42,6 +42,14 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // The session decides which event's registrations count (a join link
+    // for one event must not open another event's webinar).
+    const { data: session } = await supabase
+      .from("webinar_sessions")
+      .select("id, livekit_room, event_id, status, created_by")
+      .eq("id", session_id).maybeSingle();
+    if (!session) return json({ error: "Session not found" }, 404);
+
     let userId: string | null = null;
     let userEmail: string | null = null;
     let displayName: string | null = null;
@@ -90,16 +98,20 @@ Deno.serve(async (req) => {
       const { data: reg } = await supabase
         .from("registrations")
         .select("id, event_id, user_id, active_session_id, name, email")
-        .eq("join_token", join_token).maybeSingle();
+        .eq("join_token", join_token)
+        .eq("event_id", session.event_id)
+        .eq("approval_status", "approved")
+        .neq("status", "cancelled")
+        .maybeSingle();
       if (!reg) return json({ error: "Invalid join link" }, 403);
       // Resolve canonical browser session id (server-side fallback so a cleared
       // localStorage / new device with the same fingerprint isn't self-kicked).
       let resolvedBsid = browser_session_id || crypto.randomUUID();
       if (browser_session_id) {
         const { data: r } = await supabase.rpc("resolve_browser_session", {
-          _join_token: join_token,
-          _candidate_session_id: browser_session_id,
-          _fingerprint: fingerprint || null,
+          _jt: join_token,
+          _csid: browser_session_id,
+          _fp: fingerprint || null,
         });
         if (typeof r === "string") resolvedBsid = r;
       }
@@ -119,11 +131,6 @@ Deno.serve(async (req) => {
 
     if (!userId && !guestIdentity) return json({ error: "Unauthenticated" }, 401);
 
-    const { data: session } = await supabase
-      .from("webinar_sessions")
-      .select("id, livekit_room, event_id, status, created_by")
-      .eq("id", session_id).maybeSingle();
-    if (!session) return json({ error: "Session not found" }, 404);
     if (!(await eventHasFeature(supabase, session.event_id, "webinar"))) {
       return json(featureNotIncluded("webinar", "the webinar studio"), 403);
     }

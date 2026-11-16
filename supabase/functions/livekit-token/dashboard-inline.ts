@@ -10286,6 +10286,8 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL"),
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
     );
+    const { data: session } = await supabase.from("webinar_sessions").select("id, livekit_room, event_id, status, created_by").eq("id", session_id).maybeSingle();
+    if (!session) return json({ error: "Session not found" }, 404);
     let userId = null;
     let userEmail = null;
     let displayName = null;
@@ -10315,14 +10317,14 @@ Deno.serve(async (req) => {
       }
     }
     if (join_token) {
-      const { data: reg } = await supabase.from("registrations").select("id, event_id, user_id, active_session_id, name, email").eq("join_token", join_token).maybeSingle();
+      const { data: reg } = await supabase.from("registrations").select("id, event_id, user_id, active_session_id, name, email").eq("join_token", join_token).eq("event_id", session.event_id).eq("approval_status", "approved").neq("status", "cancelled").maybeSingle();
       if (!reg) return json({ error: "Invalid join link" }, 403);
       let resolvedBsid = browser_session_id || crypto.randomUUID();
       if (browser_session_id) {
         const { data: r10 } = await supabase.rpc("resolve_browser_session", {
-          _join_token: join_token,
-          _candidate_session_id: browser_session_id,
-          _fingerprint: fingerprint || null
+          _jt: join_token,
+          _csid: browser_session_id,
+          _fp: fingerprint || null
         });
         if (typeof r10 === "string") resolvedBsid = r10;
       }
@@ -10338,8 +10340,6 @@ Deno.serve(async (req) => {
       }
     }
     if (!userId && !guestIdentity) return json({ error: "Unauthenticated" }, 401);
-    const { data: session } = await supabase.from("webinar_sessions").select("id, livekit_room, event_id, status, created_by").eq("id", session_id).maybeSingle();
-    if (!session) return json({ error: "Session not found" }, 404);
     if (!await eventHasFeature(supabase, session.event_id, "webinar")) {
       return json(featureNotIncluded("webinar", "the webinar studio"), 403);
     }

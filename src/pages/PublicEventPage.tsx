@@ -135,7 +135,7 @@ const PublicEventPage = () => {
       supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eid).order("display_order"),
       supabase.from("sessions").select("*").eq("event_id", eid).order("start_time"),
       fetchEventSponsorLinks(eid),
-      supabaseRpc("get_event_attendees_public", { _event_id: eid, _limit: 12 }),
+      supabaseRpc("get_event_attendees_public", { _eid: eid, _limit: 12 }),
     ]);
 
     if (evRes.data) setEvent(evRes.data as never);
@@ -202,7 +202,7 @@ const PublicEventPage = () => {
 
     const orgId = (evRes.data as { org_id?: string | null } | null)?.org_id;
     if (orgId) {
-      const { data: orgRows } = await supabaseRpc("get_public_org_brief", { _org_id: orgId });
+      const { data: orgRows } = await supabaseRpc("get_public_org_brief", { _oid: orgId });
       const orgRow = Array.isArray(orgRows) ? orgRows[0] : orgRows;
       if (orgRow) {
         setOrg(orgRow as { name: string; logo_url: string | null; slug: string; subdomain?: string | null });

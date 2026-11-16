@@ -12,7 +12,7 @@ export function AnalyticsPanel({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     let active = true;
     setLoading(true);
-    supabaseRpc("get_webinar_analytics", { _session_id: sessionId } as any)
+    supabaseRpc("get_webinar_analytics", { _sid: sessionId })
       .then(({ data, error }) => { if (active) { setData(error ? null : data); setLoading(false); } });
     return () => { active = false; };
   }, [sessionId]);

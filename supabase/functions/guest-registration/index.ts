@@ -952,7 +952,11 @@ if (runtime?.serve) {
       const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
       if (!body || typeof body !== "object") return json({ status: 400, body: { ok: false, code: "invalid", error: "Invalid request." } });
 
-      const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("cf-connecting-ip") || "unknown";
+      // cf-connecting-ip is set by Cloudflare in front of the edge and can't be
+      // written by the caller; the first x-forwarded-for entry can be, so it is
+      // only a fallback. (Trusting it first let one client rotate "addresses"
+      // past the per-IP limits.)
+      const ip = req.headers.get("cf-connecting-ip")?.trim() || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
       const db = createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false, autoRefreshToken: false } });
       const handle = createHandler({ store: supabaseStore(db), sendEmail, now: () => new Date(), newToken: randomToken, origin: siteOrigin() });
 
