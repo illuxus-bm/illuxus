@@ -5649,7 +5649,7 @@ Deno.serve(async (req) => {
       });
     }
     const now = (/* @__PURE__ */ new Date()).toISOString();
-    let query = supabase.from("events").select("id, slug, title, description, date, end_date, location, venue, image_url, banner_landscape_url, price, status").eq("org_id", org.id).eq("status", "published").limit(limit);
+    let query = supabase.from("events").select("id, slug, title, description, date, end_date, location, venue, event_format, image_url, banner_landscape_url, price, status").eq("org_id", org.id).eq("status", "published").limit(limit);
     if (filter === "past") {
       query = query.lt("date", now).order("date", { ascending: false });
     } else if (filter === "all") {
