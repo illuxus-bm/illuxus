@@ -28599,6 +28599,167 @@ NOTIFY pgrst, 'reload schema';
 -- <<< END SOURCE MIGRATION: 088_audit_followups.sql <<<
 
 
+-- >>> BEGIN SOURCE MIGRATION: 089_advisor_fixes.sql >>>
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 089_advisor_fixes.sql
+--
+-- Fixes from Supabase's security and performance advisors (18 November
+-- 2026). Safe to run more than once; changes no behaviour an app user sees.
+--
+--   1. community_badges (the badge catalogue) had row security off. It is
+--      read-only to the API already; RLS is now on, with everyone allowed
+--      to read it.
+--   2. Functions with no fixed search_path get `public, extensions,
+--      pg_temp`, so a caller's search_path can't redirect what they call.
+--   3. SECURITY DEFINER trigger functions can no longer be called directly
+--      by API roles. Triggers still fire: Postgres checks EXECUTE only when
+--      a trigger is created, never when it fires.
+--   4. admin_* functions can no longer be called anonymously. Each one
+--      already refuses anyone who isn't a platform admin; signed-in users
+--      keep EXECUTE so admins can call them.
+--   5. Row security policies call auth.uid() / auth.jwt() / auth.role()
+--      once per query instead of once per row: each call is wrapped in a
+--      sub-select, which Postgres evaluates once. Same result, far less
+--      work on large tables.
+--   6. Every foreign key gets a covering index, so joins and the cascades
+--      that run when a parent row is deleted don't scan the whole table.
+--
+-- Left as they are, on purpose:
+--   - speakers_public, sponsors_public, profiles_public stay SECURITY
+--     DEFINER views: they exist to show the public, non-contact columns of
+--     tables the public can't read, and only for published events.
+--   - pg_trgm and pg_net stay in public: pg_net can't be moved, and moving
+--     pg_trgm would break the trigram indexes and searches that name it.
+--   - Other SECURITY DEFINER functions anon can execute are public RPCs or
+--     helpers that row security policies call for anonymous visitors.
+--   - Overlapping permissive policies and unused indexes: merging policies
+--     or dropping indexes changes behaviour and needs case-by-case review.
+--
+-- Tests: supabase/tests/089_advisor_fixes.test.mjs
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- 1. The badge catalogue: readable by everyone, writable by nobody via the API.
+ALTER TABLE public.community_badges ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "community_badges_read" ON public.community_badges;
+CREATE POLICY "community_badges_read" ON public.community_badges
+  FOR SELECT TO anon, authenticated USING (true);
+
+-- 2. A fixed search_path on every function of ours that lacks one.
+DO $$
+DECLARE f record;
+BEGIN
+  FOR f IN
+    SELECT p.oid::regprocedure AS sig
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prokind = 'f'
+      AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
+      AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) c WHERE c LIKE 'search_path=%')
+  LOOP
+    EXECUTE format('ALTER FUNCTION %s SET search_path = public, extensions, pg_temp', f.sig);
+  END LOOP;
+END $$;
+
+-- 3. SECURITY DEFINER trigger functions: not callable through the API.
+DO $$
+DECLARE f record;
+BEGIN
+  FOR f IN
+    SELECT p.oid::regprocedure AS sig
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef
+      AND p.prorettype = 'trigger'::regtype
+  LOOP
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, authenticated', f.sig);
+  END LOOP;
+END $$;
+
+-- 4. admin_* functions: signed-in callers only (each checks for an admin).
+DO $$
+DECLARE f record;
+BEGIN
+  FOR f IN
+    SELECT p.oid::regprocedure AS sig
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef
+      AND p.proname LIKE 'admin\_%'
+      AND has_function_privilege('anon', p.oid, 'EXECUTE')
+      AND p.prosrc ~ 'has_role'
+  LOOP
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon', f.sig);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated, service_role', f.sig);
+  END LOOP;
+END $$;
+
+-- 5. auth.*() evaluated once per query in row security policies.
+--    `( SELECT auth.uid() AS uid)` is how Postgres prints an already
+--    wrapped call, so the look-behind leaves those alone.
+DO $$
+DECLARE
+  p record;
+  pat constant text := '(?<!SELECT )auth\.(uid|jwt|role|email)\(\)';
+  rep constant text := '( SELECT auth.\1() AS \1)';
+  new_qual text;
+  new_check text;
+  stmt text;
+BEGIN
+  FOR p IN
+    SELECT schemaname, tablename, policyname, qual, with_check
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND (qual ~ pat OR with_check ~ pat)
+  LOOP
+    new_qual := regexp_replace(p.qual, pat, rep, 'g');
+    new_check := regexp_replace(p.with_check, pat, rep, 'g');
+    stmt := format('ALTER POLICY %I ON %I.%I', p.policyname, p.schemaname, p.tablename);
+    IF p.qual IS NOT NULL THEN stmt := stmt || format(' USING (%s)', new_qual); END IF;
+    IF p.with_check IS NOT NULL THEN stmt := stmt || format(' WITH CHECK (%s)', new_check); END IF;
+    EXECUTE stmt;
+  END LOOP;
+END $$;
+
+-- 6. A covering index for every foreign key in public that lacks one.
+DO $$
+DECLARE
+  c record;
+  idx text;
+BEGIN
+  FOR c IN
+    SELECT con.conrelid::regclass AS tbl,
+           cls.relname AS tbl_name,
+           con.conname,
+           (SELECT string_agg(format('%I', a.attname), ', ' ORDER BY k.ord)
+              FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+              JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum) AS cols
+    FROM pg_constraint con
+    JOIN pg_class cls ON cls.oid = con.conrelid
+    JOIN pg_namespace n ON n.oid = cls.relnamespace
+    WHERE con.contype = 'f'
+      AND n.nspname = 'public'
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_index i
+        WHERE i.indrelid = con.conrelid
+          AND (string_to_array(i.indkey::text, ' ')::int2[])[1:cardinality(con.conkey)] @> con.conkey
+          AND (string_to_array(i.indkey::text, ' ')::int2[])[1:cardinality(con.conkey)] <@ con.conkey
+      )
+  LOOP
+    -- <constraint>_idx, shortened with a hash if over 63 bytes.
+    idx := c.conname || '_idx';
+    IF length(idx) > 63 THEN idx := left(c.conname, 50) || '_' || left(md5(c.conname), 8) || '_idx'; END IF;
+    EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %s (%s)', idx, c.tbl, c.cols);
+  END LOOP;
+END $$;
+
+-- Make the API see the changes immediately.
+NOTIFY pgrst, 'reload schema';
+-- <<< END SOURCE MIGRATION: 089_advisor_fixes.sql <<<
+
+
 -- >>> BEGIN ARCHIVED ROOT SCRIPT (disabled): RUN_ME_pending_updates.sql >>>
 -- The following source is commented out intentionally. Review and run
 -- it separately only if its original one-off/manual purpose is needed.
