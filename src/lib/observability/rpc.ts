@@ -17,6 +17,7 @@
 // also wrap the inner promise via PerformPromiseThen on its return.
 
 import { supabase } from '@/integrations/supabase/client';
+import { ApiError, apiEnabled, apiFetch } from '@/lib/data/api-client';
 import { runWithCorrelationId } from './correlation';
 import { logger } from './logger';
 import { isDev as readIsDev } from './env-mode';
@@ -108,6 +109,31 @@ function newCorrelationId(): string {
  * `{ data, error, correlationId }` shape.
  */
 function postRpc<T>(
+  name: string,
+  params: Record<string, unknown>,
+  options: { headers: Record<string, string>; signal?: AbortSignal },
+): Promise<RpcResult<T>> {
+  if (!apiEnabled()) return postRpcSupabase<T>(name, params, options);
+  // The Prisma API (docs/PRISMA_MIGRATION.md) calls the same function as the
+  // caller and answers in the same { data, error } shape. If it's down, the
+  // call goes to Supabase as before, so an API outage never breaks a screen.
+  return apiFetch<{ data: T }>(`/rpc/${encodeURIComponent(name)}`, {
+    method: 'POST',
+    headers: options.headers,
+    body: JSON.stringify(params),
+    signal: options.signal,
+  }).then(
+    (body): RpcResult<T> => ({ data: body.data, error: null, status: 200 }),
+    (e: unknown): RpcResult<T> | Promise<RpcResult<T>> => {
+      if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401) {
+        return { data: null, error: e.code ? { message: e.message, code: e.code } : { message: e.message }, status: e.status };
+      }
+      return postRpcSupabase<T>(name, params, options);
+    },
+  );
+}
+
+function postRpcSupabase<T>(
   name: string,
   params: Record<string, unknown>,
   options: { headers: Record<string, string>; signal?: AbortSignal },

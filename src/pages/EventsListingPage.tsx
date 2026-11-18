@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { apiFetch, viaApi } from "@/lib/data/api-client";
 import SiteHeader from "@/components/SiteHeader";
 import RouteSeo from "@/components/RouteSeo";
 import { Input } from "@/components/ui/input";
@@ -74,16 +75,25 @@ export default function EventsListingPage() {
         ? `end_date.lt.${now},and(end_date.is.null,date.lt.${now})`
         // Upcoming + ongoing: end_date >= now, OR no end_date AND start date >= now.
         : `end_date.gte.${now},and(end_date.is.null,date.gte.${now})`;
-      const { data } = await supabase
-        .from("events")
-        .select("id, slug, title, description, date, end_date, location, venue, capacity, tickets_sold, price, currency, timezone, status, image_url, banner_landscape_url, organizations(name, slug, subdomain, logo_url)")
-        .eq("status", "published")
-        .or(dateClause)
-        // Past events sort newest-first; upcoming sort soonest-first.
-        .order("date", { ascending: !isPast })
-        .limit(200);
+      // The Prisma API when it's switched on (VITE_DATA_BACKEND=api), with
+      // this Supabase query as its fallback; see src/lib/data/api-client.ts.
+      const legacy = async () => {
+        const { data } = await supabase
+          .from("events")
+          .select("id, slug, title, description, date, end_date, location, venue, capacity, tickets_sold, price, currency, timezone, status, image_url, banner_landscape_url, organizations(name, slug, subdomain, logo_url)")
+          .eq("status", "published")
+          .or(dateClause)
+          // Past events sort newest-first; upcoming sort soonest-first.
+          .order("date", { ascending: !isPast })
+          .limit(200);
+        return (data || []) as unknown as EventRow[];
+      };
+      const rows = await viaApi(
+        async () => (await apiFetch<{ data: EventRow[] }>(`/events?when=${isPast ? "past" : "upcoming"}&limit=200`)).data,
+        legacy,
+      ).catch(() => [] as EventRow[]);
       if (cancel) return;
-      setEvents((data || []) as unknown as EventRow[]);
+      setEvents(rows);
       setLoading(false);
     })();
     return () => { cancel = true; };

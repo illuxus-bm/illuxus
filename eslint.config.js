@@ -19,6 +19,7 @@ export default tseslint.config(
       "supabase/functions/_vendor/**",
       "android/**",
       "ios/**",
+      "server/db/generated/**",
     ],
   },
   {
@@ -38,5 +39,10 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": "off",
       "no-console": "error",
     },
+  },
+  // The Prisma API runs on Node (Vercel functions), never in a browser.
+  {
+    files: ["server/**/*.ts", "api/v1/**/*.ts", "prisma.config.ts", "vitest.server.config.ts"],
+    languageOptions: { globals: { ...globals.node } },
   },
 );
