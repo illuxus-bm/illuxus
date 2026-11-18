@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { format, isFuture, isToday, isTomorrow } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import SiteHeader from "@/components/SiteHeader";
 import { PullToRefresh } from "@/components/native/PullToRefresh";
 import RouteSeo from "@/components/RouteSeo";
@@ -29,7 +30,7 @@ export default function DiscoverFeed() {
     // we filter client-side using end_date when available, or date otherwise.
     // This is more reliable than complex .or() filters and lets us show
     // ongoing/today's events too.
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("events")
       .select("id, slug, title, description, date, end_date, venue, location, image_url, banner_landscape_url, price, organizations(name, slug, subdomain, logo_url)")
       .eq("status", "published")

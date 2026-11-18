@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import type { Community, CommunityMember } from "@/lib/community/types";
 import { useAuth } from "@/contexts/AuthContext";
@@ -15,7 +16,7 @@ export function useCommunityBySlug(slug: string | undefined) {
     queryKey: ["community", "by-slug", slug, user?.id ?? null],
     enabled: !!slug,
     queryFn: async () => {
-      const { data: community, error } = await supabase
+      const { data: community, error } = await db
         .from("communities" as never)
         .select("*")
         .eq("slug", slug as string)
@@ -25,7 +26,7 @@ export function useCommunityBySlug(slug: string | undefined) {
 
       let membership: CommunityMember | null = null;
       if (user?.id) {
-        const { data } = await supabase
+        const { data } = await db
           .from("community_members" as never)
           .select("*")
           .eq("community_id", (community as Community).id)
@@ -35,7 +36,7 @@ export function useCommunityBySlug(slug: string | undefined) {
       }
       let isAttendee = false;
       if (user?.id && (community as Community).kind === 'event') {
-        const { data: reg } = await supabase
+        const { data: reg } = await db
           .from("registrations" as never)
           .select("id")
           .eq("event_id", (community as Community).event_id)
@@ -61,7 +62,7 @@ export function useMyCommunities() {
     queryKey: ["community", "mine", user?.id ?? null],
     enabled: !!user?.id,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("community_members" as never)
         .select("role, status, community:communities(*)")
         .eq("user_id", user!.id)
@@ -80,7 +81,7 @@ export function usePublicCommunities() {
   return useQuery({
     queryKey: ["community", "public-events"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("communities" as never)
         .select("*")
         .eq("kind", "event")
@@ -101,7 +102,7 @@ export function useChildCommunities(parentId: string | null) {
     queryKey: ["community", "children", parentId],
     enabled: !!parentId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("communities" as never)
         .select("*")
         .eq("parent_id", parentId)
@@ -125,7 +126,7 @@ export function useEventCommunity(eventId: string | undefined) {
       if (error) throw error;
       const id = (data as string | null) ?? null;
       if (!id) return null;
-      const { data: comm } = await supabase
+      const { data: comm } = await db
         .from("communities" as never)
         .select("*")
         .eq("id", id)

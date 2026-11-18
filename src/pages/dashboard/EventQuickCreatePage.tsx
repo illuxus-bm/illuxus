@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
 import { DashboardLayout } from "@/components/DashboardLayout";
@@ -75,7 +76,7 @@ export default function EventQuickCreatePage() {
     if (!org?.id) return;
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
+      const { data } = await db
         .from("events")
         .select("id, title, date")
         .eq("org_id", org.id)
@@ -125,14 +126,14 @@ export default function EventQuickCreatePage() {
       create_community: createCommunity,
       community_category: communityCategory,
     };
-    const { data, error } = await supabase.from("events").insert(payload as never).select("id, slug").single();
+    const { data, error } = await db.from("events").insert(payload as never).select("id, slug").single();
     setSaving(false);
     if (error) {
       toast({ title: "Could not create event", description: friendlyError(error), variant: "destructive" });
       return;
     }
     if (eventFormat !== "physical" && virtualProvider === "builtin" && hasFeature("webinar")) {
-      await supabase.functions.invoke("livekit-room-create", {
+      await db.functions.invoke("livekit-room-create", {
         body: { event_id: data.id, record_enabled: false },
       }).catch(() => {});
     }

@@ -8,6 +8,14 @@ import { z } from "zod";
 const schema = z.object({
   /** Postgres connection string: AWS RDS, Supabase, or local. */
   DATABASE_URL: z.string().url(),
+  /**
+   * Optional: a login that owns the tables, for server-side work that must
+   * bypass row security (the ported edge functions' service-role client).
+   * On Supabase, leave unset: service_role already bypasses row security.
+   * On AWS RDS, service_role can't (BYPASSRLS needs a superuser), so set
+   * this to the schema owner's connection string.
+   */
+  DATABASE_SERVICE_URL: z.string().url().optional(),
   /** Max connections per function instance. Serverless instances are many and short-lived: keep it small. */
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(50).default(3),
   /** PEM CA bundle for TLS to the database (AWS RDS: the regional bundle). Optional. */

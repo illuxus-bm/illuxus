@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -113,7 +114,7 @@ const OnboardingPage = () => {
     const err = validateSubdomain(subdomain);
     if (err) { setSubdomainError(err); return; }
     setCheckingSub(true);
-    const { data } = await supabase
+    const { data } = await db
       .from("organizations")
       .select("id")
       .eq("subdomain", subdomain)
@@ -151,7 +152,7 @@ const OnboardingPage = () => {
 
     if (selectedPlan !== "free" && user.email) {
       const requested = PLANS.find((p) => p.key === selectedPlan)?.name ?? selectedPlan;
-      const { error: ticketErr } = await supabase.functions.invoke("submit-support-ticket", {
+      const { error: ticketErr } = await db.functions.invoke("submit-support-ticket", {
         body: buildUpgradeRequest({
           name: (user.user_metadata?.full_name as string | undefined) ?? user.email,
           email: user.email,
@@ -168,7 +169,7 @@ const OnboardingPage = () => {
     }
 
     // Mark onboarding done
-    await supabase
+    await db
       .from("profiles")
       .update({ onboarding_completed: true })
       .eq("user_id", user.id);

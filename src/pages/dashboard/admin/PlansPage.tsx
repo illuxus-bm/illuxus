@@ -26,6 +26,7 @@ import {
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
+import { db as dataDb } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { PLANS_QUERY_KEY } from "@/hooks/usePlanFeatures";
 import {
@@ -40,7 +41,7 @@ const LIMITS: Array<{ key: keyof PlanLimits; label: string }> = [
   { key: "max_team_members", label: "Team members" },
 ];
 
-const db = supabase as unknown as {
+const db = { from: dataDb.from } as unknown as {
   from: (t: string) => {
     select: (c: string) => {
       order: (c: string) => PromiseLike<{ data: Record<string, unknown>[] | null; error: { message: string } | null }>;
@@ -64,7 +65,7 @@ async function loadPlans(): Promise<{ plans: Plan[]; missing: boolean; pricingMi
 }
 
 async function loadPlanCounts(): Promise<Record<string, number>> {
-  const { data } = await supabase.from("organizations").select("plan");
+  const { data } = await dataDb.from("organizations").select("plan");
   const counts: Record<string, number> = {};
   for (const row of (data ?? []) as Array<{ plan: string | null }>) {
     const k = row.plan || "free";

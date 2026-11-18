@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import type { Tables } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
@@ -93,7 +94,7 @@ export default function EventLivePage() {
     if (!eventId) return;
     const hasLink = !!(joinToken || speakerToken);
     const load = async () => {
-      const { data } = await supabase.from("webinar_sessions").select("*").eq("event_id", eventId)
+      const { data } = await db.from("webinar_sessions").select("*").eq("event_id", eventId)
         .order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (data || !hasLink) { setSession(data); return; }
       // Guests and invited speakers who aren't signed in can't read the table;
@@ -120,7 +121,7 @@ export default function EventLivePage() {
   useEffect(() => {
     if (!eventId) return;
     (async () => {
-      const { data } = await supabase
+      const { data } = await db
         .from("events")
         .select("title, banner_landscape_url, video_provider")
         .eq("id", eventId)
@@ -144,7 +145,7 @@ export default function EventLivePage() {
         return;
       }
       if (speakerToken && session?.id) {
-        const { data: sp } = await supabase
+        const { data: sp } = await db
           .from("webinar_speakers")
           .select("display_name, email")
           .eq("session_id", session.id)
@@ -158,7 +159,7 @@ export default function EventLivePage() {
         }
       }
       if (joinToken) {
-        const { data: reg } = await supabase
+        const { data: reg } = await db
           .from("registrations").select("name, email")
           .eq("join_token", joinToken).maybeSingle();
         if (reg) {
@@ -168,7 +169,7 @@ export default function EventLivePage() {
         }
       }
       if (user) {
-        const { data: prof } = await supabase
+        const { data: prof } = await db
           .from("profiles")
           .select("display_name, first_name, last_name, username")
           .eq("user_id", user.id).maybeSingle();
@@ -180,7 +181,7 @@ export default function EventLivePage() {
         // Match by speakers.user_id (preferred) or by email fallback so we
         // catch speakers added before the user_id linking trigger ran.
         const userEmailLower = (user.email || "").toLowerCase();
-        const { data: speakerRows } = await supabase
+        const { data: speakerRows } = await db
           .from("speakers")
           .select("id, user_id, email, event_speakers!inner(event_id)")
           .or(`user_id.eq.${user.id}${userEmailLower ? `,email.eq.${userEmailLower}` : ""}`);
@@ -200,7 +201,7 @@ export default function EventLivePage() {
 
   const requestToken = async () => {
     setError(null);
-    const { data, error } = await supabase.functions.invoke("livekit-token", {
+    const { data, error } = await db.functions.invoke("livekit-token", {
       body: { session_id: session.id, speaker_token: speakerToken || undefined, join_token: joinToken || undefined, browser_session_id: browserSessionId, fingerprint },
     });
     if (error || !data?.token) { setError(error?.message || data?.error || "Failed"); return null; }

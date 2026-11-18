@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,7 +51,7 @@ export default function GuestListPage() {
     let cancel = false;
     (async () => {
       const isUuidId = isUuid(id);
-      const { data: ev } = await supabase
+      const { data: ev } = await db
         .from("events")
         .select("id, title, slug")
         .eq(isUuidId ? "id" : "slug", id)
@@ -62,7 +63,7 @@ export default function GuestListPage() {
       let all: Reg[] = [];
       try {
         all = await fetchAllRows<Reg>((from, to) =>
-          supabase
+          db
             .from("registrations")
             .select(REG_COLUMNS)
             .eq("event_id", ev.id)
@@ -101,13 +102,13 @@ export default function GuestListPage() {
   }), [rows]);
 
   const setApproval = async (reg: Reg, next: string) => {
-    const { error } = await supabase.from("registrations").update({ approval_status: next }).eq("id", reg.id);
+    const { error } = await db.from("registrations").update({ approval_status: next }).eq("id", reg.id);
     if (error) { toast({ title: "Error", description: friendlyError(error), variant: "destructive" }); return; }
     setRows((rs) => rs.map((r) => r.id === reg.id ? { ...r, approval_status: next } : r));
     // An approved guest gets their ticket, as from the event's Registrations
     // tab (RegistrationsSection.updateApprovalStatus).
     if (next !== "approved") return;
-    const { data, error: emailErr } = await supabase.functions.invoke("send-ticket-email", { body: { registration_id: reg.id } });
+    const { data, error: emailErr } = await db.functions.invoke("send-ticket-email", { body: { registration_id: reg.id } });
     const result = data as { error?: string; delivered?: boolean; note?: string } | null;
     if (emailErr || result?.error) {
       toast({ title: "Approved, but the ticket email wasn't sent", description: result?.error ?? emailErr?.message, variant: "destructive" });
@@ -132,7 +133,7 @@ export default function GuestListPage() {
       toast({ title: "Tracking is closed", description: "This event ended more than 2 hours ago.", variant: "destructive" });
       return;
     }
-    const { data: fresh } = await supabase.from("registrations").select(REG_COLUMNS).eq("id", reg.id).maybeSingle();
+    const { data: fresh } = await db.from("registrations").select(REG_COLUMNS).eq("id", reg.id).maybeSingle();
     if (fresh) setRows((rs) => rs.map((r) => (r.id === reg.id ? (fresh as unknown as Reg) : r)));
     toast({ title: result.state === "inside" ? `${reg.name} checked in` : `${reg.name} checked out` });
   };

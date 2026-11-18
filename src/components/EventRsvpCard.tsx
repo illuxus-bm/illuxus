@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ConsentCheckbox, CONSENT_REQUIRED_MESSAGE, LegalLink } from "@/components/ConsentCheckbox";
 import { SponsorShareChoice } from "@/components/sponsor-data/SponsorShareChoice";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -116,7 +117,7 @@ export default function EventRsvpCard({
     (async () => {
       // Check by user_id first, then fall back to email match for organizer-created registrations
       // that may not yet be linked (e.g. edge function failed to set user_id).
-      let { data } = await supabase
+      let { data } = await db
         .from("registrations")
         .select("id, approval_status, status, join_token, user_id")
         .eq("event_id", event.id)
@@ -124,7 +125,7 @@ export default function EventRsvpCard({
         .maybeSingle();
 
       if (!data && user.email) {
-        const { data: byEmail } = await supabase
+        const { data: byEmail } = await db
           .from("registrations")
           .select("id, approval_status, status, join_token, user_id")
           .eq("event_id", event.id)
@@ -133,7 +134,7 @@ export default function EventRsvpCard({
           .maybeSingle();
         if (byEmail) {
           // Link this orphan registration to the current user
-          await supabase.from("registrations").update({ user_id: user.id }).eq("id", byEmail.id);
+          await db.from("registrations").update({ user_id: user.id }).eq("id", byEmail.id);
           data = byEmail;
         }
       }
@@ -152,7 +153,7 @@ export default function EventRsvpCard({
   useEffect(() => {
     if (event.event_format === "physical") return;
     let cancelled = false;
-    supabase.from("webinar_sessions").select("id").eq("event_id", event.id).limit(1).maybeSingle()
+    db.from("webinar_sessions").select("id").eq("event_id", event.id).limit(1).maybeSingle()
       .then(({ data }) => { if (!cancelled) setHasWebinar(!!data); });
     return () => { cancelled = true; };
   }, [event.id, event.event_format]);
@@ -168,7 +169,7 @@ export default function EventRsvpCard({
         _event_id: event.id,
       } as never);
       if (cancelled || !cid) return;
-      const { data: comm } = await supabase
+      const { data: comm } = await db
         .from("communities" as never)
         .select("slug")
         .eq("id", cid as string)
@@ -186,7 +187,7 @@ export default function EventRsvpCard({
   useEffect(() => {
     let cancelled = false;
     const loadCount = async () => {
-      const { count } = await supabase
+      const { count } = await db
         .from("registrations")
         .select("id", { count: "exact", head: true })
         .eq("event_id", event.id)
@@ -253,7 +254,7 @@ export default function EventRsvpCard({
         : "approved";
     // The DB trigger has the final say on approval_status (full -> waitlisted,
     // paid or requires_approval -> pending). We still send our best guess.
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("registrations")
       .insert({
         event_id: event.id,
@@ -322,7 +323,7 @@ export default function EventRsvpCard({
       // every error. Reads `error.context` (the response body) on non-2xx
       // so the real backend error is shown, not the SDK's generic message.
       if (finalState !== "waitlisted") {
-        void supabase.functions
+        void db.functions
           .invoke("send-ticket-email", { body: { registration_id: data.id } })
           .then(async ({ data: emailData, error: emailErr }) => {
             type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string; step?: string };
@@ -363,7 +364,7 @@ export default function EventRsvpCard({
     if (!registrationId || !user) return;
     setSubmitting(true);
     // Use direct DELETE — the existing RLS policy "Attendee cancel own" lets the user delete their own row
-    const { error } = await supabase
+    const { error } = await db
       .from("registrations")
       .delete()
       .eq("id", registrationId)

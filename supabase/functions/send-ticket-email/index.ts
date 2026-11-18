@@ -282,7 +282,7 @@ Deno.serve(async (req) => {
       organizations?: OrgRow;
     } | null;
 
-    const ev = reg.events as EventRow;
+    const ev = reg.events as unknown as EventRow;
     const org = ev?.organizations as OrgRow;
     const orgName = org?.name || "The organising team";
     const orgLogo = org?.logo_url || null;

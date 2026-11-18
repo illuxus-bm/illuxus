@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, Suspense, lazy } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useAppBack } from "@/lib/app-back";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import type { Tables } from "@/integrations/supabase/types";
 import {
@@ -140,8 +141,8 @@ const EventDetailPage = () => {
       // Support both UUID and slug in the route param
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
       const lookup = isUuid
-        ? await supabase.from("events").select("*").eq("id", id).single()
-        : await supabase.from("events").select("*").eq("slug", id).single();
+        ? await db.from("events").select("*").eq("id", id).single()
+        : await db.from("events").select("*").eq("slug", id).single();
       const ev = lookup.data;
       if (!ev) {
         setLoading(false);
@@ -149,10 +150,10 @@ const EventDetailPage = () => {
       }
       const eventId = ev.id;
       const [regRes, speakerRes, sessionRes, sponsorRes] = await Promise.all([
-        supabase.from("registrations").select("*").eq("event_id", eventId),
-        supabase.from("event_speakers").select("id", { count: "exact", head: true }).eq("event_id", eventId),
-        supabase.from("sessions").select("id", { count: "exact", head: true }).eq("event_id", eventId),
-        supabase.from("event_sponsors").select("id", { count: "exact", head: true }).eq("event_id", eventId),
+        db.from("registrations").select("*").eq("event_id", eventId),
+        db.from("event_speakers").select("id", { count: "exact", head: true }).eq("event_id", eventId),
+        db.from("sessions").select("id", { count: "exact", head: true }).eq("event_id", eventId),
+        db.from("event_sponsors").select("id", { count: "exact", head: true }).eq("event_id", eventId),
       ]);
       setEvent(ev);
       setRegistrations(regRes.data || []);
@@ -236,7 +237,7 @@ const EventDetailPage = () => {
     }
     setSlugChecking(true);
     const handle = setTimeout(async () => {
-      const { data } = await supabase
+      const { data } = await db
         .from("events")
         .select("id")
         .eq("slug", cleaned)
@@ -271,7 +272,7 @@ const EventDetailPage = () => {
       return;
     }
     // Pre-flight uniqueness check (DB trigger would otherwise auto-suffix silently)
-    const { data: clash } = await supabase
+    const { data: clash } = await db
       .from("events")
       .select("id")
       .eq("slug", cleaned)
@@ -282,7 +283,7 @@ const EventDetailPage = () => {
       return;
     }
     setSavingSlug(true);
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("events")
       .update({ slug: cleaned })
       .eq("id", event.id)
@@ -325,7 +326,7 @@ const EventDetailPage = () => {
     const isLive = event.status === "published";
     const nextStatus = isLive ? "draft" : "published";
     setPublishing(true);
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("events")
       .update({ status: nextStatus })
       .eq("id", event.id)
@@ -354,7 +355,7 @@ const EventDetailPage = () => {
   const republishLive = async () => {
     if (!event || publishing) return;
     setPublishing(true);
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("events")
       .update({ updated_at: new Date().toISOString() })
       .eq("id", event.id)
@@ -453,7 +454,7 @@ const EventDetailPage = () => {
       // Resolve this event's community and jump to its feed.
       const { data: cid } = await supabaseRpc("community_resolve_event" as never, { _event_id: event.id } as never);
       if (cid) {
-        const { data: comm } = await supabase.from("communities" as never).select("slug").eq("id", cid as string).maybeSingle();
+        const { data: comm } = await db.from("communities" as never).select("slug").eq("id", cid as string).maybeSingle();
         const slug = (comm as { slug?: string } | null)?.slug;
         if (slug) { navigate(`/community/${slug}/feed`); return; }
       }
@@ -896,7 +897,7 @@ const EventDetailPage = () => {
               <EventSettingsSection
                 eventId={event.id}
                 onSaved={async () => {
-                  const { data } = await supabase.from("events").select("*").eq("id", event.id).single();
+                  const { data } = await db.from("events").select("*").eq("id", event.id).single();
                   if (data) setEvent(data);
                 }}
               />

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -42,7 +43,7 @@ const MyTicketsPage = () => {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("registrations")
         .select("id, event_id, ticket_type, status, amount_paid, checked_in, created_at, events:events(id,title,slug,date,location,venue,image_url,banner_landscape_url,timezone,org_id)")
         .eq("user_id", user.id)

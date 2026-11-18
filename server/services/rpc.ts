@@ -105,12 +105,12 @@ export async function callFunction(tx: Tx, name: string, params: Record<string, 
   }
   if (fn.returnsSet) {
     const rows = await tx.$queryRawUnsafe<{ result: unknown }[]>(
-      `SELECT coalesce(jsonb_agg(to_jsonb(r)), '[]'::jsonb) AS result FROM ${call} AS r`,
+      `SELECT coalesce(json_agg(r), '[]'::json) AS result FROM ${call} AS r`,
       ...values,
     );
     return rows[0]?.result ?? [];
   }
-  const rows = await tx.$queryRawUnsafe<{ result: unknown }[]>(`SELECT to_jsonb(${call}) AS result`, ...values);
+  const rows = await tx.$queryRawUnsafe<{ result: unknown }[]>(`SELECT to_json(${call}) AS result`, ...values);
   return rows[0]?.result ?? null;
 }
 

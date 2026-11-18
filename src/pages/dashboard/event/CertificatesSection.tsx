@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Award, FileCheck2, LayoutTemplate, Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
 import { cn } from "@/lib/utils";
@@ -56,11 +57,11 @@ export default function CertificatesSection({ eventId }: { eventId: string }) {
     setLoading(true);
     setLoadError(null);
     try {
-      const { data: ev, error } = await supabase.from("events").select("id, title, org_id, date, end_date, timezone, venue, location, user_id").eq("id", eventId).single();
+      const { data: ev, error } = await db.from("events").select("id, title, org_id, date, end_date, timezone, venue, location, user_id").eq("id", eventId).single();
       if (error || !ev) throw new Error(error?.message ?? "Event not found");
       let orgName = "";
       if (ev.org_id) {
-        const { data: org } = await supabase.from("organizations").select("name").eq("id", ev.org_id).maybeSingle();
+        const { data: org } = await db.from("organizations").select("name").eq("id", ev.org_id).maybeSingle();
         orgName = org?.name ?? "";
       }
       const ctx = { id: ev.id, title: ev.title, org_id: ev.org_id, org_name: orgName, date: ev.date, end_date: ev.end_date, timezone: ev.timezone, venue: ev.venue, location: ev.location, user_id: ev.user_id };

@@ -7,7 +7,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, prisma-migration]
   pull_request:
 
 permissions:

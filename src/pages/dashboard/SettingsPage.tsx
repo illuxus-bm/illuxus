@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import SiteHeader from "@/components/SiteHeader";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
@@ -83,7 +84,7 @@ const SettingsPage = () => {
       company_employee_count: person.company_employee_count || null,
       industry: person.industry || null,
     };
-    const { error } = await supabase
+    const { error } = await db
       .from("profiles")
       .update(updatePayload as never)
       .eq("user_id", user.id);
@@ -110,7 +111,7 @@ const SettingsPage = () => {
     const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
     const url = pub.publicUrl;
     setAvatarUrl(url);
-    await supabase.from("profiles").update({ avatar_url: url }).eq("user_id", user.id);
+    await db.from("profiles").update({ avatar_url: url }).eq("user_id", user.id);
     setUploadingAvatar(false);
     toast({ title: "Photo updated" });
   };
@@ -118,7 +119,7 @@ const SettingsPage = () => {
   const handleAvatarRemove = async () => {
     if (!user) return;
     setAvatarUrl("");
-    await supabase.from("profiles").update({ avatar_url: null }).eq("user_id", user.id);
+    await db.from("profiles").update({ avatar_url: null }).eq("user_id", user.id);
     toast({ title: "Photo removed" });
   };
 
@@ -317,7 +318,7 @@ function NotificationsTab({ userId }: { userId: string | undefined }) {
 
   useEffect(() => {
     if (!userId) return;
-    supabase
+    db
       .from("profiles")
       .select("video_fx_prefs")
       .eq("user_id", userId)
@@ -340,7 +341,7 @@ function NotificationsTab({ userId }: { userId: string | undefined }) {
     if (!userId) return;
     setSaving(true);
     // Read current video_fx_prefs so we only patch the notification_prefs key
-    const { data: current } = await supabase
+    const { data: current } = await db
       .from("profiles")
       .select("video_fx_prefs")
       .eq("user_id", userId)
@@ -351,7 +352,7 @@ function NotificationsTab({ userId }: { userId: string | undefined }) {
       notification_prefs: prefs,
     };
 
-    const { error } = await supabase
+    const { error } = await db
       .from("profiles")
       .update({ video_fx_prefs: merged })
       .eq("user_id", userId);

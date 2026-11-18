@@ -3,6 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect } from "react";
@@ -21,7 +22,7 @@ export function usePollForPost(postId: string | undefined) {
     queryKey: ["community", "poll", postId],
     enabled: !!postId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("community_polls" as never)
         .select("*")
         .eq("post_id", postId as string)
@@ -29,7 +30,7 @@ export function usePollForPost(postId: string | undefined) {
       if (error) throw error;
       if (!data) return null;
       const poll = data as unknown as CommunityPoll;
-      const { data: votes } = await supabase
+      const { data: votes } = await db
         .from("community_poll_votes" as never)
         .select("*")
         .eq("poll_id", poll.id);
@@ -85,7 +86,7 @@ export function useCommunityCalendar(communityId: string | undefined) {
     queryKey: ["community", "calendar", communityId],
     enabled: !!communityId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("community_calendar" as never)
         .select("*")
         .eq("community_id", communityId as string)
@@ -102,7 +103,7 @@ export function useReports(communityId: string | undefined) {
     queryKey: ["community", "reports", communityId],
     enabled: !!communityId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("community_reports" as never)
         .select("*")
         .eq("community_id", communityId as string)
@@ -192,7 +193,7 @@ export function useConnections() {
     queryKey: ["community", "connections", user?.id ?? null],
     enabled: !!user?.id,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("community_connections" as never)
         .select("*")
         .or(`requester_id.eq.${user!.id},target_id.eq.${user!.id}`)
@@ -244,7 +245,7 @@ export function useAppNotifications() {
     queryKey: ["app-notifications", user?.id ?? null],
     enabled: !!user?.id,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("app_notifications" as never)
         .select("*")
         .eq("user_id", user!.id)
@@ -286,7 +287,7 @@ export function useMarkNotificationsRead() {
   const { user } = useAuth();
   return useMutation({
     mutationFn: async (ids?: string[]) => {
-      const base = supabase.from("app_notifications" as never).update({ read: true } as never).eq("read", false);
+      const base = db.from("app_notifications" as never).update({ read: true } as never).eq("read", false);
       const q = ids && ids.length > 0
         ? base.in("id", ids)
         : user?.id

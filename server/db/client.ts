@@ -7,13 +7,23 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "./generated/client.js";
 import { serverEnv } from "../env.js";
 
-const globalForPrisma = globalThis as unknown as { __illuxusPrisma?: PrismaClient };
+const globalForPrisma = globalThis as unknown as { __illuxusPrisma?: PrismaClient; __illuxusServicePrisma?: PrismaClient };
 
 export function prisma(): PrismaClient {
-  if (globalForPrisma.__illuxusPrisma) return globalForPrisma.__illuxusPrisma;
+  return (globalForPrisma.__illuxusPrisma ??= build(serverEnv().DATABASE_URL));
+}
+
+/** The schema owner's connection (DATABASE_SERVICE_URL), or null when not configured. */
+export function servicePrisma(): PrismaClient | null {
+  const url = serverEnv().DATABASE_SERVICE_URL;
+  if (!url) return null;
+  return (globalForPrisma.__illuxusServicePrisma ??= build(url));
+}
+
+function build(connectionString: string): PrismaClient {
   const env = serverEnv();
   const adapter = new PrismaPg({
-    connectionString: env.DATABASE_URL,
+    connectionString,
     max: env.DATABASE_POOL_MAX,
     // Fail fast rather than hang a request when the database is unreachable.
     connectionTimeoutMillis: 5_000,
@@ -22,9 +32,7 @@ export function prisma(): PrismaClient {
     statement_timeout: 15_000,
     ...(env.DATABASE_SSL_CA ? { ssl: { ca: env.DATABASE_SSL_CA, rejectUnauthorized: true } } : {}),
   });
-  const client = new PrismaClient({ adapter });
-  globalForPrisma.__illuxusPrisma = client;
-  return client;
+  return new PrismaClient({ adapter });
 }
 
 export type { PrismaClient };

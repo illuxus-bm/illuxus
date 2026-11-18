@@ -5,6 +5,7 @@ import { CommunityLayout } from "@/components/community/layout/CommunityLayout";
 import { useCommunityBySlug } from "@/hooks/community/useCommunity";
 import { useSetMemberRole, useSetMemberStatus } from "@/hooks/community/useCommunityExtras";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -63,7 +64,7 @@ export default function CommunityMembersPage() {
     queryFn: async () => {
       // Moderators see suspended/banned too so they can reactivate; others
       // only see active members.
-      let q = supabase
+      let q = db
         .from("community_members" as never)
         .select("user_id, role, status, joined_at")
         .eq("community_id", data!.community!.id);

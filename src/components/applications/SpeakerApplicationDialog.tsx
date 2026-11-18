@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMyProfile, profileFullName } from "@/hooks/useMyProfile";
 import {
@@ -138,7 +139,7 @@ export function SpeakerApplicationDialog({ eventId, open, onOpenChange, onSubmit
       utm = {};
     }
 
-    const { error } = await supabase.from("speaker_applications" as never).insert({
+    const { error } = await db.from("speaker_applications" as never).insert({
       event_id: eventId,
       user_id: user.id,
       full_name: form.full_name.trim(),

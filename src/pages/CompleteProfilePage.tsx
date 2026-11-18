@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import type { Database } from "@/integrations/supabase/types";
 import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
@@ -85,7 +86,7 @@ export default function CompleteProfilePage() {
         setDepartment(p.department ?? "");
         setEmailVerified(!!p.email_verified);
         if (p.city_id) {
-          const { data: c } = await supabase
+          const { data: c } = await db
             .from("cities")
             .select("id, name, region, country, country_code, population")
             .eq("id", p.city_id)
@@ -151,7 +152,7 @@ export default function CompleteProfilePage() {
     setEmailVerified(true);
     toast({ title: "Email verified" });
     // Persist verified flag immediately
-    await supabase
+    await db
       .from("profiles")
       .update({ email_verified: true })
       .eq("user_id", user.id);
@@ -186,7 +187,7 @@ export default function CompleteProfilePage() {
     }
 
     setSaving(true);
-    const { error } = await supabase
+    const { error } = await db
       .from("profiles")
       .update({
         title: personCheck.data.title || null,

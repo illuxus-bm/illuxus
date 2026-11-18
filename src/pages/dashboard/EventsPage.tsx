@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -128,7 +129,7 @@ const EventsPage = () => {
       setLoading(false);
       return;
     }
-    let query = supabase
+    let query = db
       .from("events")
       .select("*")
       .order("date", { ascending: true });
@@ -205,7 +206,7 @@ const EventsPage = () => {
 
     try {
       if (editingEvent) {
-        const { error } = await supabase.from("events").update(eventData as never).eq("id", editingEvent.id);
+        const { error } = await db.from("events").update(eventData as never).eq("id", editingEvent.id);
         if (error) toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
         else toast({ title: "Event updated successfully" });
         resetForm();
@@ -217,11 +218,11 @@ const EventsPage = () => {
         // two concurrent inserts both passing the trigger's existence check,
         // with the index rejecting the loser. Retrying once is correct there
         // because that insert really did fail.
-        let result = await supabase.from("events").insert(eventData as never).select("id, slug").single();
+        let result = await db.from("events").insert(eventData as never).select("id, slug").single();
         if (result.error?.code === "23505") {
           const suffix = Math.random().toString(36).slice(2, 6);
           const retryData = { ...eventData, slug: `${eventData.slug}-${suffix}` };
-          result = await supabase.from("events").insert(retryData as never).select("id, slug").single();
+          result = await db.from("events").insert(retryData as never).select("id, slug").single();
         }
         if (result.error) {
           toast({ title: "Error", description: friendlyError(result.error), variant: "destructive" });
@@ -243,7 +244,7 @@ const EventsPage = () => {
   };
 
   const deleteEvent = async (id: string) => {
-    const { error } = await supabase.from("events").delete().eq("id", id);
+    const { error } = await db.from("events").delete().eq("id", id);
     if (error) toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
     else { toast({ title: "Event deleted" }); fetchEvents(); }
   };

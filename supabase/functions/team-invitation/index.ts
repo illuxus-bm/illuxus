@@ -756,7 +756,7 @@ export function supabaseStore(db: any): Store {
       const u = data?.user;
       if (error || !u?.id || !u.email) return null;
       // Two-factor on: a password-only session (aal1) doesn't count.
-      if ((u.factors ?? []).some((f) => f.status === "verified") && jwtAal(jwt) !== "aal2") return null;
+      if ((u.factors ?? []).some((f: { status: string }) => f.status === "verified") && jwtAal(jwt) !== "aal2") return null;
       return { id: u.id, email: u.email, emailVerified: !!u.email_confirmed_at };
     },
     async roleInOrg(orgId, userId) {

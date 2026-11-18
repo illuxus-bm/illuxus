@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 
 export type CheckinCounters = {
   total: number;
@@ -35,21 +36,21 @@ export function useEventCheckinCounters(eventId: string | undefined) {
 
     const load = async () => {
       const [totalRes, ciRes, insideRes, outsideRes] = await Promise.all([
-        supabase
+        db
           .from("registrations")
           .select("id", { count: "exact", head: true })
           .eq("event_id", eventId),
-        supabase
+        db
           .from("registrations")
           .select("id", { count: "exact", head: true })
           .eq("event_id", eventId)
           .eq("checked_in", true),
-        supabase
+        db
           .from("registrations")
           .select("id", { count: "exact", head: true })
           .eq("event_id", eventId)
           .eq("attendance_state", "inside"),
-        supabase
+        db
           .from("registrations")
           .select("id", { count: "exact", head: true })
           .eq("event_id", eventId)

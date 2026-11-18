@@ -26,6 +26,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { logger } from "@/lib/observability";
 import { uuid } from "@/lib/uuid";
 import { publicOrigin } from "@/lib/publicUrl";
@@ -53,7 +54,7 @@ interface EventLookup {
 
 /** Event identity used to word the notification. */
 async function lookupEvent(eventId: string): Promise<EventLookup | null> {
-  const { data: ev } = await supabase
+  const { data: ev } = await db
     .from("events")
     .select("id, title, slug, user_id, organizations(name, owner_id, slug)")
     .eq("id", eventId)
@@ -133,7 +134,7 @@ export async function notifyOrganiserOfApplication(
       reviewUrl,
     });
 
-    const { data, error } = await supabase.functions.invoke("send-event-email", {
+    const { data, error } = await db.functions.invoke("send-event-email", {
       body: {
         // The server checks the caller's application for this event and
         // delivers to the event's organisers.

@@ -32,6 +32,7 @@
  */
 
 import type { EventPageConfig } from "@/components/event/page-form/types";
+import { db } from "@/lib/data/db";
 
 /**
  * Platinum/gold/silver/bronze/custom → accent color mapping, sharing the same
@@ -777,7 +778,7 @@ export function isAuthorizedForBrochureGeneration(
 // Mirrors `saveCreativeTemplatePref`/`readCreativeTemplatePref`'s exact
 // pattern in `creative-templates.ts` — pure helpers; the caller persists the
 // returned config via the existing
-// `supabase.from("events").update({ page_config })` path already used by
+// `db.from("events").update({ page_config })` path already used by
 // `EventPageForm.tsx`.
 
 /**

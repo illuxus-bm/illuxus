@@ -6,11 +6,13 @@
 #   - checks supabase/install.rds.sql is regenerated from install.sql
 #   - type-checks the server and runs its tests against that database,
 #     connected as the API's own unprivileged login role
+#   - runs the same queries through real PostgREST and /api/v1/query and
+#     requires identical answers (server/__tests__/parity.db.test.ts)
 name: Prisma API
 
 on:
   push:
-    branches: [main]
+    branches: [main, prisma-migration]
   pull_request:
     paths:
       - prisma/**
@@ -18,6 +20,9 @@ on:
       - server/**
       - api/v1/**
       - scripts/rds/**
+      - scripts/port-edge-function.mjs
+      - scripts/build-function-registry.mjs
+      - supabase/functions/**
       - supabase/install.sql
       - supabase/install.rds.sql
       - supabase/migrations/**
@@ -64,6 +69,12 @@ jobs:
           git diff --exit-code -- supabase/install.rds.sql \
             || (echo "Run 'bun run rds:build-install' and commit the result." && exit 1)
 
+      - name: Ported edge functions are current
+        run: |
+          bun run functions:port
+          git diff --exit-code -- server/functions \
+            || (echo "Run 'bun run functions:port' and commit the result." && exit 1)
+
       - name: Build the database like RDS
         run: |
           sudo apt-get install -y -qq postgresql-client >/dev/null
@@ -84,10 +95,28 @@ jobs:
       - name: Type check (server)
         run: bun run typecheck:server
 
+      # The real PostgREST (what Supabase runs), on the same database, so the
+      # parity test can check /api/v1/query answers exactly as it does.
+      - name: Start PostgREST
+        run: |
+          docker run -d --name postgrest --network host \
+            -e PGRST_DB_URI="$API_URL" \
+            -e PGRST_DB_SCHEMAS=public \
+            -e PGRST_DB_ANON_ROLE=anon \
+            -e PGRST_DB_MAX_ROWS=1000 \
+            -e PGRST_DB_EXTRA_SEARCH_PATH="public, extensions" \
+            -e PGRST_JWT_SECRET=integration-secret-integration-secret-42 \
+            -e PGRST_JWT_AUD=authenticated \
+            -e PGRST_SERVER_PORT=3000 \
+            postgrest/postgrest:v12.2.12
+          for i in $(seq 1 30); do curl -sf http://localhost:3000/ >/dev/null && break; sleep 1; done
+          curl -sf http://localhost:3000/ >/dev/null || (docker logs postgrest && exit 1)
+
       - name: Server tests (against the database)
         env:
           TEST_DATABASE_URL: ${{ env.API_URL }}
           TEST_DATABASE_ADMIN_URL: ${{ env.ADMIN_URL }}
+          POSTGREST_URL: http://localhost:3000
         run: bun run test:server
 
       - name: Data copy round-trip (Supabase-shaped source to RDS-shaped target)

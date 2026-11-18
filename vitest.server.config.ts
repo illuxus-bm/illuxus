@@ -8,5 +8,7 @@ export default defineConfig({
     include: ["server/**/*.test.ts"],
     testTimeout: 30_000,
     hookTimeout: 60_000,
+    // The database tests share one database: one file at a time.
+    fileParallelism: false,
   },
 });

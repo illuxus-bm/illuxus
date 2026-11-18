@@ -9,6 +9,7 @@
  * exports) always agree with the summary table.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 
 export interface UtmRow {
   utm_source: string;
@@ -92,7 +93,7 @@ async function fetchAllPages<T>(page: (from: number, to: number) => PromiseLike<
 /** Every non-cancelled registration of the event, newest first. */
 export function fetchEventLeads(eventId: string): Promise<UtmLead[]> {
   return fetchAllPages<UtmLead>((from, to) =>
-    supabase
+    db
       .from("registrations")
       .select(LEAD_COLUMNS as never)
       .eq("event_id", eventId)
@@ -106,7 +107,7 @@ export function fetchEventLeads(eventId: string): Promise<UtmLead[]> {
 /** Link clicks recorded for the event since `sinceIso`. */
 export function fetchEventClicksSince(eventId: string, sinceIso: string): Promise<UtmClick[]> {
   return fetchAllPages<UtmClick>((from, to) =>
-    supabase
+    db
       .from("utm_clicks" as never)
       // The table's timestamp is clicked_at; callers read it as created_at.
       .select("utm_source, utm_medium, utm_campaign, utm_content, utm_term, created_at:clicked_at")

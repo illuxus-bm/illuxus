@@ -266,7 +266,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const event = selection.event as {
+    const event = selection.event as unknown as {
       id: string;
       title: string;
       date: string | null;
@@ -282,7 +282,7 @@ Deno.serve(async (req) => {
       banner_portrait_url: string | null;
     } | null;
 
-    const vendor = selection.vendor as {
+    const vendor = selection.vendor as unknown as {
       id: string;
       business_name: string;
       city: string | null;
@@ -290,7 +290,7 @@ Deno.serve(async (req) => {
       logo_url: string | null;
     } | null;
 
-    const venue = selection.venue as {
+    const venue = selection.venue as unknown as {
       id: string;
       name: string;
       space_type: string | null;

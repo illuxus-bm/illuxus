@@ -6,6 +6,7 @@
  * switches between them, and this picks the first stop.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { partnerHasAccess } from "@/lib/utm/partner-access";
 
@@ -43,9 +44,9 @@ export function landingPathFor(access: LandingAccess): string {
  */
 export async function loadLandingAccess(userId: string, accountType: string | null | undefined): Promise<LandingAccess> {
   const [admin, member, owner, portals, partner] = await Promise.all([
-    supabase.from("user_roles").select("role").eq("user_id", userId).eq("role", "admin").maybeSingle(),
-    supabase.from("org_members").select("org_id").eq("user_id", userId).limit(1),
-    supabase.from("organizations").select("id").eq("owner_id", userId).limit(1),
+    db.from("user_roles").select("role").eq("user_id", userId).eq("role", "admin").maybeSingle(),
+    db.from("org_members").select("org_id").eq("user_id", userId).limit(1),
+    db.from("organizations").select("id").eq("owner_id", userId).limit(1),
     supabaseRpc("user_role_assignments" as never),
     partnerHasAccess().catch(() => false),
   ]);

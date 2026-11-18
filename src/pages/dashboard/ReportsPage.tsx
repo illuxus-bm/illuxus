@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { useOrg } from "@/contexts/OrgContext";
 import { formatMoney, DEFAULT_EVENT_CURRENCY } from "@/lib/currency";
@@ -84,7 +85,7 @@ async function fetchForEvents<T>(eventIds: string[], query: PageQuery): Promise<
 }
 
 async function loadReportData(orgId: string): Promise<ReportData> {
-  const { data: evs, error } = await supabase
+  const { data: evs, error } = await db
     .from("events").select(EVENT_COLS).eq("org_id", orgId).order("date", { ascending: false });
   if (error) throw new Error(error.message);
   const events = (evs ?? []) as EventRow[];
@@ -99,13 +100,13 @@ async function loadReportData(orgId: string): Promise<ReportData> {
 
   const [registrations, speakerLinks, sponsorLinks] = await Promise.all([
     fetchForEvents<RegRow>(eventIds, (ids, from, to) =>
-      supabase.from("registrations").select(REG_COLS).in("event_id", ids)
+      db.from("registrations").select(REG_COLS).in("event_id", ids)
         .order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to)),
     fetchForEvents<ESRow>(eventIds, (ids, from, to) =>
-      supabase.from("event_speakers").select("event_id, speakers(name, email, company)").in("event_id", ids)
+      db.from("event_speakers").select("event_id, speakers(name, email, company)").in("event_id", ids)
         .order("event_id").order("speaker_id").range(from, to)),
     fetchForEvents<SpsRow>(eventIds, (ids, from, to) =>
-      supabase.from("event_sponsors").select("event_id, tier, tier_label, sponsors(name, email, tier, website)").in("event_id", ids)
+      db.from("event_sponsors").select("event_id, tier, tier_label, sponsors(name, email, tier, website)").in("event_id", ids)
         .order("event_id").order("sponsor_id").range(from, to)),
   ]);
 

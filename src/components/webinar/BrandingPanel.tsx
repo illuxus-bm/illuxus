@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -21,7 +22,7 @@ export function BrandingPanel({ sessionId, initial }: { sessionId: string; initi
 
   const save = async () => {
     setSaving(true);
-    const { error } = await supabase.from("webinar_sessions").update({ branding: b as Json }).eq("id", sessionId);
+    const { error } = await db.from("webinar_sessions").update({ branding: b as Json }).eq("id", sessionId);
     setSaving(false);
     if (error) toast.error(friendlyError(error)); else toast.success("Branding updated");
   };

@@ -24,6 +24,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { applyVariables, type SubstitutionContext } from "@/lib/communications/substitute";
 import { withGreeting } from "@/lib/communications/greeting";
@@ -155,7 +156,7 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
     if (!eventId) return;
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
+      const { data } = await db
         .from("events")
         .select("org_id, date")
         .eq("id", eventId)
@@ -172,7 +173,7 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
     if (!eventId) return;
     let cancelled = false;
     const load = async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("communications" as never)
         .select("*")
         .eq("event_id", eventId)
@@ -211,7 +212,7 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
   // so the user gets immediate feedback.
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this message? This cannot be undone.")) return;
-    const { error } = await supabase.from("communications" as never).delete().eq("id", id);
+    const { error } = await db.from("communications" as never).delete().eq("id", id);
     if (error) toast.error(friendlyError(error));
     else toast.success("Deleted");
   };
@@ -231,7 +232,7 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
       let emailResult = { sent: 0, failed: 0, remaining: 0 } as { sent: number; failed: number; remaining: number; errors?: Array<{ recipient_id: string; error: string }> };
       let emailUnavailable = false;
       if (wantsEmail) {
-        const { data, error: emailErr } = await supabase.functions.invoke(
+        const { data, error: emailErr } = await db.functions.invoke(
           "send-communication-email",
           { body: { communication_id: m.id } },
         );
@@ -247,7 +248,7 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
       let waResult = { sent: 0, failed: 0 } as { sent: number; failed: number; errors?: Array<{ recipient_id: string; error: string }> };
       let waUnavailable = false;
       if (wantsWhatsapp) {
-        const { data, error: waErr } = await supabase.functions.invoke(
+        const { data, error: waErr } = await db.functions.invoke(
           "send-whatsapp",
           { body: { communication_id: m.id } },
         );
@@ -614,7 +615,7 @@ function ComposeDialog({
     setWaLoadingTemplates(true);
     (async () => {
       // Need org_id to scope templates. We get it from the event row.
-      const { data: ev } = await supabase
+      const { data: ev } = await db
         .from("events")
         .select("org_id")
         .eq("id", eventId)
@@ -645,18 +646,18 @@ function ComposeDialog({
       // Deduped by lower-cased email so a person who is both a registrant
       // and a speaker shows up once with the most-specific role.
       const [regRes, speakerRes, sponsorLinkRes] = await Promise.all([
-        supabase
+        db
           .from("registrations")
           .select("id, user_id, name, email, first_name, last_name, ticket_type")
           .eq("event_id", eventId)
           .neq("status", "cancelled")
           .order("created_at", { ascending: false })
           .limit(1000),
-        supabase
+        db
           .from("event_speakers")
           .select("speaker_id, speakers:speaker_id(id, name, email)")
           .eq("event_id", eventId),
-        supabase
+        db
           .from("event_sponsors")
           .select("sponsor_id")
           .eq("event_id", eventId),
@@ -668,7 +669,7 @@ function ComposeDialog({
       let sponsorMembers: SponsorMember[] = [];
       const sponsorIds = (sponsorLinkRes.data ?? []).map((r) => (r as { sponsor_id: string }).sponsor_id);
       if (sponsorIds.length > 0) {
-        const { data } = await supabase
+        const { data } = await db
           .from("sponsor_members")
           .select("id, sponsor_id, email, display_name")
           .in("sponsor_id", sponsorIds);
@@ -802,7 +803,7 @@ function ComposeDialog({
       // {{user_name}} — current user's profile (used as a sample)
       const { data: userData } = await supabase.auth.getUser();
       if (userData.user) {
-        const { data: profile } = await supabase
+        const { data: profile } = await db
           .from("profiles")
           .select("display_name, first_name, last_name")
           .eq("user_id", userData.user.id)
@@ -816,7 +817,7 @@ function ComposeDialog({
       }
 
       // {{event_*}} — the event we're scoped to
-      const { data: ev } = await supabase
+      const { data: ev } = await db
         .from("events")
         .select("title, date, location, venue, slug")
         .eq("id", eventId)
@@ -834,7 +835,7 @@ function ComposeDialog({
         // can see the URL shape (with UTM tags) before sending. The
         // server-side fan-out still strips this token until the
         // matching SQL change is made — flagged in `substitute.ts`.
-        const { data: sampleReg } = await supabase
+        const { data: sampleReg } = await db
           .from("registrations")
           .select("join_token")
           .eq("event_id", eventId)
@@ -932,7 +933,7 @@ function ComposeDialog({
     };
 
     if (editing) {
-      const { error } = await supabase
+      const { error } = await db
         .from("communications" as never)
         .update(payload as never)
         .eq("id", editing.id);
@@ -943,7 +944,7 @@ function ComposeDialog({
     const { data: userData } = await supabase.auth.getUser();
     const uid = userData.user?.id;
     if (!uid) { toast.error("Sign in to compose"); return null; }
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("communications" as never)
       .insert({ ...payload, created_by: uid } as never)
       .select("id")
@@ -979,7 +980,7 @@ function ComposeDialog({
       let emailResult = { sent: 0, failed: 0, remaining: 0 } as { sent: number; failed: number; remaining: number; errors?: Array<{ recipient_id: string; error: string }> };
       let emailUnavailable = false;
       if (wantsEmail) {
-        const { data, error: emailErr } = await supabase.functions.invoke(
+        const { data, error: emailErr } = await db.functions.invoke(
           "send-communication-email",
           { body: { communication_id: id } },
         );
@@ -995,7 +996,7 @@ function ComposeDialog({
       let waResult = { sent: 0, failed: 0 } as { sent: number; failed: number; errors?: Array<{ recipient_id: string; error: string }> };
       let waUnavailable = false;
       if (wantsWhatsapp) {
-        const { data, error: waErr } = await supabase.functions.invoke(
+        const { data, error: waErr } = await db.functions.invoke(
           "send-whatsapp",
           { body: { communication_id: id } },
         );
@@ -1285,7 +1286,7 @@ function ComposeDialog({
                         onClick={async () => {
                           setWaSyncing(true);
                           try {
-                            const { data: ev } = await supabase
+                            const { data: ev } = await db
                               .from("events")
                               .select("org_id")
                               .eq("id", eventId)
@@ -1293,7 +1294,7 @@ function ComposeDialog({
                             const orgIdLocal = (ev as { org_id: string | null } | null)?.org_id;
                             if (!orgIdLocal) throw new Error("Event has no organization");
 
-                            const { data, error } = await supabase.functions.invoke(
+                            const { data, error } = await db.functions.invoke(
                               "whatsapp-sync-templates",
                               { body: { org_id: orgIdLocal } },
                             );

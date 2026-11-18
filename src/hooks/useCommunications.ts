@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { toast } from "sonner";
 import type {
@@ -26,7 +27,7 @@ export function useCommunications(
     if (!eventId && !communityId) { setItems([]); setLoading(false); return; }
     let cancelled = false;
     const load = async () => {
-      let q = supabase.from("communications" as never).select("*");
+      let q = db.from("communications" as never).select("*");
       if (eventId)     q = q.eq("event_id",     eventId);
       if (communityId) q = q.eq("community_id", communityId);
       const { data, error } = await q.order("created_at", { ascending: false });
@@ -110,7 +111,7 @@ export async function createDraft(input: {
   const uid = userData.user?.id;
   if (!uid) throw new Error("Must be signed in to compose");
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("communications" as never)
     .insert({
       org_id: input.org_id,
@@ -134,7 +135,7 @@ export async function createDraft(input: {
 }
 
 export async function updateDraft(id: string, patch: Partial<Communication>): Promise<void> {
-  const { error } = await supabase
+  const { error } = await db
     .from("communications" as never)
     .update(patch as never)
     .eq("id", id);
@@ -142,7 +143,7 @@ export async function updateDraft(id: string, patch: Partial<Communication>): Pr
 }
 
 export async function deleteCommunication(id: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await db
     .from("communications" as never)
     .delete()
     .eq("id", id);
@@ -231,7 +232,7 @@ export async function listWhatsAppTemplates(orgId: string): Promise<WhatsAppTemp
  * the caller is an org member of `orgId`.
  */
 export async function syncWhatsAppTemplates(orgId: string): Promise<{ synced: number; total: number }> {
-  const { data, error } = await supabase.functions.invoke("whatsapp-sync-templates", {
+  const { data, error } = await db.functions.invoke("whatsapp-sync-templates", {
     body: { org_id: orgId },
   });
   if (error) throw new Error(error.message);
@@ -246,7 +247,7 @@ export async function syncWhatsAppTemplates(orgId: string): Promise<{ synced: nu
 export async function sendEmail(communicationId: string): Promise<{
   sent: number; failed: number; errors: Array<{ recipient_id: string; error: string }>;
 }> {
-  const { data, error } = await supabase.functions.invoke("send-email", {
+  const { data, error } = await db.functions.invoke("send-email", {
     body: { communication_id: communicationId },
   });
   if (error) throw new Error(error.message);
@@ -270,7 +271,7 @@ export async function sendWhatsApp(communicationId: string): Promise<{
   skipped?: number;
   errors: Array<{ recipient_id: string; error: string }>;
 }> {
-  const { data, error } = await supabase.functions.invoke("send-whatsapp", {
+  const { data, error } = await db.functions.invoke("send-whatsapp", {
     body: { communication_id: communicationId },
   });
   if (error) throw new Error(error.message);

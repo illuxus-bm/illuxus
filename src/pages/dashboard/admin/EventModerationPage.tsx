@@ -16,6 +16,7 @@ import {
 import { format, parseISO, subDays } from "date-fns";
 
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -95,7 +96,7 @@ export default function EventModerationPage() {
   const eventsQ = useQuery({
     queryKey: ["admin-events"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("events")
         .select("id, title, slug, status, date, capacity, tickets_sold, price, currency, image_url, created_at, org_id, user_id")
         .order("created_at", { ascending: false });
@@ -108,7 +109,7 @@ export default function EventModerationPage() {
   const orgsQ = useQuery({
     queryKey: ["admin-events-orgs"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("organizations")
         .select("id, name, slug");
       if (error) throw error;

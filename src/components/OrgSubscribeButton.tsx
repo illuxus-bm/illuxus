@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { logger } from "@/lib/observability";
@@ -39,7 +40,7 @@ export default function OrgSubscribeButton({
       setSubscribed(false);
       return;
     }
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("org_followers")
       .select("id")
       .eq("org_id", orgId)
@@ -75,7 +76,7 @@ export default function OrgSubscribeButton({
     setBusy(true);
     try {
       if (subscribed) {
-        const { error } = await supabase
+        const { error } = await db
           .from("org_followers")
           .delete()
           .eq("org_id", orgId)
@@ -89,7 +90,7 @@ export default function OrgSubscribeButton({
       } else {
         // Idempotent: if a row already exists for (user_id, org_id), this is a no-op
         // rather than a unique-violation error. Avoids the "label flips but DB rejects" trap.
-        const { error } = await supabase
+        const { error } = await db
           .from("org_followers")
           .upsert(
             { org_id: orgId, user_id: user.id },

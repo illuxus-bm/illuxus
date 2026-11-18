@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { canManageSettings } from "@/lib/community/rbac";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { friendlyError } from "@/lib/friendly-error";
@@ -42,7 +43,7 @@ export default function CommunitySettingsPage() {
 
   const save = async () => {
     setSaving(true);
-    const { error } = await supabase
+    const { error } = await db
       .from("communities" as never)
       .update({
         name,

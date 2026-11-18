@@ -10,6 +10,7 @@
  * `get_my_profile` RPC) for that.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 
 export interface PublicProfile {
   user_id: string;
@@ -31,12 +32,12 @@ export async function fetchPublicProfiles(userIds: readonly (string | null | und
   const ids = [...new Set(userIds.filter((id): id is string => !!id))];
   if (ids.length === 0) return [];
 
-  const fromView = await supabase.from("profiles_public" as never).select(COLUMNS).in("user_id", ids);
+  const fromView = await db.from("profiles_public" as never).select(COLUMNS).in("user_id", ids);
   if (!fromView.error) return (fromView.data as unknown as PublicProfile[]) ?? [];
 
   // The view ships with migration 038. Until that has been applied the table
   // is still readable, so fall back to it rather than showing "Unknown".
-  const fromTable = await supabase.from("profiles").select(COLUMNS).in("user_id", ids);
+  const fromTable = await db.from("profiles").select(COLUMNS).in("user_id", ids);
   return (fromTable.data as unknown as PublicProfile[]) ?? [];
 }
 

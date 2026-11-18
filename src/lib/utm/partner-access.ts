@@ -11,6 +11,7 @@
  * ever passes a grant id.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { publicOrigin } from "@/lib/publicUrl";
 import { downloadCsv, fileSlug } from "@/lib/utm/utm-export";
 
@@ -141,7 +142,7 @@ export function partnerErrorMessage(e: RpcError | null | undefined): string {
 }
 
 async function rpc<T>(name: string, args?: Record<string, unknown>): Promise<T> {
-  const { data, error } = await supabase.rpc(name as never, (args ?? {}) as never);
+  const { data, error } = await db.rpc(name as never, (args ?? {}) as never);
   if (error) throw error;
   return data as T;
 }
@@ -191,7 +192,7 @@ export async function sendPartnerInviteEmail(
 ): Promise<string | null> {
   const title = eventTitle?.trim() || "an event";
   try {
-    const { data, error } = await supabase.functions.invoke("send-event-email", {
+    const { data, error } = await db.functions.invoke("send-event-email", {
       body: {
         event_id: "partner-invite",
         target_event_id: share.event_id,
@@ -233,7 +234,7 @@ export async function sendPartnerInviteEmail(
 /* ── Partner ───────────────────────────────────────────────────────────── */
 
 export async function partnerHasAccess(): Promise<boolean> {
-  const { data, error } = await supabase.rpc("partner_utm_has_access" as never);
+  const { data, error } = await db.rpc("partner_utm_has_access" as never);
   return !error && data === true; // fail closed
 }
 

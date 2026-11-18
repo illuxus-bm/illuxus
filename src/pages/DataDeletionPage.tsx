@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { buildDeletionTicket, DELETION_SCOPES, validateDeletionRequest, type DeletionScope } from "@/lib/data-deletion";
 import { logger } from "@/lib/observability";
 
@@ -50,7 +51,7 @@ export default function DataDeletionPage() {
 
     setSending(true);
     try {
-      const { data, error: invokeError } = await supabase.functions.invoke("submit-support-ticket", {
+      const { data, error: invokeError } = await db.functions.invoke("submit-support-ticket", {
         body: {
           name: name.trim(),
           email: email.trim(),

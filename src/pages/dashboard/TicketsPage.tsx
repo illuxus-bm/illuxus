@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { useOrg } from "@/contexts/OrgContext";
 import { motion } from "framer-motion";
@@ -17,7 +18,7 @@ const TicketsPage = () => {
   useEffect(() => {
     if (!org?.id) return;
     const fetch = async () => {
-      const { data } = await supabase
+      const { data } = await db
         .from("events")
         .select("*")
         .eq("org_id", org.id)

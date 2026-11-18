@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { logger } from "@/lib/observability";
 import type {
@@ -20,12 +21,12 @@ export function useMyApplications() {
     queryFn: async () => {
       if (!user) return { speaker: [], sponsor: [] };
       const [speakerRes, sponsorRes] = await Promise.all([
-        supabase
+        db
           .from("speaker_applications" as never)
           .select("id, event_id, session_title, expertise, status, rejection_reason, created_at, updated_at, events(title, date, image_url)")
           .eq("user_id", user.id)
           .order("created_at", { ascending: false }),
-        supabase
+        db
           .from("sponsor_applications" as never)
           .select("id, event_id, company_name, sponsorship_tier, status, rejection_reason, created_at, updated_at, events(title, date, image_url)")
           .eq("user_id", user.id)
@@ -87,7 +88,7 @@ export function useMySpeakerApplication(eventId: string | undefined) {
     queryKey: ["my-speaker-application", user?.id, eventId],
     queryFn: async () => {
       if (!user || !eventId) return null;
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("speaker_applications" as never)
         .select("*")
         .eq("event_id", eventId)
@@ -111,7 +112,7 @@ export function useMySponsorApplication(eventId: string | undefined) {
     queryKey: ["my-sponsor-application", user?.id, eventId],
     queryFn: async () => {
       if (!user || !eventId) return null;
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("sponsor_applications" as never)
         .select("*")
         .eq("event_id", eventId)
@@ -136,7 +137,7 @@ export function useEventSpeakerApplications(eventId: string | undefined) {
     queryKey: ["event-speaker-applications", eventId],
     queryFn: async () => {
       if (!eventId) return [];
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("speaker_applications" as never)
         .select("*")
         .eq("event_id", eventId)
@@ -154,7 +155,7 @@ export function useEventSponsorApplications(eventId: string | undefined) {
     queryKey: ["event-sponsor-applications", eventId],
     queryFn: async () => {
       if (!eventId) return [];
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("sponsor_applications" as never)
         .select("*")
         .eq("event_id", eventId)
@@ -179,7 +180,7 @@ export function useApproveSpeakerApplication() {
   return useMutation({
     mutationFn: async (appId: string) => {
       // 1. Fetch the application details
-      const { data: app, error: fetchErr } = await supabase
+      const { data: app, error: fetchErr } = await db
         .from("speaker_applications" as never)
         .select("*")
         .eq("id", appId)
@@ -194,7 +195,7 @@ export function useApproveSpeakerApplication() {
 
       // 3. Find or create the speakers row (owned by the organizer)
       let speakerId: string;
-      const { data: existingSpeaker } = await supabase
+      const { data: existingSpeaker } = await db
         .from("speakers" as never)
         .select("id")
         .eq("user_id", user.id)
@@ -204,7 +205,7 @@ export function useApproveSpeakerApplication() {
       if (existingSpeaker) {
         speakerId = (existingSpeaker as unknown as { id: string }).id;
       } else {
-        const { data: newSpeaker, error: speakerErr } = await supabase
+        const { data: newSpeaker, error: speakerErr } = await db
           .from("speakers" as never)
           .insert({
             user_id: user.id,
@@ -224,7 +225,7 @@ export function useApproveSpeakerApplication() {
       }
 
       // 4. Link to event (idempotent — UNIQUE constraint will protect against duplicates)
-      const { error: linkErr } = await supabase
+      const { error: linkErr } = await db
         .from("event_speakers" as never)
         .upsert({ event_id: a.event_id, speaker_id: speakerId } as never, {
           onConflict: "event_id,speaker_id",
@@ -232,7 +233,7 @@ export function useApproveSpeakerApplication() {
       if (linkErr) throw linkErr;
 
       // 5. Update application status
-      const { error: updateErr } = await supabase
+      const { error: updateErr } = await db
         .from("speaker_applications" as never)
         .update({
           status: "approved",
@@ -244,8 +245,8 @@ export function useApproveSpeakerApplication() {
 
       // 6. Best-effort notification (non-fatal if app_notifications table doesn't exist yet)
       try {
-        const { data: ev } = await supabase.from("events").select("title").eq("id", a.event_id).maybeSingle();
-        await supabase.from("app_notifications" as never).insert({
+        const { data: ev } = await db.from("events").select("title").eq("id", a.event_id).maybeSingle();
+        await db.from("app_notifications" as never).insert({
           user_id: a.user_id,
           type: "speaker_approved",
           title: "Speaker application approved",
@@ -259,7 +260,7 @@ export function useApproveSpeakerApplication() {
       //    ticket / sponsor emails, so an approved applicant gets the same
       //    look as anyone else who joins the event.
       try {
-        await supabase.functions.invoke("send-speaker-invite-email", {
+        await db.functions.invoke("send-speaker-invite-email", {
           body: { speaker_id: speakerId, event_id: a.event_id, kind: "approved" },
         });
       } catch { /* email is best-effort — the approval is already saved */ }
@@ -283,14 +284,14 @@ export function useRejectSpeakerApplication() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      const { data: app } = await supabase
+      const { data: app } = await db
         .from("speaker_applications" as never)
         .select("user_id, event_id")
         .eq("id", appId)
         .single();
       const a = app as unknown as { user_id: string; event_id: string } | null;
 
-      const { error } = await supabase
+      const { error } = await db
         .from("speaker_applications" as never)
         .update({
           status: "rejected",
@@ -304,8 +305,8 @@ export function useRejectSpeakerApplication() {
       // Best-effort notification
       if (a) {
         try {
-          const { data: ev } = await supabase.from("events").select("title").eq("id", a.event_id).maybeSingle();
-          await supabase.from("app_notifications" as never).insert({
+          const { data: ev } = await db.from("events").select("title").eq("id", a.event_id).maybeSingle();
+          await db.from("app_notifications" as never).insert({
             user_id: a.user_id,
             type: "speaker_rejected",
             title: "Speaker application not approved",
@@ -327,7 +328,7 @@ export function useApproveSponsorApplication() {
   return useMutation({
     mutationFn: async (appId: string) => {
       // 1. Fetch the application
-      const { data: app, error: fetchErr } = await supabase
+      const { data: app, error: fetchErr } = await db
         .from("sponsor_applications" as never)
         .select("*")
         .eq("id", appId)
@@ -340,7 +341,7 @@ export function useApproveSponsorApplication() {
       if (!user) throw new Error("Not authenticated");
 
       // 2. Create sponsor row owned by the organizer
-      const { data: newSponsor, error: sponsorErr } = await supabase
+      const { data: newSponsor, error: sponsorErr } = await db
         .from("sponsors" as never)
         .insert({
           user_id: user.id,
@@ -357,7 +358,7 @@ export function useApproveSponsorApplication() {
       const sponsorId = (newSponsor as unknown as { id: string }).id;
 
       // 3. Link to event
-      const { error: linkErr } = await supabase
+      const { error: linkErr } = await db
         .from("event_sponsors" as never)
         .upsert({ event_id: a.event_id, sponsor_id: sponsorId } as never, {
           onConflict: "event_id,sponsor_id",
@@ -365,7 +366,7 @@ export function useApproveSponsorApplication() {
       if (linkErr) throw linkErr;
 
       // 4. Auto-accept the applicant as a sponsor member (gives them portal access)
-      const { error: memberErr } = await supabase
+      const { error: memberErr } = await db
         .from("sponsor_members" as never)
         .upsert({
           sponsor_id: sponsorId,
@@ -387,7 +388,7 @@ export function useApproveSponsorApplication() {
       }
 
       // 5. Update application status
-      const { error: updateErr } = await supabase
+      const { error: updateErr } = await db
         .from("sponsor_applications" as never)
         .update({
           status: "approved",
@@ -399,8 +400,8 @@ export function useApproveSponsorApplication() {
 
       // 6. Best-effort notification
       try {
-        const { data: ev } = await supabase.from("events").select("title").eq("id", a.event_id).maybeSingle();
-        await supabase.from("app_notifications" as never).insert({
+        const { data: ev } = await db.from("events").select("title").eq("id", a.event_id).maybeSingle();
+        await db.from("app_notifications" as never).insert({
           user_id: a.user_id,
           type: "sponsor_approved",
           title: "Sponsor application approved",
@@ -412,7 +413,7 @@ export function useApproveSponsorApplication() {
       // 7. Rich-HTML sponsor invite email (same banner template as the
       //    organiser-added sponsor flow). Best-effort.
       try {
-        await supabase.functions.invoke("send-sponsor-invite-email", {
+        await db.functions.invoke("send-sponsor-invite-email", {
           body: { sponsor_id: sponsorId, event_id: a.event_id },
         });
       } catch { /* email is best-effort */ }
@@ -436,14 +437,14 @@ export function useRejectSponsorApplication() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      const { data: app } = await supabase
+      const { data: app } = await db
         .from("sponsor_applications" as never)
         .select("user_id, event_id")
         .eq("id", appId)
         .single();
       const a = app as unknown as { user_id: string; event_id: string } | null;
 
-      const { error } = await supabase
+      const { error } = await db
         .from("sponsor_applications" as never)
         .update({
           status: "rejected",
@@ -456,8 +457,8 @@ export function useRejectSponsorApplication() {
 
       if (a) {
         try {
-          const { data: ev } = await supabase.from("events").select("title").eq("id", a.event_id).maybeSingle();
-          await supabase.from("app_notifications" as never).insert({
+          const { data: ev } = await db.from("events").select("title").eq("id", a.event_id).maybeSingle();
+          await db.from("app_notifications" as never).insert({
             user_id: a.user_id,
             type: "sponsor_rejected",
             title: "Sponsor application not approved",
@@ -504,7 +505,7 @@ export function useChangeSpeakerApplicationStatus() {
       newStatus: ApplicationStatus;
       reason?: string;
     }) => {
-      const { data: app, error: fetchErr } = await supabase
+      const { data: app, error: fetchErr } = await db
         .from("speaker_applications" as never)
         .select("*")
         .eq("id", appId)
@@ -520,7 +521,7 @@ export function useChangeSpeakerApplicationStatus() {
 
       // Revoking approval — drop the event link (and webinar_speakers entry).
       if (wasApproved && !willBeApproved) {
-        const { data: spk } = await supabase
+        const { data: spk } = await db
           .from("speakers" as never)
           .select("id")
           .eq("user_id", user.id)
@@ -528,13 +529,13 @@ export function useChangeSpeakerApplicationStatus() {
           .maybeSingle();
         const speakerId = (spk as { id: string } | null)?.id ?? null;
         if (speakerId) {
-          await supabase
+          await db
             .from("event_speakers" as never)
             .delete()
             .eq("event_id", a.event_id)
             .eq("speaker_id", speakerId);
         }
-        const { data: sess } = await supabase
+        const { data: sess } = await db
           .from("webinar_sessions" as never)
           .select("id")
           .eq("event_id", a.event_id)
@@ -543,7 +544,7 @@ export function useChangeSpeakerApplicationStatus() {
           .maybeSingle();
         const sessionId = (sess as { id: string } | null)?.id ?? null;
         if (sessionId && a.email) {
-          await supabase
+          await db
             .from("webinar_speakers" as never)
             .delete()
             .eq("session_id", sessionId)
@@ -557,7 +558,7 @@ export function useChangeSpeakerApplicationStatus() {
       let approvedSpeakerId: string | null = null;
       if (willBeApproved && !wasApproved) {
         let speakerId: string;
-        const { data: existing } = await supabase
+        const { data: existing } = await db
           .from("speakers" as never)
           .select("id")
           .eq("user_id", user.id)
@@ -566,7 +567,7 @@ export function useChangeSpeakerApplicationStatus() {
         if (existing) {
           speakerId = (existing as unknown as { id: string }).id;
         } else {
-          const { data: created, error: spkErr } = await supabase
+          const { data: created, error: spkErr } = await db
             .from("speakers" as never)
             .insert({
               user_id: user.id,
@@ -584,7 +585,7 @@ export function useChangeSpeakerApplicationStatus() {
           if (spkErr || !created) throw spkErr || new Error("Could not create speaker");
           speakerId = (created as unknown as { id: string }).id;
         }
-        const { error: linkErr } = await supabase
+        const { error: linkErr } = await db
           .from("event_speakers" as never)
           .upsert({ event_id: a.event_id, speaker_id: speakerId } as never, {
             onConflict: "event_id,speaker_id",
@@ -593,7 +594,7 @@ export function useChangeSpeakerApplicationStatus() {
         approvedSpeakerId = speakerId;
       }
 
-      const { error: updateErr } = await supabase
+      const { error: updateErr } = await db
         .from("speaker_applications" as never)
         .update({
           status: newStatus,
@@ -610,14 +611,14 @@ export function useChangeSpeakerApplicationStatus() {
       // banner + organiser + portal CTA experience. Best-effort.
       if (willBeApproved && !wasApproved && approvedSpeakerId) {
         try {
-          await supabase.functions.invoke("send-speaker-invite-email", {
+          await db.functions.invoke("send-speaker-invite-email", {
             body: { speaker_id: approvedSpeakerId, event_id: a.event_id, kind: "approved" },
           });
         } catch { /* email is best-effort */ }
       }
 
       try {
-        const { data: ev } = await supabase
+        const { data: ev } = await db
           .from("events")
           .select("title")
           .eq("id", a.event_id)
@@ -625,7 +626,7 @@ export function useChangeSpeakerApplicationStatus() {
         const eventTitle = (ev as { title?: string } | null)?.title ?? "an event";
         const notif = buildSpeakerStatusNotif(newStatus, eventTitle, reason);
         if (notif) {
-          await supabase.from("app_notifications" as never).insert({
+          await db.from("app_notifications" as never).insert({
             user_id: a.user_id,
             ...notif,
           } as never);
@@ -656,7 +657,7 @@ export function useChangeSponsorApplicationStatus() {
       newStatus: ApplicationStatus;
       reason?: string;
     }) => {
-      const { data: app, error: fetchErr } = await supabase
+      const { data: app, error: fetchErr } = await db
         .from("sponsor_applications" as never)
         .select("*")
         .eq("id", appId)
@@ -675,7 +676,7 @@ export function useChangeSponsorApplicationStatus() {
 
       // Revoking approval — drop the event link.
       if (wasApproved && !willBeApproved) {
-        const { data: sp } = await supabase
+        const { data: sp } = await db
           .from("sponsors" as never)
           .select("id")
           .eq("user_id", user.id)
@@ -683,7 +684,7 @@ export function useChangeSponsorApplicationStatus() {
           .maybeSingle();
         const sponsorId = (sp as { id: string } | null)?.id ?? null;
         if (sponsorId) {
-          await supabase
+          await db
             .from("event_sponsors" as never)
             .delete()
             .eq("event_id", a.event_id)
@@ -693,7 +694,7 @@ export function useChangeSponsorApplicationStatus() {
 
       // Granting approval — recreate the sponsor record + link.
       if (willBeApproved && !wasApproved) {
-        const { data: created, error: spErr } = await supabase
+        const { data: created, error: spErr } = await db
           .from("sponsors" as never)
           .insert({
             user_id: user.id,
@@ -710,14 +711,14 @@ export function useChangeSponsorApplicationStatus() {
         const sponsorId = (created as unknown as { id: string }).id;
         approvedSponsorId = sponsorId;
 
-        const { error: linkErr } = await supabase
+        const { error: linkErr } = await db
           .from("event_sponsors" as never)
           .upsert({ event_id: a.event_id, sponsor_id: sponsorId } as never, {
             onConflict: "event_id,sponsor_id",
           });
         if (linkErr) throw linkErr;
 
-        const { error: memberErr } = await supabase
+        const { error: memberErr } = await db
           .from("sponsor_members" as never)
           .upsert(
             {
@@ -740,7 +741,7 @@ export function useChangeSponsorApplicationStatus() {
         }
       }
 
-      const { error: updateErr } = await supabase
+      const { error: updateErr } = await db
         .from("sponsor_applications" as never)
         .update({
           status: newStatus,
@@ -753,7 +754,7 @@ export function useChangeSponsorApplicationStatus() {
       if (updateErr) throw updateErr;
 
       try {
-        const { data: ev } = await supabase
+        const { data: ev } = await db
           .from("events")
           .select("title")
           .eq("id", a.event_id)
@@ -761,7 +762,7 @@ export function useChangeSponsorApplicationStatus() {
         const eventTitle = (ev as { title?: string } | null)?.title ?? "an event";
         const notif = buildSponsorStatusNotif(newStatus, eventTitle, reason);
         if (notif) {
-          await supabase.from("app_notifications" as never).insert({
+          await db.from("app_notifications" as never).insert({
             user_id: a.user_id,
             ...notif,
           } as never);
@@ -774,7 +775,7 @@ export function useChangeSponsorApplicationStatus() {
       // organiser-added sponsor flow uses. Best-effort.
       if (willBeApproved && !wasApproved && approvedSponsorId) {
         try {
-          await supabase.functions.invoke("send-sponsor-invite-email", {
+          await db.functions.invoke("send-sponsor-invite-email", {
             body: { sponsor_id: approvedSponsorId, event_id: a.event_id },
           });
         } catch { /* email is best-effort */ }

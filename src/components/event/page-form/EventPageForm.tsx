@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { fetchEventSponsorLinks, withEventSponsorship } from "@/lib/sponsors/event-sponsorship";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { logger } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,9 +70,9 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
   useEffect(() => {
     (async () => {
       const [evRes, spkRel, sesRes, spRel] = await Promise.all([
-        supabase.from("events").select("*").eq("id", eventId).single(),
-        supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
-        supabase.from("sessions").select("*").eq("event_id", eventId).order("start_time"),
+        db.from("events").select("*").eq("id", eventId).single(),
+        db.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
+        db.from("sessions").select("*").eq("event_id", eventId).order("start_time"),
         fetchEventSponsorLinks(eventId),
       ]);
       if (evRes.data) {
@@ -81,7 +82,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
       setSessions((sesRes.data as RendererSession[]) || []);
       if (spkRel.data?.length) {
         const ids = spkRel.data.map((s) => s.speaker_id);
-        const { data } = await supabase.from("speakers").select("*").in("id", ids);
+        const { data } = await db.from("speakers").select("*").in("id", ids);
         const orderMap = new Map(ids.map((id, i) => [id, i] as const));
         const sorted = ((data as RendererSpeaker[]) || []).slice().sort(
           (a, b) => (orderMap.get(a.id) ?? 9999) - (orderMap.get(b.id) ?? 9999)
@@ -90,7 +91,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
       }
       if (spRel.data?.length) {
         const ids = spRel.data.map((s) => s.sponsor_id);
-        const { data } = await supabase.from("sponsors").select("*").in("id", ids);
+        const { data } = await db.from("sponsors").select("*").in("id", ids);
         const orderMap = new Map(ids.map((id, i) => [id, i] as const));
         const linkBySponsor = new Map(spRel.data.map((l) => [l.sponsor_id, l]));
         const sorted = ((data as RendererSponsor[]) || []).slice().sort(
@@ -114,7 +115,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
     }
     pendingConfigRef.current = null;
     setSaving(true);
-    const { error } = await supabase
+    const { error } = await db
       .from("events")
       .update({ page_config: config as never })
       .eq("id", eventId);
@@ -141,7 +142,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
     async (field: "description", value: string | null) => {
       // Optimistic local update so the editor + preview re-render instantly.
       setEvent((prev) => (prev ? ({ ...prev, [field]: value } as RendererEvent) : prev));
-      const { error } = await supabase
+      const { error } = await db
         .from("events")
         .update({ [field]: value } as never)
         .eq("id", eventId);
@@ -158,7 +159,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
 
   const persistConfig = useCallback(async (next: EventPageConfig) => {
     setSaving(true);
-    const { error } = await supabase
+    const { error } = await db
       .from("events")
       .update({ page_config: next as never })
       .eq("id", eventId);
@@ -200,7 +201,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
     }
     const pending = pendingConfigRef.current;
     if (pending) {
-      void supabase
+      void db
         .from("events")
         .update({ page_config: pending as never })
         .eq("id", eventId)
@@ -402,7 +403,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
                       variant === "landscape"
                         ? { banner_landscape_url: url }
                         : { banner_portrait_url: url };
-                    const { error } = await supabase
+                    const { error } = await db
                       .from("events")
                       .update(patch as never)
                       .eq("id", eventId);

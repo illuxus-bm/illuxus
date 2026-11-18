@@ -75,7 +75,8 @@ Deno.serve(async (req) => {
     let registrationId: string | null = null;
     let guestIdentity: string | null = null;
     // Resolve speaker invite early so unauthenticated speakers can join via link.
-    let speakerRow: { id: string; role: string; display_name: string | null; email: string | null; user_id?: string | null } | null = null;
+    type SpeakerRow = { id: string; role: string; display_name: string | null; email: string | null; user_id?: string | null };
+    let speakerRow: SpeakerRow | null = null;
     if (speaker_token && session_id) {
       const { data: sp } = await supabase
         .from("webinar_speakers")
@@ -84,7 +85,7 @@ Deno.serve(async (req) => {
         .eq("invite_token", speaker_token)
         .maybeSingle();
       if (sp) {
-        speakerRow = sp as NonNullable<typeof speakerRow>;
+        speakerRow = sp as SpeakerRow;
         if (!userId) {
           guestIdentity = `speaker-${sp.id}`;
           const spName = sp.display_name?.trim();

@@ -9,6 +9,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { friendlyError } from "@/lib/friendly-error";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useQueryClient } from "@tanstack/react-query";
 
 export default function CommunityModerationPage() {
@@ -22,7 +23,7 @@ export default function CommunityModerationPage() {
   // Chat messages have no hidden state; moderators delete them directly
   // (the "delete own messages" policy lets moderators delete any).
   const deleteMessage = async (messageId: string) => {
-    const { error } = await supabase.from("community_messages" as never).delete().eq("id", messageId);
+    const { error } = await db.from("community_messages" as never).delete().eq("id", messageId);
     if (error) throw error;
     await qc.invalidateQueries({ queryKey: ["community"] });
   };

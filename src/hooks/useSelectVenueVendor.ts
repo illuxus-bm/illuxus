@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,7 +106,7 @@ export function useSelectVenueVendor() {
     }: SelectVenueInput) => {
       if (!user) throw new Error("Not authenticated");
 
-      const { data: selection, error: upsertErr } = await supabase
+      const { data: selection, error: upsertErr } = await db
         .from("event_venue_selections" as never)
         .upsert(
           {
@@ -154,7 +155,7 @@ export function useSelectVenueVendor() {
       // and the function itself answers { ok: false } on SMTP errors.
       let emailed = false;
       try {
-        const { data: mail, error: mailErr } = await supabase.functions.invoke(
+        const { data: mail, error: mailErr } = await db.functions.invoke(
           "notify-venue-selection",
           {
             body: {
@@ -199,7 +200,7 @@ export function useEventVenueSelection(eventId: string | null | undefined) {
     queryKey: ["event-venue-selection", eventId],
     queryFn: async (): Promise<EventVenueSelection | null> => {
       if (!eventId) return null;
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("event_venue_selections" as never)
         .select(
           `
@@ -256,7 +257,7 @@ export function useUpdateVenueSelectionServices() {
       eventId: string;
       selectedServiceIds: string[];
     }) => {
-      const { error } = await supabase
+      const { error } = await db
         .from("event_venue_selections" as never)
         .update({ selected_service_ids: selectedServiceIds } as never)
         .eq("id", selectionId);
@@ -290,7 +291,7 @@ export function useCancelVenueSelection() {
       selectionId: string;
       eventId: string;
     }) => {
-      const { error } = await supabase
+      const { error } = await db
         .from("event_venue_selections" as never)
         .update({
           status: "cancelled",

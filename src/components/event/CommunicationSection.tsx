@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
 import { friendlyError } from "@/lib/friendly-error";
@@ -59,7 +60,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
   const [newRecipients, setNewRecipients] = useState("all");
 
   const fetchMessages = async () => {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("event_emails")
       .select("*")
       .eq("event_id", eventId)
@@ -128,7 +129,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
   // address list straight from Supabase so format validation happens in a
   // single place above.
   const fetchRawRecipients = async (filter: string): Promise<string[]> => {
-    let query = supabase.from("registrations").select("email").eq("event_id", eventId);
+    let query = db.from("registrations").select("email").eq("event_id", eventId);
 
     if (filter === "confirmed") {
       query = query.eq("approval_status", "approved");
@@ -136,13 +137,13 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
       query = query.eq("status", "waitlist");
     } else if (filter === "speakers") {
       // Speakers are stored in the speakers table linked via event_speakers
-      const { data: speakerRels } = await supabase
+      const { data: speakerRels } = await db
         .from("event_speakers")
         .select("speaker_id")
         .eq("event_id", eventId);
       const ids = (speakerRels || []).map((r) => r.speaker_id);
       if (!ids.length) return [];
-      const { data: speakers } = await supabase
+      const { data: speakers } = await db
         .from("speakers")
         .select("email")
         .in("id", ids);
@@ -170,7 +171,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
         return;
       }
 
-      const { error: fnErr } = await supabase.functions.invoke("send-event-email", {
+      const { error: fnErr } = await db.functions.invoke("send-event-email", {
         body: {
           event_id: eventId,
           email_id: msg.id,
@@ -188,7 +189,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
       }
 
       // Mark as sent
-      await supabase
+      await db
         .from("event_emails")
         .update({ status: "sent", sent_at: new Date().toISOString() })
         .eq("id", msg.id);
@@ -216,7 +217,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
       }
 
       // Persist to DB first so it appears immediately even if the edge fn is slow
-      const { data: record, error: insertErr } = await supabase
+      const { data: record, error: insertErr } = await db
         .from("event_emails")
         .insert({
           event_id: eventId,
@@ -236,7 +237,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
       // Invoke the send-event-email edge function to actually dispatch emails.
       // If the function doesn't exist yet the message is still recorded as sent
       // so the UI stays consistent; the toast will note the partial state.
-      const { error: fnErr } = await supabase.functions.invoke("send-event-email", {
+      const { error: fnErr } = await db.functions.invoke("send-event-email", {
         body: {
           event_id: eventId,
           email_id: record.id,
@@ -248,7 +249,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
 
       if (fnErr) {
         // Non-fatal: record exists, but delivery failed — mark as draft so user knows
-        await supabase.from("event_emails").update({ status: "draft" }).eq("id", record.id);
+        await db.from("event_emails").update({ status: "draft" }).eq("id", record.id);
         toast.warning(
           "Message saved but delivery failed. Configure email settings or try again.",
         );
@@ -268,7 +269,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
   const saveDraft = async () => {
     if (!newSubject.trim()) { toast.error("Please enter a subject"); return; }
     setSavingDraft(true);
-    const { error } = await supabase.from("event_emails").insert({
+    const { error } = await db.from("event_emails").insert({
       event_id: eventId,
       subject: newSubject.trim(),
       body: newBody.trim(),
@@ -286,7 +287,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("event_emails").delete().eq("id", id);
+    const { error } = await db.from("event_emails").delete().eq("id", id);
     if (error) toast.error(friendlyError(error));
     else toast.success("Message deleted");
   };

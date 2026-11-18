@@ -1,0 +1,79 @@
+// Node port of supabase/functions/livekit-room-create/index.ts (scripts/port-edge-function.mjs).
+import { Deno } from "../../edge/deno.js";
+import { defineHandler, type EdgeHandler } from "../../edge/deno.js";
+import { createClient } from "../../edge/supabase.js";
+import { AccessToken } from "livekit-server-sdk";
+import { buildCorsHeaders, handlePreflight } from "../_shared/cors.js";
+import { sessionMeetsTwoFactor } from "../_shared/auth.js";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.js";
+import { eventHasFeature, featureNotIncluded } from "../_shared/entitlements.js";
+
+const log = createEdgeLogger("livekit-room-create");
+
+export default defineHandler(async (req) => {
+  const corsHeaders = buildCorsHeaders(req);
+  const preflight = handlePreflight(req, corsHeaders);
+  if (preflight) return preflight;
+  try {
+    const { event_id, record_enabled = false } = await req.json();
+    if (!event_id) return j({ error: "event_id required" }, 400);
+
+    const auth = req.headers.get("Authorization") || "";
+    const jwt = auth.replace("Bearer ", "");
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const { data: { user } } = await supabase.auth.getUser(jwt);
+    if (!user) return j({ error: "Unauthenticated" }, 401);
+    if (!sessionMeetsTwoFactor(user, jwt)) return j({ error: "Two-factor verification required" }, 401);
+
+    const { data: ev } = await supabase.from("events").select("id, user_id").eq("id", event_id).maybeSingle();
+    if (!ev) return j({ error: "Event not found" }, 404);
+    const { data: adminRole } = await supabase.from("user_roles").select("role").eq("user_id", user.id).eq("role", "admin").maybeSingle();
+    if (ev.user_id !== user.id && !adminRole) return j({ error: "Forbidden" }, 403);
+    if (!adminRole && !(await eventHasFeature(supabase, event_id, "webinar"))) {
+      return j(featureNotIncluded("webinar", "the webinar studio"), 403);
+    }
+
+    // Reuse latest scheduled or live session if exists
+    const { data: existing } = await supabase
+      .from("webinar_sessions").select("*")
+      .eq("event_id", event_id).in("status", ["scheduled", "live"])
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (existing) return j({ session: existing });
+
+    const room = `event-${event_id.slice(0, 8)}-${Date.now().toString(36)}`;
+
+    // Create room via LiveKit
+    const url = Deno.env.get("LIVEKIT_WS_URL")!.replace(/^wss?:\/\//, "https://");
+    const at = new AccessToken(
+      Deno.env.get("LIVEKIT_API_KEY")!,
+      Deno.env.get("LIVEKIT_API_SECRET")!,
+      { identity: "server" }
+    );
+    at.addGrant({ roomCreate: true });
+    const adminJwt = await at.toJwt();
+    await fetch(`${url}/twirp/livekit.RoomService/CreateRoom`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${adminJwt}` },
+      body: JSON.stringify({ name: room, empty_timeout: 600, max_participants: 10000, metadata: JSON.stringify({ mode: "livestream", max_publishers: 10 }) }),
+    });
+
+    const { data: session, error } = await supabase.from("webinar_sessions").insert({
+      event_id, livekit_room: room, status: "scheduled", record_enabled, created_by: user.id,
+    }).select().single();
+    if (error) {
+      log.error("room create failed", { error_message: error.message });
+      return j({ error: "Something went wrong. Please try again." }, 500);
+    }
+
+    return j({ session });
+  } catch (e) {
+    log.error("unhandled error", toErrorFields(e));
+    return j({ error: "Something went wrong. Please try again." }, 500);
+  }
+  function j(b: unknown, s = 200) {
+    return new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+});

@@ -9,6 +9,7 @@
  */
 import { fetchEventSponsorLinks } from "@/lib/sponsors/event-sponsorship";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { normalizeConfig, type EventPageConfig } from "@/components/event/page-form/types";
 import { logger } from "@/lib/observability";
 
@@ -151,14 +152,14 @@ function inOrder<T extends { id: string }>(ids: string[], rows: T[] | null): T[]
 
 export async function loadStudioData(eventId: string): Promise<StudioData> {
   const [eventRes, speakerLinks, sponsorLinks, sessionsRes] = await Promise.all([
-    supabase
+    db
       .from("events")
       .select("title, description, date, end_date, timezone, venue, location, event_format, image_url, banner_landscape_url, banner_portrait_url, org_id, page_config")
       .eq("id", eventId)
       .single(),
-    supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
+    db.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
     fetchEventSponsorLinks(eventId),
-    supabase.from("sessions").select("title, start_time").eq("event_id", eventId).order("start_time"),
+    db.from("sessions").select("title, start_time").eq("event_id", eventId).order("start_time"),
   ]);
   if (eventRes.error || !eventRes.data) {
     logger.error("creative studio event fetch failed", { event_id: eventId, error_message: eventRes.error?.message });
@@ -170,13 +171,13 @@ export async function loadStudioData(eventId: string): Promise<StudioData> {
 
   const [speakersRes, sponsorsRes, orgRes] = await Promise.all([
     speakerIds.length > 0
-      ? supabase.from("speakers").select("id, name, title, designation, company, photo_url, bio").in("id", speakerIds)
+      ? db.from("speakers").select("id, name, title, designation, company, photo_url, bio").in("id", speakerIds)
       : Promise.resolve({ data: [] }),
     sponsorIds.length > 0
-      ? supabase.from("sponsors").select("id, name, logo_url").in("id", sponsorIds)
+      ? db.from("sponsors").select("id, name, logo_url").in("id", sponsorIds)
       : Promise.resolve({ data: [] }),
     event.org_id
-      ? supabase.from("organizations").select("name, logo_url").eq("id", event.org_id).maybeSingle()
+      ? db.from("organizations").select("name, logo_url").eq("id", event.org_id).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
 

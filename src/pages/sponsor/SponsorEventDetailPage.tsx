@@ -38,6 +38,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowDown, ArrowLeft, CalendarCheck, CheckCircle2, ChevronRight, Eye, Lock, Mic, Search, User, Users, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 import { FullPageLoader } from "@/components/FullPageLoader";
@@ -134,7 +135,7 @@ export default function SponsorEventDetailPage() {
     queryKey: ["sponsor-event", eventId],
     enabled: !!user && !!eventId,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data } = await db
         .from("events")
         .select("title, date, end_date, venue, location, image_url, banner_landscape_url, timezone")
         .eq("id", eventId!)
@@ -246,7 +247,7 @@ export default function SponsorEventDetailPage() {
       // from their public profiles.
       const missing = rows.filter((r) => r.kind === "speaker" && r.designation === undefined).map((r) => r.id);
       if (missing.length) {
-        const { data: sp } = await supabase.from("speakers_public" as never).select("id, designation, title").in("id", missing);
+        const { data: sp } = await db.from("speakers_public" as never).select("id, designation, title").in("id", missing);
         const byId = new Map(((sp || []) as { id: string; designation: string | null; title: string | null }[]).map((s) => [s.id, s.designation || s.title]));
         rows.forEach((r) => { if (r.kind === "speaker" && r.designation === undefined) r.designation = byId.get(r.id) ?? null; });
       }

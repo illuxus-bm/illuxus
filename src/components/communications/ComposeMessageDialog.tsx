@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChevronLeft, ChevronRight, Mail, Send, MessageSquare, Search, Check, AlertCircle, CalendarClock, Clock } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { toast } from "sonner";
 import {
   type CommunicationChannel,
@@ -149,7 +150,7 @@ export function ComposeMessageDialog({
     }
     // Hydrate from existing draft.
     (async () => {
-      const { data } = await supabase
+      const { data } = await db
         .from("communications" as never)
         .select("*")
         .eq("id", draftId)
@@ -198,7 +199,7 @@ export function ComposeMessageDialog({
       if (scope === "community" && communityId) {
         // Active community members, with display names from the public
         // profile view (other users' `profiles` rows are not readable).
-        const { data } = await supabase
+        const { data } = await db
           .from("community_members")
           .select("user_id, role")
           .eq("community_id", communityId)
@@ -224,7 +225,7 @@ export function ComposeMessageDialog({
       }
 
       if (eventId) {
-        const { data } = await supabase
+        const { data } = await db
           .from("registrations")
           .select("user_id, name, email, first_name, last_name")
           .eq("event_id", eventId)
@@ -305,7 +306,7 @@ export function ComposeMessageDialog({
       // {{user_name}} from the signed-in user's profile.
       const { data: userData } = await supabase.auth.getUser();
       if (userData.user) {
-        const { data: profile } = await supabase
+        const { data: profile } = await db
           .from("profiles")
           .select("display_name, first_name, last_name")
           .eq("user_id", userData.user.id)
@@ -319,7 +320,7 @@ export function ComposeMessageDialog({
       }
 
       if (eventId) {
-        const { data: ev } = await supabase
+        const { data: ev } = await db
           .from("events")
           .select("title, date, location, venue")
           .eq("id", eventId)
@@ -333,7 +334,7 @@ export function ComposeMessageDialog({
       }
 
       if (communityId) {
-        const { data: comm } = await supabase
+        const { data: comm } = await db
           .from("communities" as never)
           .select("name")
           .eq("id", communityId)

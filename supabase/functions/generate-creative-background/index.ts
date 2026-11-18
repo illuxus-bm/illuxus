@@ -272,7 +272,8 @@ type AiBackgroundErrorCode =
   | "service_outage"
   | "configuration"
   | "auth"
-  | "bad_request";
+  | "bad_request"
+  | "plan_feature_not_included";
 
 interface RequestBody {
   eventId: string;

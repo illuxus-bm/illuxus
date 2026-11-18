@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -144,7 +145,7 @@ export default function OrgPageForm() {
   const handleSave = useCallback(async () => {
     if (!org) return;
     setSaving(true);
-    const { error } = await supabase
+    const { error } = await db
       .from("organizations")
       .update({ landing_config: state as never, logo_url: logoUrl || null })
       .eq("id", org.id);
@@ -163,7 +164,7 @@ export default function OrgPageForm() {
     if (!org) return;
     if (dirty) await handleSave();
     const next = !(org as { landing_published?: boolean }).landing_published;
-    const { error } = await supabase
+    const { error } = await db
       .from("organizations")
       .update({ landing_published: next })
       .eq("id", org.id);
@@ -352,7 +353,7 @@ export default function OrgPageForm() {
                   return;
                 }
                 setSavingHandle(true);
-                const { data: clash } = await supabase
+                const { data: clash } = await db
                   .from("organizations")
                   .select("id")
                   .or(`subdomain.eq.${cleaned},slug.eq.${cleaned}`)
@@ -365,7 +366,7 @@ export default function OrgPageForm() {
                   toast({ title: "Handle taken", description: msg, variant: "destructive" });
                   return;
                 }
-                const { error } = await supabase
+                const { error } = await db
                   .from("organizations")
                   .update({ subdomain: cleaned })
                   .eq("id", org.id);

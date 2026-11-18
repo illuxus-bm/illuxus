@@ -27,6 +27,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 
 export interface SpeakerLite {
   id: string;
@@ -86,7 +87,7 @@ export function useOrgSpeakerSearch(query: string, open: boolean) {
     enabled: open,
     staleTime: 30_000,
     queryFn: async () => {
-      let q = supabase.from("speakers").select("*");
+      let q = db.from("speakers").select("*");
       const trimmed = debounced.trim();
       if (trimmed) {
         const pat = ilikePattern(trimmed);

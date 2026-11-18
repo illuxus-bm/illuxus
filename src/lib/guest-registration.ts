@@ -5,6 +5,7 @@
  * here only talks to it and gives quick feedback while typing.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import type { UtmParams } from "@/lib/utm";
 
 export interface GuestFields {
@@ -59,7 +60,7 @@ export function passwordFormProblem(password: string, confirm: string): string |
 
 /** Calls the edge function and returns its answer whatever the HTTP status. */
 export async function callGuestRegistration(body: Record<string, unknown>): Promise<GuestReply> {
-  const { data, error } = await supabase.functions.invoke("guest-registration", { body });
+  const { data, error } = await db.functions.invoke("guest-registration", { body });
   if (!error) return { status: 200, body: (data ?? {}) as Record<string, unknown> };
   // Non-2xx answers arrive as an error carrying the real response.
   const response = (error as { context?: Response }).context;

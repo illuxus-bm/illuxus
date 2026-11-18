@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import {
   DEFAULT_SITE_CONTENT,
   SiteContentMap,
@@ -64,7 +65,7 @@ export const SiteContentProvider = ({ children }: { children: ReactNode }) => {
   const [hydrated, setHydrated] = useState<boolean>(!!cached);
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from("site_content").select("section, content");
+    const { data } = await db.from("site_content").select("section, content");
     if (data && data.length > 0) {
       const merged: SiteContentMap = { ...DEFAULT_SITE_CONTENT };
       for (const row of data) {

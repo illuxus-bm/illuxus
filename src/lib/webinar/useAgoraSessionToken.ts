@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { logger } from "@/lib/observability";
 
 export type AgoraSessionRole = "publisher" | "subscriber";
@@ -116,7 +117,7 @@ export function useAgoraSessionToken({
     setLoading(true);
     setError(null);
     try {
-      const { data: rsp, error: invokeErr } = await supabase.functions.invoke(
+      const { data: rsp, error: invokeErr } = await db.functions.invoke(
         "agora-token",
         {
           body: {

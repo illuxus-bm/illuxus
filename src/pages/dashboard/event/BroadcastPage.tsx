@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { FeatureGate } from "@/components/plans/FeatureGate";
 import { useHasFeature } from "@/hooks/usePlanFeatures";
@@ -100,7 +101,7 @@ export default function BroadcastPage() {
     }
     let cancel = false;
     (async () => {
-      const { data } = await supabase
+      const { data } = await db
         .from("events")
         .select("id")
         .eq("slug", routeId)
@@ -114,12 +115,12 @@ export default function BroadcastPage() {
 
   useEffect(() => {
     if (!eventId) return;
-    supabase.from("events").select("id, webinar_branding_enabled, org_id").eq("id", eventId).maybeSingle()
+    db.from("events").select("id, webinar_branding_enabled, org_id").eq("id", eventId).maybeSingle()
       .then(async ({ data }) => {
         if (!data) return;
         setEvent(data);
         if (data.org_id) {
-          const { data: o } = await supabase.from("organizations").select("webinar_branding_enabled").eq("id", data.org_id).maybeSingle();
+          const { data: o } = await db.from("organizations").select("webinar_branding_enabled").eq("id", data.org_id).maybeSingle();
           if (o) setOrgBrandingDefault(o.webinar_branding_enabled ?? true);
         }
       });
@@ -127,14 +128,14 @@ export default function BroadcastPage() {
 
   const setEventBranding = async (val: boolean | null) => {
     if (!eventId) return;
-    await supabase.from("events").update({ webinar_branding_enabled: val }).eq("id", eventId);
+    await db.from("events").update({ webinar_branding_enabled: val }).eq("id", eventId);
     setEvent((e) => (e ? { ...e, webinar_branding_enabled: val } : e));
     toast.success(val === null ? "Using organization default" : `Branding overlays ${val ? "enabled" : "disabled"}`);
   };
 
   useEffect(() => {
     if (!eventId) return;
-    const load = () => supabase.from("webinar_sessions").select("*").eq("event_id", eventId)
+    const load = () => db.from("webinar_sessions").select("*").eq("event_id", eventId)
       .order("created_at", { ascending: false }).limit(1).maybeSingle()
       .then(({ data }) => { if (data) { setSession(data); } });
     load();
@@ -149,25 +150,25 @@ export default function BroadcastPage() {
     const sessionId = session.id;
     // Backfill: ensure every event speaker has a webinar_speakers row (with a unique invite_token).
     (async () => {
-      const { data: rel } = await supabase.from("event_speakers")
+      const { data: rel } = await db.from("event_speakers")
         .select("speaker_id").eq("event_id", eventId);
       const speakerIds = (rel ?? []).map((r) => r.speaker_id);
       if (!speakerIds.length) return;
-      const { data: spks } = await supabase.from("speakers")
+      const { data: spks } = await db.from("speakers")
         .select("id, name, email").in("id", speakerIds);
-      const { data: existing } = await supabase.from("webinar_speakers")
+      const { data: existing } = await db.from("webinar_speakers")
         .select("email").eq("session_id", sessionId);
       const have = new Set((existing ?? []).map((e) => (e.email ?? "").toLowerCase()));
       const toInsert = (spks ?? [])
         .filter((s) => s.email && !have.has(s.email.toLowerCase()))
         .map((s) => ({ session_id: sessionId, email: s.email!, display_name: s.name, role: "speaker" }));
-      if (toInsert.length) await supabase.from("webinar_speakers").insert(toInsert);
+      if (toInsert.length) await db.from("webinar_speakers").insert(toInsert);
     })();
-    supabase.from("webinar_speakers").select("*").eq("session_id", sessionId).order("created_at")
+    db.from("webinar_speakers").select("*").eq("session_id", sessionId).order("created_at")
       .then(({ data }) => setSpeakers(data || []));
     const ch = supabase.channel(`speakers-${sessionId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "webinar_speakers", filter: `session_id=eq.${sessionId}` },
-        () => supabase.from("webinar_speakers").select("*").eq("session_id", sessionId).order("created_at").then(({ data }) => setSpeakers(data || [])))
+        () => db.from("webinar_speakers").select("*").eq("session_id", sessionId).order("created_at").then(({ data }) => setSpeakers(data || [])))
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [session?.id, eventId]);
@@ -175,7 +176,7 @@ export default function BroadcastPage() {
   const createSession = async () => {
     // Clean up old ended/error sessions for this event to prevent row accumulation.
     if (eventId) {
-      await supabase
+      await db
         .from("webinar_sessions")
         .delete()
         .eq("event_id", eventId)
@@ -195,7 +196,7 @@ export default function BroadcastPage() {
       // LiveKit path: try the edge function first (creates a real LiveKit room).
       let edgeFnWorked = false;
       try {
-        const { data, error } = await supabase.functions.invoke("livekit-room-create", { body: { event_id: eventId, record_enabled: false } });
+        const { data, error } = await db.functions.invoke("livekit-room-create", { body: { event_id: eventId, record_enabled: false } });
         if (!error && data?.session) {
           setSession(data.session);
           toast.success("Stream room ready");
@@ -212,7 +213,7 @@ export default function BroadcastPage() {
     // session row directly. For Agora this is the normal happy path; for
     // LiveKit it's a fallback for environments without LiveKit secrets.
     const room = `event-${(eventId || "").slice(0, 8)}-${Date.now().toString(36)}`;
-    const { data: fallbackSession, error: dbErr } = await supabase
+    const { data: fallbackSession, error: dbErr } = await db
       .from("webinar_sessions")
       .insert({
         event_id: eventId,
@@ -242,7 +243,7 @@ export default function BroadcastPage() {
   // can go live again on the same room without losing speaker config.
   const restartSession = async () => {
     if (!session) return;
-    const { error } = await supabase
+    const { error } = await db
       .from("webinar_sessions")
       .update({ status: "scheduled", ended_at: null })
       .eq("id", session.id);
@@ -253,14 +254,14 @@ export default function BroadcastPage() {
 
   const goLive = async () => {
     try {
-      const { error } = await supabase.functions.invoke("livekit-go-live", { body: { session_id: session.id } });
+      const { error } = await db.functions.invoke("livekit-go-live", { body: { session_id: session.id } });
       if (error) {
         // Edge function failed — just update status directly in DB
-        await supabase.from("webinar_sessions").update({ status: "live" }).eq("id", session.id);
+        await db.from("webinar_sessions").update({ status: "live" }).eq("id", session.id);
       }
     } catch {
       // Edge function not available — update DB directly
-      await supabase.from("webinar_sessions").update({ status: "live" }).eq("id", session.id);
+      await db.from("webinar_sessions").update({ status: "live" }).eq("id", session.id);
     }
     setSession({ ...session, status: "live" });
     setShowPrejoin(true);
@@ -272,7 +273,7 @@ export default function BroadcastPage() {
     setRecBusy(true);
     const fn = session.egress_id ? "recording-stop" : "recording-start";
     try {
-      const { error } = await supabase.functions.invoke(fn, { body: { session_id: session.id } });
+      const { error } = await db.functions.invoke(fn, { body: { session_id: session.id } });
       if (error) { setRecBusy(false); return toast.error("Recording requires LiveKit to be configured."); }
     } catch {
       setRecBusy(false);
@@ -295,7 +296,7 @@ export default function BroadcastPage() {
       return true;
     }
     try {
-      const { data, error } = await supabase.functions.invoke("livekit-token", { body: { session_id: session.id } });
+      const { data, error } = await db.functions.invoke("livekit-token", { body: { session_id: session.id } });
       if (error || !data?.token) { toast.error("LiveKit not configured — streaming requires LiveKit secrets in Supabase dashboard."); return false; }
       setToken(data.token); setWsUrl(data.ws_url); setCanPublish(data.can_publish);
       return true;
@@ -308,9 +309,9 @@ export default function BroadcastPage() {
   const endLive = async () => {
     if (!confirm("End stream for everyone?")) return;
     try {
-      await supabase.functions.invoke("livekit-room-end", { body: { session_id: session.id } });
+      await db.functions.invoke("livekit-room-end", { body: { session_id: session.id } });
     } catch { /* edge fn unavailable */ }
-    await supabase.from("webinar_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", session.id);
+    await db.from("webinar_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", session.id);
     setToken(null);
     setSession({ ...session, status: "ended" });
     toast.success("Stream ended");
@@ -332,17 +333,17 @@ export default function BroadcastPage() {
 
   const updateLayout = async (layout: string) => {
     if (!session) return;
-    await supabase.from("webinar_sessions").update({ layout }).eq("id", session.id);
+    await db.from("webinar_sessions").update({ layout }).eq("id", session.id);
     setSession({ ...session, layout });
   };
   const updateLounge = async (enabled: boolean) => {
     if (!session) return;
-    await supabase.from("webinar_sessions").update({ lounge_enabled: enabled }).eq("id", session.id);
+    await db.from("webinar_sessions").update({ lounge_enabled: enabled }).eq("id", session.id);
     setSession({ ...session, lounge_enabled: enabled });
   };
   const sendAnnouncement = async () => {
     if (!announcement.trim() || !session) return;
-    await supabase.from("webinar_announcements").insert({ session_id: session.id, message: announcement.trim() });
+    await db.from("webinar_announcements").insert({ session_id: session.id, message: announcement.trim() });
     setAnnouncement("");
     toast.success("Announcement sent");
   };

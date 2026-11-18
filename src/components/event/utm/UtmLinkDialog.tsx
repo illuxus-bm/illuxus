@@ -23,6 +23,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, ExternalLink, Handshake, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { utmLinkUrl, type UtmLinkDraft } from "./utm-link-url";
 import { UTM_MEDIUMS, UTM_SOURCES, withExtras } from "./utm-options";
 import { useAuth } from "@/contexts/AuthContext";
@@ -104,7 +105,7 @@ export function UtmLinkDialog({
       return;
     }
     setSaving(true);
-    const { error } = await supabase
+    const { error } = await db
       .from("utm_links" as never)
       .upsert({
         event_id: eventId,

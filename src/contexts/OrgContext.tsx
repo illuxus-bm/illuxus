@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import type { Tables } from "@/integrations/supabase/types";
 import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
@@ -154,7 +155,7 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
     setLoading(true);
 
     // Onboarding flag — used by `OnboardingGuard` upstream.
-    const { data: profile } = await supabase
+    const { data: profile } = await db
       .from("profiles")
       .select("onboarding_completed")
       .eq("user_id", user.id)
@@ -164,7 +165,7 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
     // Pull EVERY workspace the user belongs to so the switcher has a list to
     // render. Includes the org's display fields via a relational select so a
     // single query is sufficient — no N+1 lookup per workspace.
-    const { data: memRows } = await supabase
+    const { data: memRows } = await db
       .from("org_members")
       .select("org_id, role, organizations:org_id(id, name, slug, logo_url)")
       .eq("user_id", user.id);
@@ -191,7 +192,7 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
     // Fallback: user owns an org but has no membership row (legacy / repair).
     let allOrgIds = list.map((m) => m.org_id);
     if (allOrgIds.length === 0) {
-      const { data: ownedOrg } = await supabase
+      const { data: ownedOrg } = await db
         .from("organizations")
         .select("id, name, slug, logo_url")
         .eq("owner_id", user.id)
@@ -200,7 +201,7 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
       if (ownedOrg) {
         // Auto-repair: insert the missing org_members row so future loads
         // don't need this branch.
-        await supabase.from("org_members").insert({
+        await db.from("org_members").insert({
           org_id: ownedOrg.id,
           user_id: user.id,
           role: "owner",
@@ -242,7 +243,7 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
     // Explicit columns: billing_email isn't readable directly (security
     // fixes C-1); members get it from org_billing_email().
     const [orgRes, { data: billingEmail }] = await Promise.all([
-      supabase
+      db
         .from("organizations")
         .select(ORG_COLUMNS)
         .eq("id", effectiveOrgId)
@@ -269,20 +270,20 @@ export const OrgProvider = ({ children }: { children: ReactNode }) => {
       setEntitlements(ent);
       queryClient.setQueryData(entitlementsQueryKey(orgData.id), ent);
 
-      const { data: subData } = await supabase
+      const { data: subData } = await db
         .from("subscriptions")
         .select("*")
         .eq("org_id", orgData.id)
         .maybeSingle();
       setSubscription(subData);
 
-      const { count: evtCount } = await supabase
+      const { count: evtCount } = await db
         .from("events")
         .select("*", { count: "exact", head: true })
         .eq("org_id", orgData.id);
       setEventCount(evtCount || 0);
 
-      const { count: memCount } = await supabase
+      const { count: memCount } = await db
         .from("org_members")
         .select("*", { count: "exact", head: true })
         .eq("org_id", orgData.id);

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 
 /**
  * Availability read for the marketplace picker's detail view.
@@ -58,7 +59,7 @@ export function useVendorAvailability(
       const horizon = extendHorizon(today, windowDays, focusDate);
 
       // ─── Manual blocks + confirmed booking auto-blocks ───────────────
-      let availabilityQuery = supabase
+      let availabilityQuery = db
         .from("vendor_availability" as never)
         .select("date, status, note")
         .eq("vendor_id", vendorId)
@@ -73,7 +74,7 @@ export function useVendorAvailability(
 
       // ─── Accepted event picks (they lock the calendar even if the
       // vendor didn't manually mark availability). ─────────────────────
-      let selectionsQuery = supabase
+      let selectionsQuery = db
         .from("event_venue_selections" as never)
         .select("event:events!inner(date, end_date, title)")
         .eq("vendor_id", vendorId)

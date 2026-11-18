@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,7 +36,7 @@ const ROLE_OPTIONS = [
  *  `org_member_emails` RPC (migration 037). Returns [] when the RPC fails
  *  so callers degrade to "unknown" instead of blocking the action. */
 async function fetchMemberEmails(orgId: string): Promise<{ user_id: string; email: string }[]> {
-  const { data, error } = await supabase.rpc("org_member_emails" as never, { _org_id: orgId } as never);
+  const { data, error } = await db.rpc("org_member_emails" as never, { _org_id: orgId } as never);
   if (error || !Array.isArray(data)) return [];
   return (data as { user_id: string; email: string | null }[])
     .filter((r) => !!r.email)
@@ -69,11 +70,11 @@ const TeamPanel = ({ org }: { org: Org }) => {
     if (!org) return;
     setLoadingTeam(true);
     const [membersRes, invitesRes] = await Promise.all([
-      supabase
+      db
         .from("org_members")
         .select("id, user_id, role, joined_at")
         .eq("org_id", org.id),
-      supabase
+      db
         .from("org_invitations")
         .select("*")
         .eq("org_id", org.id)
@@ -185,14 +186,14 @@ const TeamPanel = ({ org }: { org: Org }) => {
   // Revoked rather than deleted, so the link reports "withdrawn" and the
   // invitation can be sent again later.
   const handleCancelInvite = async (id: string) => {
-    const { error } = await supabase.from("org_invitations").update({ status: "revoked" }).eq("id", id);
+    const { error } = await db.from("org_invitations").update({ status: "revoked" }).eq("id", id);
     if (error) toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
     else toast({ title: "Invitation withdrawn", description: "The link in that email no longer works." });
     fetchTeam();
   };
 
   const handleUpdateMemberRole = async (memberId: string, newRole: string) => {
-    const { error } = await supabase
+    const { error } = await db
       .from("org_members")
       .update({ role: newRole })
       .eq("id", memberId);
@@ -228,7 +229,7 @@ const TeamPanel = ({ org }: { org: Org }) => {
       || "the team member";
 
     // Step 1: remove the membership row.
-    const { error: delErr } = await supabase.from("org_members").delete().eq("id", memberId);
+    const { error: delErr } = await db.from("org_members").delete().eq("id", memberId);
     if (delErr) {
       toast({ title: "Error", description: delErr.message, variant: "destructive" });
       return;
@@ -240,7 +241,7 @@ const TeamPanel = ({ org }: { org: Org }) => {
     // than 'pending', so flipping to 'revoked' is sufficient. We also
     // catch already-accepted rows so a re-invite later starts fresh.
     if (removedEmail) {
-      await supabase
+      await db
         .from("org_invitations")
         .update({ status: "revoked" })
         .eq("org_id", org.id)
@@ -266,7 +267,7 @@ const TeamPanel = ({ org }: { org: Org }) => {
         "— The Illuxus team",
       ].join("\n");
 
-      void supabase.functions
+      void db.functions
         .invoke("send-event-email", {
           body: {
             event_id: "invite",

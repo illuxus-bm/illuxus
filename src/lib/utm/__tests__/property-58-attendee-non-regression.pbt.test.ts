@@ -108,7 +108,14 @@ const ATTENDEE_FILES = [
     // `sponsor_share_consent`, from a new optional checkbox, and the agreement
     // wording changes. `loadStoredUtm()`, the five utm_* columns on the insert
     // and `clearStoredUtm()` on success are untouched.
-    hash: "8aa8ca552eeacc35e0a2dccb12b58d6c1d2662945684fcdc54124679bd6ae5de",
+    // Bumped 2026-11-18 for the Prisma API: `supabase.from(` became
+    // `db.from(` (src/lib/data/db.ts, which is supabase.from itself unless
+    // VITE_DATA_BACKEND=api) plus one import line. Re-audited: no line
+    // mentioning utm changed; the UTM columns, values and export are as before.
+    // Bumped again the same day: `supabase.functions.invoke` (the ticket
+    // email) became `db.functions.invoke`, which is the same call unless
+    // VITE_DATA_BACKEND=api. Re-audited: no UTM line changed.
+    hash: "85dabd562809d22567258ec7b4c848b85966f7873639bef6f8b26e105debe6ac",
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",
@@ -149,7 +156,14 @@ const ATTENDEE_FILES = [
     // 6.6: `any` casts on the attendance RPC results and join rows became
     // typed helpers; no line mentioning utm changed, so the `via <utm_source>`
     // hint and the five UTM CSV columns are byte-identical.
-    hash: "05b3757803d2113892ab309d2551aa13b0d5f525202c988befc6eab55813e5da",
+    // Bumped 2026-11-18 for the Prisma API: `supabase.from(` became
+    // `db.from(` (src/lib/data/db.ts, which is supabase.from itself unless
+    // VITE_DATA_BACKEND=api) plus one import line. Re-audited: no line
+    // mentioning utm changed; the UTM columns, values and export are as before.
+    // Bumped again the same day: `supabase.functions.invoke` (the ticket
+    // email) became `db.functions.invoke`, which is the same call unless
+    // VITE_DATA_BACKEND=api. Re-audited: no UTM line changed.
+    hash: "b136be1a4fc27161bedf47439247343d569e3d021e940ade09d006e83c4dec6a",
   },
   {
     path: "src/components/event/registrations/RegistrantQuickView.tsx",
@@ -162,7 +176,11 @@ const ATTENDEE_FILES = [
     // client as the RPC name (so it always failed) and now calls the RPC
     // properly; `any` casts became table types. Re-audited against 6.5: no
     // line mentioning utm changed; the five UTM_Field values are untouched.
-    hash: "754d072179966a8945e5bb05551975557941ef8c800b6570e081831f4a71c95e",
+    // Bumped 2026-11-18 for the Prisma API: `supabase.from(` became
+    // `db.from(` (src/lib/data/db.ts, which is supabase.from itself unless
+    // VITE_DATA_BACKEND=api) plus one import line. Re-audited: no line
+    // mentioning utm changed; the UTM columns, values and export are as before.
+    hash: "eec911b0270fc13883fa4a1c113322af0c5d90c5d74aca24b86f98fb290a7c76",
   },
 ] as const;
 

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 
 /**
  * Marketplace list of venues (physical spaces), one row per
@@ -122,7 +123,7 @@ export function useVenueVendors(filters?: Filters) {
     ],
     queryFn: async (): Promise<VenueVendor[]> => {
       // ─── Venues + owning vendor ───────────────────────────────────
-      let query = supabase
+      let query = db
         .from("venues" as never)
         .select(
           `id, vendor_id, name, space_type, description, is_active,
@@ -166,7 +167,7 @@ export function useVenueVendors(filters?: Filters) {
       const start = toDateOnly(filters?.eventDate);
       if (start) {
         const end = toDateOnly(filters?.eventEndDate) ?? start;
-        const { data: busy, error: busyErr } = await supabase.rpc(
+        const { data: busy, error: busyErr } = await db.rpc(
           "unavailable_venue_ids" as never,
           {
             p_start: start,
@@ -184,7 +185,7 @@ export function useVenueVendors(filters?: Filters) {
       // ─── Cover media ────────────────────────────────────────────
       // One extra fetch to grab every venue's cover photo. Non-cover
       // media is loaded lazily by the detail view.
-      const { data: mediaRows } = await supabase
+      const { data: mediaRows } = await db
         .from("venue_media" as never)
         .select("venue_id, url, is_cover")
         .in("venue_id", venueIds)
@@ -200,7 +201,7 @@ export function useVenueVendors(filters?: Filters) {
       // A service counts for a venue when it's pinned to that venue or
       // offered vendor-wide (venue_id null).
       const vendorIds = Array.from(new Set(venues.map((v) => v.vendor_id)));
-      const { data: services } = await supabase
+      const { data: services } = await db
         .from("vendor_services" as never)
         .select("vendor_id, venue_id, base_price, unit, is_active")
         .in("vendor_id", vendorIds)

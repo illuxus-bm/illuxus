@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,7 +75,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("events")
         .select("*")
         .eq("id", eventId)
@@ -133,7 +134,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
     if (!orgId) return;
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
+      const { data } = await db
         .from("events")
         .select("id, title, date")
         .eq("org_id", orgId)
@@ -253,7 +254,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
     // actually updated. Supabase does NOT raise an error when RLS hides a
     // row — it just returns an empty `data`. Without this check the UI
     // would happily show "saved" while nothing changed in the DB.
-    let { data: updated, error } = await supabase
+    let { data: updated, error } = await db
       .from("events")
       .update(fullPayload as never)
       .eq("id", eventId)
@@ -262,7 +263,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
     // If the full save fails due to a missing column (migrations not yet applied),
     // fall back to the core-only save so the user isn't completely blocked.
     if (error && error.message?.includes("column")) {
-      const fallback = await supabase
+      const fallback = await db
         .from("events")
         .update(corePayload as never)
         .eq("id", eventId)
@@ -306,7 +307,7 @@ export default function EventSettingsSection({ eventId, onSaved }: { eventId: st
 
   const deleteEvent = async () => {
     if (!confirm("Delete this event permanently? This cannot be undone.")) return;
-    const { data: deleted, error } = await supabase
+    const { data: deleted, error } = await db
       .from("events")
       .delete()
       .eq("id", eventId)

@@ -3,6 +3,7 @@ import { useLocalParticipant, useRoomContext } from "@livekit/components-react";
 import { Track, RoomEvent, ParticipantEvent, type RemoteParticipant } from "livekit-client";
 import { Mic, MicOff, Video, VideoOff, MonitorUp, MonitorOff, Smile, Users, LogIn, LogOut as LogOutIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
@@ -110,7 +111,7 @@ export function AirmeetControlBar({
         try { await localParticipant.setCameraEnabled(false); } catch { /* already off or track gone — demotion proceeds */ }
         try { await localParticipant.setScreenShareEnabled(false); } catch { /* already off or track gone — demotion proceeds */ }
       }
-      const { error } = await supabase.functions.invoke("livekit-promote", {
+      const { error } = await db.functions.invoke("livekit-promote", {
         body: { session_id: sessionId, action, self: true },
       });
       if (error) throw error;
@@ -123,7 +124,7 @@ export function AirmeetControlBar({
   };
 
   const hostToggle = async (identity: string, action: "promote" | "demote") => {
-    const { error } = await supabase.functions.invoke("livekit-promote", {
+    const { error } = await db.functions.invoke("livekit-promote", {
       body: { session_id: sessionId, action, target_user_id: identity },
     });
     if (error) toast.error(friendlyError(error));
