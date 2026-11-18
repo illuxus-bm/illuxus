@@ -197,8 +197,9 @@ illuxus project:
    suite) refuses a build that loads a live-reload server, allows `http`, lets Android back up the
    signed-in session, has different versions on the two platforms, or would lock itself out (see
    below). It warns about anything still to finish: signing, app links, the App Store link.
-3. **Android:** in Android Studio, Build → Generate Signed App Bundle → release, then upload the
-   `.aab` to the Play Console. Run it on a device first: back button, a download (ticket PDF), a share,
+3. **Android:** the release workflow builds a signed `.aab` alongside the APK and keeps it with the
+   run as the `illuxus-aab` artifact; upload that to the Play Console. (Locally: Android Studio,
+   Build → Generate Signed App Bundle → release.) Run it on a device first: back button, a download (ticket PDF), a share,
    the camera (check-in scanner) and an illuxus.com link.
 4. **iOS:** in Xcode, choose Any iOS Device, then Product → Archive → Distribute App → App Store
    Connect. Test it in TestFlight with the same list.
