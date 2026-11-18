@@ -226,7 +226,6 @@ function autoShrinkTitleSize(
   maxLines: number
 ): { fontSizePt: number; lines: string[] } {
   let size = startSizePt;
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     doc.setFontSize(size);
     const lines = doc.splitTextToSize(title, maxWidth) as string[];

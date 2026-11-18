@@ -118,7 +118,7 @@ describe("CSV exports", () => {
     vi.restoreAllMocks();
   });
 
-  const lines = () => captured.replace(/^﻿/, "").split("\r\n");
+  const lines = () => captured.replace(/^\uFEFF/, "").split("\r\n");
 
   it("exports every lead field in one flat table", () => {
     exportLeadsCsv(

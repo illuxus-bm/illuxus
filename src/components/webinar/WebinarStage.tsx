@@ -10,12 +10,13 @@ import {
   FocusLayoutContainer,
   CarouselLayout,
 } from "@livekit/components-react";
-import { Track, VideoPresets, DisconnectReason } from "livekit-client";
+import { Track, VideoPresets, DisconnectReason, type VideoCaptureOptions } from "livekit-client";
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { StageOverlays, type Branding } from "./StageOverlays";
 import { AirmeetControlBar } from "./AirmeetControlBar";
 import { setSessionParticipants, type SidebarParticipant } from "./participantStore";
 import type { WebinarProvider } from "@/lib/webinar/provider";
+import type { StageLayout } from "@/lib/webinar/stage-layout";
 
 const AgoraWebinarStageLazy = lazy(() =>
   import("./AgoraWebinarStage").then((m) => ({ default: m.AgoraWebinarStage })),
@@ -30,7 +31,7 @@ type Props = {
   wsUrl?: string;
   canPublish: boolean;
   onDisconnect?: () => void;
-  layout?: "grid" | "speaker" | "sidebyside" | "pip";
+  layout?: StageLayout;
   branding?: Branding;
   brandingEnabled?: boolean;
   sessionId?: string;
@@ -123,7 +124,7 @@ function LiveKitWebinarStage({
   const videoConstraints = useMemo(() => {
     if (!canPublish) return false;
     if (!camEnabled) return false;
-    if (camDeviceId) return { deviceId: { exact: camDeviceId } } as MediaTrackConstraints;
+    if (camDeviceId) return { deviceId: { exact: camDeviceId } } as VideoCaptureOptions;
     return true;
   }, [canPublish, camEnabled, camDeviceId]);
 
@@ -198,7 +199,7 @@ function ParticipantsBridge({ sessionId }: { sessionId: string }) {
       return {
         identity: p.identity,
         name: p.name || meta.name || p.identity,
-        isLocal: !!(p as any).isLocal,
+        isLocal: p.isLocal,
         isHost: meta.role === "host" || meta.isHost === true,
         canPublish: !!p.permissions?.canPublish,
         micOn: !!p.isMicrophoneEnabled,

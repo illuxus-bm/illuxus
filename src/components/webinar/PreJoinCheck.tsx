@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -43,9 +43,10 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
 
   const queryPermissions = async () => {
     try {
-      const c = await (navigator.permissions as any)?.query({ name: "camera" });
-      const m = await (navigator.permissions as any)?.query({ name: "microphone" });
-      setPerm({ cam: (c?.state as any) || "unknown", mic: (m?.state as any) || "unknown" });
+      // "camera"/"microphone" aren't in TS's PermissionName union yet, but Chromium and Firefox accept them.
+      const c = await navigator.permissions?.query({ name: "camera" as PermissionName });
+      const m = await navigator.permissions?.query({ name: "microphone" as PermissionName });
+      setPerm({ cam: c?.state || "unknown", mic: m?.state || "unknown" });
     } catch { /* ignore */ }
   };
 
@@ -88,10 +89,8 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
         // zero React re-renders. setLevel is throttled to 500ms for the
         // "speaking / silent" checklist row.
         let lastStateUpdate = 0;
-        let cancelled = false;
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
         const loop = () => {
-          if (cancelled) return;
           if (!document.hidden) {
             an.getByteTimeDomainData(buf);
             let sum = 0;
@@ -110,8 +109,8 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
       } catch { /* ignore */ }
       await refreshDevices();
       await queryPermissions();
-    } catch (e: any) {
-      setErr(e?.message || "Could not access camera/mic");
+    } catch (e) {
+      setErr((e as Error | undefined)?.message || "Could not access camera/mic");
     }
   };
 
@@ -217,7 +216,7 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
             <div
               ref={barsRef}
               className="absolute bottom-3 left-3 flex items-end gap-[3px] h-4"
-              style={{ ["--level" as any]: 0 }}
+              style={{ ["--level" as string]: 0 } as CSSProperties}
             >
               {Array.from({ length: bars }).map((_, i) => {
                 // Threshold per bar; CSS-driven so updates happen at GPU speed

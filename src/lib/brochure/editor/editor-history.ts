@@ -78,7 +78,6 @@ export function useHistory<T>(initial: T, options?: UseHistoryOptions): UseHisto
     // The lint suggestion to include `value` in deps is intentional —
     // we need the LATEST `value` at call time so the undo snapshot
     // corresponds to what the user just changed FROM.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [value, maxSize, coalesceMs]
   );
 
@@ -92,7 +91,6 @@ export function useHistory<T>(initial: T, options?: UseHistoryOptions): UseHisto
     }
     setValue(prev);
     tick();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, maxSize]);
 
   const redo = useCallback(() => {
@@ -105,7 +103,6 @@ export function useHistory<T>(initial: T, options?: UseHistoryOptions): UseHisto
     }
     setValue(next);
     tick();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, maxSize]);
 
   const reset = useCallback((v: T) => {

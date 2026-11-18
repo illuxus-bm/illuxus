@@ -34,9 +34,9 @@ const readCache = (): SiteContentMap | null => {
     const merged: SiteContentMap = { ...DEFAULT_SITE_CONTENT };
     for (const key of Object.keys(parsed) as SiteSection[]) {
       if (key in merged) {
-        (merged as any)[key] = {
-          ...(DEFAULT_SITE_CONTENT as any)[key],
-          ...(parsed as any)[key],
+        (merged as Record<SiteSection, unknown>)[key] = {
+          ...(DEFAULT_SITE_CONTENT[key] as object),
+          ...(parsed[key] as object | undefined),
         };
       }
     }
@@ -71,9 +71,9 @@ export const SiteContentProvider = ({ children }: { children: ReactNode }) => {
         const section = row.section as SiteSection;
         if (section in merged) {
           // Merge so missing keys fall back to defaults
-          (merged as any)[section] = {
-            ...(DEFAULT_SITE_CONTENT as any)[section],
-            ...(row.content as any),
+          (merged as Record<SiteSection, unknown>)[section] = {
+            ...(DEFAULT_SITE_CONTENT[section] as object),
+            ...(row.content as object | null),
           };
         }
       }

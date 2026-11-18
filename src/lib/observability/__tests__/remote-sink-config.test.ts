@@ -81,7 +81,6 @@ vi.mock('@sentry/browser', () => {
 // `remote.ts` imports `@sentry/browser` at module load time; the import
 // below resolves through the mock above (`vi.mock` is hoisted by vitest
 // regardless of the textual position of the static import).
-// eslint-disable-next-line import/first
 import { createRemoteSink } from '../sinks/remote';
 
 // Mirror the constant in `sinks/remote.ts`. Synchronous flush only fires

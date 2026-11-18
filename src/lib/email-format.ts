@@ -36,7 +36,7 @@
 // Conservative, practical email regex. See module-level comment for design
 // rationale. Anchored at both ends so partial matches inside other strings
 // can't slip through.
-const EMAIL_RE = /^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/;
+const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
 /**
  * Return true when `value` looks like a deliverable email address. The check

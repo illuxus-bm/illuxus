@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Upload } from "lucide-react";
 import type { Branding } from "./StageOverlays";
+import type { Json } from "@/integrations/supabase/types";
 import { friendlyError } from "@/lib/friendly-error";
 
 export function BrandingPanel({ sessionId, initial }: { sessionId: string; initial?: Branding }) {
@@ -20,7 +21,7 @@ export function BrandingPanel({ sessionId, initial }: { sessionId: string; initi
 
   const save = async () => {
     setSaving(true);
-    const { error } = await supabase.from("webinar_sessions").update({ branding: b as any }).eq("id", sessionId);
+    const { error } = await supabase.from("webinar_sessions").update({ branding: b as Json }).eq("id", sessionId);
     setSaving(false);
     if (error) toast.error(friendlyError(error)); else toast.success("Branding updated");
   };
@@ -83,7 +84,7 @@ export function BrandingPanel({ sessionId, initial }: { sessionId: string; initi
         <Input placeholder="Banner text" value={b.banner?.text || ""}
           onChange={(e) => update({ banner: { ...(b.banner || {}), text: e.target.value } })} />
         <Select value={b.banner?.position || "top"}
-          onValueChange={(v: any) => update({ banner: { ...(b.banner || {}), position: v } })}>
+          onValueChange={(v) => update({ banner: { ...(b.banner || {}), position: v as "top" | "bottom" } })}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="top">Top</SelectItem>
