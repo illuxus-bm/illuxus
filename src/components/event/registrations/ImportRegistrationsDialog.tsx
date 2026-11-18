@@ -361,7 +361,7 @@ export default function ImportRegistrationsDialog({
           const results = await Promise.all(
             slice.map(async (row) => {
               try {
-                const { data: tData, error: tErr } = await supabase.functions.invoke(
+                const { data: tData, error: tErr } = await db.functions.invoke(
                   "send-ticket-email",
                   { body: { registration_id: row.id } },
                 );

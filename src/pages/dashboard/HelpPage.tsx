@@ -104,7 +104,7 @@ const HelpPage = () => {
       });
 
       // Best-effort: invoke edge function for actual email delivery.
-      await supabase.functions.invoke("send-event-email", {
+      await db.functions.invoke("send-event-email", {
         body: {
           event_id:        "support",
           email_id:        uuid(),

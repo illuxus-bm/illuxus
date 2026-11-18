@@ -152,7 +152,7 @@ const OnboardingPage = () => {
 
     if (selectedPlan !== "free" && user.email) {
       const requested = PLANS.find((p) => p.key === selectedPlan)?.name ?? selectedPlan;
-      const { error: ticketErr } = await supabase.functions.invoke("submit-support-ticket", {
+      const { error: ticketErr } = await db.functions.invoke("submit-support-ticket", {
         body: buildUpgradeRequest({
           name: (user.user_metadata?.full_name as string | undefined) ?? user.email,
           email: user.email,

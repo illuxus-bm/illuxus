@@ -20,6 +20,9 @@ on:
       - server/**
       - api/v1/**
       - scripts/rds/**
+      - scripts/port-edge-function.mjs
+      - scripts/build-function-registry.mjs
+      - supabase/functions/**
       - supabase/install.sql
       - supabase/install.rds.sql
       - supabase/migrations/**
@@ -65,6 +68,12 @@ jobs:
           bun run rds:build-install
           git diff --exit-code -- supabase/install.rds.sql \
             || (echo "Run 'bun run rds:build-install' and commit the result." && exit 1)
+
+      - name: Ported edge functions are current
+        run: |
+          bun run functions:port
+          git diff --exit-code -- server/functions \
+            || (echo "Run 'bun run functions:port' and commit the result." && exit 1)
 
       - name: Build the database like RDS
         run: |

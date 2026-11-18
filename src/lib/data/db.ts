@@ -16,8 +16,9 @@
  *   is unknown (a timeout) is reported as an error instead, never repeated,
  *   so nothing can be written twice.
  */
+import { FunctionsFetchError, FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import { ApiError, apiEnabled, apiFetch } from "./api-client";
+import { ApiError, apiBase, apiEnabled, apiFetch } from "./api-client";
 import { supabaseRpc } from "@/lib/observability/rpc";
 
 type Recorded = { m: string; a: unknown[] };
@@ -108,9 +109,55 @@ function recorder(table: string): unknown {
   return proxy;
 }
 
+type InvokeOptions = { body?: unknown; headers?: Record<string, string>; method?: string };
+
+/**
+ * An edge function through the API (api/v1/fn), where the ported Node
+ * version runs. Only a function the API doesn't serve yet goes to the
+ * Supabase-hosted copy; any other failure is reported, never retried,
+ * because a function may have sent an email or a message already.
+ */
+async function invokeViaApi(name: string, options: InvokeOptions = {}) {
+  const headers = new Headers(options.headers);
+  const { data } = await supabase.auth.getSession();
+  const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+  if (!headers.has("authorization")) {
+    const token = data.session?.access_token ?? key;
+    if (token) headers.set("authorization", `Bearer ${token}`);
+  }
+  if (key && !headers.has("apikey")) headers.set("apikey", key);
+  const body = options.body;
+  const raw = body === undefined || typeof body === "string" || body instanceof Blob || body instanceof FormData || body instanceof ArrayBuffer;
+  if (!raw && !headers.has("content-type")) headers.set("content-type", "application/json");
+
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}/api/v1/fn/${encodeURIComponent(name)}`, {
+      method: options.method ?? "POST",
+      headers,
+      body: raw ? (body as BodyInit | undefined) : JSON.stringify(body),
+    });
+  } catch (e) {
+    return { data: null, error: new FunctionsFetchError(e) };
+  }
+  if (res.status === 404 && res.headers.get("content-type")?.includes("application/json")) {
+    const info = await res.clone().json().catch(() => null);
+    if (info?.error?.code === "not_ported") return supabase.functions.invoke(name, options as never);
+  }
+  if (!res.ok) return { data: null, error: new FunctionsHttpError(res) };
+  const type = res.headers.get("content-type") ?? "";
+  const out = type.includes("application/json") ? await res.json() : type.startsWith("text/") ? await res.text() : await res.blob();
+  return { data: out, error: null };
+}
+
 export const db = {
   from: ((table: string) => (apiEnabled() ? recorder(table) : supabase.from(table as never))) as typeof supabase.from,
   /** supabase.rpc, or the API's /rpc (with Supabase as its fallback) when switched on. */
   rpc: ((fn: string, args?: Record<string, unknown>) =>
     apiEnabled() ? supabaseRpc(fn, args ?? {}) : supabase.rpc(fn as never, args as never)) as unknown as typeof supabase.rpc,
+  functions: {
+    /** supabase.functions.invoke, or the ported function via the API when switched on. */
+    invoke: ((name: string, options?: InvokeOptions) =>
+      apiEnabled() ? invokeViaApi(name, options) : supabase.functions.invoke(name, options as never)) as typeof supabase.functions.invoke,
+  },
 };

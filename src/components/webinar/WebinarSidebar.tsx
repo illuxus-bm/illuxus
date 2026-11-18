@@ -663,7 +663,7 @@ function HostRequestsList({ sessionId }: { sessionId: string }) {
   }, [sessionId]);
 
   const act = async (uid: string, action: "promote" | "demote") => {
-    await supabase.functions.invoke("livekit-promote", { body: { session_id: sessionId, target_user_id: uid, action } });
+    await db.functions.invoke("livekit-promote", { body: { session_id: sessionId, target_user_id: uid, action } });
   };
 
   return (

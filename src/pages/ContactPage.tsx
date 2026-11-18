@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { logger } from "@/lib/observability";
 import { publicUrl } from "@/lib/publicUrl";
 
@@ -190,7 +191,7 @@ export default function ContactPage() {
     }
     setSending(true);
     try {
-      const { data, error } = await supabase.functions.invoke("submit-support-ticket", {
+      const { data, error } = await db.functions.invoke("submit-support-ticket", {
         body: {
           name:     form.name.trim(),
           email:    form.email.trim(),

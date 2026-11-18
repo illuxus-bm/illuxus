@@ -11,7 +11,7 @@
  * All mutations go through:
  *   - `supabaseRpc(...)`            for admin_ticket_stats, admin_list_super_admins
  *   - `db.from('support_tickets').*` (RLS-gated to admins)
- *   - `supabase.functions.invoke('send-ticket-reply')` for staff replies
+ *   - `db.functions.invoke('send-ticket-reply')` for staff replies
  *
  * The admin's super-admin role is enforced by the SuperAdminRoute wrapper in
  * App.tsx — the single source of truth for admin gating.
@@ -794,7 +794,7 @@ function TicketDetailDrawer({
     if (!reply.trim()) return;
     setSendingReply(true);
     try {
-      const { data, error } = await supabase.functions.invoke("send-ticket-reply", {
+      const { data, error } = await db.functions.invoke("send-ticket-reply", {
         body: {
           ticket_id: ticket.id,
           body: reply.trim(),

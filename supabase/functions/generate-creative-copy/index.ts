@@ -239,7 +239,8 @@ type AiCopyErrorCode =
   | "service_outage"
   | "configuration"
   | "auth"
-  | "bad_request";
+  | "bad_request"
+  | "plan_feature_not_included";
 
 interface CopyContext {
   eventTitle: string;

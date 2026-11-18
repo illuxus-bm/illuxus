@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import PersonFieldsForm, { emptyPersonFields, validatePersonFields, type PersonFields } from "@/components/people/PersonFieldsForm";
@@ -199,7 +200,7 @@ export default function PartnerDashboardPage() {
       setRegisterOpen(false);
       refreshAll();
       // Same single ticket / confirmation email the organiser's own flow sends.
-      void supabase.functions.invoke("send-ticket-email", { body: { registration_id: reg.id } }).catch(() => undefined);
+      void db.functions.invoke("send-ticket-email", { body: { registration_id: reg.id } }).catch(() => undefined);
     } catch (e) {
       toast.error("Couldn't register this participant", { description: partnerErrorMessage(e as { code?: string; message?: string }) });
     } finally { setSaving(false); }

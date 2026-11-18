@@ -323,7 +323,7 @@ export default function EventRsvpCard({
       // every error. Reads `error.context` (the response body) on non-2xx
       // so the real backend error is shown, not the SDK's generic message.
       if (finalState !== "waitlisted") {
-        void supabase.functions
+        void db.functions
           .invoke("send-ticket-email", { body: { registration_id: data.id } })
           .then(async ({ data: emailData, error: emailErr }) => {
             type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string; step?: string };

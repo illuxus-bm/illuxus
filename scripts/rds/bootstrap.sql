@@ -96,10 +96,19 @@ CREATE TABLE IF NOT EXISTS net.http_request_queue (
   created_at timestamptz DEFAULT now(),
   sent_at timestamptz
 );
+-- Sent by POST /api/v1/jobs/http-queue (server/services/jobs.ts).
+ALTER TABLE net.http_request_queue
+  ADD COLUMN IF NOT EXISTS attempts int NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS claimed_at timestamptz,
+  ADD COLUMN IF NOT EXISTS last_error text;
+CREATE INDEX IF NOT EXISTS http_request_queue_unsent ON net.http_request_queue (id) WHERE sent_at IS NULL;
+-- SECURITY DEFINER: whoever's transaction queues a call (often a trigger
+-- fired by a signed-in person) needs no rights on the queue itself.
 CREATE OR REPLACE FUNCTION net.http_post(url text, body jsonb DEFAULT '{}', params jsonb DEFAULT '{}',
   headers jsonb DEFAULT '{}', timeout_milliseconds int DEFAULT 1000)
-  RETURNS bigint LANGUAGE sql AS
+  RETURNS bigint LANGUAGE sql SECURITY DEFINER SET search_path = net, pg_temp AS
   $$ INSERT INTO net.http_request_queue (url, body, headers) VALUES (url, body, headers) RETURNING id $$;
+GRANT SELECT, UPDATE ON net.http_request_queue TO service_role;
 
 -- Storage stays on Supabase Storage (or moves to S3) separately; these let
 -- the schema's storage policies install. They hold no files.

@@ -232,7 +232,7 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
       let emailResult = { sent: 0, failed: 0, remaining: 0 } as { sent: number; failed: number; remaining: number; errors?: Array<{ recipient_id: string; error: string }> };
       let emailUnavailable = false;
       if (wantsEmail) {
-        const { data, error: emailErr } = await supabase.functions.invoke(
+        const { data, error: emailErr } = await db.functions.invoke(
           "send-communication-email",
           { body: { communication_id: m.id } },
         );
@@ -248,7 +248,7 @@ export default function EventCommunicate({ eventId }: { eventId: string }) {
       let waResult = { sent: 0, failed: 0 } as { sent: number; failed: number; errors?: Array<{ recipient_id: string; error: string }> };
       let waUnavailable = false;
       if (wantsWhatsapp) {
-        const { data, error: waErr } = await supabase.functions.invoke(
+        const { data, error: waErr } = await db.functions.invoke(
           "send-whatsapp",
           { body: { communication_id: m.id } },
         );
@@ -980,7 +980,7 @@ function ComposeDialog({
       let emailResult = { sent: 0, failed: 0, remaining: 0 } as { sent: number; failed: number; remaining: number; errors?: Array<{ recipient_id: string; error: string }> };
       let emailUnavailable = false;
       if (wantsEmail) {
-        const { data, error: emailErr } = await supabase.functions.invoke(
+        const { data, error: emailErr } = await db.functions.invoke(
           "send-communication-email",
           { body: { communication_id: id } },
         );
@@ -996,7 +996,7 @@ function ComposeDialog({
       let waResult = { sent: 0, failed: 0 } as { sent: number; failed: number; errors?: Array<{ recipient_id: string; error: string }> };
       let waUnavailable = false;
       if (wantsWhatsapp) {
-        const { data, error: waErr } = await supabase.functions.invoke(
+        const { data, error: waErr } = await db.functions.invoke(
           "send-whatsapp",
           { body: { communication_id: id } },
         );
@@ -1294,7 +1294,7 @@ function ComposeDialog({
                             const orgIdLocal = (ev as { org_id: string | null } | null)?.org_id;
                             if (!orgIdLocal) throw new Error("Event has no organization");
 
-                            const { data, error } = await supabase.functions.invoke(
+                            const { data, error } = await db.functions.invoke(
                               "whatsapp-sync-templates",
                               { body: { org_id: orgIdLocal } },
                             );

@@ -1,0 +1,179 @@
+// Node port of supabase/functions/seed-cities/index.ts (scripts/port-edge-function.mjs).
+import { Deno } from "../../edge/deno.js";
+import { defineHandler, type EdgeHandler } from "../../edge/deno.js";
+// Seeds the global `cities` table from the GeoNames cities5000 dataset.
+// Admin-only. Idempotent — safe to re-run.
+import { createClient } from "../../edge/supabase.js";
+import { BlobReader, ZipReader, TextWriter } from "@zip.js/zip.js";
+import { buildCorsHeaders, handlePreflight } from "../_shared/cors.js";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.js";
+import { isPlatformAdmin, resolveCaller } from "../_shared/auth.js";
+import { withinLimit } from "../_shared/rate-limit.js";
+
+const log = createEdgeLogger("seed-cities");
+
+const GEONAMES_URL = "https://download.geonames.org/export/dump/cities5000.zip";
+const COUNTRIES_URL = "https://download.geonames.org/export/dump/countryInfo.txt";
+const ADMIN1_URL = "https://download.geonames.org/export/dump/admin1CodesASCII.txt";
+
+async function fetchCountries(): Promise<Record<string, string>> {
+  const res = await fetch(COUNTRIES_URL);
+  const text = await res.text();
+  const out: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    if (!line || line.startsWith("#")) continue;
+    const cols = line.split("\t");
+    // ISO,ISO3,ISO-Numeric,fips,Country,Capital,...
+    if (cols.length > 4) out[cols[0]] = cols[4];
+  }
+  return out;
+}
+
+async function fetchAdmin1(): Promise<Record<string, string>> {
+  const res = await fetch(ADMIN1_URL);
+  const text = await res.text();
+  const out: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    if (!line) continue;
+    const cols = line.split("\t");
+    // code (e.g. "IN.16"), name, asciiName, geonameId
+    if (cols.length >= 2) out[cols[0]] = cols[1];
+  }
+  return out;
+}
+
+async function fetchCitiesText(): Promise<string> {
+  const res = await fetch(GEONAMES_URL);
+  const blob = await res.blob();
+  const reader = new ZipReader(new BlobReader(blob));
+  const entries = await reader.getEntries();
+  const txt = entries.find((e: { filename: string }) => e.filename.endsWith(".txt"));
+  if (!txt || !txt.getData) {
+    await reader.close();
+    throw new Error("cities5000.txt not found in zip");
+  }
+  const text = await txt.getData(new TextWriter());
+  await reader.close();
+  return text as string;
+}
+
+export default defineHandler(async (req) => {
+  const corsHeaders = buildCorsHeaders(req);
+  const preflight = handlePreflight(req, corsHeaders);
+  if (preflight) return preflight;
+  try {
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    const admin = createClient(supabaseUrl, serviceKey);
+
+    // Downloads and parses the full GeoNames archive, so only a platform
+    // admin (or the service role) may run it, and at most once per 30
+    // minutes — which also keeps two runs from overlapping.
+    const caller = await resolveCaller(req, admin);
+    const allowed = caller?.kind === "service" || (caller?.kind === "user" && await isPlatformAdmin(admin, caller.user.id));
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "Platform admins only" }), {
+        status: caller ? 403 : 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (!(await withinLimit(admin, "seed_cities", "global", 1, 30 * 60 * 1000))) {
+      return new Response(JSON.stringify({ error: "A city import ran in the last 30 minutes. Try again later." }), {
+        status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    log.info("invoked");
+
+    log.info("fetching reference data");
+    const [countries, admin1] = await Promise.all([
+      fetchCountries(),
+      fetchAdmin1(),
+    ]);
+
+    log.info("downloading cities zip");
+    const text = await fetchCitiesText();
+    const lines = text.split("\n");
+    log.info("downloaded", { line_count: lines.length });
+
+    // GeoNames format (tab-separated):
+    // 0 geonameid 1 name 2 asciiname 3 alternatenames 4 lat 5 lng
+    // 6 feature class 7 feature code 8 country code 9 cc2 10 admin1 code
+    // 11 admin2 12 admin3 13 admin4 14 population 15 elevation 16 dem
+    // 17 timezone 18 modification date
+    const rows: {
+      geoname_id: number;
+      name: string;
+      ascii_name: string;
+      region: string | null;
+      region_code: string | null;
+      country: string;
+      country_code: string;
+      latitude: number | null;
+      longitude: number | null;
+      population: number;
+      timezone: string | null;
+    }[] = [];
+    for (const line of lines) {
+      if (!line) continue;
+      const c = line.split("\t");
+      if (c.length < 19) continue;
+      const cc = c[8];
+      const admin1Code = c[10];
+      const region = admin1[`${cc}.${admin1Code}`] ?? null;
+      const country = countries[cc] ?? cc;
+      rows.push({
+        geoname_id: parseInt(c[0], 10),
+        name: c[1],
+        ascii_name: c[2],
+        region,
+        region_code: admin1Code || null,
+        country,
+        country_code: cc,
+        latitude: parseFloat(c[4]) || null,
+        longitude: parseFloat(c[5]) || null,
+        population: parseInt(c[14] || "0", 10) || 0,
+        timezone: c[17] || null,
+      });
+    }
+
+    log.info("upserting cities", { row_count: rows.length });
+    const batchSize = 1000;
+    let inserted = 0;
+    for (let b = 0; b < rows.length; b += batchSize) {
+      const batch = rows.slice(b, b + batchSize);
+      const { error } = await admin
+        .from("cities")
+        .upsert(batch, { onConflict: "geoname_id" });
+      if (error) {
+        log.error("batch upsert failed", { error_message: error.message, offset: b });
+        return new Response(
+          JSON.stringify({ error: "Saving cities failed. Details are in the function logs.", inserted }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+      inserted += batch.length;
+    }
+
+    return new Response(
+      JSON.stringify({ success: true, count: inserted }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  } catch (e) {
+    log.error("unhandled error", toErrorFields(e));
+    return new Response(
+      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown" }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+});

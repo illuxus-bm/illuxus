@@ -134,7 +134,7 @@ export async function notifyOrganiserOfApplication(
       reviewUrl,
     });
 
-    const { data, error } = await supabase.functions.invoke("send-event-email", {
+    const { data, error } = await db.functions.invoke("send-event-email", {
       body: {
         // The server checks the caller's application for this event and
         // delivers to the event's organisers.

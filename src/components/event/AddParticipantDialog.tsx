@@ -148,7 +148,7 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
           }
         }
 
-        const { data: emailData, error: emailErr } = await supabase.functions.invoke(
+        const { data: emailData, error: emailErr } = await db.functions.invoke(
           "send-ticket-email",
           { body: { registration_id: reg.id } },
         );

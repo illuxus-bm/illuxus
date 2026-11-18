@@ -116,7 +116,7 @@ export async function sendParticipantWelcomeEmail(
       eventUrl: input.eventUrl,
     });
 
-    const { data, error } = await supabase.functions.invoke("send-event-email", {
+    const { data, error } = await db.functions.invoke("send-event-email", {
       body: {
         event_id: "invite", // system-mail mode: no event_emails row needed
         email_id: crypto.randomUUID(),

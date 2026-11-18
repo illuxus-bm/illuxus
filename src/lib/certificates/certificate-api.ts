@@ -11,8 +11,8 @@ import { verificationUrl } from "./certificate-pdf";
 import { formatEventDateRange, type CertificateValues } from "./certificate-fields";
 
 // The new tables aren't in the generated types yet.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 // rpc looked up per call: the client may be swapped (tests) after this module loads.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = { from: dataDb.from, rpc: (fn: string, args?: Record<string, unknown>) => dataDb.rpc(fn as never, args as never) } as unknown as { from: (table: string) => any; rpc: (fn: string, args?: Record<string, unknown>) => any };
 
 export type TemplateStatus = "draft" | "published" | "archived";
@@ -324,7 +324,7 @@ export async function emailCertificates(args: {
   const worker = async () => {
     for (let c = queue.shift(); c; c = queue.shift()) {
       const mail = certificateEmail(c, args.eventTitle, args.orgName);
-      const { data, error: fnError } = await supabase.functions.invoke("send-event-email", {
+      const { data, error: fnError } = await dataDb.functions.invoke("send-event-email", {
         body: { event_id: args.eventId, email_id: record!.id, subject: mail.subject, body: mail.body, recipient_emails: [c.recipient_email] },
       });
       const result = data as { success?: boolean; sent?: number; error?: string; provider?: string } | null;

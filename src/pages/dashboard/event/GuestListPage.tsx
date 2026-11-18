@@ -108,7 +108,7 @@ export default function GuestListPage() {
     // An approved guest gets their ticket, as from the event's Registrations
     // tab (RegistrationsSection.updateApprovalStatus).
     if (next !== "approved") return;
-    const { data, error: emailErr } = await supabase.functions.invoke("send-ticket-email", { body: { registration_id: reg.id } });
+    const { data, error: emailErr } = await db.functions.invoke("send-ticket-email", { body: { registration_id: reg.id } });
     const result = data as { error?: string; delivered?: boolean; note?: string } | null;
     if (emailErr || result?.error) {
       toast({ title: "Approved, but the ticket email wasn't sent", description: result?.error ?? emailErr?.message, variant: "destructive" });

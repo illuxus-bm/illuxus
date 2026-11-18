@@ -133,7 +133,7 @@ export default function EventQuickCreatePage() {
       return;
     }
     if (eventFormat !== "physical" && virtualProvider === "builtin" && hasFeature("webinar")) {
-      await supabase.functions.invoke("livekit-room-create", {
+      await db.functions.invoke("livekit-room-create", {
         body: { event_id: data.id, record_enabled: false },
       }).catch(() => {});
     }

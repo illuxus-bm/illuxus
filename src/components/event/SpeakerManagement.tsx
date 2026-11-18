@@ -241,7 +241,7 @@ export default function SpeakerManagement({ eventId }: Props) {
     const recipient = normalizeEmail(speaker.email);
     if (!isValidEmailFormat(recipient)) return;
     try {
-      const { data, error } = await supabase.functions.invoke("send-speaker-invite-email", {
+      const { data, error } = await db.functions.invoke("send-speaker-invite-email", {
         body: { speaker_id: speaker.id, event_id: eventId, kind: "added" },
       });
       if (error) {

@@ -260,7 +260,7 @@ export function useApproveSpeakerApplication() {
       //    ticket / sponsor emails, so an approved applicant gets the same
       //    look as anyone else who joins the event.
       try {
-        await supabase.functions.invoke("send-speaker-invite-email", {
+        await db.functions.invoke("send-speaker-invite-email", {
           body: { speaker_id: speakerId, event_id: a.event_id, kind: "approved" },
         });
       } catch { /* email is best-effort — the approval is already saved */ }
@@ -413,7 +413,7 @@ export function useApproveSponsorApplication() {
       // 7. Rich-HTML sponsor invite email (same banner template as the
       //    organiser-added sponsor flow). Best-effort.
       try {
-        await supabase.functions.invoke("send-sponsor-invite-email", {
+        await db.functions.invoke("send-sponsor-invite-email", {
           body: { sponsor_id: sponsorId, event_id: a.event_id },
         });
       } catch { /* email is best-effort */ }
@@ -611,7 +611,7 @@ export function useChangeSpeakerApplicationStatus() {
       // banner + organiser + portal CTA experience. Best-effort.
       if (willBeApproved && !wasApproved && approvedSpeakerId) {
         try {
-          await supabase.functions.invoke("send-speaker-invite-email", {
+          await db.functions.invoke("send-speaker-invite-email", {
             body: { speaker_id: approvedSpeakerId, event_id: a.event_id, kind: "approved" },
           });
         } catch { /* email is best-effort */ }
@@ -775,7 +775,7 @@ export function useChangeSponsorApplicationStatus() {
       // organiser-added sponsor flow uses. Best-effort.
       if (willBeApproved && !wasApproved && approvedSponsorId) {
         try {
-          await supabase.functions.invoke("send-sponsor-invite-email", {
+          await db.functions.invoke("send-sponsor-invite-email", {
             body: { sponsor_id: approvedSponsorId, event_id: a.event_id },
           });
         } catch { /* email is best-effort */ }

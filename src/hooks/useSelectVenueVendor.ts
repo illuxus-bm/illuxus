@@ -155,7 +155,7 @@ export function useSelectVenueVendor() {
       // and the function itself answers { ok: false } on SMTP errors.
       let emailed = false;
       try {
-        const { data: mail, error: mailErr } = await supabase.functions.invoke(
+        const { data: mail, error: mailErr } = await db.functions.invoke(
           "notify-venue-selection",
           {
             body: {

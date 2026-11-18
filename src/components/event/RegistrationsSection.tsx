@@ -816,7 +816,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     // notice automatically; the organiser can compose one via Communicate
     // if they want to.
     if (newApproval === "approved") {
-      void supabase.functions
+      void db.functions
         .invoke("send-ticket-email", { body: { registration_id: row.id } })
         .then(async ({ data, error: emailErr }) => {
           type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string; step?: string };
@@ -890,7 +890,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     // Fire confirmation emails for approved rows.
     if (newApproval === "approved") {
       for (const id of targetIds) {
-        void supabase.functions.invoke("send-ticket-email", { body: { registration_id: id } });
+        void db.functions.invoke("send-ticket-email", { body: { registration_id: id } });
       }
     }
   };

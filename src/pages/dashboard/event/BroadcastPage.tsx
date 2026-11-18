@@ -196,7 +196,7 @@ export default function BroadcastPage() {
       // LiveKit path: try the edge function first (creates a real LiveKit room).
       let edgeFnWorked = false;
       try {
-        const { data, error } = await supabase.functions.invoke("livekit-room-create", { body: { event_id: eventId, record_enabled: false } });
+        const { data, error } = await db.functions.invoke("livekit-room-create", { body: { event_id: eventId, record_enabled: false } });
         if (!error && data?.session) {
           setSession(data.session);
           toast.success("Stream room ready");
@@ -254,7 +254,7 @@ export default function BroadcastPage() {
 
   const goLive = async () => {
     try {
-      const { error } = await supabase.functions.invoke("livekit-go-live", { body: { session_id: session.id } });
+      const { error } = await db.functions.invoke("livekit-go-live", { body: { session_id: session.id } });
       if (error) {
         // Edge function failed — just update status directly in DB
         await db.from("webinar_sessions").update({ status: "live" }).eq("id", session.id);
@@ -273,7 +273,7 @@ export default function BroadcastPage() {
     setRecBusy(true);
     const fn = session.egress_id ? "recording-stop" : "recording-start";
     try {
-      const { error } = await supabase.functions.invoke(fn, { body: { session_id: session.id } });
+      const { error } = await db.functions.invoke(fn, { body: { session_id: session.id } });
       if (error) { setRecBusy(false); return toast.error("Recording requires LiveKit to be configured."); }
     } catch {
       setRecBusy(false);
@@ -296,7 +296,7 @@ export default function BroadcastPage() {
       return true;
     }
     try {
-      const { data, error } = await supabase.functions.invoke("livekit-token", { body: { session_id: session.id } });
+      const { data, error } = await db.functions.invoke("livekit-token", { body: { session_id: session.id } });
       if (error || !data?.token) { toast.error("LiveKit not configured — streaming requires LiveKit secrets in Supabase dashboard."); return false; }
       setToken(data.token); setWsUrl(data.ws_url); setCanPublish(data.can_publish);
       return true;
@@ -309,7 +309,7 @@ export default function BroadcastPage() {
   const endLive = async () => {
     if (!confirm("End stream for everyone?")) return;
     try {
-      await supabase.functions.invoke("livekit-room-end", { body: { session_id: session.id } });
+      await db.functions.invoke("livekit-room-end", { body: { session_id: session.id } });
     } catch { /* edge fn unavailable */ }
     await db.from("webinar_sessions").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", session.id);
     setToken(null);

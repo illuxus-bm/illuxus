@@ -201,7 +201,7 @@ export default function EventLivePage() {
 
   const requestToken = async () => {
     setError(null);
-    const { data, error } = await supabase.functions.invoke("livekit-token", {
+    const { data, error } = await db.functions.invoke("livekit-token", {
       body: { session_id: session.id, speaker_token: speakerToken || undefined, join_token: joinToken || undefined, browser_session_id: browserSessionId, fingerprint },
     });
     if (error || !data?.token) { setError(error?.message || data?.error || "Failed"); return null; }

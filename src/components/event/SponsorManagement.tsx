@@ -312,7 +312,7 @@ export default function SponsorManagement({ eventId }: Props) {
       });
     };
     try {
-      const { data, error } = await supabase.functions.invoke("send-sponsor-invite-email", {
+      const { data, error } = await db.functions.invoke("send-sponsor-invite-email", {
         body: { sponsor_id: sponsorId, event_id: eventId, ...(memberId ? { member_id: memberId } : {}) },
       });
       type R = { ok?: boolean; delivered?: boolean; error?: string; note?: string };

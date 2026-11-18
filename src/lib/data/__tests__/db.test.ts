@@ -13,9 +13,11 @@ function fakeBuilder(table: string) {
   return builder;
 }
 
+const invoked: string[] = [];
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: (t: string) => fakeBuilder(t),
+    functions: { invoke: async (name: string) => { invoked.push(name); return { data: "supabase-fn", error: null }; } },
     auth: { getSession: async () => ({ data: { session: { access_token: "tok" } } }) },
   },
 }));
@@ -39,7 +41,7 @@ function api(fn: () => Response | Promise<Response>) {
   }));
 }
 
-beforeEach(() => { supabaseCalls.length = 0; });
+beforeEach(() => { supabaseCalls.length = 0; invoked.length = 0; });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("db.from", () => {
@@ -117,6 +119,44 @@ describe("db.from", () => {
       const q = db.from("events").select("id");
       await q; await q;
       expect(apiBodies).toHaveLength(1);
+    });
+  });
+
+  describe("functions.invoke", () => {
+    it("is supabase.functions.invoke while the API is off", async () => {
+      expect((await db.functions.invoke("send-email", { body: {} })).data).toBe("supabase-fn");
+      expect(invoked).toEqual(["send-email"]);
+    });
+
+    describe("with the API on", () => {
+      beforeEach(() => vi.stubEnv("VITE_DATA_BACKEND", "api"));
+
+      it("calls the ported function with the body and a key", async () => {
+        const calls: [string, RequestInit][] = [];
+        vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => { calls.push([url, init]); return reply(200, { ok: true }); }));
+        const r = await db.functions.invoke("send-email", { body: { to: "a@b.c" } });
+        expect(r).toEqual({ data: { ok: true }, error: null });
+        expect(calls[0][0]).toBe("/api/v1/fn/send-email");
+        expect(JSON.parse(String(calls[0][1].body))).toEqual({ to: "a@b.c" });
+        expect(new Headers(calls[0][1].headers).get("authorization")).toBe("Bearer tok");
+        expect(invoked).toEqual([]);
+      });
+
+      it("uses the Supabase-hosted function only when the API doesn't serve it", async () => {
+        vi.stubGlobal("fetch", vi.fn(async () => reply(404, { error: { code: "not_ported" } })));
+        expect((await db.functions.invoke("brand-new", { body: {} })).data).toBe("supabase-fn");
+      });
+
+      it("reports a failure with supabase-js's error types and never sends twice", async () => {
+        vi.stubGlobal("fetch", vi.fn(async () => reply(500, { error: "SMTP not configured" })));
+        const http = await db.functions.invoke("send-email", { body: {} });
+        expect(http.error?.name).toBe("FunctionsHttpError");
+        expect(await (http.error as { context: Response }).context.json()).toEqual({ error: "SMTP not configured" });
+        vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+        const net = await db.functions.invoke("send-email", { body: {} });
+        expect(net.error?.name).toBe("FunctionsFetchError");
+        expect(invoked).toEqual([]);
+      });
     });
   });
 });

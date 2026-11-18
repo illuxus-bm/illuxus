@@ -112,7 +112,10 @@ const ATTENDEE_FILES = [
     // `db.from(` (src/lib/data/db.ts, which is supabase.from itself unless
     // VITE_DATA_BACKEND=api) plus one import line. Re-audited: no line
     // mentioning utm changed; the UTM columns, values and export are as before.
-    hash: "bf611af9f3b389b9d625916766a3ec0923b02ba141dd1572b9af45f27713e92a",
+    // Bumped again the same day: `supabase.functions.invoke` (the ticket
+    // email) became `db.functions.invoke`, which is the same call unless
+    // VITE_DATA_BACKEND=api. Re-audited: no UTM line changed.
+    hash: "85dabd562809d22567258ec7b4c848b85966f7873639bef6f8b26e105debe6ac",
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",
@@ -157,7 +160,10 @@ const ATTENDEE_FILES = [
     // `db.from(` (src/lib/data/db.ts, which is supabase.from itself unless
     // VITE_DATA_BACKEND=api) plus one import line. Re-audited: no line
     // mentioning utm changed; the UTM columns, values and export are as before.
-    hash: "9093d40ec8902bc3b067b1721c1afb5079aef01f38d2ac4689d578bcdcb4e9b7",
+    // Bumped again the same day: `supabase.functions.invoke` (the ticket
+    // email) became `db.functions.invoke`, which is the same call unless
+    // VITE_DATA_BACKEND=api. Re-audited: no UTM line changed.
+    hash: "b136be1a4fc27161bedf47439247343d569e3d021e940ade09d006e83c4dec6a",
   },
   {
     path: "src/components/event/registrations/RegistrantQuickView.tsx",

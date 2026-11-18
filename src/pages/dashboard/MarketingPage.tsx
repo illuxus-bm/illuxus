@@ -222,7 +222,7 @@ function EmailCampaignsTab() {
         return;
       }
 
-      const { error: fnErr } = await supabase.functions.invoke("send-event-email", {
+      const { error: fnErr } = await db.functions.invoke("send-event-email", {
         body: {
           event_id: selectedEventId,
           email_id: msg.id,
@@ -279,7 +279,7 @@ function EmailCampaignsTab() {
 
       if (insertErr) throw insertErr;
 
-      const { error: fnErr } = await supabase.functions.invoke("send-event-email", {
+      const { error: fnErr } = await db.functions.invoke("send-event-email", {
         body: {
           event_id: selectedEventId,
           email_id: record.id,

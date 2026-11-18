@@ -21,7 +21,7 @@ export function apiEnabled(): boolean {
 }
 
 /** Same origin on the web; the site's address inside the native apps. */
-function apiBase(): string {
+export function apiBase(): string {
   const configured = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (configured) return configured.replace(/\/+$/, "");
   return isNativeApp() ? SITE_ORIGIN : "";

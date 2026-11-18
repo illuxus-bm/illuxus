@@ -5,6 +5,7 @@
  * quick feedback while typing.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { ACTIVE_ORG_KEY } from "@/contexts/OrgContext";
 
 export interface InviteeFields {
@@ -40,7 +41,7 @@ export function validateInviteeFields(fields: InviteeFields): InviteeFieldErrors
 /** Calls the edge function and returns its answer whatever the HTTP status.
  *  A signed-in caller's session goes along automatically. */
 export async function callTeamInvitation(body: Record<string, unknown>): Promise<TeamInvitationReply> {
-  const { data, error } = await supabase.functions.invoke("team-invitation", { body });
+  const { data, error } = await db.functions.invoke("team-invitation", { body });
   if (!error) return { status: 200, body: (data ?? {}) as Record<string, unknown> };
   // Non-2xx answers arrive as an error carrying the real response.
   const response = (error as { context?: Response }).context;

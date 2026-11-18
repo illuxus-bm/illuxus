@@ -171,7 +171,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
         return;
       }
 
-      const { error: fnErr } = await supabase.functions.invoke("send-event-email", {
+      const { error: fnErr } = await db.functions.invoke("send-event-email", {
         body: {
           event_id: eventId,
           email_id: msg.id,
@@ -237,7 +237,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
       // Invoke the send-event-email edge function to actually dispatch emails.
       // If the function doesn't exist yet the message is still recorded as sent
       // so the UI stays consistent; the toast will note the partial state.
-      const { error: fnErr } = await supabase.functions.invoke("send-event-email", {
+      const { error: fnErr } = await db.functions.invoke("send-event-email", {
         body: {
           event_id: eventId,
           email_id: record.id,

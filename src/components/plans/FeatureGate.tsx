@@ -9,6 +9,7 @@ import { useOrg } from "@/contexts/OrgContext";
 import { useToast } from "@/hooks/use-toast";
 import { useOrgEntitlements } from "@/hooks/usePlanFeatures";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { FEATURES, featureLabel } from "@/lib/plans/features";
 import { buildUpgradeRequest } from "@/lib/plans/upgrade-request";
 
@@ -85,7 +86,7 @@ function LockedPanel({ feature, orgId, planName, plan }: { feature: string; orgI
       feature,
       pageUrl: window.location.href,
     });
-    const { data, error } = await supabase.functions.invoke("submit-support-ticket", { body });
+    const { data, error } = await db.functions.invoke("submit-support-ticket", { body });
     if (error || !(data as { success?: boolean } | null)?.success) {
       setState("idle");
       toast({ title: "Couldn't send the request", description: "Please try again, or write to sales@illuxus.com.", variant: "destructive" });

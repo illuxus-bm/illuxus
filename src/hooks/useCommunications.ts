@@ -232,7 +232,7 @@ export async function listWhatsAppTemplates(orgId: string): Promise<WhatsAppTemp
  * the caller is an org member of `orgId`.
  */
 export async function syncWhatsAppTemplates(orgId: string): Promise<{ synced: number; total: number }> {
-  const { data, error } = await supabase.functions.invoke("whatsapp-sync-templates", {
+  const { data, error } = await db.functions.invoke("whatsapp-sync-templates", {
     body: { org_id: orgId },
   });
   if (error) throw new Error(error.message);
@@ -247,7 +247,7 @@ export async function syncWhatsAppTemplates(orgId: string): Promise<{ synced: nu
 export async function sendEmail(communicationId: string): Promise<{
   sent: number; failed: number; errors: Array<{ recipient_id: string; error: string }>;
 }> {
-  const { data, error } = await supabase.functions.invoke("send-email", {
+  const { data, error } = await db.functions.invoke("send-email", {
     body: { communication_id: communicationId },
   });
   if (error) throw new Error(error.message);
@@ -271,7 +271,7 @@ export async function sendWhatsApp(communicationId: string): Promise<{
   skipped?: number;
   errors: Array<{ recipient_id: string; error: string }>;
 }> {
-  const { data, error } = await supabase.functions.invoke("send-whatsapp", {
+  const { data, error } = await db.functions.invoke("send-whatsapp", {
     body: { communication_id: communicationId },
   });
   if (error) throw new Error(error.message);

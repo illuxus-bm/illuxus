@@ -267,7 +267,7 @@ const TeamPanel = ({ org }: { org: Org }) => {
         "— The Illuxus team",
       ].join("\n");
 
-      void supabase.functions
+      void db.functions
         .invoke("send-event-email", {
           body: {
             event_id: "invite",

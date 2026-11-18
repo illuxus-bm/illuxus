@@ -192,7 +192,7 @@ export async function sendPartnerInviteEmail(
 ): Promise<string | null> {
   const title = eventTitle?.trim() || "an event";
   try {
-    const { data, error } = await supabase.functions.invoke("send-event-email", {
+    const { data, error } = await db.functions.invoke("send-event-email", {
       body: {
         event_id: "partner-invite",
         target_event_id: share.event_id,
