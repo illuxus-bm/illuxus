@@ -25,6 +25,7 @@ describe.skipIf(!url || !adminUrl)("API on a real database", () => {
     health: (r: Request) => Promise<Response>;
     events: (r: Request) => Promise<Response>;
     profile: (r: Request) => Promise<Response>;
+    rpc: (r: Request) => Promise<Response>;
   };
   const token = (sub: string) =>
     new SignJWT({ email: `${sub.slice(0, 4)}@example.com` }).setProtectedHeader({ alg: "HS256" }).setIssuer(ISSUER)
@@ -53,6 +54,7 @@ describe.skipIf(!url || !adminUrl)("API on a real database", () => {
       health: (await import("../../api/v1/health.js")).GET,
       events: (await import("../../api/v1/events/index.js")).GET,
       profile: (await import("../../api/v1/me/profile.js")).GET,
+      rpc: (await import("../../api/v1/rpc/[name].js")).POST,
     };
   });
   afterAll(async () => {
@@ -115,6 +117,59 @@ describe.skipIf(!url || !adminUrl)("API on a real database", () => {
     const forged = await new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setIssuer(ISSUER).setAudience("authenticated")
       .setSubject(ALICE).setExpirationTime("5m").sign(new TextEncoder().encode("x".repeat(40)));
     expect((await get(api.profile, "/api/v1/me/profile", { headers: { authorization: `Bearer ${forged}` } })).status).toBe(401);
+  });
+
+  const rpc = async (name: string, args: unknown, sub?: string) =>
+    get(api.rpc, `/api/v1/rpc/${name}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(sub ? { authorization: `Bearer ${await token(sub)}` } : {}) },
+      body: JSON.stringify(args),
+    });
+
+  it("rpc: a function returning one value", async () => {
+    const r = await rpc("has_role", { _user_id: BOB, _role: "admin" }, BOB);
+    expect([r.status, r.body.data]).toEqual([200, false]);
+  });
+
+  it("rpc: a function returning a row, as the caller", async () => {
+    const r = await rpc("get_my_profile", {}, ALICE);
+    expect([r.status, r.body.data?.display_name, r.body.data?.user_id]).toEqual([200, "Alice", ALICE]);
+  });
+
+  it("rpc: a function returning rows, for anonymous visitors", async () => {
+    const r = await rpc("get_public_org_by_slug", { _slug: "org-it" });
+    expect(r.status).toBe(200);
+    expect(Array.isArray(r.body.data)).toBe(true);
+  });
+
+  it("rpc: a void function, with defaulted arguments left out", async () => {
+    const ev = await admin.query(`SELECT id FROM public.events WHERE slug = 'it-future'`);
+    const r = await rpc("record_utm_click", { _event_id: ev.rows[0].id, _utm_source: "newsletter" });
+    expect([r.status, r.body.data]).toEqual([200, null]);
+  });
+
+  it("rpc: array arguments reach the function as arrays", async () => {
+    const r = await rpc("bulk_set_attendance", { p_ids: [], p_target: "in" }, ALICE);
+    expect(r.status).not.toBe(500);
+  });
+
+  it("rpc: no EXECUTE grant is a 403 with Postgres's code, as from Supabase", async () => {
+    const r = await rpc("admin_list_users", {});
+    expect([r.status, r.body.error?.code]).toEqual([403, "42501"]);
+  });
+
+  it("rpc: a function's own error reaches the caller with its SQLSTATE", async () => {
+    const r = await rpc("community_join", { _community_id: ORG });
+    expect([400, 403, 409]).toContain(r.status);
+    expect(r.body.error?.code).toMatch(/^[0-9A-Z]{5}$/);
+    expect(r.body.error?.message).toBeTruthy();
+  });
+
+  it("rpc: unknown functions, arguments and bodies are refused cleanly", async () => {
+    expect((await rpc("no_such_function", {})).status).toBe(404);
+    expect((await rpc("has_role", { nope: 1 }, BOB)).status).toBe(404);
+    expect((await rpc("has_role); drop table x; --", {})).status).toBe(400);
+    expect((await rpc("has_role", [1, 2], BOB)).status).toBe(400);
   });
 
   it("leaves no identity on pooled connections between requests", async () => {

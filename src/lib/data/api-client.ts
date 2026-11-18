@@ -37,6 +37,11 @@ export async function apiFetch<T>(path: string, init: RequestInit & { timeoutMs?
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // The caller's own signal (a component unmounting) aborts it too.
+  if (rest.signal) {
+    if (rest.signal.aborted) controller.abort();
+    else rest.signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
   try {
     const res = await fetch(`${apiBase()}/api/v1${path}`, { ...rest, headers, signal: controller.signal });
     const body = await res.json().catch(() => null);
