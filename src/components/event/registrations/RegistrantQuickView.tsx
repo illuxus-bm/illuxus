@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import type { TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
 import { supabaseRpc } from "@/lib/observability";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -62,7 +63,33 @@ function tableFor(row: QuickViewRow): "registrations" | "speakers" | "sponsor_me
 const TITLES = TITLE_OPTIONS;
 const EMPLOYEE_BUCKETS = ["1-10", "11-50", "51-200", "201-1000", "1000+"];
 
-type FullRecord = Record<string, any>;
+/**
+ * A registration, speaker or sponsor-contact row as this panel reads and edits
+ * it. The three tables share these fields; anything else passes through.
+ */
+type FullRecord = {
+  [column: string]: unknown;
+  title?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  name?: string | null;
+  display_name?: string | null;
+  email?: string | null;
+  company?: string | null;
+  company_website?: string | null;
+  company_employee_count?: string | null;
+  designation?: string | null;
+  industry?: string | null;
+  linkedin_url?: string | null;
+  mobile_country_code?: string | null;
+  mobile_number?: string | null;
+  status?: string | null;
+  ticket_type?: string | null;
+  amount_paid?: number | string | null;
+  checked_in?: boolean | null;
+  checked_in_at?: string | null;
+  created_at?: string | null;
+};
 
 const optionalUrl = z.string().trim().url("Must be a valid URL").max(500).optional().or(z.literal(""));
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(""));
@@ -144,7 +171,7 @@ export default function RegistrantQuickView({
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "registrations", filter: `id=eq.${row.refId}` },
         (payload) => {
-          const next = payload.new as Record<string, any>;
+          const next = payload.new as FullRecord;
           setRecord((prev) => (prev ? { ...prev, ...next } : next));
           if (!editing) setDraft((prev) => ({ ...prev, ...next }));
         }
@@ -236,8 +263,11 @@ export default function RegistrantQuickView({
       if (draft.ticket_type !== undefined) payload.ticket_type = draft.ticket_type;
       if (draft.amount_paid !== undefined) payload.amount_paid = Number(draft.amount_paid) || 0;
     }
-    const { data: updated, error } = await (supabase.from(tableFor(row)) as any)
-      .update(payload)
+    // The payload holds only columns the three tables share (plus each one's
+    // own name column), so typing the call as the registrations table is safe.
+    const { data: updated, error } = await supabase
+      .from(tableFor(row) as "registrations")
+      .update(payload as TablesUpdate<"registrations">)
       .eq("id", row.refId)
       .select();
     if (error) {
@@ -259,7 +289,7 @@ export default function RegistrantQuickView({
       const params = isSponsor
         ? { _event_id: eventId, _member_id: row.refId, _payload: payload }
         : { _event_id: eventId, _speaker_id: row.refId, _payload: payload };
-      const rpc = await supabaseRpc(supabase, rpcName as never, params as never);
+      const rpc = await supabaseRpc(rpcName, params);
       if ((rpc as { error?: { message?: string } }).error) {
         setSaving(false);
         const msg = (rpc as { error: { message: string } }).error.message;
@@ -292,7 +322,7 @@ export default function RegistrantQuickView({
     const { id, qr_code, join_token, created_at, updated_at, ...rest } = snap;
     const { data, error } = await supabase
       .from("registrations")
-      .insert(rest as any)
+      .insert(rest as TablesInsert<"registrations">)
       .select()
       .single();
     if (error) {
@@ -547,7 +577,7 @@ export default function RegistrantQuickView({
   );
 }
 
-function Field({ label, value, icon, isLink }: { label: string; value: any; icon?: React.ReactNode; isLink?: boolean }) {
+function Field({ label, value, icon, isLink }: { label: string; value: unknown; icon?: React.ReactNode; isLink?: boolean }) {
   const display = value == null || value === "" ? "—" : String(value);
   return (
     <div className="min-w-0">
@@ -567,7 +597,7 @@ function Field({ label, value, icon, isLink }: { label: string; value: any; icon
 
 function EditField({
   label, value, onChange, type = "text", error,
-}: { label: string; value: any; onChange: (v: string) => void; type?: string; error?: string }) {
+}: { label: string; value: string | number | null | undefined; onChange: (v: string) => void; type?: string; error?: string }) {
   return (
     <div>
       <Label className="text-[11px]">{label}</Label>

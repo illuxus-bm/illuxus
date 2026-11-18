@@ -65,7 +65,7 @@ export default function SpeakerPhotoUploader({
       toast.success("Photo uploaded");
       setCropOpen(false);
       setCropSrc(null);
-    } catch (e: any) {
+    } catch (e) {
       toast.error("Upload failed", { description: friendlyError(e) });
     } finally {
       setUploading(false);

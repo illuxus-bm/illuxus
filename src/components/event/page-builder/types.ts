@@ -33,7 +33,7 @@ export interface BlockStyles {
 export interface Block {
   id: string;
   type: BlockType;
-  content: Record<string, any>;
+  content: Record<string, unknown>;
   styles: BlockStyles;
 }
 
@@ -56,7 +56,7 @@ export interface WidgetDefinition {
   label: string;
   icon: string;
   category: "layout" | "content" | "media" | "event" | "conversion";
-  defaultContent: Record<string, any>;
+  defaultContent: Record<string, unknown>;
   defaultStyles: BlockStyles;
 }
 

@@ -83,8 +83,8 @@ export default function BulkCheckInDialog({ open, onOpenChange, eventId }: Props
             await supabase.from("registrations").update({ checked_in_method: "bulk" }).eq("id", row.id);
           }
         }
-      } catch (e: any) {
-        out.push({ token, status: "error", message: e?.message });
+      } catch (e) {
+        out.push({ token, status: "error", message: e instanceof Error ? e.message : String(e) });
       }
       setProgress((p) => ({ ...p, done: p.done + 1 }));
       setResults([...out]);

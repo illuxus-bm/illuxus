@@ -180,7 +180,7 @@ export default function SponsorManagement({ eventId }: Props) {
 
     setSponsors(linkedSponsors);
     setAssignedIds(ids);
-    const _orgId = (ev as any)?.org_id ?? null;
+    const _orgId = ev?.org_id ?? null;
     setOrgId(_orgId);
     setApplicationsEnabled(
       (ev as { sponsor_applications_enabled?: boolean | null } | null)?.sponsor_applications_enabled ?? true,

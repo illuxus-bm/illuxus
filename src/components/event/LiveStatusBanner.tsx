@@ -6,7 +6,6 @@
  * broadcast studio.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export default function LiveStatusBanner(_props: {
   eventId: string;
   eventDate: string;
