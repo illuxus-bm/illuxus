@@ -5,6 +5,7 @@
  * an event reads them from here.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 
 export interface EventSponsorLink {
@@ -22,13 +23,13 @@ export interface EventSponsorLink {
  * page never loses its sponsors over a pending database update.
  */
 export async function fetchEventSponsorLinks(eventId: string) {
-  const full = await supabase
+  const full = await db
     .from("event_sponsors")
     .select("id, sponsor_id, display_order, tier, tier_label, logo_url")
     .eq("event_id", eventId)
     .order("display_order");
   if (!full.error) return { data: (full.data ?? []) as EventSponsorLink[], error: null };
-  const basic = await supabase
+  const basic = await db
     .from("event_sponsors")
     .select("id, sponsor_id, display_order")
     .eq("event_id", eventId)

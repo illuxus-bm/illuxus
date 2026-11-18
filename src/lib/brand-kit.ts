@@ -8,6 +8,7 @@
  * `logoUrl`) in step with the kit, and leaves any key it doesn't know alone.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 
 export interface BrandAsset {
   url: string;
@@ -145,7 +146,7 @@ export function explainBrandKitError(message: string): string {
 }
 
 export async function loadBrandKit(orgId: string): Promise<LoadedBrandKit> {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("brand_kits")
     .select("id, snapshot")
     .eq("org_id", orgId)
@@ -166,7 +167,7 @@ export async function saveBrandKit(args: {
 }): Promise<{ id: string; snapshot: Record<string, unknown> }> {
   const snapshot = toBrandSnapshot(args.kit, args.previousSnapshot);
   if (args.id) {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("brand_kits")
       .update({ snapshot: snapshot as never })
       .eq("id", args.id)
@@ -175,7 +176,7 @@ export async function saveBrandKit(args: {
     if (!data || data.length === 0) throw new Error("Only the workspace's owners and admins can change the brand kit.");
     return { id: args.id, snapshot };
   }
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("brand_kits")
     .insert({ org_id: args.orgId, name: BRAND_KIT_NAME, snapshot: snapshot as never, created_by: args.userId })
     .select("id")

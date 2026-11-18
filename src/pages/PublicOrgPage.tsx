@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -123,9 +124,9 @@ const PublicOrgPage = ({ hostSlug }: { hostSlug?: string } = {}) => {
 
       const now = new Date().toISOString();
       const [up, pa] = await Promise.all([
-        supabase.from("events").select("id,slug,title,description,date,end_date,venue,location,image_url,banner_landscape_url,price")
+        db.from("events").select("id,slug,title,description,date,end_date,venue,location,image_url,banner_landscape_url,price")
           .eq("org_id", data.id).eq("status", "published").gte("date", now).order("date", { ascending: true }).limit(24),
-        supabase.from("events").select("id,slug,title,description,date,end_date,venue,location,image_url,banner_landscape_url,price")
+        db.from("events").select("id,slug,title,description,date,end_date,venue,location,image_url,banner_landscape_url,price")
           .eq("org_id", data.id).eq("status", "published").lt("date", now).order("date", { ascending: false }).limit(24),
       ]);
       if (cancel) return;

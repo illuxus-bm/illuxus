@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 
 /** The reactions the live stage offers; the database accepts only these. */
 export const REACTIONS = ["👏", "❤️", "🔥", "😂", "🎉", "👍"] as const;
@@ -11,7 +12,7 @@ export const REACTIONS = ["👏", "❤️", "🔥", "😂", "🎉", "👍"] as c
  */
 export async function sendReaction(sessionId: string, emoji: string): Promise<string | null> {
   const params = new URLSearchParams(window.location.search);
-  const { error } = await supabase.rpc("webinar_react" as never, {
+  const { error } = await db.rpc("webinar_react" as never, {
     _session_id: sessionId,
     _emoji: emoji,
     _join_token: params.get("join"),

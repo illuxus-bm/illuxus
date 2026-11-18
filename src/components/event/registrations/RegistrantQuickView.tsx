@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import type { TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
 import { supabaseRpc } from "@/lib/observability";
 import { toast } from "sonner";
@@ -144,7 +145,7 @@ export default function RegistrantQuickView({
     setEditing(false);
     setErrors({});
     setLoading(true);
-    supabase
+    db
       .from(tableFor(row))
       .select("*")
       .eq("id", row.refId)
@@ -265,7 +266,7 @@ export default function RegistrantQuickView({
     }
     // The payload holds only columns the three tables share (plus each one's
     // own name column), so typing the call as the registrations table is safe.
-    const { data: updated, error } = await supabase
+    const { data: updated, error } = await db
       .from(tableFor(row) as "registrations")
       .update(payload as TablesUpdate<"registrations">)
       .eq("id", row.refId)
@@ -320,7 +321,7 @@ export default function RegistrantQuickView({
 
   const restoreSnapshot = async (snap: FullRecord) => {
     const { id, qr_code, join_token, created_at, updated_at, ...rest } = snap;
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("registrations")
       .insert(rest as TablesInsert<"registrations">)
       .select()
@@ -342,7 +343,7 @@ export default function RegistrantQuickView({
     if (!record || !canEdit || !isRegistration) return;
     setDeleting(true);
     const snapshot = { ...record };
-    const { error } = await supabase.from("registrations").delete().eq("id", row.refId);
+    const { error } = await db.from("registrations").delete().eq("id", row.refId);
     if (error) {
       setDeleting(false);
       toast.error("Failed to delete", { description: error.message });

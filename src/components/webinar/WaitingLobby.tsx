@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, CalendarDays, CalendarPlus, Clock, MapPin, Radio, Sparkles } from "lucide-react";
@@ -65,7 +66,7 @@ export function WaitingLobby({ eventId, visitorName, role, sessionStatus, onJoin
   useEffect(() => {
     if (!eventId) return;
     (async () => {
-      const { data } = await supabase
+      const { data } = await db
         .from("events")
         .select("title, description, date, end_date, timezone, image_url, banner_landscape_url, location, venue, event_format, org_id")
         .eq("id", eventId).maybeSingle();

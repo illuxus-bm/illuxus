@@ -10,7 +10,7 @@
  *
  * All mutations go through:
  *   - `supabaseRpc(...)`            for admin_ticket_stats, admin_list_super_admins
- *   - `supabase.from('support_tickets').*` (RLS-gated to admins)
+ *   - `db.from('support_tickets').*` (RLS-gated to admins)
  *   - `supabase.functions.invoke('send-ticket-reply')` for staff replies
  *
  * The admin's super-admin role is enforced by the SuperAdminRoute wrapper in
@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc, logger } from "@/lib/observability";
 
 import { Button } from "@/components/ui/button";
@@ -231,7 +232,7 @@ export default function SupportTicketsPage() {
       // (capped at 500) and filter client-side so the UI stays snappy when
       // toggling between status tabs. A 500-row ceiling is well under the
       // expected support volume for this stage of the product.
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("support_tickets")
         .select("*")
         .order("created_at", { ascending: false })
@@ -675,7 +676,7 @@ function TicketDetailDrawer({
   const loadMessages = useCallback(async (ticketId: string) => {
     setLoadingThread(true);
     try {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("support_ticket_messages")
         .select("*")
         .eq("ticket_id", ticketId)
@@ -704,7 +705,7 @@ function TicketDetailDrawer({
   }
 
   const handleStatusChange = async (status: TicketStatus) => {
-    const { error } = await supabase
+    const { error } = await db
       .from("support_tickets")
       .update({ status })
       .eq("id", ticket.id);
@@ -713,7 +714,7 @@ function TicketDetailDrawer({
       return;
     }
     // Record a system audit message so the history is preserved.
-    await supabase.from("support_ticket_messages").insert({
+    await db.from("support_ticket_messages").insert({
       ticket_id: ticket.id,
       author_type: "system",
       author_name: "System",
@@ -727,7 +728,7 @@ function TicketDetailDrawer({
   };
 
   const handlePriorityChange = async (priority: TicketPriority) => {
-    const { error } = await supabase
+    const { error } = await db
       .from("support_tickets")
       .update({ priority })
       .eq("id", ticket.id);
@@ -735,7 +736,7 @@ function TicketDetailDrawer({
       toast.error("Could not update priority.");
       return;
     }
-    await supabase.from("support_ticket_messages").insert({
+    await db.from("support_ticket_messages").insert({
       ticket_id: ticket.id,
       author_type: "system",
       author_name: "System",
@@ -750,7 +751,7 @@ function TicketDetailDrawer({
 
   const handleAssignChange = async (assignee: string) => {
     const next = assignee === "none" ? null : assignee;
-    const { error } = await supabase
+    const { error } = await db
       .from("support_tickets")
       .update({ assigned_to: next })
       .eq("id", ticket.id);
@@ -761,7 +762,7 @@ function TicketDetailDrawer({
     const assigneeName = next
       ? admins.find((a) => a.user_id === next)?.display_name || admins.find((a) => a.user_id === next)?.email || "an admin"
       : "no one";
-    await supabase.from("support_ticket_messages").insert({
+    await db.from("support_ticket_messages").insert({
       ticket_id: ticket.id,
       author_type: "system",
       author_name: "System",
@@ -776,7 +777,7 @@ function TicketDetailDrawer({
 
   const handleSaveNotes = async () => {
     setSavingNotes(true);
-    const { error } = await supabase
+    const { error } = await db
       .from("support_tickets")
       .update({ internal_notes: internalNotes })
       .eq("id", ticket.id);

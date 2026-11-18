@@ -20,6 +20,7 @@ import { CreateOrganizationDialog } from "@/components/admin/CreateOrganizationD
 import { format, parseISO, subDays } from "date-fns";
 
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { OrgFeatureOverrides } from "@/components/admin/OrgFeatureOverrides";
@@ -120,7 +121,7 @@ function OrgDetailDrawer({ org, onClose }: { org: OrgRow | null; onClose: () => 
     queryKey: ["admin-org-members", org?.id],
     enabled: !!org,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("org_members")
         .select("user_id, role, joined_at")
         .eq("org_id", org!.id)
@@ -134,7 +135,7 @@ function OrgDetailDrawer({ org, onClose }: { org: OrgRow | null; onClose: () => 
     queryKey: ["admin-org-events", org?.id],
     enabled: !!org,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("events")
         .select("id, title, status, date, tickets_sold, price, currency")
         .eq("org_id", org!.id)
@@ -149,7 +150,7 @@ function OrgDetailDrawer({ org, onClose }: { org: OrgRow | null; onClose: () => 
     queryKey: ["admin-org-sub", org?.id],
     enabled: !!org,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("subscriptions")
         .select("*")
         .eq("org_id", org!.id)
@@ -321,7 +322,7 @@ export default function OrganizationManagementPage() {
   const subsQ = useQuery({
     queryKey: ["admin-orgs-subs"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("subscriptions")
         .select("org_id, status, plan, current_period_start");
       if (error) throw error;

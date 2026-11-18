@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import type {
   AuthorProfile,
@@ -43,7 +44,7 @@ export function useCommunityFeed(
     enabled: !!communityId,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
-      let q = supabase
+      let q = db
         .from("community_posts" as never)
         .select("*")
         .eq("community_id", communityId as string)
@@ -109,7 +110,7 @@ export function usePostComments(postId: string | undefined) {
     queryKey: ["community", "comments", postId],
     enabled: !!postId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("community_comments" as never)
         .select("*")
         .eq("post_id", postId as string)
@@ -181,7 +182,7 @@ export function useAddComment(postId: string | undefined) {
       if (!postId) throw new Error("No post");
       const { data: auth } = await supabase.auth.getUser();
       if (!auth.user) throw new Error("Not signed in");
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("community_comments" as never)
         .insert({
           post_id: postId,

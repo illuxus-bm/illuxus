@@ -18,6 +18,7 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Award, Building2, Calendar, Clock, MapPin, Search, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
@@ -80,13 +81,13 @@ export default function SponsorEventsPage() {
     queryFn: async () => {
       const [{ data: portal }, { data: memberRows }] = await Promise.all([
         supabaseRpc("sponsor_portal_events" as never),
-        supabase.from("sponsor_members").select("sponsor_id").eq("user_id", user!.id).not("accepted_at", "is", null),
+        db.from("sponsor_members").select("sponsor_id").eq("user_id", user!.id).not("accepted_at", "is", null),
       ]);
       const rows = (portal || []) as unknown as PortalRow[];
       const memberOf = new Set(((memberRows || []) as { sponsor_id: string }[]).map((r) => r.sponsor_id));
       const ids = [...new Set(rows.map((r) => r.event_id))];
       const { data: events } = ids.length
-        ? await supabase
+        ? await db
             .from("events")
             .select("id, user_id, org_id, status, description, venue, image_url, banner_landscape_url")
             .in("id", ids)

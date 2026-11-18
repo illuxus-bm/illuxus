@@ -78,6 +78,7 @@ export default function EventsListingPage() {
       // The Prisma API when it's switched on (VITE_DATA_BACKEND=api), with
       // this Supabase query as its fallback; see src/lib/data/api-client.ts.
       const legacy = async () => {
+        // supabase directly: this is the fallback for the API call above.
         const { data } = await supabase
           .from("events")
           .select("id, slug, title, description, date, end_date, location, venue, capacity, tickets_sold, price, currency, timezone, status, image_url, banner_landscape_url, organizations(name, slug, subdomain, logo_url)")

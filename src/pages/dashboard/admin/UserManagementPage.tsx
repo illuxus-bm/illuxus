@@ -20,6 +20,7 @@ import { format, parseISO, subDays } from "date-fns";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc, logger } from "@/lib/observability";
 import { buildCsvDocument, CsvEscapeError } from "@/lib/utm/csv-escape";
 import { downloadCsv } from "@/lib/utm/applications-csv";
@@ -210,7 +211,7 @@ function useProfilesIndex() {
   return useQuery({
     queryKey: ["admin-users-profiles"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("profiles")
         .select(
           // Base identity + contact columns.
@@ -242,7 +243,7 @@ function UserDetailDrawer({
     queryKey: ["admin-user-profile", userId],
     enabled: !!userId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("profiles")
         .select("*")
         .eq("user_id", userId!)
@@ -256,7 +257,7 @@ function UserDetailDrawer({
     queryKey: ["admin-user-events", userId],
     enabled: !!userId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("events")
         .select("id, title, status, date, tickets_sold")
         .eq("user_id", userId!)
@@ -271,7 +272,7 @@ function UserDetailDrawer({
     queryKey: ["admin-user-regs", userId],
     enabled: !!userId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("registrations")
         .select("id, event_id, status, amount_paid, created_at, name, email")
         .eq("user_id", userId!)

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Download, TrendingUp, Users, DollarSign, Ticket, Target, Mic2, CheckCircle2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,7 +62,7 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
       const [regs, evRes, esRes] = await Promise.all([
         // Page by page: one request stops at 1000 rows, which a large event passes.
         fetchAllRows<Registration>((from, to) =>
-          supabase
+          db
             .from("registrations")
             .select("*")
             .eq("event_id", eventId)
@@ -69,12 +70,12 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
             .order("id", { ascending: true })
             .range(from, to),
         ).catch(() => [] as Registration[]),
-        supabase
+        db
           .from("events")
           .select("id, title, date, status, currency, capacity, attendance_target_pct")
           .eq("id", eventId)
           .maybeSingle(),
-        supabase
+        db
           .from("event_speakers")
           .select("speaker_id, speakers:speakers(id, name, email, company, title, first_name, last_name, designation, mobile_country_code, mobile_number, linkedin_url, company_website, company_employee_count, industry, bio, photo_url, user_id, created_at, updated_at)")
           .eq("event_id", eventId),
@@ -140,10 +141,10 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data: links } = await supabase.from("event_sponsors").select("sponsor_id").eq("event_id", eventId);
+      const { data: links } = await db.from("event_sponsors").select("sponsor_id").eq("event_id", eventId);
       const ids = ((links ?? []) as { sponsor_id: string }[]).map((l) => l.sponsor_id);
       if (!ids.length) { if (!cancelled) setSponsorEmails(new Set()); return; }
-      const { data: members } = await supabase.from("sponsor_members").select("email").in("sponsor_id", ids);
+      const { data: members } = await db.from("sponsor_members").select("email").in("sponsor_id", ids);
       if (!cancelled) setSponsorEmails(emailSet(((members ?? []) as { email: string | null }[]).map((m) => m.email)));
     })();
     return () => { cancelled = true; };

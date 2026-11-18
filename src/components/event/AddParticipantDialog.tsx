@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,7 +57,7 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
     // ── App-level duplicate guard ──────────────────────────────────────────
     // The DB has a unique index too (migration 019), but checking here gives
     // a clean message instead of a Postgres unique-violation toast.
-    const { data: existing, error: existingErr } = await supabase
+    const { data: existing, error: existingErr } = await db
       .from("registrations")
       .select("id, name, status, approval_status, checked_in_at")
       .eq("event_id", eventId)
@@ -89,7 +90,7 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
     // same email. Until then, the ticket email's "View your ticket" link
     // routes them through /login (where they can either sign in or create
     // a new account).
-    const { data: reg, error } = await supabase.from("registrations").insert({
+    const { data: reg, error } = await db.from("registrations").insert({
       event_id: eventId,
       name: fullName,
       email,
@@ -131,11 +132,11 @@ export default function AddParticipantDialog({ eventId, eventFormat, eventSlug, 
     void (async () => {
       try {
         if (isVirtual && role === "speaker") {
-          const { data: sess } = await supabase.from("webinar_sessions")
+          const { data: sess } = await db.from("webinar_sessions")
             .select("id").eq("event_id", eventId)
             .order("created_at", { ascending: false }).limit(1).maybeSingle();
           if (sess) {
-            const { data: sp } = await supabase.from("webinar_speakers").insert({
+            const { data: sp } = await db.from("webinar_speakers").insert({
               session_id: sess.id, email, display_name: fullName, role: "speaker",
             }).select("invite_token").single();
             if (sp) {

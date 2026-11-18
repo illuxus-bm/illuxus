@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Heart, HeartOff } from "lucide-react";
@@ -21,9 +22,9 @@ export default function OrgFollowButton({ orgId, primaryColor }: { orgId: string
     let cancelled = false;
     (async () => {
       const [{ count: c }, mine] = await Promise.all([
-        supabase.from("org_followers").select("*", { count: "exact", head: true }).eq("org_id", orgId),
+        db.from("org_followers").select("*", { count: "exact", head: true }).eq("org_id", orgId),
         user
-          ? supabase.from("org_followers").select("id").eq("org_id", orgId).eq("user_id", user.id).maybeSingle()
+          ? db.from("org_followers").select("id").eq("org_id", orgId).eq("user_id", user.id).maybeSingle()
           : Promise.resolve({ data: null } as { data: null }),
       ]);
       if (cancelled) return;
@@ -40,11 +41,11 @@ export default function OrgFollowButton({ orgId, primaryColor }: { orgId: string
     }
     setBusy(true);
     if (following) {
-      const { error } = await supabase.from("org_followers").delete().eq("org_id", orgId).eq("user_id", user.id);
+      const { error } = await db.from("org_followers").delete().eq("org_id", orgId).eq("user_id", user.id);
       if (error) toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
       else { setFollowing(false); setCount((n) => Math.max(0, n - 1)); }
     } else {
-      const { error } = await supabase.from("org_followers").insert({ org_id: orgId, user_id: user.id });
+      const { error } = await db.from("org_followers").insert({ org_id: orgId, user_id: user.id });
       if (error) toast({ title: "Error", description: friendlyError(error), variant: "destructive" });
       else { setFollowing(true); setCount((n) => n + 1); toast({ title: "Following", description: "You'll see new events from this organization." }); }
     }

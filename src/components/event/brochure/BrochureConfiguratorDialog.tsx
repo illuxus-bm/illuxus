@@ -69,6 +69,7 @@ import { toast } from "sonner";
 
 import { fetchEventSponsorLinks, withEventSponsorship } from "@/lib/sponsors/event-sponsorship";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { logger } from "@/lib/observability";
 
 import BrochureSectionList from "./BrochureSectionList";
@@ -111,7 +112,7 @@ interface BrochureConfiguratorDialogProps {
   onOpenChange: (open: boolean) => void;
   eventId: string;
   eventPageConfig: EventPageConfig; // for reading/writing brochurePrefs and theme colors
-  onConfigChange: (config: EventPageConfig) => void; // caller persists via supabase.from("events").update({ page_config })
+  onConfigChange: (config: EventPageConfig) => void; // caller persists via db.from("events").update({ page_config })
   /**
    * Render in the page instead of a dialog: the Brochure tab shows the
    * settings, the live preview and the editor button straight away, and every
@@ -180,17 +181,17 @@ async function fetchBrochureData(eventId: string): Promise<{
   sponsors: SponsorInput[];
 }> {
   const [eventRes, sessionsRes, eventSpeakersRes, eventSponsorsRes] = await Promise.all([
-    supabase
+    db
       .from("events")
       .select("title, date, end_date, venue, location, image_url, banner_landscape_url, banner_portrait_url")
       .eq("id", eventId)
       .single(),
-    supabase
+    db
       .from("sessions")
       .select("id, title, description, start_time, end_time, speaker_id, session_type")
       .eq("event_id", eventId)
       .order("start_time"),
-    supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
+    db.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
     fetchEventSponsorLinks(eventId),
   ]);
 
@@ -226,7 +227,7 @@ async function fetchBrochureData(eventId: string): Promise<{
   // mirrors SessionManagement.tsx's fetchData exactly.
   const linkMap = new Map<string, string[]>();
   if (sessionRows.length > 0) {
-    const { data: ss, error: ssError } = await supabase
+    const { data: ss, error: ssError } = await db
       .from("session_speakers")
       .select("session_id, speaker_id")
       .in(
@@ -257,7 +258,7 @@ async function fetchBrochureData(eventId: string): Promise<{
   const allSessionSpeakerIds = Array.from(new Set(sessionSpeakerIds.flatMap(({ speakerIds }) => speakerIds)));
   const sessionSpeakerNames = new Map<string, string>();
   if (allSessionSpeakerIds.length > 0) {
-    const { data: nameRows, error: nameError } = await supabase
+    const { data: nameRows, error: nameError } = await db
       .from("speakers")
       .select("id, name")
       .in("id", allSessionSpeakerIds);
@@ -288,7 +289,7 @@ async function fetchBrochureData(eventId: string): Promise<{
   let speakers: SpeakerInput[] = [];
   if (eventSpeakerLinks.length > 0) {
     const ids = eventSpeakerLinks.map((l) => l.speaker_id);
-    const { data: speakerRows, error: speakerError } = await supabase
+    const { data: speakerRows, error: speakerError } = await db
       .from("speakers")
       .select("id, name, photo_url, title, designation, company")
       .in("id", ids);
@@ -318,7 +319,7 @@ async function fetchBrochureData(eventId: string): Promise<{
   let sponsors: SponsorInput[] = [];
   if (eventSponsorLinks.length > 0) {
     const ids = eventSponsorLinks.map((l) => l.sponsor_id);
-    const { data: sponsorRows, error: sponsorError } = await supabase
+    const { data: sponsorRows, error: sponsorError } = await db
       .from("sponsors")
       .select("id, name, logo_url, tier")
       .in("id", ids);
@@ -411,9 +412,9 @@ export default function BrochureConfiguratorDialog({
     if (!open) return;
     let mounted = true;
     void (async () => {
-      const { data: row } = await supabase.from("events").select("description, org_id").eq("id", eventId).maybeSingle();
+      const { data: row } = await db.from("events").select("description, org_id").eq("id", eventId).maybeSingle();
       const org = row?.org_id
-        ? (await supabase.from("organizations").select("logo_url").eq("id", row.org_id).maybeSingle()).data
+        ? (await db.from("organizations").select("logo_url").eq("id", row.org_id).maybeSingle()).data
         : null;
       if (mounted) setDefaultsSource({ description: row?.description ?? null, organizerLogoUrl: org?.logo_url ?? null });
     })();

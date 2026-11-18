@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { logger } from "@/lib/observability";
 
 interface AuthContextType {
@@ -39,7 +40,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // rather than reading "no row" into it. Otherwise an attendee opening the
   // app offline would be taken for an organiser with an unfinished profile.
   const checkAdminRole = async (userId: string) => {
-    const { data, error } = await withRetry(() => supabase
+    const { data, error } = await withRetry(() => db
       .from("user_roles")
       .select("role")
       .eq("user_id", userId)
@@ -53,7 +54,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const loadAccountType = async (userId: string) => {
-    const { data, error } = await withRetry(() => supabase
+    const { data, error } = await withRetry(() => db
       .from("profiles")
       .select("account_type, profile_completed")
       .eq("user_id", userId)

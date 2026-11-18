@@ -19,6 +19,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import type { Json, TablesInsert } from "@/integrations/supabase/types";
 import { logger } from "@/lib/observability";
 
@@ -163,7 +164,7 @@ export function buildCreativeAssetRecord(input: CreativeAssetInput): CreativeAss
  * since `uploadCreativeAsset` used `upsert: true`).
  */
 export async function insertCreativeAssetRecord(record: CreativeAssetRecord): Promise<void> {
-  const { error } = await supabase.from("event_creatives").insert({
+  const { error } = await db.from("event_creatives").insert({
     ...record,
     // Both are plain JSON objects built by buildCreativeAssetRecord.
     metadata: record.metadata as Json,
@@ -220,7 +221,7 @@ export interface EventCreativeRow {
  * multiple fetches.
  */
 export async function fetchEventCreatives(eventId: string): Promise<EventCreativeRow[]> {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("event_creatives")
     .select("*")
     .eq("event_id", eventId)
@@ -268,7 +269,7 @@ export async function deleteCreativeAsset(
 ): Promise<DeleteCreativeAssetResult> {
   const [storageResult, recordResult] = await Promise.allSettled([
     supabase.storage.from("site-assets").remove([storagePath]),
-    supabase.from("event_creatives").delete().eq("id", assetId),
+    db.from("event_creatives").delete().eq("id", assetId),
   ]);
 
   const storageDeleted =

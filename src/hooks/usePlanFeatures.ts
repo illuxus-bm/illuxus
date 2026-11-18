@@ -2,10 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { db as dataDb } from "@/lib/data/db";
 import { DEFAULT_PLANS, parseEntitlements, parsePlan, type Entitlements, type Plan } from "@/lib/plans/features";
 
 // The generated Supabase types predate migration 048.
-const db = supabase as unknown as {
+// rpc looked up per call: the client may be swapped (tests) after this module loads.
+const db = { from: dataDb.from, rpc: (fn: string, args?: Record<string, unknown>) => dataDb.rpc(fn as never, args as never) } as unknown as {
   from: (table: string) => {
     select: (cols: string) => { order: (col: string) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }> };
   };
@@ -51,7 +53,7 @@ export function useEventOrgId(eventId: string | null | undefined) {
   return useQuery({
     queryKey: ["event-org-id", eventId ?? null],
     queryFn: async () => {
-      const { data } = await supabase.from("events").select("org_id").eq("id", eventId as string).maybeSingle();
+      const { data } = await dataDb.from("events").select("org_id").eq("id", eventId as string).maybeSingle();
       return (data as { org_id: string | null } | null)?.org_id ?? null;
     },
     enabled: !!eventId,

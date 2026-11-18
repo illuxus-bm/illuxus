@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Upload, CheckCircle, XCircle, Clock, Loader2, ListChecks } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 
 interface Props {
@@ -80,7 +81,7 @@ export default function BulkCheckInDialog({ open, onOpenChange, eventId }: Props
           out.push({ token, status: (row?.status as RowResult["status"]) ?? "error", name: row?.name });
           // Tag checked-in source as 'bulk' if newly checked in
           if (row?.status === "ok" && row.id) {
-            await supabase.from("registrations").update({ checked_in_method: "bulk" }).eq("id", row.id);
+            await db.from("registrations").update({ checked_in_method: "bulk" }).eq("id", row.id);
           }
         }
       } catch (e) {

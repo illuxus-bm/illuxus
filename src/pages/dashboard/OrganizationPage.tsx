@@ -19,6 +19,7 @@ import { FeatureGate } from "@/components/plans/FeatureGate";
 import { FEATURES } from "@/lib/plans/features";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { friendlyError } from "@/lib/friendly-error";
 
 const OrgPageForm = lazy(() => import("@/components/event/page-builder/OrgPageForm"));
@@ -57,7 +58,7 @@ const OrganizationPage = () => {
   const saveDetails = async () => {
     if (!org || !name.trim()) return;
     setSaving(true);
-    const { error } = await supabase
+    const { error } = await db
       .from("organizations")
       .update({ name: name.trim(), billing_email: billingEmail.trim() || null })
       .eq("id", org.id);

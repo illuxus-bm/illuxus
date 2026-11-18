@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import type { AuthorProfile, CommunityChannel, CommunityMessage, MessageWithAuthor } from "@/lib/community/types";
 import { fetchPublicProfile, fetchPublicProfiles } from "@/lib/public-profiles";
 
@@ -9,7 +10,7 @@ export function useCommunityChannels(communityId: string | undefined) {
     queryKey: ["community", "channels", communityId],
     enabled: !!communityId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("community_channels" as never)
         .select("*")
         .eq("community_id", communityId as string)
@@ -31,7 +32,7 @@ export function useChannelMessages(channelId: string | undefined) {
     queryKey,
     enabled: !!channelId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("community_messages" as never)
         .select("*")
         .eq("channel_id", channelId as string)
@@ -86,7 +87,7 @@ export function useSendMessage(channelId: string | undefined) {
       if (!trimmed) throw new Error("Empty message");
       const { data: auth } = await supabase.auth.getUser();
       if (!auth.user) throw new Error("Not signed in");
-      const { error } = await supabase
+      const { error } = await db
         .from("community_messages" as never)
         .insert({ channel_id: channelId, author_id: auth.user.id, body: trimmed } as never);
       if (error) throw error;

@@ -20,6 +20,7 @@ import {
 import { format, parseISO, startOfMonth, subMonths } from "date-fns";
 
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -90,7 +91,7 @@ export default function RevenuePage() {
   const regsQ = useQuery({
     queryKey: ["admin-revenue-regs"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("registrations")
         .select("id, event_id, amount_paid, status, created_at, name, email")
         .order("created_at", { ascending: false });
@@ -103,7 +104,7 @@ export default function RevenuePage() {
   const eventsQ = useQuery({
     queryKey: ["admin-revenue-events"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("events")
         .select("id, title, org_id, price, tickets_sold, currency");
       if (error) throw error;
@@ -115,7 +116,7 @@ export default function RevenuePage() {
   const orgsQ = useQuery({
     queryKey: ["admin-revenue-orgs"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("organizations")
         .select("id, name, plan");
       if (error) throw error;
@@ -127,7 +128,7 @@ export default function RevenuePage() {
   const subsQ = useQuery({
     queryKey: ["admin-revenue-subs"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("subscriptions")
         .select("plan, status");
       if (error) throw error;

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrg } from "@/contexts/OrgContext";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -113,7 +114,7 @@ const OnboardingPage = () => {
     const err = validateSubdomain(subdomain);
     if (err) { setSubdomainError(err); return; }
     setCheckingSub(true);
-    const { data } = await supabase
+    const { data } = await db
       .from("organizations")
       .select("id")
       .eq("subdomain", subdomain)
@@ -168,7 +169,7 @@ const OnboardingPage = () => {
     }
 
     // Mark onboarding done
-    await supabase
+    await db
       .from("profiles")
       .update({ onboarding_completed: true })
       .eq("user_id", user.id);

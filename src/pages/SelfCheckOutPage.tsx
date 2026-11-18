@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Html5Qrcode } from "html5-qrcode";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { logger, supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,7 +79,7 @@ export default function SelfCheckOutPage() {
 
   useEffect(() => {
     if (!eventId) return;
-    supabase.from("events").select("title").eq("id", eventId).maybeSingle()
+    db.from("events").select("title").eq("id", eventId).maybeSingle()
       .then(({ data }) => { if (data?.title) setEventTitle(data.title); });
   }, [eventId]);
 

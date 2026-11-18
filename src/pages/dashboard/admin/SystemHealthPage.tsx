@@ -21,6 +21,7 @@ import {
 import { format, parseISO, subDays, startOfDay } from "date-fns";
 
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -96,7 +97,7 @@ export default function SystemHealthPage() {
     queryFn: async () => {
       // 7-day window. Sent + failed buckets by day.
       const since = subDays(new Date(), 7).toISOString();
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("communication_recipients")
         .select("email_status, created_at")
         .gte("created_at", since);
@@ -110,7 +111,7 @@ export default function SystemHealthPage() {
     queryKey: ["admin-health-activity"],
     queryFn: async () => {
       const since = subDays(new Date(), 1).toISOString();
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("audit_logs")
         .select("actor_id, created_at")
         .gte("created_at", since)

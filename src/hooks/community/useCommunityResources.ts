@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import type { CommunityResource } from "@/lib/community/types";
 
 export function useResources(communityId: string | undefined) {
@@ -7,7 +8,7 @@ export function useResources(communityId: string | undefined) {
     queryKey: ["community", "resources", communityId],
     enabled: !!communityId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("community_resources" as never)
         .select("*")
         .eq("community_id", communityId as string)
@@ -37,7 +38,7 @@ export function useUploadResource(communityId: string | undefined) {
         .upload(path, input.file, { contentType: input.file.type });
       if (upErr) throw upErr;
       const { data: pub } = supabase.storage.from("community").getPublicUrl(path);
-      const { error } = await supabase
+      const { error } = await db
         .from("community_resources" as never)
         .insert({
           community_id: communityId,
@@ -62,7 +63,7 @@ export function useDeleteResource(communityId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
+      const { error } = await db
         .from("community_resources" as never)
         .delete()
         .eq("id", id);

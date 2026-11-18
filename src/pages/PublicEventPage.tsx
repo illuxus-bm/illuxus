@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, Link, useLocation } from "react-router-dom";
 import { fetchEventSponsorLinks, withEventSponsorship } from "@/lib/sponsors/event-sponsorship";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -131,9 +132,9 @@ const PublicEventPage = () => {
 
   const loadAll = useCallback(async (eid: string) => {
     const [evRes, spkRel, sesRes, spRel, attRes] = await Promise.all([
-      supabase.from("events").select("*").eq("id", eid).single(),
-      supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eid).order("display_order"),
-      supabase.from("sessions").select("*").eq("event_id", eid).order("start_time"),
+      db.from("events").select("*").eq("id", eid).single(),
+      db.from("event_speakers").select("speaker_id, display_order").eq("event_id", eid).order("display_order"),
+      db.from("sessions").select("*").eq("event_id", eid).order("start_time"),
       fetchEventSponsorLinks(eid),
       supabaseRpc("get_event_attendees_public", { _eid: eid, _limit: 12 }),
     ]);
@@ -142,7 +143,7 @@ const PublicEventPage = () => {
     const sessList = (sesRes.data as RendererSession[]) || [];
     if (sessList.length) {
       // The moderator is the link at position -1; speakers count up from 0.
-      const { data: ss } = await supabase
+      const { data: ss } = await db
         .from("session_speakers")
         .select("session_id, speaker_id, position")
         .in("session_id", sessList.map((s) => s.id));
@@ -168,7 +169,7 @@ const PublicEventPage = () => {
     const spkIds = spkRows.map((s) => s.speaker_id);
     if (spkIds.length) {
       // Public pages read the contact-free view; the speakers table is for organisers.
-      const { data } = await supabase.from("speakers_public" as never).select("*").in("id", spkIds);
+      const { data } = await db.from("speakers_public" as never).select("*").in("id", spkIds);
       const orderMap = new Map(spkRows.map((r, i) => [r.speaker_id, i]));
       const sorted = ((data as RendererSpeaker[]) || []).slice().sort(
         (a, b) => (orderMap.get(a.id) ?? 9999) - (orderMap.get(b.id) ?? 9999)
@@ -181,7 +182,7 @@ const PublicEventPage = () => {
     const spRows = spRel.data || [];
     const spIds = spRows.map((s) => s.sponsor_id);
     if (spIds.length) {
-      const { data } = await supabase.from("sponsors_public" as never).select("*").in("id", spIds);
+      const { data } = await db.from("sponsors_public" as never).select("*").in("id", spIds);
       const orderMap = new Map(spRows.map((r, i) => [r.sponsor_id, i]));
       const linkBySponsor = new Map(spRows.map((r) => [r.sponsor_id, r]));
       const sorted = ((data as RendererSponsor[] | null) || []).slice().sort(
@@ -208,7 +209,7 @@ const PublicEventPage = () => {
         setOrg(orgRow as { name: string; logo_url: string | null; slug: string; subdomain?: string | null });
       } else {
         // Fallback: org landing page may not be published yet — still fetch name for display
-        const { data: rawOrg } = await supabase
+        const { data: rawOrg } = await db
           .from("organizations")
           .select("id, name, slug, subdomain, logo_url")
           .eq("id", orgId)

@@ -53,6 +53,7 @@ import {
 } from "lucide-react";
 import { supabaseRpc } from "@/lib/observability";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -512,7 +513,7 @@ export default function UtmAnalyticsPage({
   const { data: savedLinks = [], refetch: refetchLinks, error: linksError } = useQuery<UtmLink[]>({
     queryKey: ["utm-links", eventId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("utm_links" as never)
         .select("*")
         .eq("event_id", eventId)
@@ -724,7 +725,7 @@ export default function UtmAnalyticsPage({
     try {
       // Removes the saved link AND its recorded clicks (clients cannot delete
       // utm_clicks directly). Registrations are never touched.
-      const { data, error } = await supabase.rpc("delete_utm_tracking" as never, {
+      const { data, error } = await db.rpc("delete_utm_tracking" as never, {
         _event_id: eventId,
         _utm_source: target.utm_source,
         _utm_medium: target.utm_medium,
@@ -761,7 +762,7 @@ export default function UtmAnalyticsPage({
       }
       // `.select()` so we see what was actually removed: when RLS refuses a
       // delete, PostgREST reports success with zero rows.
-      const { data: removed, error: delErr } = await supabase
+      const { data: removed, error: delErr } = await db
         .from("utm_links" as never)
         .delete()
         .eq("id", target.saved.id)

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 
 /**
  * Full detail read for one venue, backing the marketplace picker's
@@ -189,7 +190,7 @@ export function useVenueDetail(venueId: string | null | undefined) {
       if (!venueId) return null;
 
       const [venueRes, mediaRes] = await Promise.all([
-        supabase
+        db
           .from("venues" as never)
           .select(
             `id, vendor_id, name, space_type, description,
@@ -212,7 +213,7 @@ export function useVenueDetail(venueId: string | null | undefined) {
           )
           .eq("id", venueId)
           .maybeSingle(),
-        supabase
+        db
           .from("venue_media" as never)
           .select("id, url, caption, media_kind, is_cover, sort_order")
           .eq("venue_id", venueId)
@@ -229,7 +230,7 @@ export function useVenueDetail(venueId: string | null | undefined) {
       // ─── Services offered at this venue ───────────────────────────
       // Pinned to this venue, or vendor-wide (venue_id null). Services a
       // multi-venue vendor pinned to a different space are excluded.
-      const { data: servicesRaw } = await supabase
+      const { data: servicesRaw } = await db
         .from("vendor_services" as never)
         .select(
           "id, title, description, base_price, currency, unit, duration, is_instant_book, quote_on_request, is_active, category",
@@ -252,7 +253,7 @@ export function useVenueDetail(venueId: string | null | undefined) {
         is_optional: boolean;
       }> = [];
       if (serviceIds.length > 0) {
-        const addonsFetch = await supabase
+        const addonsFetch = await db
           .from("vendor_service_addons" as never)
           .select("id, service_id, name, price, is_optional")
           .in("service_id", serviceIds);

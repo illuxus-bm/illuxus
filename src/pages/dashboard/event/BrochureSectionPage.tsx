@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { logger } from "@/lib/observability";
 import { normalizeConfig, type EventPageConfig } from "@/components/event/page-form/types";
 import BrochureConfiguratorDialog from "@/components/event/brochure/BrochureConfiguratorDialog";
@@ -16,7 +17,7 @@ export default function BrochureSectionPage({ eventId }: { eventId: string }) {
 
   useEffect(() => {
     let mounted = true;
-    supabase
+    db
       .from("events")
       .select("page_config")
       .eq("id", eventId)
@@ -38,7 +39,7 @@ export default function BrochureSectionPage({ eventId }: { eventId: string }) {
 
   const handleConfigChange = async (next: EventPageConfig) => {
     setConfig(next);
-    const { error } = await supabase
+    const { error } = await db
       .from("events")
       .update({ page_config: next as never })
       .eq("id", eventId);

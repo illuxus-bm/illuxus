@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { format, subMonths, startOfMonth, parseISO } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -90,7 +91,7 @@ function useProfiles() {
   return useQuery({
     queryKey: ["admin-analytics-profiles"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("profiles")
         .select("user_id, account_type, created_at, display_name, first_name, last_name, onboarding_completed")
         .order("created_at", { ascending: true });
@@ -108,7 +109,7 @@ function useEvents() {
   return useQuery({
     queryKey: ["admin-analytics-events"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("events")
         .select("id, title, status, tickets_sold, capacity, price, currency, date, created_at, org_id, user_id")
         .order("created_at", { ascending: false });
@@ -132,7 +133,7 @@ function useOrganizations() {
   return useQuery({
     queryKey: ["admin-analytics-orgs"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("organizations")
         .select("id, name, owner_id, created_at");
       if (error) {

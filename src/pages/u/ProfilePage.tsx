@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import SiteHeader from "@/components/SiteHeader";
 import { Button } from "@/components/ui/button";
@@ -43,12 +44,12 @@ export default function ProfilePage() {
     if (!user) return;
     let cancel = false;
     (async () => {
-      const { data: profile } = await supabase
+      const { data: profile } = await db
         .from("profiles")
         .select("display_name, username, headline, bio, avatar_url")
         .eq("user_id", user.id)
         .maybeSingle();
-      const { data: follows } = await supabase
+      const { data: follows } = await db
         .from("org_followers")
         .select("org_id")
         .eq("user_id", user.id);
@@ -56,7 +57,7 @@ export default function ProfilePage() {
       let orgs: FollowedOrg[] = [];
       if (follows && follows.length > 0) {
         const ids = follows.map((f) => f.org_id);
-        const { data: orgRows } = await supabase
+        const { data: orgRows } = await db
           .from("organizations")
           .select("id, name, slug, subdomain, logo_url")
           .in("id", ids);
@@ -78,7 +79,7 @@ export default function ProfilePage() {
     e.preventDefault();
     if (!user) return;
     setSaving(true);
-    const { error } = await supabase
+    const { error } = await db
       .from("profiles")
       .update({
         display_name: displayName || null,

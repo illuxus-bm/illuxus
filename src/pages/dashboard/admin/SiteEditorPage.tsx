@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -817,7 +818,7 @@ export default function SiteEditorPage() {
   // Load drafts from DB; fall back to live for sections without a draft.
   // Drafts are admin-only, so they come through get_site_drafts(), not the table.
   const loadDrafts = async () => {
-    const { data: rows } = await supabase.rpc("get_site_drafts" as never);
+    const { data: rows } = await db.rpc("get_site_drafts" as never);
     const data = rows as { section: string; content: unknown; draft_content: unknown }[] | null;
     const next: SiteContentMap = { ...liveContent };
     const draftSet = new Set<SiteSection>();

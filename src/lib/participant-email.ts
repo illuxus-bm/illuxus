@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { logger } from "@/lib/observability";
 import { formatEventDateTime } from "@/lib/datetime";
 import { isValidEmailFormat, normalizeEmail } from "@/lib/email-format";
@@ -90,7 +91,7 @@ export async function sendParticipantWelcomeEmail(
     // Pull just enough event context to compose a friendly body. One row,
     // one round-trip; the function itself doesn't need this — the dashboard
     // does, because we're not putting the welcome in `event_emails`.
-    const { data: ev } = await supabase
+    const { data: ev } = await db
       .from("events")
       .select("title, slug, date, timezone, venue, location, organizations(name)")
       .eq("id", input.eventId)

@@ -1,5 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -133,7 +134,7 @@ export default function SponsorManagement({ eventId }: Props) {
     // Step 2: linked sponsors by ID (relies on permissive RLS policy)
     let linkedSponsors: Sponsor[] = [];
     if (orderedIds.length > 0) {
-      const { data: rows, error: spkErr } = await supabase
+      const { data: rows, error: spkErr } = await db
         .from("sponsors")
         .select("*")
         .in("id", orderedIds);
@@ -172,7 +173,7 @@ export default function SponsorManagement({ eventId }: Props) {
     // roster on every dashboard mount.
 
     // Step 4: org tier presets
-    const { data: ev } = await supabase
+    const { data: ev } = await db
       .from("events")
       .select("*")
       .eq("id", eventId)
@@ -186,7 +187,7 @@ export default function SponsorManagement({ eventId }: Props) {
       (ev as { sponsor_applications_enabled?: boolean | null } | null)?.sponsor_applications_enabled ?? true,
     );
     if (_orgId) {
-      const { data: presets } = await supabase
+      const { data: presets } = await db
         .from("org_sponsor_tiers")
         .select("id,label")
         .eq("org_id", _orgId)
@@ -262,7 +263,7 @@ export default function SponsorManagement({ eventId }: Props) {
   const handleApplicationsToggle = async (enabled: boolean) => {
     setTogglingApplications(true);
     setApplicationsEnabled(enabled);
-    const { error } = await supabase
+    const { error } = await db
       .from("events")
       .update({ sponsor_applications_enabled: enabled } as never)
       .eq("id", eventId);
@@ -280,7 +281,7 @@ export default function SponsorManagement({ eventId }: Props) {
   };
 
   const removeMember = async (id: string) => {
-    const { error } = await supabase.from("sponsor_members").delete().eq("id", id);
+    const { error } = await db.from("sponsor_members").delete().eq("id", id);
     if (error) toast.error(friendlyError(error));
   };
 
@@ -341,7 +342,7 @@ export default function SponsorManagement({ eventId }: Props) {
   const rememberTitle = async (title: string | null) => {
     if (!title || !orgId || tierPresets.some((p) => p.label.toLowerCase() === title.toLowerCase())) return;
     const { data: { user } } = await supabase.auth.getUser();
-    if (user) await supabase.from("org_sponsor_tiers").insert({ org_id: orgId, label: title, created_by: user.id });
+    if (user) await db.from("org_sponsor_tiers").insert({ org_id: orgId, label: title, created_by: user.id });
   };
 
   const handleSave = async () => {
@@ -352,12 +353,12 @@ export default function SponsorManagement({ eventId }: Props) {
 
     // The title belongs to this event; other events keep theirs.
     const logoIsThisEvents = !!editing.link?.logo_url;
-    const { error } = await supabase.from("sponsors").update({
+    const { error } = await db.from("sponsors").update({
       name: form.name, email: form.email || null, ...(logoIsThisEvents ? {} : { logo_url: form.logo_url || null }),
       website: form.website || null, description: form.description || null,
     }).eq("id", editing.id);
     if (error) { toast.error(friendlyError(error)); return; }
-    const { error: linkError } = await supabase.from("event_sponsors").update({
+    const { error: linkError } = await db.from("event_sponsors").update({
       tier: form.tier, tier_label: tierLabelToSave, ...(logoIsThisEvents ? { logo_url: form.logo_url || null } : {}),
     }).eq("event_id", eventId).eq("sponsor_id", editing.id);
     if (linkError) { toast.error(linkError.message); return; }
@@ -371,7 +372,7 @@ export default function SponsorManagement({ eventId }: Props) {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this sponsor permanently? This cannot be undone.")) return;
-    await supabase.from("sponsors").delete().eq("id", id);
+    await db.from("sponsors").delete().eq("id", id);
     toast.success("Sponsor deleted");
     fetchData();
   };
@@ -414,7 +415,7 @@ export default function SponsorManagement({ eventId }: Props) {
 
   const persistOrder = async (next: Sponsor[]) => {
     const updates = next.map((s, i) =>
-      supabase.from("event_sponsors")
+      db.from("event_sponsors")
         .update({ display_order: i })
         .eq("event_id", eventId)
         .eq("sponsor_id", s.id)
@@ -453,7 +454,7 @@ export default function SponsorManagement({ eventId }: Props) {
 
     if (tierChanged) {
       // Only this event's title changes.
-      const { error } = await supabase
+      const { error } = await db
         .from("event_sponsors")
         .update({ tier: destTier, tier_label: destTier === "custom" ? destTierLabel : null })
         .eq("event_id", eventId)

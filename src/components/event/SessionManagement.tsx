@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -108,14 +109,14 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
 
   const fetchData = async () => {
     const [{ data: sess }, { data: spk }] = await Promise.all([
-      supabase.from("sessions").select("*").eq("event_id", eventId).order("start_time"),
-      supabase.from("event_speakers").select("speaker_id, speakers(id, name)").eq("event_id", eventId),
+      db.from("sessions").select("*").eq("event_id", eventId).order("start_time"),
+      db.from("event_speakers").select("speaker_id, speakers(id, name)").eq("event_id", eventId),
     ]);
     const list = sess || [];
     const linkMap = new Map<string, string[]>();
     const moderatorMap = new Map<string, string>();
     if (list.length) {
-      const { data: ss } = await supabase
+      const { data: ss } = await db
         .from("session_speakers")
         .select("session_id, speaker_id, position")
         .in("session_id", list.map((s) => s.id));
@@ -175,16 +176,16 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
 
     let sessionId = editing?.id;
     if (editing) {
-      const { error } = await supabase.from("sessions").update(payload).eq("id", editing.id);
+      const { error } = await db.from("sessions").update(payload).eq("id", editing.id);
       if (error) { toast.error(friendlyError(error)); return; }
     } else {
-      const { data, error } = await supabase.from("sessions").insert(payload).select("id").single();
+      const { data, error } = await db.from("sessions").insert(payload).select("id").single();
       if (error) { toast.error(friendlyError(error)); return; }
       sessionId = data?.id;
     }
 
     if (sessionId) {
-      const { error: deleteError } = await supabase.from("session_speakers").delete().eq("session_id", sessionId);
+      const { error: deleteError } = await db.from("session_speakers").delete().eq("session_id", sessionId);
       if (deleteError) {
         // Surface this instead of failing silently — a blocked delete (e.g.
         // a Row-Level Security policy gap) previously left stale speaker
@@ -207,7 +208,7 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
       const moderatorId = form.has_moderator ? form.moderator_id : null;
       const speakerIds = form.speaker_ids.filter((sid) => sid !== moderatorId);
       if (speakerIds.length || moderatorId) {
-        const { error: insertError } = await supabase.from("session_speakers").insert([
+        const { error: insertError } = await db.from("session_speakers").insert([
           ...(moderatorId ? [{ session_id: sessionId!, speaker_id: moderatorId, position: MODERATOR_POSITION }] : []),
           ...speakerIds.map((sid, i) => ({ session_id: sessionId!, speaker_id: sid, position: i })),
         ]);
@@ -238,7 +239,7 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.from("sessions").delete().eq("id", id);
+    await db.from("sessions").delete().eq("id", id);
     toast.success("Session deleted");
     fetchData();
   };

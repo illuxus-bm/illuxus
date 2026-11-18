@@ -5,13 +5,15 @@
  * re-checked there whatever this file sends.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { db as dataDb } from "@/lib/data/db";
 import { cloneDesign, parseDesign, type CertificateDesign, type PartnerLogoRef } from "./certificate-design";
 import { verificationUrl } from "./certificate-pdf";
 import { formatEventDateRange, type CertificateValues } from "./certificate-fields";
 
 // The new tables aren't in the generated types yet.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as unknown as { from: (table: string) => any; rpc: (fn: string, args?: Record<string, unknown>) => any };
+// rpc looked up per call: the client may be swapped (tests) after this module loads.
+const db = { from: dataDb.from, rpc: (fn: string, args?: Record<string, unknown>) => dataDb.rpc(fn as never, args as never) } as unknown as { from: (table: string) => any; rpc: (fn: string, args?: Record<string, unknown>) => any };
 
 export type TemplateStatus = "draft" | "published" | "archived";
 
@@ -158,7 +160,7 @@ export async function loadVersionDesign(versionId: string): Promise<CertificateD
 
 /** The sponsors and partners attached to this event — and only this event. */
 export async function loadEventPartners(eventId: string): Promise<PartnerLogoRef[]> {
-  const { data, error } = await supabase
+  const { data, error } = await dataDb
     .from("event_sponsors")
     .select("sponsor_id, tier_override, tier, tier_label, logo_url, display_order, sponsors:sponsor_id(id, name, logo_url, tier, tier_label)")
     .eq("event_id", eventId)
@@ -177,7 +179,7 @@ export async function loadEventPartners(eventId: string): Promise<PartnerLogoRef
 
 /** Everyone registered for the event, marked eligible the same way the server decides. */
 export async function loadRegistrants(eventId: string): Promise<Registrant[]> {
-  const { data, error } = await supabase
+  const { data, error } = await dataDb
     .from("registrations")
     .select("id, name, first_name, last_name, email, designation, company, ticket_type, checked_in, status, approval_status, created_at")
     .eq("event_id", eventId)

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatEventDate, formatEventDateTime } from "@/lib/datetime";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import SiteHeader from "@/components/SiteHeader";
 import { PullToRefresh } from "@/components/native/PullToRefresh";
@@ -57,7 +58,7 @@ export default function MyEventsPage() {
 
   const load = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
+    const { data } = await db
       .from("registrations")
       .select("id, approval_status, status, checked_in, events:events(id, title, slug, date, end_date, venue, location, image_url, banner_landscape_url, description, timezone, organizations(slug, subdomain))")
       .eq("user_id", user.id)

@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import type { Tables } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,11 +81,11 @@ export function WebinarSidebar({ sessionId, isHost, canPublish, userId, activeTa
     let mounted = true;
     const load = async () => {
       const [c, q, p, r] = await Promise.all([
-        supabase.from("webinar_chat").select("*", { count: "exact", head: true }).eq("session_id", sessionId).eq("deleted", false),
-        supabase.from("webinar_qa").select("*", { count: "exact", head: true }).eq("session_id", sessionId),
-        supabase.from("webinar_polls").select("*", { count: "exact", head: true }).eq("session_id", sessionId).eq("open", true),
+        db.from("webinar_chat").select("*", { count: "exact", head: true }).eq("session_id", sessionId).eq("deleted", false),
+        db.from("webinar_qa").select("*", { count: "exact", head: true }).eq("session_id", sessionId),
+        db.from("webinar_polls").select("*", { count: "exact", head: true }).eq("session_id", sessionId).eq("open", true),
         isHost
-          ? supabase.from("webinar_stage_requests").select("*", { count: "exact", head: true }).eq("session_id", sessionId).eq("status", "pending")
+          ? db.from("webinar_stage_requests").select("*", { count: "exact", head: true }).eq("session_id", sessionId).eq("status", "pending")
           : Promise.resolve({ count: 0 } as { count: number | null }),
       ]);
       if (!mounted) return;
@@ -199,7 +200,7 @@ const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost }: { sessi
 
   useEffect(() => {
     let mounted = true;
-    supabase.from("webinar_chat").select("*").eq("session_id", sessionId).order("created_at").limit(200)
+    db.from("webinar_chat").select("*").eq("session_id", sessionId).order("created_at").limit(200)
       .then(({ data }) => { if (mounted) setMsgs(data ?? []); });
     const ch = supabase.channel(`chat-${sessionId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "webinar_chat", filter: `session_id=eq.${sessionId}` },
@@ -229,7 +230,7 @@ const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost }: { sessi
     const v = text.trim();
     if (!v) return;
     setText("");
-    await supabase.from("webinar_chat").insert({ session_id: sessionId, user_id: userId, message: v });
+    await db.from("webinar_chat").insert({ session_id: sessionId, user_id: userId, message: v });
   };
 
   const visible = msgs.filter((m) => !m.deleted);
@@ -258,7 +259,7 @@ const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost }: { sessi
               </div>
               {isHost && (
                 <button
-                  onClick={async () => { await supabase.from("webinar_chat").update({ deleted: true }).eq("id", m.id); }}
+                  onClick={async () => { await db.from("webinar_chat").update({ deleted: true }).eq("id", m.id); }}
                   className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-foreground/10"
                   aria-label="Delete message"
                 >
@@ -305,7 +306,7 @@ const QAPanel = memo(function QAPanel({ sessionId, userId, isHost }: { sessionId
 
   useEffect(() => {
     let mounted = true;
-    const load = () => supabase.from("webinar_qa").select("*").eq("session_id", sessionId)
+    const load = () => db.from("webinar_qa").select("*").eq("session_id", sessionId)
       .then(({ data }) => { if (mounted) setQs(data ?? []); });
     load();
     const ch = supabase.channel(`qa-${sessionId}`)
@@ -326,7 +327,7 @@ const QAPanel = memo(function QAPanel({ sessionId, userId, isHost }: { sessionId
     const v = text.trim();
     if (!v) return;
     setText("");
-    await supabase.from("webinar_qa").insert({ session_id: sessionId, user_id: userId, question: v });
+    await db.from("webinar_qa").insert({ session_id: sessionId, user_id: userId, question: v });
   };
 
   return (
@@ -359,7 +360,7 @@ const QAPanel = memo(function QAPanel({ sessionId, userId, isHost }: { sessionId
             )}
           >
             <button
-              onClick={async () => { await supabase.from("webinar_qa").update({ upvotes: (q.upvotes || 0) + 1 }).eq("id", q.id); }}
+              onClick={async () => { await db.from("webinar_qa").update({ upvotes: (q.upvotes || 0) + 1 }).eq("id", q.id); }}
               className="flex flex-col items-center justify-center w-9 shrink-0 rounded-md border border-border/60 hover:bg-foreground/5 py-1"
               aria-label="Upvote"
             >
@@ -376,19 +377,19 @@ const QAPanel = memo(function QAPanel({ sessionId, userId, isHost }: { sessionId
               {isHost && (
                 <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={async () => { await supabase.from("webinar_qa").update({ pinned: !q.pinned }).eq("id", q.id); }}
+                    onClick={async () => { await db.from("webinar_qa").update({ pinned: !q.pinned }).eq("id", q.id); }}
                     className="h-6 px-2 text-[10px] rounded hover:bg-foreground/5 flex items-center gap-1"
                   >
                     <Pin className="h-2.5 w-2.5" />{q.pinned ? "Unpin" : "Pin"}
                   </button>
                   <button
-                    onClick={async () => { await supabase.from("webinar_qa").update({ answered: !q.answered }).eq("id", q.id); }}
+                    onClick={async () => { await db.from("webinar_qa").update({ answered: !q.answered }).eq("id", q.id); }}
                     className="h-6 px-2 text-[10px] rounded hover:bg-foreground/5 flex items-center gap-1"
                   >
                     <CheckCircle2 className="h-2.5 w-2.5" />{q.answered ? "Reopen" : "Mark answered"}
                   </button>
                   <button
-                    onClick={async () => { await supabase.from("webinar_qa").delete().eq("id", q.id); }}
+                    onClick={async () => { await db.from("webinar_qa").delete().eq("id", q.id); }}
                     className="h-6 px-2 text-[10px] rounded hover:bg-destructive/10 text-destructive flex items-center gap-1"
                   >
                     <Trash2 className="h-2.5 w-2.5" />Delete
@@ -428,7 +429,7 @@ const PollsPanel = memo(function PollsPanel({ sessionId, userId, isHost }: { ses
   useEffect(() => {
     let mounted = true;
     const load = async () => {
-      const { data } = await supabase.from("webinar_polls").select("*").eq("session_id", sessionId).order("created_at", { ascending: false });
+      const { data } = await db.from("webinar_polls").select("*").eq("session_id", sessionId).order("created_at", { ascending: false });
       if (!mounted) return;
       const list = (data ?? []).map((p): Poll => {
         const opts = p.options as unknown;
@@ -446,7 +447,7 @@ const PollsPanel = memo(function PollsPanel({ sessionId, userId, isHost }: { ses
       setPolls(list);
       // Load votes per poll
       if (list.length) {
-        const { data: vs } = await supabase
+        const { data: vs } = await db
           .from("webinar_poll_votes")
           .select("poll_id,option_index,user_id")
           .in("poll_id", list.map((p) => p.id));
@@ -478,7 +479,7 @@ const PollsPanel = memo(function PollsPanel({ sessionId, userId, isHost }: { ses
         counts: v[pollId]?.counts.map((c, i) => i === idx ? c + 1 : c) || [],
       },
     }));
-    const { error } = await supabase.from("webinar_poll_votes").insert({ poll_id: pollId, user_id: userId, option_index: idx });
+    const { error } = await db.from("webinar_poll_votes").insert({ poll_id: pollId, user_id: userId, option_index: idx });
     if (error) toast.error("Couldn't record your vote");
   };
 
@@ -544,7 +545,7 @@ const PollsPanel = memo(function PollsPanel({ sessionId, userId, isHost }: { ses
               {isHost && (
                 <div className="flex items-center justify-end gap-1 pt-1">
                   <button
-                    onClick={async () => { await supabase.from("webinar_polls").update({ open: !p.open }).eq("id", p.id); }}
+                    onClick={async () => { await db.from("webinar_polls").update({ open: !p.open }).eq("id", p.id); }}
                     className="text-[10px] px-2 h-6 rounded hover:bg-foreground/5"
                   >
                     {p.open ? "Close poll" : "Reopen"}
@@ -552,7 +553,7 @@ const PollsPanel = memo(function PollsPanel({ sessionId, userId, isHost }: { ses
                   <button
                     onClick={async () => {
                       if (!confirm("Delete this poll?")) return;
-                      await supabase.from("webinar_polls").delete().eq("id", p.id);
+                      await db.from("webinar_polls").delete().eq("id", p.id);
                     }}
                     className="text-[10px] px-2 h-6 rounded hover:bg-destructive/10 text-destructive flex items-center gap-1"
                   >
@@ -589,7 +590,7 @@ function PollComposer({ sessionId, onClose }: { sessionId: string; onClose: () =
     const cleaned = options.map((o) => o.trim()).filter(Boolean);
     if (!q || cleaned.length < 2) { toast.error("Question + at least 2 options"); return; }
     setSaving(true);
-    const { error } = await supabase.from("webinar_polls").insert({ session_id: sessionId, question: q, options: cleaned, open: true });
+    const { error } = await db.from("webinar_polls").insert({ session_id: sessionId, question: q, options: cleaned, open: true });
     setSaving(false);
     if (error) { toast.error(friendlyError(error)); return; }
     onClose();
@@ -652,7 +653,7 @@ function HostRequestsList({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     let mounted = true;
-    const load = () => supabase.from("webinar_stage_requests").select("*").eq("session_id", sessionId).eq("status", "pending")
+    const load = () => db.from("webinar_stage_requests").select("*").eq("session_id", sessionId).eq("status", "pending")
       .then(({ data }) => { if (mounted) setReqs(data ?? []); });
     load();
     const ch = supabase.channel(`reqs-${sessionId}`)
@@ -699,7 +700,7 @@ function AttendeeRaiseHand({ sessionId, userId }: { sessionId: string; userId: s
 
   useEffect(() => {
     let mounted = true;
-    supabase.from("webinar_stage_requests").select("*").eq("session_id", sessionId).eq("user_id", userId).maybeSingle()
+    db.from("webinar_stage_requests").select("*").eq("session_id", sessionId).eq("user_id", userId).maybeSingle()
       .then(({ data }) => { if (mounted) setReq(data); });
     const ch = supabase.channel(`req-${sessionId}-${userId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "webinar_stage_requests", filter: `session_id=eq.${sessionId}` },
@@ -712,10 +713,10 @@ function AttendeeRaiseHand({ sessionId, userId }: { sessionId: string; userId: s
   }, [sessionId, userId]);
 
   const raise = async () => {
-    await supabase.from("webinar_stage_requests").upsert({ session_id: sessionId, user_id: userId, status: "pending" });
+    await db.from("webinar_stage_requests").upsert({ session_id: sessionId, user_id: userId, status: "pending" });
   };
   const cancel = async () => {
-    await supabase.from("webinar_stage_requests").update({ status: "cancelled" }).eq("session_id", sessionId).eq("user_id", userId);
+    await db.from("webinar_stage_requests").update({ status: "cancelled" }).eq("session_id", sessionId).eq("user_id", userId);
   };
 
   const pending = req && req.status === "pending";

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { formatEventDateTime } from "@/lib/datetime";
 import { useAuth } from "@/contexts/AuthContext";
 import SiteHeader from "@/components/SiteHeader";
@@ -80,7 +81,7 @@ export default function TicketDetailPage() {
 
   const load = useCallback(async () => {
     if (!id || !user) return;
-    const { data } = await supabase
+    const { data } = await db
       .from("registrations")
       .select("id, qr_code, approval_status, checked_in, ticket_type, amount_paid, name, email, user_id, sponsor_share_consent, events:events(id, title, slug, date, venue, location, image_url, banner_landscape_url, banner_portrait_url, timezone, organizations(name, slug, subdomain))")
       .eq("id", id)

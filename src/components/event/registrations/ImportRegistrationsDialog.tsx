@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Upload, Download, FileText, AlertCircle, CheckCircle2, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { logger } from "@/lib/observability";
 import { isValidEmailFormat } from "@/lib/email-format";
 import { friendlyError } from "@/lib/friendly-error";
@@ -257,7 +258,7 @@ export default function ImportRegistrationsDialog({
     // organiser added someone between then and now, that row would slip
     // through and create a second registration. A quick re-query keeps the
     // check accurate without needing a server-side unique constraint.
-    const { data: liveRows } = await supabase
+    const { data: liveRows } = await db
       .from("registrations")
       .select("email")
       .eq("event_id", eventId);
@@ -313,7 +314,7 @@ export default function ImportRegistrationsDialog({
       approval_status: "approved",
     }));
 
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("registrations")
       .insert(payload)
       .select("id, name, email, join_token, ticket_type");

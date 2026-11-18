@@ -1,5 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 
 export type Branding = {
   logo_url?: string;
@@ -15,7 +16,7 @@ export function useSessionBranding(sessionId?: string): Branding | undefined {
   useEffect(() => {
     if (!sessionId) return;
     let active = true;
-    supabase.from("webinar_sessions").select("branding").eq("id", sessionId).maybeSingle()
+    db.from("webinar_sessions").select("branding").eq("id", sessionId).maybeSingle()
       .then(({ data }) => { if (active) setB((data?.branding as Branding) || {}); });
     const ch = supabase.channel(`brand-${sessionId}`)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "webinar_sessions", filter: `id=eq.${sessionId}` },

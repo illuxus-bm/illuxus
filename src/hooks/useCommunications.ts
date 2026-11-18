@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
 import { toast } from "sonner";
 import type {
@@ -26,7 +27,7 @@ export function useCommunications(
     if (!eventId && !communityId) { setItems([]); setLoading(false); return; }
     let cancelled = false;
     const load = async () => {
-      let q = supabase.from("communications" as never).select("*");
+      let q = db.from("communications" as never).select("*");
       if (eventId)     q = q.eq("event_id",     eventId);
       if (communityId) q = q.eq("community_id", communityId);
       const { data, error } = await q.order("created_at", { ascending: false });
@@ -110,7 +111,7 @@ export async function createDraft(input: {
   const uid = userData.user?.id;
   if (!uid) throw new Error("Must be signed in to compose");
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("communications" as never)
     .insert({
       org_id: input.org_id,
@@ -134,7 +135,7 @@ export async function createDraft(input: {
 }
 
 export async function updateDraft(id: string, patch: Partial<Communication>): Promise<void> {
-  const { error } = await supabase
+  const { error } = await db
     .from("communications" as never)
     .update(patch as never)
     .eq("id", id);
@@ -142,7 +143,7 @@ export async function updateDraft(id: string, patch: Partial<Communication>): Pr
 }
 
 export async function deleteCommunication(id: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await db
     .from("communications" as never)
     .delete()
     .eq("id", id);

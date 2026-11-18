@@ -1,5 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -72,7 +73,7 @@ export default function SpeakerManagement({ eventId }: Props) {
     if (!user) return;
 
     // Step 1: get the IDs of speakers linked to this event
-    const { data: links, error: linksErr } = await supabase
+    const { data: links, error: linksErr } = await db
       .from("event_speakers")
       .select("speaker_id, display_order")
       .eq("event_id", eventId)
@@ -88,7 +89,7 @@ export default function SpeakerManagement({ eventId }: Props) {
     // to their events even when speakers.user_id was set incorrectly by old code.
     let linkedSpeakers: Speaker[] = [];
     if (orderedIds.length > 0) {
-      const { data: rows, error: spkErr } = await supabase
+      const { data: rows, error: spkErr } = await db
         .from("speakers")
         .select("*")
         .in("id", orderedIds);
@@ -114,11 +115,11 @@ export default function SpeakerManagement({ eventId }: Props) {
     // saves megabytes of egress on every dashboard mount.
 
     // Step 4: webinar session lookup (unchanged)
-    const { data: sess } = await supabase.from("webinar_sessions").select("id").eq("event_id", eventId)
+    const { data: sess } = await db.from("webinar_sessions").select("id").eq("event_id", eventId)
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
 
     // Step 5: per-event Call-for-Speakers toggle
-    const { data: ev } = await supabase
+    const { data: ev } = await db
       .from("events")
       .select("speaker_applications_enabled")
       .eq("id", eventId)
@@ -131,7 +132,7 @@ export default function SpeakerManagement({ eventId }: Props) {
     setAssignedIds(ids);
     setSessionId(sess?.id ?? null);
     if (sess?.id) {
-      const { data: ws } = await supabase.from("webinar_speakers")
+      const { data: ws } = await db.from("webinar_speakers")
         .select("email, invite_token").eq("session_id", sess.id);
       const map: Record<string, string> = {};
       (ws || []).forEach((w) => { if (w.email) map[w.email.toLowerCase()] = w.invite_token; });
@@ -148,7 +149,7 @@ export default function SpeakerManagement({ eventId }: Props) {
     setTogglingApplications(true);
     // Optimistic update
     setApplicationsEnabled(enabled);
-    const { error } = await supabase
+    const { error } = await db
       .from("events")
       .update({ speaker_applications_enabled: enabled } as never)
       .eq("id", eventId);
@@ -169,17 +170,17 @@ export default function SpeakerManagement({ eventId }: Props) {
   const syncWebinarSpeaker = async (speaker: Pick<Speaker, "name" | "email">) => {
     if (!sessionId || !speaker.email) return;
     // Avoid duplicates (no unique constraint exists, so check first).
-    const { data: existing } = await supabase.from("webinar_speakers")
+    const { data: existing } = await db.from("webinar_speakers")
       .select("id").eq("session_id", sessionId).eq("email", speaker.email).maybeSingle();
     if (existing?.id) return;
-    await supabase.from("webinar_speakers").insert({
+    await db.from("webinar_speakers").insert({
       session_id: sessionId, email: speaker.email, display_name: speaker.name, role: "speaker",
     });
   };
 
   const removeWebinarSpeaker = async (email: string | null) => {
     if (!sessionId || !email) return;
-    await supabase.from("webinar_speakers").delete()
+    await db.from("webinar_speakers").delete()
       .eq("session_id", sessionId).eq("email", email);
   };
 
@@ -209,14 +210,14 @@ export default function SpeakerManagement({ eventId }: Props) {
     };
 
     if (editing) {
-      const { error } = await supabase.from("speakers").update(payload).eq("id", editing.id);
+      const { error } = await db.from("speakers").update(payload).eq("id", editing.id);
       if (error) { toast.error(friendlyError(error)); return; }
       toast.success("Speaker updated");
     } else {
-      const { data, error } = await supabase.from("speakers").insert({ ...payload, user_id: user.id }).select().single();
+      const { data, error } = await db.from("speakers").insert({ ...payload, user_id: user.id }).select().single();
       if (error) { toast.error(friendlyError(error)); return; }
       // Auto-assign to this event
-      await supabase.from("event_speakers").insert({ event_id: eventId, speaker_id: data.id });
+      await db.from("event_speakers").insert({ event_id: eventId, speaker_id: data.id });
       await syncWebinarSpeaker({ name: data.name, email: data.email });
       toast.success("Speaker added & assigned");
       // Rich-HTML heads-up email (banner + organiser + CTA). Same
@@ -269,12 +270,12 @@ export default function SpeakerManagement({ eventId }: Props) {
   const handleAssign = async (speaker: Speaker) => {
     const speakerId = speaker.id;
     if (assignedIds.has(speakerId)) {
-      await supabase.from("event_speakers").delete().eq("event_id", eventId).eq("speaker_id", speakerId);
+      await db.from("event_speakers").delete().eq("event_id", eventId).eq("speaker_id", speakerId);
       await removeWebinarSpeaker(speaker.email ?? null);
       toast.success("Speaker removed from event");
     } else {
       const nextOrder = speakers.length;
-      const { error } = await supabase.from("event_speakers").insert({
+      const { error } = await db.from("event_speakers").insert({
         event_id: eventId, speaker_id: speakerId, display_order: nextOrder,
       });
       if (error) { toast.error(friendlyError(error)); return; }
@@ -287,7 +288,7 @@ export default function SpeakerManagement({ eventId }: Props) {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this speaker permanently? This cannot be undone.")) return;
-    await supabase.from("speakers").delete().eq("id", id);
+    await db.from("speakers").delete().eq("id", id);
     toast.success("Speaker deleted");
     fetchData();
   };
@@ -329,7 +330,7 @@ export default function SpeakerManagement({ eventId }: Props) {
     const next = arrayMove(speakers, oldIndex, newIndex);
     setSpeakers(next);
     const updates = next.map((s, i) =>
-      supabase.from("event_speakers")
+      db.from("event_speakers")
         .update({ display_order: i })
         .eq("event_id", eventId)
         .eq("speaker_id", s.id)

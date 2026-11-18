@@ -19,6 +19,7 @@ import {
 import { ComposeMessageDialog } from "./ComposeMessageDialog";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import type { Communication } from "@/types/communications";
 import { friendlyError } from "@/lib/friendly-error";
 
@@ -49,7 +50,7 @@ export function CommunicationsSection({ eventId, communityId }: CommunicationsSe
     let cancelled = false;
     (async () => {
       if (eventId) {
-        const { data } = await supabase
+        const { data } = await db
           .from("events")
           .select("org_id, date")
           .eq("id", eventId)
@@ -61,7 +62,7 @@ export function CommunicationsSection({ eventId, communityId }: CommunicationsSe
         return;
       }
       if (communityId) {
-        const { data } = await supabase
+        const { data } = await db
           .from("communities" as never)
           .select("org_id")
           .eq("id", communityId)

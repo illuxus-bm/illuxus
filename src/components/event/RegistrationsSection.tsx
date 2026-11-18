@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { logger, supabaseRpc } from "@/lib/observability";
 import { Search, Users, Download, Filter, Handshake, Check, ChevronDown, CheckCircle, XCircle, ScanLine, Printer, Tag, History, ListChecks, Undo2, ArrowUp, ArrowDown, ArrowUpDown, MoreHorizontal, Copy, ExternalLink, Link2, Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -227,7 +228,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   // which would cut the list, its selection and the CSV export short.
   const reload = (): Promise<void> =>
     fetchAllRows<Registration>((from, to) =>
-      supabase.from("registrations").select("*").eq("event_id", eventId)
+      db.from("registrations").select("*").eq("event_id", eventId)
         .order("created_at", { ascending: false }).order("id").range(from, to),
     )
       .then((rows) => setRegistrations(rows))
@@ -238,8 +239,8 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
 
   const reloadExtras = async () => {
     const [{ data: spLinks }, { data: spLinksSponsors }] = await Promise.all([
-      supabase.from("event_speakers").select("speaker_id, speakers:speaker_id(id, name, email, company)").eq("event_id", eventId),
-      supabase.from("event_sponsors").select("sponsor_id, sponsors:sponsor_id(id, name)").eq("event_id", eventId),
+      db.from("event_speakers").select("speaker_id, speakers:speaker_id(id, name, email, company)").eq("event_id", eventId),
+      db.from("event_sponsors").select("sponsor_id, sponsors:sponsor_id(id, name)").eq("event_id", eventId),
     ]);
     type SpeakerLink = { speaker_id: string; speakers: { id: string; name: string; email: string | null; company: string | null } | null };
     type SponsorLink = { sponsor_id: string; sponsors: { id: string; name: string } | null };
@@ -248,7 +249,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
     const sponsorIds = sponsorLinks.map((l) => l.sponsor_id);
     let members: SponsorMember[] = [];
     if (sponsorIds.length > 0) {
-      const { data } = await supabase
+      const { data } = await db
         .from("sponsor_members")
         .select("id, sponsor_id, email, display_name")
         .in("sponsor_id", sponsorIds);
@@ -309,7 +310,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
 
   useEffect(() => {
     Promise.all([reload(), reloadExtras()]).then(() => setLoading(false));
-    supabase
+    db
       .from("events")
       .select("event_format, slug, title, user_id, currency, banner_landscape_url, date, end_date, timezone, venue, location, organizations(name)")
       .eq("id", eventId)
@@ -339,7 +340,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
           setCurrency(ev.currency || "INR");
           // Only show join links when the event can have a webinar (not purely physical)
           if (ev.event_format !== "physical") {
-            supabase
+            db
               .from("webinar_sessions")
               .select("id", { count: "exact", head: true })
               .eq("event_id", eventId)
@@ -778,7 +779,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       toast.info("Status can only be changed for attendee registrations");
       return;
     }
-    const { error } = await supabase
+    const { error } = await db
       .from("registrations")
       .update({ status: newStatus })
       .eq("id", row.id);
@@ -794,7 +795,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
 
   /** Approve or decline a pending registration (approval_status column). */
   const updateApprovalStatus = async (row: Row, newApproval: "approved" | "declined") => {
-    const { error } = await supabase
+    const { error } = await db
       .from("registrations")
       .update({ approval_status: newApproval })
       .eq("id", row.id);
@@ -866,7 +867,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       return;
     }
 
-    const { error } = await supabase
+    const { error } = await db
       .from("registrations")
       .update({ approval_status: newApproval })
       .in("id", targetIds);
@@ -1224,17 +1225,17 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       const results = await Promise.all([
         regIds.length === 0
           ? Promise.resolve({ error: null })
-          : supabase.from("registrations").delete().in("id", regIds),
+          : db.from("registrations").delete().in("id", regIds),
         speakerIds.length === 0
           ? Promise.resolve({ error: null })
-          : supabase
+          : db
               .from("event_speakers")
               .delete()
               .eq("event_id", eventId)
               .in("speaker_id", speakerIds),
         sponsorMemberIds.length === 0
           ? Promise.resolve({ error: null })
-          : supabase.from("sponsor_members").delete().in("id", sponsorMemberIds),
+          : db.from("sponsor_members").delete().in("id", sponsorMemberIds),
       ]);
 
       const firstError = results.find((r) => r.error)?.error;

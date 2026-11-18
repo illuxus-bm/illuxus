@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMyProfile, profileFullName } from "@/hooks/useMyProfile";
 import {
@@ -129,7 +130,7 @@ export function SponsorApplicationDialog({ eventId, open, onOpenChange, onSubmit
       utm = {};
     }
 
-    const { error } = await supabase.from("sponsor_applications" as never).insert({
+    const { error } = await db.from("sponsor_applications" as never).insert({
       event_id: eventId,
       user_id: user.id,
       company_name: form.company_name.trim(),

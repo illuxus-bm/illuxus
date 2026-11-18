@@ -16,6 +16,7 @@ import {
   ChevronRight, Mail, Loader2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAuth } from "@/contexts/AuthContext";
 import { uuid } from "@/lib/uuid";
 
@@ -92,7 +93,7 @@ const HelpPage = () => {
     try {
       // Log to audit_logs so the admin panel can see it,
       // and attempt to send via the email edge function if available.
-      await supabase.from("audit_logs").insert({
+      await db.from("audit_logs").insert({
         action:      "support_request",
         actor_id:    user?.id   ?? null,
         actor_email: user?.email ?? null,

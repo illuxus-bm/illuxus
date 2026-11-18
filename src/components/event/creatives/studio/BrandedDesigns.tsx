@@ -17,6 +17,7 @@ import { Check, Download, ImageIcon, Images, Loader2, Mic, Handshake, Save, Spar
 import { toast } from "sonner";
 import { fetchEventSponsorLinks, withEventSponsorship } from "@/lib/sponsors/event-sponsorship";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { logger } from "@/lib/observability";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -111,7 +112,7 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
   useEffect(() => {
     let alive = true;
     (async () => {
-      const { data: ev, error } = await supabase
+      const { data: ev, error } = await db
         .from("events")
         .select("title, date, timezone, venue, location, banner_landscape_url, image_url, org_id, page_config")
         .eq("id", eventId)
@@ -122,20 +123,20 @@ export default function BrandedDesigns({ eventId, onSaved }: { eventId: string; 
       const theme = ((e.page_config as { theme?: { primaryColor?: string; accentColor?: string } } | null)?.theme) ?? {};
       let orgName = "", orgLogoUrl: string | null = null;
       if (e.org_id) {
-        const { data: org } = await supabase.from("organizations").select("name, logo_url").eq("id", e.org_id as string).maybeSingle();
+        const { data: org } = await db.from("organizations").select("name, logo_url").eq("id", e.org_id as string).maybeSingle();
         orgName = (org as { name?: string } | null)?.name ?? "";
         orgLogoUrl = (org as { logo_url?: string | null } | null)?.logo_url ?? null;
       }
       const [es, ep] = await Promise.all([
-        supabase.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
+        db.from("event_speakers").select("speaker_id, display_order").eq("event_id", eventId).order("display_order"),
         fetchEventSponsorLinks(eventId),
       ]);
       const speakerIds = ((es.data ?? []) as { speaker_id: string }[]).map((r) => r.speaker_id);
       const sponsorIds = ep.data.map((r) => r.sponsor_id);
       const linkBySponsor = new Map(ep.data.map((l) => [l.sponsor_id, l]));
       const [sp, pa] = await Promise.all([
-        speakerIds.length ? supabase.from("speakers").select("id, name, photo_url, designation, company").in("id", speakerIds) : Promise.resolve({ data: [] }),
-        sponsorIds.length ? supabase.from("sponsors").select("id, name, logo_url, tier, tier_label").in("id", sponsorIds) : Promise.resolve({ data: [] }),
+        speakerIds.length ? db.from("speakers").select("id, name, photo_url, designation, company").in("id", speakerIds) : Promise.resolve({ data: [] }),
+        sponsorIds.length ? db.from("sponsors").select("id, name, logo_url, tier, tier_label").in("id", sponsorIds) : Promise.resolve({ data: [] }),
       ]);
       if (!alive) return;
       const byId = <T extends { id: string }>(rows: T[], ids: string[]) => ids.map((id) => rows.find((r) => r.id === id)).filter(Boolean) as T[];

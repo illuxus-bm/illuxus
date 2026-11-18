@@ -4,6 +4,7 @@ import { FeatureGate } from "@/components/plans/FeatureGate";
 import { useOrg } from "@/contexts/OrgContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -122,7 +123,7 @@ function EmailCampaignsTab() {
   // Load org events
   useEffect(() => {
     if (!org) return;
-    supabase
+    db
       .from("events")
       .select("id, title, slug, org_id, status")
       .eq("org_id", org.id)
@@ -137,7 +138,7 @@ function EmailCampaignsTab() {
   useEffect(() => {
     if (!selectedEventId) return;
     setLoadingMsgs(true);
-    supabase
+    db
       .from("event_emails")
       .select("*")
       .eq("event_id", selectedEventId)
@@ -153,7 +154,7 @@ function EmailCampaignsTab() {
         event: "*", schema: "public", table: "event_emails",
         filter: `event_id=eq.${selectedEventId}`,
       }, () => {
-        supabase
+        db
           .from("event_emails")
           .select("*")
           .eq("event_id", selectedEventId)
@@ -190,15 +191,15 @@ function EmailCampaignsTab() {
 
   const fetchRawRecipients = async (filterParam: string): Promise<string[]> => {
     if (filterParam === "speakers") {
-      const { data: rels } = await supabase
+      const { data: rels } = await db
         .from("event_speakers").select("speaker_id").eq("event_id", selectedEventId);
       const ids = (rels || []).map((r) => r.speaker_id);
       if (!ids.length) return [];
-      const { data: spks } = await supabase
+      const { data: spks } = await db
         .from("speakers").select("email").in("id", ids);
       return (spks || []).map((s) => s.email).filter(Boolean) as string[];
     }
-    let q = supabase.from("registrations").select("email").eq("event_id", selectedEventId);
+    let q = db.from("registrations").select("email").eq("event_id", selectedEventId);
     if (filterParam === "confirmed") q = q.eq("approval_status", "approved");
     if (filterParam === "waitlist") q = q.eq("status", "waitlist");
     const { data } = await q;
@@ -236,7 +237,7 @@ function EmailCampaignsTab() {
         return;
       }
 
-      await supabase
+      await db
         .from("event_emails")
         .update({ status: "sent", sent_at: new Date().toISOString() })
         .eq("id", msg.id);
@@ -261,7 +262,7 @@ function EmailCampaignsTab() {
       const emails = await getRecipientEmails();
       if (!emails.length) { toast.error("No recipients match the selected filter"); setSending(false); return; }
 
-      const { data: record, error: insertErr } = await supabase
+      const { data: record, error: insertErr } = await db
         .from("event_emails")
         .insert({
           event_id: selectedEventId,
@@ -289,7 +290,7 @@ function EmailCampaignsTab() {
       });
 
       if (fnErr) {
-        await supabase.from("event_emails").update({ status: "draft" }).eq("id", record.id);
+        await db.from("event_emails").update({ status: "draft" }).eq("id", record.id);
         toast.warning("Saved but email delivery failed. Check your email settings.");
       } else {
         toast.success(`Sent to ${emails.length} recipient${emails.length !== 1 ? "s" : ""}`);
@@ -307,7 +308,7 @@ function EmailCampaignsTab() {
     if (!subject.trim()) { toast.error("Subject is required"); return; }
     if (!selectedEventId) { toast.error("Select an event first"); return; }
     setSavingDraft(true);
-    const { error } = await supabase.from("event_emails").insert({
+    const { error } = await db.from("event_emails").insert({
       event_id: selectedEventId,
       subject: subject.trim(),
       body: body.trim(),
@@ -325,7 +326,7 @@ function EmailCampaignsTab() {
   };
 
   const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("event_emails").delete().eq("id", id);
+    const { error } = await db.from("event_emails").delete().eq("id", id);
     if (error) toast.error(friendlyError(error));
     else toast.success("Message deleted");
   };
@@ -563,7 +564,7 @@ function SocialSharingTab() {
 
   useEffect(() => {
     if (!org) return;
-    supabase
+    db
       .from("events")
       .select("id, title, slug, org_id, status")
       .eq("org_id", org.id)

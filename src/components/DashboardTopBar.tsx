@@ -12,6 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSiteContent } from "@/hooks/useSiteContent";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/data/db";
 import { useAppTabBar } from "@/hooks/useAppChrome";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -60,8 +61,8 @@ function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => void })
     const pattern = `"%${q.replace(/[\\"]/g, "\\$&")}%"`;
 
     const run = async () => {
-      let events = supabase.from("events").select("id, title, date, slug").ilike("title", `%${q}%`);
-      let guests = supabase
+      let events = db.from("events").select("id, title, date, slug").ilike("title", `%${q}%`);
+      let guests = db
         .from("registrations")
         .select("id, name, email, event_id, events!inner(org_id)")
         .or(`name.ilike.${pattern},email.ilike.${pattern}`);
@@ -200,7 +201,7 @@ export function DashboardTopBar() {
     let cancelled = false;
 
     const fetchNotifs = async () => {
-      const { data: eventsData } = await supabase
+      const { data: eventsData } = await db
         .from("events")
         .select("id")
         .eq("org_id", org.id);
@@ -212,7 +213,7 @@ export function DashboardTopBar() {
 
       const eventIds = eventsData.map((e) => e.id);
 
-      const { data } = await supabase
+      const { data } = await db
         .from("registrations")
         .select("id, name, email, event_id, created_at, events(title)")
         .in("event_id", eventIds)
