@@ -50,3 +50,6 @@ ios/App/CapApp-SPM/.swiftpm/configuration/mirrors.json
 # Xcode pins the Swift packages here; Package.swift already pins them exactly,
 # and archived copies (scripts/native-archive.mjs) have their own commit IDs.
 ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
+# Prisma Client, generated on install from prisma/schema.prisma (`bun run db:generate`).
+server/db/generated/

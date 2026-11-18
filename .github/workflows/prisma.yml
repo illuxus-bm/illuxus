@@ -1,0 +1,99 @@
+# The Prisma API and the AWS RDS path (docs/PRISMA_MIGRATION.md).
+#
+# Builds a database the way RDS gets one (scripts/rds/bootstrap.sql, then
+# supabase/install.rds.sql) on a plain Postgres, then:
+#   - checks prisma/schema.prisma matches it (no drift from the SQL schema)
+#   - checks supabase/install.rds.sql is regenerated from install.sql
+#   - type-checks the server and runs its tests against that database,
+#     connected as the API's own unprivileged login role
+name: Prisma API
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - prisma/**
+      - prisma.config.ts
+      - server/**
+      - api/v1/**
+      - scripts/rds/**
+      - supabase/install.sql
+      - supabase/install.rds.sql
+      - supabase/migrations/**
+      - package.json
+      - bun.lock
+      - vitest.server.config.ts
+      - tsconfig.server.json
+      - .github/workflows/prisma.yml
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ADMIN_URL: postgresql://postgres:ci-only-password@localhost:5432/illuxus
+      API_URL: postgresql://illuxus_api:ci-only-api-password@localhost:5432/illuxus
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.23
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install (also generates the Prisma Client)
+        run: bun install --frozen-lockfile
+
+      - name: RDS install file is current
+        run: |
+          bun run rds:build-install
+          git diff --exit-code -- supabase/install.rds.sql \
+            || (echo "Run 'bun run rds:build-install' and commit the result." && exit 1)
+
+      - name: Build the database like RDS
+        run: |
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+          psql "postgresql://postgres:ci-only-password@localhost:5432/postgres" -c "CREATE DATABASE illuxus"
+          psql "$ADMIN_URL" -c "CREATE ROLE illuxus_api LOGIN PASSWORD 'ci-only-api-password'"
+          psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -f scripts/rds/bootstrap.sql
+          psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -f supabase/install.rds.sql
+
+      - name: Prisma schema matches the database
+        env:
+          DATABASE_URL: ${{ env.ADMIN_URL }}
+        run: |
+          bunx prisma validate
+          bunx prisma db pull --print > "$RUNNER_TEMP/pulled.prisma"
+          diff -B prisma/schema.prisma "$RUNNER_TEMP/pulled.prisma" \
+            || (echo "prisma/schema.prisma is out of date: run 'bun run db:pull' against a database built like this one." && exit 1)
+
+      - name: Type check (server)
+        run: bun run typecheck:server
+
+      - name: Server tests (against the database)
+        env:
+          TEST_DATABASE_URL: ${{ env.API_URL }}
+          TEST_DATABASE_ADMIN_URL: ${{ env.ADMIN_URL }}
+        run: bun run test:server
+
+      - name: Data copy round-trip (Supabase-shaped source to RDS-shaped target)
+        run: |
+          psql "$ADMIN_URL" -c "CREATE DATABASE illuxus_copy"
+          target="postgresql://postgres:ci-only-password@localhost:5432/illuxus_copy"
+          psql "$target" -v ON_ERROR_STOP=1 -q -f scripts/rds/bootstrap.sql
+          psql "$target" -v ON_ERROR_STOP=1 -q -f supabase/install.rds.sql
+          SOURCE_DATABASE_URL="$ADMIN_URL" TARGET_DATABASE_URL="$target" scripts/rds/copy-data.sh
