@@ -53,3 +53,7 @@ ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 # Prisma Client, generated on install from prisma/schema.prisma (`bun run db:generate`).
 server/db/generated/
+
+# Supabase data backups (scripts/rds/restore-backup.mjs): personal data and
+# bank details. Never commit them.
+illuxus-supabase-backup-*

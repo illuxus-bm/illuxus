@@ -108,7 +108,11 @@ pg_net already do this.
    psql "$RDS_ADMIN_URL" -v ON_ERROR_STOP=1 -f supabase/install.rds.sql
    ```
    The install ends with its own check (`illuxus install OK: 131 tables, …`).
-5. **Data** (app read-only or offline meanwhile):
+5. **Data.** Either restore a backup taken from Supabase (one consistent snapshot, checksummed):
+   ```bash
+   TARGET_DATABASE_URL="$RDS_ADMIN_URL" node scripts/rds/restore-backup.mjs ./illuxus-supabase-backup-<time>
+   ```
+   or copy live (app read-only or offline meanwhile):
    ```bash
    SOURCE_DATABASE_URL="<supabase session pooler URL>" TARGET_DATABASE_URL="$RDS_ADMIN_URL" scripts/rds/copy-data.sh
    ```
