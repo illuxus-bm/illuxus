@@ -129,10 +129,10 @@ export default function SystemHealthPage() {
       days.push({ day: format(d, "MMM d"), Sent: 0, Failed: 0 });
     }
     for (const r of emailDeliveryQ.data ?? []) {
-      const d = format(startOfDay(parseISO((r as any).created_at)), "MMM d");
+      const d = format(startOfDay(parseISO(r.created_at)), "MMM d");
       const slot = days.find((x) => x.day === d);
       if (!slot) continue;
-      const st = (r as any).email_status as string | null;
+      const st = r.email_status as string | null;
       if (st === "sent" || st === "delivered" || st === "opened" || st === "clicked") slot.Sent++;
       else if (st === "failed" || st === "bounced") slot.Failed++;
     }
@@ -142,7 +142,7 @@ export default function SystemHealthPage() {
   /* ── Active sessions (rough) — distinct actors in audit log last 24h ── */
   const activeSessions = useMemo(() => {
     const ids = new Set<string>();
-    for (const r of recentActivityQ.data ?? []) if ((r as any).actor_id) ids.add((r as any).actor_id);
+    for (const r of recentActivityQ.data ?? []) if (r.actor_id) ids.add(r.actor_id);
     return ids.size;
   }, [recentActivityQ.data]);
 

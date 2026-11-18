@@ -214,6 +214,8 @@ function emit(
     Object.assign(record, redactValue("__fields__", fields) as Record<string, unknown>);
   }
   const line = JSON.stringify(record);
+  // This is the logger's sink: Deno routes console output to the function logs.
+  /* eslint-disable no-console */
   switch (level) {
     case "error":
       console.error(line);
@@ -228,6 +230,7 @@ function emit(
       console.debug(line);
       break;
   }
+  /* eslint-enable no-console */
 }
 
 function makeLogger(fnName: string, bound: Record<string, unknown>): EdgeLogger {
@@ -895,8 +898,7 @@ Deno.serve(async (req: Request) => {
 });
 
 /** Whether the event's organisation has `creatives_ai` on its plan. */
-// deno-lint-ignore no-explicit-any
-async function aiFeatureAllowed(supabase: any, eventId: string): Promise<boolean> {
+async function aiFeatureAllowed(supabase: ReturnType<typeof createClient>, eventId: string): Promise<boolean> {
   const { data: ev, error: evErr } = await supabase.from("events").select("org_id").eq("id", eventId).maybeSingle();
   if (evErr || !ev?.org_id) return true;
   const { data, error } = await supabase.rpc("org_has_feature", { _org_id: ev.org_id, _feature: "creatives_ai" });

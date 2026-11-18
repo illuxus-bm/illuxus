@@ -44,7 +44,7 @@ async function fetchCitiesText(): Promise<string> {
   const blob = await res.blob();
   const reader = new ZipReader(new BlobReader(blob));
   const entries = await reader.getEntries();
-  const txt = entries.find((e: any) => e.filename.endsWith(".txt"));
+  const txt = entries.find((e: { filename: string }) => e.filename.endsWith(".txt"));
   if (!txt || !txt.getData) {
     await reader.close();
     throw new Error("cities5000.txt not found in zip");
@@ -99,7 +99,19 @@ Deno.serve(async (req) => {
     // 6 feature class 7 feature code 8 country code 9 cc2 10 admin1 code
     // 11 admin2 12 admin3 13 admin4 14 population 15 elevation 16 dem
     // 17 timezone 18 modification date
-    const rows: any[] = [];
+    const rows: {
+      geoname_id: number;
+      name: string;
+      ascii_name: string;
+      region: string | null;
+      region_code: string | null;
+      country: string;
+      country_code: string;
+      latitude: number | null;
+      longitude: number | null;
+      population: number;
+      timezone: string | null;
+    }[] = [];
     for (const line of lines) {
       if (!line) continue;
       const c = line.split("\t");

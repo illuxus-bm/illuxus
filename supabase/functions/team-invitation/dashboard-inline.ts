@@ -6617,7 +6617,97 @@ var SMTPHandler = class {
   }
 };
 
+// supabase/functions/_shared/edge-logger.ts
+var DENY_LIST_KEYS = /* @__PURE__ */ new Set([
+  "password",
+  "passwd",
+  "secret",
+  "api_key",
+  "apikey",
+  "access_token",
+  "refresh_token",
+  "service_role_key",
+  "service-role-key",
+  "supabase_service_role_key",
+  "token",
+  "authorization",
+  "cookie",
+  "set-cookie",
+  "session_id",
+  "session",
+  "otp",
+  "otp_code",
+  "code_hash",
+  "private_key",
+  "credit_card",
+  "card_number",
+  "cvv",
+  "ssn"
+]);
+function redactValue(key, value) {
+  if (DENY_LIST_KEYS.has(key.toLowerCase())) return "[redacted]";
+  if (value === null || value === void 0) return value;
+  if (typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((v3, i4) => redactValue(`${key}[${i4}]`, v3));
+  const out = {};
+  for (const [k3, v3] of Object.entries(value)) {
+    out[k3] = redactValue(k3, v3);
+  }
+  return out;
+}
+function emit(level, fnName, bound, msg, fields) {
+  const record = {
+    ts: (/* @__PURE__ */ new Date()).toISOString(),
+    level,
+    fn: fnName,
+    msg,
+    ...redactValue("__bound__", bound)
+  };
+  if (fields) {
+    Object.assign(record, redactValue("__fields__", fields));
+  }
+  const line = JSON.stringify(record);
+  switch (level) {
+    case "error":
+      console.error(line);
+      break;
+    case "warn":
+      console.warn(line);
+      break;
+    case "info":
+      console.info(line);
+      break;
+    case "debug":
+    default:
+      console.debug(line);
+      break;
+  }
+}
+function createEdgeLogger(fnName) {
+  return makeLogger(fnName, {});
+}
+function makeLogger(fnName, bound) {
+  return {
+    debug(msg, fields) {
+      emit("debug", fnName, bound, msg, fields);
+    },
+    info(msg, fields) {
+      emit("info", fnName, bound, msg, fields);
+    },
+    warn(msg, fields) {
+      emit("warn", fnName, bound, msg, fields);
+    },
+    error(msg, fields) {
+      emit("error", fnName, bound, msg, fields);
+    },
+    child(extra) {
+      return makeLogger(fnName, { ...bound, ...extra });
+    }
+  };
+}
+
 // supabase/functions/team-invitation/index.ts
+var log = createEdgeLogger("team-invitation");
 function previewOriginAllowed(origin) {
   const deno = globalThis.Deno;
   const pattern = deno?.env.get("PREVIEW_ORIGIN_PATTERN")?.trim();
@@ -7016,7 +7106,7 @@ function createHandler(deps) {
     });
     if ("error" in created) {
       if (created.conflict) return reply(409, { ok: false, code: "subdomain_taken", errors: { "org.subdomain": "This URL is already used by another organization." }, error: "This URL is already used by another organization." });
-      console.error("admin_create_org: organization not created", created.error);
+      log.error("admin_create_org: organization not created", { db_error: created.error });
       return reply(500, { ok: false, code: "create_failed", error: "We could not create the organization. Nothing was saved; please try again." });
     }
     const prefill = { first_name: first.first_name, last_name: first.last_name };
@@ -7028,7 +7118,7 @@ function createHandler(deps) {
     const sent = await issueAndSend(null, created.id, first.email, "owner", user, { transfer_ownership: true, prefill, provisioned: true });
     if (sent.body.ok !== true) {
       await store.deleteOrganization(created.id);
-      console.error("admin_create_org: invitation not saved", sent.body.error);
+      log.error("admin_create_org: invitation not saved", { invite_error: sent.body.error });
       return reply(500, { ok: false, code: "create_failed", error: "We could not save the invitation, so the organization was not created. Please try again." });
     }
     const result = {
@@ -7246,7 +7336,7 @@ if (runtime?.serve) {
       "Vary": "Origin"
     };
   };
-  const log = (level, msg, fields = {}) => {
+  const log2 = (level, msg, fields = {}) => {
     console[level](JSON.stringify({ level, fn: "team-invitation", msg, ...fields }));
   };
   const sendEmail = async (msg) => {
@@ -7261,7 +7351,7 @@ if (runtime?.serve) {
       return { ok: true };
     } catch (err) {
       const error = (err instanceof Error ? err.message : String(err)).slice(0, 300);
-      log("error", "email send failed", { error_message: error });
+      log2("error", "email send failed", { error_message: error });
       return { ok: false, error };
     } finally {
       if (client) {
@@ -7285,10 +7375,10 @@ if (runtime?.serve) {
       const db = ye2(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false, autoRefreshToken: false } });
       const handle = createHandler({ store: supabaseStore(db), sendEmail, now: () => /* @__PURE__ */ new Date(), newToken: randomToken, origin: siteOrigin() });
       const result = await handle(body, { ip, jwt: bearer });
-      log(result.status >= 500 ? "error" : "info", "handled", { action: String(body.action ?? ""), status: result.status, code: result.body.code ?? null });
+      log2(result.status >= 500 ? "error" : "info", "handled", { action: String(body.action ?? ""), status: result.status, code: result.body.code ?? null });
       return json(result);
     } catch (err) {
-      log("error", "unhandled", { error_message: err instanceof Error ? err.message : String(err) });
+      log2("error", "unhandled", { error_message: err instanceof Error ? err.message : String(err) });
       return json({ status: 500, body: { ok: false, code: "server_error", error: "Something went wrong. Please try again." } });
     }
   });

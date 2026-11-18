@@ -171,9 +171,12 @@ function createEdgeLogger(fnName: string) {
     );
   const emit = (level: "info" | "warn" | "error", msg: string, fields?: Record<string, unknown>) => {
     const line = JSON.stringify({ ts: new Date().toISOString(), level, fn: fnName, msg, ...redact(fields) });
+    // This is the logger's sink: Deno routes console output to the function logs.
+    /* eslint-disable no-console */
     if (level === "error") console.error(line);
     else if (level === "warn") console.warn(line);
     else console.info(line);
+    /* eslint-enable no-console */
   };
   return {
     info: (msg: string, fields?: Record<string, unknown>) => emit("info", msg, fields),

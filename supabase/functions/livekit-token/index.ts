@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
         .eq("invite_token", speaker_token)
         .maybeSingle();
       if (sp) {
-        speakerRow = sp as any;
+        speakerRow = sp as NonNullable<typeof speakerRow>;
         if (!userId) {
           guestIdentity = `speaker-${sp.id}`;
           const spName = sp.display_name?.trim();
@@ -147,7 +147,7 @@ Deno.serve(async (req) => {
       role = "host";
       canPublish = true;
     } else if (speakerRow) {
-      role = speakerRow.role as any;
+      role = speakerRow.role as typeof role;
       canPublish = true;
       const spName = speakerRow.display_name?.trim();
       if (spName) displayName = spName;
@@ -160,7 +160,7 @@ Deno.serve(async (req) => {
       const { data: sp } = await supabase
         .from("webinar_speakers").select("id, role")
         .eq("session_id", session_id).eq("user_id", userId).maybeSingle();
-      if (sp) { role = sp.role as any; canPublish = true; }
+      if (sp) { role = sp.role as typeof role; canPublish = true; }
     }
 
     // If publishing, check 10-cap via LiveKit RoomService

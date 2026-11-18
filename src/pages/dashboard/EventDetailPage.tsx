@@ -381,7 +381,7 @@ const EventDetailPage = () => {
   const totalRevenue = registrations
     .filter(r => r.status !== "cancelled")
     .reduce((s, r) => s + Number(r.amount_paid || 0), 0);
-  const eventCurrency = ((event as any).currency || DEFAULT_EVENT_CURRENCY).toUpperCase();
+  const eventCurrency = (event.currency || DEFAULT_EVENT_CURRENCY).toUpperCase();
   const capacity = Number(event.capacity) || 0;
   const yetToSell = capacity > 0 ? Math.max(0, capacity - confirmedRegs) : 0;
 
@@ -442,7 +442,7 @@ const EventDetailPage = () => {
   };
   const sectionPills = sidebarNav
     .filter((i) =>
-      !(i.key === "broadcast" && (event as any).event_format === "physical") &&
+      !(i.key === "broadcast" && event.event_format === "physical") &&
       !(i.key === "creatives" && !canAccessCreatives) &&
       !(i.key === "brochure" && !canAccessBrochure)
     )
@@ -982,8 +982,6 @@ function MetricCard({ label, value, sub, color }: { label: string; value: string
 
 // ─── EventSearch ──────────────────────────────────────────────────────────────
 // Full-text search across registrations for a single event.
-
-type Registration = Tables<"registrations">;
 
 function EventSearch({
   eventId,

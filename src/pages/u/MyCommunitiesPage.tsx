@@ -101,7 +101,7 @@ function CommunityCard({
   community: Community;
   role: CommunityMember["role"];
 }) {
-  const isStaff = role === "owner" || role === "admin" || role === "moderator";
+  const isStaff = role === "organizer" || role === "manager" || role === "moderator";
   return (
     <Link
       to={`/community/${community.slug}/feed`}

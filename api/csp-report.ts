@@ -54,6 +54,7 @@ export default async function handler(req: Request): Promise<Response> {
           .map((x) => ((x as { body?: unknown }).body ?? {}) as Record<string, unknown>)
       : [((parsed as { "csp-report"?: unknown })["csp-report"] ?? {}) as Record<string, unknown>];
     for (const r of reports.slice(0, MAX_REPORTS)) {
+      // eslint-disable-next-line no-console -- stdout is Vercel's log sink; the line is already structured JSON.
       console.warn(JSON.stringify({ level: "warn", fn: "csp-report", msg: "csp violation", ...summarise(r) }));
     }
   } catch {

@@ -59,6 +59,9 @@
 
 import { createClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_entry.mjs";
 import { SMTPClient } from "../_vendor/deno.land/x/denomailer@1.6.0/mod.ts";
+import { createEdgeLogger } from "../_shared/edge-logger.ts";
+
+const log = createEdgeLogger("team-invitation");
 
 /**
  * Preview deployments (e.g. Vercel branch builds) are trusted only when they
@@ -673,7 +676,7 @@ export function createHandler(deps: Deps) {
     if ("error" in created) {
       if (created.conflict) return reply(409, { ok: false, code: "subdomain_taken", errors: { "org.subdomain": "This URL is already used by another organization." }, error: "This URL is already used by another organization." });
       // Only Super Admin gets here, so the database's own reason is shown to help fix it.
-      console.error("admin_create_org: organization not created", created.error);
+      log.error("admin_create_org: organization not created", { db_error: created.error });
       return reply(500, { ok: false, code: "create_failed", error: "We could not create the organization. Nothing was saved; please try again." });
     }
 
@@ -684,7 +687,7 @@ export function createHandler(deps: Deps) {
     if (sent.body.ok !== true) {
       // No organization without its invitation: undo, so a retry starts clean.
       await store.deleteOrganization(created.id);
-      console.error("admin_create_org: invitation not saved", sent.body.error);
+      log.error("admin_create_org: invitation not saved", { invite_error: sent.body.error });
       return reply(500, { ok: false, code: "create_failed", error: "We could not save the invitation, so the organization was not created. Please try again." });
     }
 

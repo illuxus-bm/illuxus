@@ -535,8 +535,7 @@ Deno.serve(async (req) => {
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
-// deno-lint-ignore no-explicit-any
-async function userEmail(supabase: any, userId: string): Promise<string | null> {
+async function userEmail(supabase: ReturnType<typeof createClient>, userId: string): Promise<string | null> {
   const { data } = await supabase.auth.admin.getUserById(userId);
   return data?.user?.email ?? null;
 }
