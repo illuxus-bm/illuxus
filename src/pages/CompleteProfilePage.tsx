@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { supabaseRpc } from "@/lib/observability";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,8 @@ import PersonFieldsForm, {
 import { IlluxusWordmark } from "@/components/brand/IlluxusWordmark";
 import { z } from "zod";
 import { friendlyError } from "@/lib/friendly-error";
+
+type MyProfile = Database["public"]["Functions"]["get_my_profile"]["Returns"];
 
 const citySchema = z.string().uuid("Pick your city from the suggestions");
 
@@ -57,9 +60,9 @@ export default function CompleteProfilePage() {
     (async () => {
       // Sensitive columns (mobile_number, email_verified) are no longer readable
       // through the table for other users — use the RPC for the caller's own row.
-      const { data } = await supabaseRpc("get_my_profile");
+      const { data } = await supabaseRpc<MyProfile>("get_my_profile");
       if (cancelled) return;
-      const p = data as any;
+      const p = data;
       if (p) {
         if (p.profile_completed) {
           navigate("/", { replace: true });
@@ -87,7 +90,7 @@ export default function CompleteProfilePage() {
             .select("id, name, region, country, country_code, population")
             .eq("id", p.city_id)
             .maybeSingle();
-          const cc = c as any;
+          const cc = c;
           if (cc) {
             setCity({
               id: cc.id,
@@ -174,7 +177,7 @@ export default function CompleteProfilePage() {
     }
     const cityCheck = citySchema.safeParse(city?.id ?? "");
     if (!cityCheck.success) {
-      toast({ title: "Check your details", description: cityCheck.error.errors[0].message, variant: "destructive" });
+      toast({ title: "Check your details", description: cityCheck.error.issues[0].message, variant: "destructive" });
       return;
     }
     if (!department.trim()) {

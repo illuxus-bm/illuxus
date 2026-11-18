@@ -19,7 +19,7 @@ export function useSessionBranding(sessionId?: string): Branding | undefined {
       .then(({ data }) => { if (active) setB((data?.branding as Branding) || {}); });
     const ch = supabase.channel(`brand-${sessionId}`)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "webinar_sessions", filter: `id=eq.${sessionId}` },
-        (p: any) => setB((p.new?.branding as Branding) || {}))
+        (p: { new?: { branding?: unknown } }) => setB((p.new?.branding as Branding) || {}))
       .subscribe();
     return () => { active = false; supabase.removeChannel(ch); };
   }, [sessionId]);

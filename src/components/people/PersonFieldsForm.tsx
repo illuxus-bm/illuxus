@@ -55,7 +55,7 @@ export const personFieldsSchema = z.object({
 export function validatePersonFields(v: PersonFields) {
   const r = personFieldsSchema.safeParse(v);
   if (r.success) return { ok: true as const, data: r.data };
-  return { ok: false as const, error: r.error.errors[0]?.message || "Please complete required fields" };
+  return { ok: false as const, error: r.error.issues[0]?.message || "Please complete required fields" };
 }
 
 /** Concatenates parts into a display name for storage in legacy `name` columns. */

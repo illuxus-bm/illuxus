@@ -30,7 +30,7 @@ interface OrgRow {
   subdomain: string | null;
   custom_domain: string | null;
   logo_url: string | null;
-  landing_config: any;
+  landing_config: unknown;
   landing_published: boolean;
 }
 

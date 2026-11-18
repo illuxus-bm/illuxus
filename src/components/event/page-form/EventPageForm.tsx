@@ -80,7 +80,7 @@ export default function EventPageForm({ eventId }: { eventId: string }) {
       }
       setSessions((sesRes.data as RendererSession[]) || []);
       if (spkRel.data?.length) {
-        const ids = spkRel.data.map((s: any) => s.speaker_id);
+        const ids = spkRel.data.map((s) => s.speaker_id);
         const { data } = await supabase.from("speakers").select("*").in("id", ids);
         const orderMap = new Map(ids.map((id, i) => [id, i] as const));
         const sorted = ((data as RendererSpeaker[]) || []).slice().sort(
@@ -802,7 +802,7 @@ function SectionForm({ section, onUpdate, eventId, eventStartIso, eventDescripti
   );
 
   const fields: React.ReactNode = (() => {
-    switch (section.id) {
+    switch (section.id as string) { // legacy ids still edit for pages saved before they left the catalog
       case "hero": return <>
         <p className="text-[11px] text-muted-foreground -mt-2 mb-1">
           Tip: upload the desktop &amp; mobile banner images in the <span className="font-medium text-foreground">Banner &amp; Cover</span> card above.

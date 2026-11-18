@@ -180,7 +180,7 @@ function OrgDetailDrawer({ org, onClose }: { org: OrgRow | null; onClose: () => 
   if (!org) return null;
   const ownEvents = eventsQ.data ?? [];
   const orgRevenue = ownEvents.reduce(
-    (s: number, e: any) => s + (Number(e.price) || 0) * (Number(e.tickets_sold) || 0),
+    (s: number, e) => s + (Number(e.price) || 0) * (Number(e.tickets_sold) || 0),
     0,
   );
 
@@ -222,12 +222,12 @@ function OrgDetailDrawer({ org, onClose }: { org: OrgRow | null; onClose: () => 
             </div>
             <div className="flex items-center justify-between gap-2 text-[12px]">
               <span>Status</span>
-              <span className="text-muted-foreground">{(subQ.data as any)?.status || "—"}</span>
+              <span className="text-muted-foreground">{subQ.data?.status || "—"}</span>
             </div>
             <div className="flex items-center justify-between gap-2 text-[12px]">
               <span>Period ends</span>
               <span className="text-muted-foreground">
-                {(subQ.data as any)?.current_period_end ? format(parseISO((subQ.data as any).current_period_end), "MMM d, yyyy") : "—"}
+                {subQ.data?.current_period_end ? format(parseISO(subQ.data.current_period_end), "MMM d, yyyy") : "—"}
               </span>
             </div>
             <div className="flex items-center justify-between gap-2 text-[12px]">
@@ -248,7 +248,7 @@ function OrgDetailDrawer({ org, onClose }: { org: OrgRow | null; onClose: () => 
               {membersQ.isLoading ? <Skeleton className="h-16 w-full" /> :
                 (membersQ.data ?? []).length === 0 ? (
                   <p className="text-xs text-muted-foreground px-2 py-3">No members yet</p>
-                ) : (membersQ.data ?? []).map((m: any) => (
+                ) : (membersQ.data ?? []).map((m) => (
                   <div key={m.user_id} className="flex items-center justify-between gap-2 px-2 py-1.5 text-[12px] hover:bg-muted/30 rounded">
                     <span className="font-mono text-[10px] truncate">{m.user_id.slice(0, 12)}…</span>
                     <Badge variant="secondary" className="text-[10px]">{m.role}</Badge>
@@ -267,7 +267,7 @@ function OrgDetailDrawer({ org, onClose }: { org: OrgRow | null; onClose: () => 
               {eventsQ.isLoading ? <Skeleton className="h-16 w-full" /> :
                 (eventsQ.data ?? []).length === 0 ? (
                   <p className="text-xs text-muted-foreground px-2 py-3">No events</p>
-                ) : (eventsQ.data ?? []).map((ev: any) => (
+                ) : (eventsQ.data ?? []).map((ev) => (
                   <div key={ev.id} className="flex items-center justify-between gap-2 px-2 py-1.5 text-[12px] hover:bg-muted/30 rounded">
                     <span className="truncate">{ev.title}</span>
                     <span className="text-[10px] text-muted-foreground shrink-0">{ev.tickets_sold} sold</span>
@@ -386,7 +386,7 @@ export default function OrganizationManagementPage() {
 
   // Churn = subscriptions cancelled in the last 30 days / total active subs at start of period.
   const churnRate = useMemo(() => {
-    const subs = (subsQ.data ?? []) as any[];
+    const subs = subsQ.data ?? [];
     if (subs.length === 0) return 0;
     const cutoff = subDays(new Date(), 30).toISOString();
     const cancelled = subs.filter((s) => s.status === "cancelled" && s.current_period_start && s.current_period_start >= cutoff).length;

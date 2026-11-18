@@ -10138,7 +10138,107 @@ function sessionMeetsTwoFactor(user, token) {
   return !hasFactor || tokenAal(token) === "aal2";
 }
 
+// supabase/functions/_shared/edge-logger.ts
+var DENY_LIST_KEYS = /* @__PURE__ */ new Set([
+  "password",
+  "passwd",
+  "secret",
+  "api_key",
+  "apikey",
+  "access_token",
+  "refresh_token",
+  "service_role_key",
+  "service-role-key",
+  "supabase_service_role_key",
+  "token",
+  "authorization",
+  "cookie",
+  "set-cookie",
+  "session_id",
+  "session",
+  "otp",
+  "otp_code",
+  "code_hash",
+  "private_key",
+  "credit_card",
+  "card_number",
+  "cvv",
+  "ssn"
+]);
+function redactValue(key, value) {
+  if (DENY_LIST_KEYS.has(key.toLowerCase())) return "[redacted]";
+  if (value === null || value === void 0) return value;
+  if (typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((v6, i12) => redactValue(`${key}[${i12}]`, v6));
+  const out = {};
+  for (const [k6, v6] of Object.entries(value)) {
+    out[k6] = redactValue(k6, v6);
+  }
+  return out;
+}
+function emit(level, fnName, bound, msg, fields) {
+  const record = {
+    ts: (/* @__PURE__ */ new Date()).toISOString(),
+    level,
+    fn: fnName,
+    msg,
+    ...redactValue("__bound__", bound)
+  };
+  if (fields) {
+    Object.assign(record, redactValue("__fields__", fields));
+  }
+  const line = JSON.stringify(record);
+  switch (level) {
+    case "error":
+      console.error(line);
+      break;
+    case "warn":
+      console.warn(line);
+      break;
+    case "info":
+      console.info(line);
+      break;
+    case "debug":
+    default:
+      console.debug(line);
+      break;
+  }
+}
+function createEdgeLogger(fnName) {
+  return makeLogger(fnName, {});
+}
+function makeLogger(fnName, bound) {
+  return {
+    debug(msg, fields) {
+      emit("debug", fnName, bound, msg, fields);
+    },
+    info(msg, fields) {
+      emit("info", fnName, bound, msg, fields);
+    },
+    warn(msg, fields) {
+      emit("warn", fnName, bound, msg, fields);
+    },
+    error(msg, fields) {
+      emit("error", fnName, bound, msg, fields);
+    },
+    child(extra) {
+      return makeLogger(fnName, { ...bound, ...extra });
+    }
+  };
+}
+function toErrorFields(err) {
+  if (err instanceof Error) {
+    return {
+      error_name: err.name,
+      error_message: err.message,
+      error_stack: err.stack
+    };
+  }
+  return { error_message: String(err) };
+}
+
 // supabase/functions/recording-stop/index.ts
+var log = createEdgeLogger("recording-stop");
 Deno.serve(async (req) => {
   const corsHeaders = buildCorsHeaders(req);
   const preflight = handlePreflight(req, corsHeaders);
@@ -10175,7 +10275,7 @@ Deno.serve(async (req) => {
     }).eq("id", session_id);
     return j10({ ok: true });
   } catch (e4) {
-    console.error(JSON.stringify({ level: "error", fn: "recording-stop", msg: "unhandled error", error_message: e4 instanceof Error ? e4.message : String(e4) }));
+    log.error("unhandled error", toErrorFields(e4));
     return j10({ error: "Something went wrong. Please try again." }, 500);
   }
   function j10(b7, s8 = 200) {

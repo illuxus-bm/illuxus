@@ -21,6 +21,7 @@ import { getWebinarProvider, type WebinarProvider } from "@/lib/webinar/provider
 import type { Tables } from "@/integrations/supabase/types";
 import { friendlyError } from "@/lib/friendly-error";
 import { safeUrl } from "@/lib/safe-url";
+import { toStageLayout } from "@/lib/webinar/stage-layout";
 
 // Local interim row aliases so this page doesn't lean on `any`. `EventRow`
 // extends the generated row with `video_provider` because the column was
@@ -423,7 +424,7 @@ export default function BroadcastPage() {
           token={token}
           wsUrl={wsUrl!}
           canPublish={canPublish}
-          layout={session.layout}
+          layout={toStageLayout(session.layout)}
           branding={branding}
           brandingEnabled={effectiveBranding}
           sessionId={session.id}
@@ -507,12 +508,12 @@ export default function BroadcastPage() {
                 </SheetContent>
               </Sheet>
               <div className="bg-white/10 rounded-lg p-0.5 flex gap-0.5 border border-white/5 mr-2">
-                {[
+                {([
                   { key: "participants", icon: Users, title: "People" },
                   { key: "chat", icon: MessageSquare, title: "Chat" },
                   { key: "qa", icon: HelpCircle, title: "Q&A" },
                   { key: "polls", icon: BarChart2, title: "Polls" },
-                ].map((t) => {
+                ] as const).map((t) => {
                   const Icon = t.icon;
                   const active = activeTab === t.key;
                   return (
@@ -523,7 +524,7 @@ export default function BroadcastPage() {
                       className={`h-8 w-8 rounded-md text-white transition-colors ${
                         active ? "bg-white/20 text-white" : "hover:bg-white/10 text-white/70"
                       }`}
-                      onClick={() => setActiveTab(active ? null : (t.key as any))}
+                      onClick={() => setActiveTab(active ? null : t.key)}
                       title={t.title}
                     >
                       <Icon className="h-4.5 w-4.5" />

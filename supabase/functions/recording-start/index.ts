@@ -2,6 +2,9 @@ import { createClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_e
 import { AccessToken } from "../_vendor/esm.sh/livekit-server-sdk@2.9.7/_entry.mjs";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { sessionMeetsTwoFactor } from "../_shared/auth.ts";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+
+const log = createEdgeLogger("recording-start");
 
 Deno.serve(async (req) => {
   const corsHeaders = buildCorsHeaders(req);
@@ -54,7 +57,7 @@ Deno.serve(async (req) => {
     return j({ ok: true, egress_id: egressId });
   } catch (e) {
     // Details stay in the logs; callers get a generic message.
-    console.error(JSON.stringify({ level: "error", fn: "recording-start", msg: "unhandled error", error_message: e instanceof Error ? e.message : String(e) }));
+    log.error("unhandled error", toErrorFields(e));
     return j({ error: "Something went wrong. Please try again." }, 500);
   }
   function j(b: unknown, s = 200) {

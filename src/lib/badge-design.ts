@@ -283,7 +283,8 @@ export type LayoutPresetId =
   | "compact"
   | "vip"
   | "lanyard"
-  | "company-branded";
+  | "company-branded"
+  | "horizontal-banner";
 
 export interface LayoutPreset {
   id: LayoutPresetId;

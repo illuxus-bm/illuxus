@@ -106,9 +106,9 @@ export function AirmeetControlBar({
     try {
       const action = canPublish ? "demote" : "promote";
       if (canPublish && localParticipant) {
-        try { await localParticipant.setMicrophoneEnabled(false); } catch {}
-        try { await localParticipant.setCameraEnabled(false); } catch {}
-        try { await localParticipant.setScreenShareEnabled(false); } catch {}
+        try { await localParticipant.setMicrophoneEnabled(false); } catch { /* already off or track gone — demotion proceeds */ }
+        try { await localParticipant.setCameraEnabled(false); } catch { /* already off or track gone — demotion proceeds */ }
+        try { await localParticipant.setScreenShareEnabled(false); } catch { /* already off or track gone — demotion proceeds */ }
       }
       const { error } = await supabase.functions.invoke("livekit-promote", {
         body: { session_id: sessionId, action, self: true },

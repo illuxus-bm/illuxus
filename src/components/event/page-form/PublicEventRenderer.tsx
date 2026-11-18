@@ -20,15 +20,28 @@ import type {
 } from "./types";
 import { safeEmbedUrl, safeUrl } from "@/lib/safe-url";
 
-// Removed catalog sections mapped to placeholder types
-type WorkshopsData = any;
-type ExhibitorsData = any;
-type TravelData = any;
-type CodeOfConductData = any;
-type NewsletterData = any;
-type PressData = any;
-type PartnersData = any;
-type LiveStreamData = any;
+// Sections removed from the catalog. Pages saved before then still carry
+// them, so they keep rendering; every field is optional because old saves vary.
+type LegacyTitled = { title?: string; intro?: string };
+type WorkshopsData = LegacyTitled & {
+  workshops?: { id: string; name: string; description?: string; facilitator?: string; duration?: string; price?: string; url?: string }[];
+};
+type ExhibitorsData = LegacyTitled & {
+  floorMapUrl?: string;
+  exhibitors?: { id: string; name: string; logoUrl?: string; booth?: string; description?: string }[];
+};
+type TravelData = {
+  title?: string;
+  airportInfo?: string;
+  hotels?: { name: string; address?: string; discountCode?: string; url?: string }[];
+};
+type CodeOfConductData = { title?: string; body?: string };
+type NewsletterData = { title?: string; description?: string; successMessage?: string; buttonText?: string };
+type PressData = { title?: string; body?: string; pressKitUrl?: string; contactEmail?: string };
+type PartnersData = LegacyTitled & {
+  partners?: { id: string; name: string; logoUrl?: string; website?: string }[];
+};
+type LiveStreamData = { title?: string; description?: string; embedUrl?: string };
 
 /**
  * Renders a saved EventPageConfig as a public-facing landing page.
@@ -834,7 +847,7 @@ function ExhibitorsSec({ data, theme }: { data: ExhibitorsData; theme: ThemeConf
         </a>
       )}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {data.exhibitors.map(e => (
+        {(data.exhibitors ?? []).map(e => (
           <div key={e.id} className="rounded-xl border p-4" style={{ borderColor: `${theme.primaryColor}15`, backgroundColor: "transparent" }}>
             <div className="flex items-center gap-3">
               {e.logoUrl

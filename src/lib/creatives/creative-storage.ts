@@ -19,7 +19,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import type { Json } from "@/integrations/supabase/types";
+import type { Json, TablesInsert } from "@/integrations/supabase/types";
 import { logger } from "@/lib/observability";
 
 /** The kinds of creative `event_creatives.creative_type` accepts. */
@@ -163,7 +163,12 @@ export function buildCreativeAssetRecord(input: CreativeAssetInput): CreativeAss
  * since `uploadCreativeAsset` used `upsert: true`).
  */
 export async function insertCreativeAssetRecord(record: CreativeAssetRecord): Promise<void> {
-  const { error } = await supabase.from("event_creatives").insert(record);
+  const { error } = await supabase.from("event_creatives").insert({
+    ...record,
+    // Both are plain JSON objects built by buildCreativeAssetRecord.
+    metadata: record.metadata as Json,
+    customization: record.customization as Json,
+  } satisfies TablesInsert<"event_creatives">);
   if (error) {
     logger.error("creative record insert failed", {
       event_id: record.event_id,

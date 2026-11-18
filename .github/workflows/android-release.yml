@@ -60,6 +60,16 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # Nothing ships to phones that CI would have rejected on a pull request.
+      - name: Type check
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Unit tests
+        run: bun run test
+
       - name: Check app release configuration
         run: bun run app:check
 
@@ -88,14 +98,16 @@ jobs:
           printf '%s' "$ILLUXUS_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/illuxus-upload.jks"
           test -s "$RUNNER_TEMP/illuxus-upload.jks"
 
-      - name: Build signed APK
+      # The APK is for direct installs (GitHub releases); the App Bundle is
+      # what Google Play accepts, signed with the same upload key.
+      - name: Build signed APK and App Bundle
         working-directory: android
         env:
           ILLUXUS_UPLOAD_STORE_FILE: ${{ runner.temp }}/illuxus-upload.jks
           ILLUXUS_UPLOAD_STORE_PASSWORD: ${{ secrets.ILLUXUS_UPLOAD_STORE_PASSWORD }}
           ILLUXUS_UPLOAD_KEY_ALIAS: ${{ secrets.ILLUXUS_UPLOAD_KEY_ALIAS }}
           ILLUXUS_UPLOAD_KEY_PASSWORD: ${{ secrets.ILLUXUS_UPLOAD_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon assembleRelease
+        run: ./gradlew --no-daemon assembleRelease bundleRelease
 
       # Everyone who installed the app has it signed with this certificate;
       # an APK signed with any other key can't update their copy.
@@ -122,6 +134,15 @@ jobs:
           name: illuxus-apk
           path: release-assets/
           retention-days: 14
+
+      # For upload to the Play Console (not published on the GitHub release).
+      - name: Keep the App Bundle with the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: illuxus-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Publish GitHub release
         if: github.event_name == 'push'

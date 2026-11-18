@@ -111,7 +111,7 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
       supabase.from("sessions").select("*").eq("event_id", eventId).order("start_time"),
       supabase.from("event_speakers").select("speaker_id, speakers(id, name)").eq("event_id", eventId),
     ]);
-    const list = (sess || []) as any[];
+    const list = sess || [];
     const linkMap = new Map<string, string[]>();
     const moderatorMap = new Map<string, string>();
     if (list.length) {
@@ -134,7 +134,11 @@ export default function SessionManagement({ eventId, eventDate, eventEndDate, pu
       speaker_ids: linkMap.get(s.id) || (s.speaker_id && !moderatorMap.has(s.id) ? [s.speaker_id] : []),
       moderator_id: moderatorMap.get(s.id) ?? null,
     })));
-    setSpeakers((spk || []).map((s: any) => s.speakers).filter(Boolean));
+    setSpeakers(
+      ((spk || []) as unknown as { speakers: Speaker | null }[])
+        .map((s) => s.speakers)
+        .filter((s): s is Speaker => Boolean(s)),
+    );
     setLoading(false);
   };
 

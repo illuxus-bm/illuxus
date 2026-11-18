@@ -4,6 +4,23 @@ import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
 
 const log = createEdgeLogger("livekit-webhook");
 
+/**
+ * The fields this handler reads from a LiveKit webhook payload. Read loosely
+ * because egress and participant shapes differ between LiveKit versions.
+ */
+type LooseParticipant = {
+  identity?: string;
+  name?: string;
+  permission?: { canPublish?: boolean };
+};
+type LooseWebhookEvent = {
+  participant?: LooseParticipant;
+  egressInfo?: {
+    fileResults?: { location?: string }[];
+    file?: { location?: string };
+  };
+};
+
 const receiver = new WebhookReceiver(
   Deno.env.get("LIVEKIT_API_KEY")!,
   Deno.env.get("LIVEKIT_API_SECRET")!,
@@ -34,14 +51,15 @@ Deno.serve(async (req) => {
         }
       }
     } else if (event.event === "egress_ended") {
-      const file = (event as any).egressInfo?.fileResults?.[0]?.location || (event as any).egressInfo?.file?.location;
+      const egress = (event as LooseWebhookEvent).egressInfo;
+      const file = egress?.fileResults?.[0]?.location || egress?.file?.location;
       if (file) {
         await supabase.from("webinar_sessions").update({ recording_url: file }).eq("livekit_room", room);
       }
     } else if (event.event === "participant_joined") {
       const { data: s } = await supabase.from("webinar_sessions").select("id, viewer_peak, publisher_peak").eq("livekit_room", room).maybeSingle();
       if (s) {
-        const p = (event as any).participant || {};
+        const p: LooseParticipant = (event as LooseWebhookEvent).participant || {};
         const isPub = p.permission?.canPublish;
         const identity = p.identity || crypto.randomUUID();
         const name = p.name || null;
@@ -65,7 +83,7 @@ Deno.serve(async (req) => {
     } else if (event.event === "participant_left") {
       const { data: s } = await supabase.from("webinar_sessions").select("id, attendance_minutes").eq("livekit_room", room).maybeSingle();
       if (s) {
-        const p = (event as any).participant || {};
+        const p: LooseParticipant = (event as LooseWebhookEvent).participant || {};
         const identity = p.identity;
         if (identity) {
           const { data: row } = await supabase.from("webinar_attendance")

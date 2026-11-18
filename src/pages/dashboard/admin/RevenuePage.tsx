@@ -151,14 +151,14 @@ export default function RevenuePage() {
 
   /* ── Top orgs ── */
   const topOrgs = useMemo(() => {
-    const orgById = new Map((orgsQ.data ?? []).map((o: any) => [o.id, o]));
+    const orgById = new Map((orgsQ.data ?? []).map((o) => [o.id, o] as const));
     const totals: Record<string, { name: string; revenue: number; events: number }> = {};
     for (const ev of eventsQ.data ?? []) {
       if (!ev.org_id) continue;
       const org = orgById.get(ev.org_id);
       if (!org) continue;
       const rev = (Number(ev.price) || 0) * (Number(ev.tickets_sold) || 0);
-      totals[ev.org_id] ??= { name: (org as any).name, revenue: 0, events: 0 };
+      totals[ev.org_id] ??= { name: org.name, revenue: 0, events: 0 };
       totals[ev.org_id]!.revenue += rev;
       totals[ev.org_id]!.events += 1;
     }
@@ -179,7 +179,7 @@ export default function RevenuePage() {
   /* ── Plan distribution ── */
   const planDist = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const o of orgsQ.data ?? []) counts[(o as any).plan] = (counts[(o as any).plan] ?? 0) + 1;
+    for (const o of orgsQ.data ?? []) counts[o.plan] = (counts[o.plan] ?? 0) + 1;
     return Object.entries(counts).map(([plan, count]) => ({ plan, count, color: PLAN_COLOR[plan] || "#888" }));
   }, [orgsQ.data]);
 
@@ -355,7 +355,7 @@ export default function RevenuePage() {
                     ))
                   ) : refunds.length === 0 ? (
                     <tr><td colSpan={3} className="text-center py-6 text-muted-foreground">No refunds</td></tr>
-                  ) : refunds.map((r: any) => (
+                  ) : refunds.map((r) => (
                     <tr key={r.id} className="border-b border-border/50 hover:bg-muted/20">
                       <td className="px-4 py-1.5 truncate max-w-[180px]">{r.name || r.email}</td>
                       <td className="px-4 py-1.5 text-muted-foreground">{format(parseISO(r.created_at), "MMM d")}</td>

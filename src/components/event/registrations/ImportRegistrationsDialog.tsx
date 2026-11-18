@@ -112,7 +112,7 @@ export function parseCsv(text: string): string[][] {
 }
 
 function normalizeHeader(h: string): string {
-  return h.trim().toLowerCase().replace(/[\s_\-]/g, "");
+  return h.trim().toLowerCase().replace(/[\s_-]/g, "");
 }
 
 interface Props {

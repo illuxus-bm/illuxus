@@ -1,18 +1,33 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { supabaseRpc } from "@/lib/observability";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, CartesianGrid } from "recharts";
 import { Download } from "lucide-react";
 
+type WebinarAnalytics = {
+  kpis?: {
+    peak_viewers?: number;
+    unique_viewers?: number;
+    avg_watch_minutes?: number;
+    chat_count?: number;
+    qa_count?: number;
+    polls_count?: number;
+    reactions_count?: number;
+    announcements_count?: number;
+  };
+  timeline?: { t: string; v: number }[];
+  top_attendees?: { name: string; identity: string; minutes: number }[];
+};
+
 export function AnalyticsPanel({ sessionId }: { sessionId: string }) {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<WebinarAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    supabaseRpc("get_webinar_analytics", { _sid: sessionId })
+    supabaseRpc<WebinarAnalytics>("get_webinar_analytics", { _sid: sessionId })
       .then(({ data, error }) => { if (active) { setData(error ? null : data); setLoading(false); } });
     return () => { active = false; };
   }, [sessionId]);
@@ -20,8 +35,8 @@ export function AnalyticsPanel({ sessionId }: { sessionId: string }) {
   if (loading) return <div className="text-sm text-muted-foreground">Loading analytics…</div>;
   if (!data) return <div className="text-sm text-muted-foreground">No analytics yet.</div>;
 
-  const k = data.kpis || {};
-  const timeline = (data.timeline || []).map((p: any) => ({
+  const k: NonNullable<WebinarAnalytics["kpis"]> = data.kpis || {};
+  const timeline = (data.timeline || []).map((p) => ({
     t: new Date(p.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     viewers: p.v,
   }));
@@ -35,8 +50,8 @@ export function AnalyticsPanel({ sessionId }: { sessionId: string }) {
   const top = data.top_attendees || [];
 
   const exportCsv = () => {
-    const rows = [["Name", "Identity", "Minutes"], ...top.map((r: any) => [r.name, r.identity, r.minutes])];
-    const csv = rows.map((r) => r.map((c: any) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const rows = [["Name", "Identity", "Minutes"], ...top.map((r) => [r.name, r.identity, r.minutes])];
+    const csv = rows.map((r) => r.map((c: unknown) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const a = document.createElement("a");
     a.href = url; a.download = `webinar-attendees-${sessionId}.csv`; a.click();
@@ -89,7 +104,7 @@ export function AnalyticsPanel({ sessionId }: { sessionId: string }) {
         </div>
         <div className="space-y-1 max-h-72 overflow-y-auto">
           {top.length === 0 && <p className="text-sm text-muted-foreground">No attendance recorded yet.</p>}
-          {top.map((r: any, i: number) => (
+          {top.map((r, i: number) => (
             <div key={i} className="flex items-center justify-between text-sm py-1.5 border-b last:border-0">
               <span className="truncate">{r.name}</span>
               <span className="font-mono text-xs text-muted-foreground">{r.minutes} min</span>
@@ -101,7 +116,7 @@ export function AnalyticsPanel({ sessionId }: { sessionId: string }) {
   );
 }
 
-function Kpi({ label, value }: { label: string; value: any }) {
+function Kpi({ label, value }: { label: string; value: ReactNode }) {
   return (
     <Card className="p-3">
       <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>

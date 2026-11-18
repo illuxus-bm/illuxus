@@ -52,6 +52,19 @@ import MeetingStatusControl, { MeetingDisputeInfo, MeetingHistory, type MeetingC
 
 type Registration = Tables<"registrations">;
 
+/** One row of an attendance RPC (they return either a row or a one-row set). */
+type AttendanceRpcRow = {
+  status?: string;
+  state?: string;
+  total_minutes?: number | null;
+  deleted?: boolean;
+};
+
+function firstRpcRow(data: unknown): AttendanceRpcRow | null {
+  const row = Array.isArray(data) ? data[0] : data;
+  return row && typeof row === "object" ? (row as AttendanceRpcRow) : null;
+}
+
 type RowKind = "attendee" | "speaker" | "sponsor";
 type RowSource = "registration" | "speaker" | "sponsor";
 type AttState = "never" | "inside" | "outside";
@@ -228,19 +241,23 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       supabase.from("event_speakers").select("speaker_id, speakers:speaker_id(id, name, email, company)").eq("event_id", eventId),
       supabase.from("event_sponsors").select("sponsor_id, sponsors:sponsor_id(id, name)").eq("event_id", eventId),
     ]);
-    const sponsorIds = (spLinksSponsors || []).map((l: any) => l.sponsor_id);
-    let members: any[] = [];
+    type SpeakerLink = { speaker_id: string; speakers: { id: string; name: string; email: string | null; company: string | null } | null };
+    type SponsorLink = { sponsor_id: string; sponsors: { id: string; name: string } | null };
+    type SponsorMember = { id: string; sponsor_id: string; email: string; display_name: string | null };
+    const sponsorLinks = (spLinksSponsors || []) as unknown as SponsorLink[];
+    const sponsorIds = sponsorLinks.map((l) => l.sponsor_id);
+    let members: SponsorMember[] = [];
     if (sponsorIds.length > 0) {
       const { data } = await supabase
         .from("sponsor_members")
         .select("id, sponsor_id, email, display_name")
         .in("sponsor_id", sponsorIds);
-      members = data || [];
+      members = (data || []) as SponsorMember[];
     }
-    const speakerRows: Row[] = (spLinks || [])
-      .map((l: any) => l.speakers)
-      .filter(Boolean)
-      .map((s: any): Row => ({
+    const speakerRows: Row[] = ((spLinks || []) as unknown as SpeakerLink[])
+      .map((l) => l.speakers)
+      .filter((sp): sp is NonNullable<SpeakerLink["speakers"]> => Boolean(sp))
+      .map((s): Row => ({
         id: `speaker:${s.id}`,
         kind: "speaker",
         source: "speaker",
@@ -262,7 +279,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         total_minutes: 0,
       }));
     const sponsorByMap = new Map<string, string>(); // sponsor_id -> name
-    (spLinksSponsors || []).forEach((l: any) => {
+    sponsorLinks.forEach((l) => {
       if (l.sponsors) sponsorByMap.set(l.sponsor_id, l.sponsors.name);
     });
     const sponsorRows: Row[] = members.map((m): Row => ({
@@ -669,7 +686,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       p_token: row.qr_payload,
       p_event_id: eventId,
     } as never);
-    const result = Array.isArray(data) ? (data as any[])[0] : (data as any);
+    const result = firstRpcRow(data);
     if (error || !result) {
       logger.warn("self-check-in failed", {
         row_id: row.id,
@@ -711,7 +728,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         p_reg_id: reg.id,
         p_method: method,
       } as never);
-      const result = Array.isArray(data) ? (data as any[])[0] : (data as any);
+      const result = firstRpcRow(data);
       if (error) {
         logger.warn("toggle-attendance error", { error_message: error.message });
         toast.error("Failed to update check-in", { description: `Reference: ${correlationId}` });
@@ -746,7 +763,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
       toast.error("Failed to undo", { description: `Reference: ${correlationId}` });
       return;
     }
-    const result = Array.isArray(data) ? (data as any[])[0] : (data as any);
+    const result = firstRpcRow(data);
     if (result && result.deleted === false) {
       toast.error("Nothing to undo", { description: `No previous check-${kind} event found.` });
       await reload();
@@ -957,7 +974,7 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
         p_token: row.qr_payload,
         p_event_id: eventId,
       } as never);
-      const result = Array.isArray(data) ? (data as any[])[0] : (data as any);
+      const result = firstRpcRow(data);
       if (result?.status === "ok" || result?.status === "checked_out") {
         appliedCount += 1;
       }
@@ -1010,7 +1027,8 @@ export default function RegistrationsSection({ eventId }: { eventId: string }) {
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };

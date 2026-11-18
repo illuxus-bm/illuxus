@@ -156,7 +156,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
   // Send a previously-saved draft. Reuses the same flow as handleSend
   // but reads subject/body/recipient_filter from the draft row.
   const [sendingDraftId, setSendingDraftId] = useState<string | null>(null);
-  const sendDraft = async (msg: Message) => {
+  const sendDraft = async (msg: EmailMessage) => {
     if (sendingDraftId) return;
     if (!msg.body?.trim()) {
       toast.error("Draft has no body — edit it first");
@@ -258,7 +258,7 @@ export default function CommunicationSection({ eventId }: { eventId: string }) {
 
       setComposeOpen(false);
       resetCompose();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(friendlyError(err, "Failed to send email"));
     } finally {
       setSending(false);

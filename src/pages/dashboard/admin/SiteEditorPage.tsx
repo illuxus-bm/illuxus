@@ -136,7 +136,7 @@ function ImageUrlField({
       const url = await uploadSiteAsset(file, prefix);
       onChange(url);
       toast.success("Uploaded — remember to save & publish");
-    } catch (err: any) {
+    } catch (err) {
       toast.error(friendlyError(err, "Upload failed"));
     } finally {
       setUploading(false);
@@ -826,9 +826,9 @@ export default function SiteEditorPage() {
         const section = row.section as SiteSection;
         if (!(section in next)) continue;
         if (row.draft_content) {
-          (next as any)[section] = {
-            ...(DEFAULT_SITE_CONTENT as any)[section],
-            ...(row.draft_content as any),
+          (next as Record<SiteSection, object>)[section] = {
+            ...DEFAULT_SITE_CONTENT[section],
+            ...(row.draft_content as object),
           };
           draftSet.add(section);
         }
@@ -874,7 +874,7 @@ export default function SiteEditorPage() {
       for (const s of snapshot) {
         const { error } = await supabaseRpc("save_site_draft", {
           _section: s,
-          _content: draft[s] as any,
+          _content: draft[s],
         });
         if (cancelled) return;
         if (error) {
@@ -916,7 +916,7 @@ export default function SiteEditorPage() {
     for (const s of sections) {
       const { error } = await supabaseRpc("save_site_draft", {
         _section: s,
-        _content: draft[s] as any,
+        _content: draft[s],
       });
       if (error) {
         setSaving(false);

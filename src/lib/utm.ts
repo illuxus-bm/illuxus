@@ -78,7 +78,7 @@ export function captureUtm(search: string, force = false, fallback: UtmParams = 
     // Only overwrite if first-touch has no data yet, or forced.
     const existing = loadStoredUtm();
     if (!hasUtm(existing) || force) {
-      try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(incoming)); } catch (_) {}
+      try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(incoming)); } catch { /* storage unavailable (private mode) — attribution just isn't kept */ }
     }
     return hasUtm(existing) && !force ? existing : incoming;
   }
@@ -99,7 +99,7 @@ export function loadStoredUtm(): UtmParams {
 
 /** Clear stored UTM params — call after a successful registration. */
 export function clearStoredUtm(): void {
-  try { sessionStorage.removeItem(SESSION_KEY); } catch (_) {}
+  try { sessionStorage.removeItem(SESSION_KEY); } catch { /* storage unavailable — nothing stored to clear */ }
 }
 
 /**

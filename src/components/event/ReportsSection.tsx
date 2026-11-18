@@ -39,6 +39,10 @@ interface SpeakerRow {
   company_employee_count: string | null;
   industry: string | null;
   bio: string | null;
+  photo_url: string | null;
+  user_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export default function ReportsSection({ eventId }: { eventId: string }) {
@@ -72,7 +76,7 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
           .maybeSingle(),
         supabase
           .from("event_speakers")
-          .select("speaker_id, speakers:speakers(id, name, email, company, title, first_name, last_name, designation, mobile_country_code, mobile_number, linkedin_url, company_website, company_employee_count, industry, bio)")
+          .select("speaker_id, speakers:speakers(id, name, email, company, title, first_name, last_name, designation, mobile_country_code, mobile_number, linkedin_url, company_website, company_employee_count, industry, bio, photo_url, user_id, created_at, updated_at)")
           .eq("event_id", eventId),
       ]);
       if (cancelled) return;
@@ -89,6 +93,7 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
           "id" | "name" | "email" | "company" | "title" | "first_name" | "last_name"
           | "designation" | "mobile_country_code" | "mobile_number" | "linkedin_url"
           | "company_website" | "company_employee_count" | "industry" | "bio"
+          | "photo_url" | "user_id" | "created_at" | "updated_at"
         > | null;
       };
       const esRows = (esRes.data as ESRow[] | null) ?? [];
@@ -120,6 +125,10 @@ export default function ReportsSection({ eventId }: { eventId: string }) {
             company_employee_count: sp.company_employee_count ?? null,
             industry: sp.industry ?? null,
             bio: sp.bio ?? null,
+            photo_url: sp.photo_url ?? null,
+            user_id: sp.user_id ?? null,
+            created_at: sp.created_at ?? null,
+            updated_at: sp.updated_at ?? null,
           };
         });
       setSpeakers(rows);

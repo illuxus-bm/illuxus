@@ -134,7 +134,7 @@ export default function SpeakerManagement({ eventId }: Props) {
       const { data: ws } = await supabase.from("webinar_speakers")
         .select("email, invite_token").eq("session_id", sess.id);
       const map: Record<string, string> = {};
-      (ws || []).forEach((w: any) => { if (w.email) map[w.email.toLowerCase()] = w.invite_token; });
+      (ws || []).forEach((w) => { if (w.email) map[w.email.toLowerCase()] = w.invite_token; });
       setTokensByEmail(map);
     } else {
       setTokensByEmail({});

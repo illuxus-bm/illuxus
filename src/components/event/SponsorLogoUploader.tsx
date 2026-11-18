@@ -39,7 +39,7 @@ export default function SponsorLogoUploader({
       const { data } = supabase.storage.from("site-assets").getPublicUrl(path);
       onChange(data.publicUrl);
       toast.success("Logo uploaded");
-    } catch (e: any) {
+    } catch (e) {
       toast.error("Upload failed", { description: friendlyError(e) });
     } finally {
       setUploading(false);

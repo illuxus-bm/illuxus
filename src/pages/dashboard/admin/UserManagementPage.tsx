@@ -454,7 +454,7 @@ function UserDetailDrawer({
                   (eventsQ.data ?? []).length === 0 ? (
                     <p className="text-xs text-muted-foreground px-2 py-3">No events</p>
                   ) : (
-                    (eventsQ.data ?? []).map((ev: any) => (
+                    (eventsQ.data ?? []).map((ev) => (
                       <div key={ev.id} className="flex items-center justify-between gap-2 px-2 py-1.5 hover:bg-muted/30 rounded text-[12px]">
                         <span className="truncate">{ev.title}</span>
                         <Badge variant="secondary" className="text-[10px] shrink-0">{ev.status}</Badge>
@@ -474,7 +474,7 @@ function UserDetailDrawer({
                   (regsQ.data ?? []).length === 0 ? (
                     <p className="text-xs text-muted-foreground px-2 py-3">No tickets</p>
                   ) : (
-                    (regsQ.data ?? []).map((r: any) => (
+                    (regsQ.data ?? []).map((r) => (
                       <div key={r.id} className="flex items-center justify-between gap-2 px-2 py-1.5 hover:bg-muted/30 rounded text-[12px]">
                         <span className="truncate">{r.name || r.email}</span>
                         <span className="text-muted-foreground text-[11px] shrink-0">{format(parseISO(r.created_at), "MMM d")}</span>

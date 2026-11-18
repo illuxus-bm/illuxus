@@ -144,7 +144,12 @@ const ATTENDEE_FILES = [
     // page (`fetchAllRows`) instead of one capped request, so the list and the
     // CSV export include all rows. The `via <utm_source>` hint and the five
     // UTM CSV columns are untouched.
-    hash: "7260f1e5bccd029b43275068f8d7c5baa774afc04e1203670c61e73f8c91d6ad",
+    //
+    // Bumped for the type cleanup (2026-11-18). Re-audited against 6.4 and
+    // 6.6: `any` casts on the attendance RPC results and join rows became
+    // typed helpers; no line mentioning utm changed, so the `via <utm_source>`
+    // hint and the five UTM CSV columns are byte-identical.
+    hash: "05b3757803d2113892ab309d2551aa13b0d5f525202c988befc6eab55813e5da",
   },
   {
     path: "src/components/event/registrations/RegistrantQuickView.tsx",
@@ -153,7 +158,11 @@ const ATTENDEE_FILES = [
     // Bumped for the name heading (2026-11-02). Re-audited against 6.5: only
     // the heading changed, leaving out a title of "Prefer not to say". The five
     // labelled UTM_Field values in the detail drawer are untouched.
-    hash: "0cddfeb41bf3ba3c45a097c4127f6f1677e850a7a0c3685e78fb74f1f6a70e9d",
+    // Bumped 2026-11-18: the organizer save fallback passed the Supabase
+    // client as the RPC name (so it always failed) and now calls the RPC
+    // properly; `any` casts became table types. Re-audited against 6.5: no
+    // line mentioning utm changed; the five UTM_Field values are untouched.
+    hash: "754d072179966a8945e5bb05551975557941ef8c800b6570e081831f4a71c95e",
   },
 ] as const;
 

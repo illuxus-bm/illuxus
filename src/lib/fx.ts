@@ -16,7 +16,7 @@ async function loadRates(): Promise<FxRates | null> {
         return { base: parsed.base, rates: parsed.rates, fetched_at: parsed.fetched_at };
       }
     }
-  } catch {}
+  } catch { /* unreadable cache (private mode or bad JSON) — fetch fresh rates */ }
   // Try direct fetch first (most reliable, no SDK overhead), then fall back to invoke.
   const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/fx-rates`;
   const anon = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY) as string | undefined;
@@ -28,7 +28,7 @@ async function loadRates(): Promise<FxRates | null> {
       const json = await res.json();
       if (json?.rates && Object.keys(json.rates).length > 10) {
         const value = json as FxRates;
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...value, _saved: Date.now() })); } catch {}
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...value, _saved: Date.now() })); } catch { /* storage full or unavailable — rates just aren't cached */ }
         return value;
       }
     }

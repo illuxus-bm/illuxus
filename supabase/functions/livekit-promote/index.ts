@@ -2,6 +2,9 @@ import { createClient } from "../_vendor/esm.sh/@supabase/supabase-js@2.108.1/_e
 import { AccessToken } from "../_vendor/esm.sh/livekit-server-sdk@2.9.7/_entry.mjs";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { sessionMeetsTwoFactor } from "../_shared/auth.ts";
+import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+
+const log = createEdgeLogger("livekit-promote");
 
 const MAX = 10;
 
@@ -51,7 +54,7 @@ Deno.serve(async (req) => {
         method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${jwt}` },
         body: JSON.stringify({ room: session.livekit_room }),
       }).then(r => r.json()).catch(() => ({ participants: [] }));
-      const pubCount = (list.participants || []).filter((p: any) => p.permission?.canPublish).length;
+      const pubCount = ((list.participants || []) as { permission?: { canPublish?: boolean } }[]).filter((p) => p.permission?.canPublish).length;
       if (pubCount >= MAX) return j({ error: "Stage is full (10/10)" }, 409);
       if (!self) {
         await supabase.from("webinar_stage_requests").update({ status: "accepted" })
@@ -76,7 +79,7 @@ Deno.serve(async (req) => {
     return j({ ok: true });
   } catch (e) {
     // Details stay in the logs; callers get a generic message.
-    console.error(JSON.stringify({ level: "error", fn: "livekit-promote", msg: "unhandled error", error_message: e instanceof Error ? e.message : String(e) }));
+    log.error("unhandled error", toErrorFields(e));
     return j({ error: "Something went wrong. Please try again." }, 500);
   }
   function j(b: unknown, s = 200) { return new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }

@@ -39,6 +39,7 @@ import { whenPageIdle } from "@/components/landing/motion";
  * Wraps a lazy() loader with structured logger diagnostics so we can see in
  * preview logs which chunk failed when a dynamic import errors out.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- each route has its own props; lazy() needs the widest component type
 function lazyWithLog<T extends { default: React.ComponentType<any> }>(
   name: string,
   loader: () => Promise<T>,

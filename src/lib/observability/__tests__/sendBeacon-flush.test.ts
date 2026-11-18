@@ -60,9 +60,7 @@ vi.mock('@sentry/browser', () => {
   };
 });
 
-// eslint-disable-next-line import/first
 import { createRemoteSink, type SinkClient } from '../sinks/remote';
-// eslint-disable-next-line import/first
 import type { LogRecord } from '../sinks/types';
 
 // ---------------------------------------------------------------------------

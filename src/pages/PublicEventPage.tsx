@@ -456,7 +456,7 @@ const PublicEventPage = () => {
     }
   }
   const eventExt = event as RendererEvent & {
-    page_config: unknown; timezone?: string | null; requires_approval?: boolean | null;
+    page_config: unknown; timezone?: string | null; requires_approval?: boolean | null; status?: string | null;
   };
 
   // An event is "over" once its end_date has passed (or its start date if no

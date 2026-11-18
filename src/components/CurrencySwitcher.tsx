@@ -13,7 +13,7 @@ export function getStoredDisplayCurrency(fallback = "INR"): string {
 }
 
 export function setStoredDisplayCurrency(code: string) {
-  try { localStorage.setItem(STORAGE_KEY, code); } catch {}
+  try { localStorage.setItem(STORAGE_KEY, code); } catch { /* storage unavailable (private mode) — the choice just isn't remembered */ }
 }
 
 export function CurrencySwitcher({
