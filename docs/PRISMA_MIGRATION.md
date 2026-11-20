@@ -128,6 +128,36 @@ Every step except the AWS console work runs in CI on each relevant pull request
 `schema.prisma` against it, runs the API, engine, function and job tests against it as the
 unprivileged API role, compares the engine with real PostgREST, and round-trips the data copy.
 
+## Switching on, stage 1: Prisma on the Supabase database
+
+Data goes through Prisma; the edge functions keep running on Supabase, where their secrets are.
+Nothing moves database: this is the low-risk step, undone by removing `VITE_DATA_BACKEND`.
+
+1. **Backup first:** `SUPABASE_ACCESS_TOKEN=sbp_… NODE_USE_ENV_PROXY=1 node scripts/rds/backup-supabase.mjs --out <safe place>`
+   (or keep a recent one). It never writes to the database.
+2. **The API's login** (migration 090): in the Supabase SQL editor, run the 090 section of
+   `supabase/migrations/000_full_schema.sql` if it isn't applied, then give it a password:
+   ```sql
+   ALTER ROLE illuxus_api PASSWORD '<a long random password>';
+   ```
+3. **Vercel, Preview environment first:**
+
+   | Variable | Value |
+   | --- | --- |
+   | `DATABASE_URL` | `postgresql://illuxus_api.xhjdcimginceibzcwzlk:<password>@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres` (transaction pooler) |
+   | `SUPABASE_URL` | `https://xhjdcimginceibzcwzlk.supabase.co` (sign-ins are verified with its ES256 signing keys; no secret needed) |
+   | `VITE_DATA_BACKEND` | `api` (a build-time setting: redeploy after setting it) |
+   | `API_FUNCTIONS` | leave unset: every edge function stays on Supabase |
+
+4. **Check the preview:** `GET /api/v1/health` says `database: reachable`; sign in, browse, register for
+   an event, edit a profile, check in a guest. In the function logs, look for `level":"error"` and
+   `unsupported_query` (shapes still served by Supabase, by design).
+5. **Production:** the same variables on the Production environment, redeploy.
+
+Later, per edge function: set its secrets in Vercel (same names as on Supabase), grant the login
+`service_role` (`GRANT service_role TO illuxus_api;`) and `SUPABASE_SERVICE_ROLE_KEY`, and add its name
+to `API_FUNCTIONS`.
+
 ## Rollout
 
 Each step is undone by unsetting the variable.

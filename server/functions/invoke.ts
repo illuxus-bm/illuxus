@@ -16,8 +16,23 @@ export const PUBLIC_FUNCTIONS = new Set([
   "livekit-webhook", "fx-rates", "org-events", "og-event", "submit-support-ticket", "whatsapp-webhook",
 ]);
 
+/**
+ * Which ported functions this deployment serves: API_FUNCTIONS, a
+ * comma-separated list of names, or "*" for all. Empty (the default) serves
+ * none, so every function keeps running on Supabase, where its secrets
+ * (SMTP, WhatsApp, Gemini, …) are. Add a name once its secrets are set in
+ * Vercel; the browser then calls it here instead.
+ */
+export function enabledFunctions(env: string | undefined = process.env.API_FUNCTIONS): Set<string> | "all" {
+  const raw = (env ?? "").trim();
+  if (raw === "*") return "all";
+  return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+}
+
 export function isPorted(name: string): boolean {
-  return Object.prototype.hasOwnProperty.call(FUNCTIONS, name);
+  if (!Object.prototype.hasOwnProperty.call(FUNCTIONS, name)) return false;
+  const enabled = enabledFunctions();
+  return enabled === "all" || enabled.has(name);
 }
 
 export async function loadHandler(name: string): Promise<EdgeHandler | null> {
