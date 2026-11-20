@@ -28760,6 +28760,40 @@ NOTIFY pgrst, 'reload schema';
 -- <<< END SOURCE MIGRATION: 089_advisor_fixes.sql <<<
 
 
+-- >>> BEGIN SOURCE MIGRATION: 090_api_login_role.sql >>>
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 090_api_login_role.sql
+--
+-- The Prisma API's own database login on Supabase (docs/PRISMA_MIGRATION.md).
+-- Safe to run more than once.
+--
+--   - NOINHERIT and no grants of its own: it can do nothing until a request
+--     switches it to anon or authenticated (server/db/caller.ts), so row
+--     security always decides, exactly as for Supabase's own API.
+--   - anon and authenticated only, not service_role: the edge functions
+--     stay on Supabase for now (API_FUNCTIONS). Grant service_role only when
+--     their ports are switched on.
+--   - Created WITHOUT a password, so it can't sign in yet. Set one in the
+--     Supabase SQL editor (never in a file or a chat):
+--         ALTER ROLE illuxus_api PASSWORD '<a long random password>';
+--     then connect through the transaction pooler as illuxus_api.<project-ref>.
+--
+-- Tests: supabase/tests/090_api_login_role.test.mjs
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'illuxus_api') THEN
+    CREATE ROLE illuxus_api LOGIN NOINHERIT;
+  END IF;
+END $$;
+ALTER ROLE illuxus_api NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+GRANT anon, authenticated TO illuxus_api;
+-- A runaway query stops here rather than at the function's time limit.
+ALTER ROLE illuxus_api SET statement_timeout = '15s';
+-- <<< END SOURCE MIGRATION: 090_api_login_role.sql <<<
+
+
 -- >>> BEGIN ARCHIVED ROOT SCRIPT (disabled): RUN_ME_pending_updates.sql >>>
 -- The following source is commented out intentionally. Review and run
 -- it separately only if its original one-off/manual purpose is needed.

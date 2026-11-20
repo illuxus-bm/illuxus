@@ -6,7 +6,7 @@
  */
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { FUNCTIONS } from "../functions/registry.generated.js";
-import { gatewayAllows, invokeFunction, isPorted, PUBLIC_FUNCTIONS } from "../functions/invoke.js";
+import { enabledFunctions, gatewayAllows, invokeFunction, isPorted, PUBLIC_FUNCTIONS } from "../functions/invoke.js";
 
 const NAMES = Object.keys(FUNCTIONS);
 
@@ -19,6 +19,7 @@ beforeAll(() => {
     SUPABASE_ANON_KEY: "test-anon-key",
     SUPABASE_SERVICE_ROLE_KEY: "test-service-key",
     DATABASE_URL: "postgresql://nobody@127.0.0.1:1/none",
+    API_FUNCTIONS: "*",
   });
   for (const level of ["log", "info", "warn", "error", "debug"] as const) vi.spyOn(console, level).mockImplementation(() => {});
   // No network in these tests: any outbound call fails fast like an outage.
@@ -60,6 +61,37 @@ describe("ported edge functions", () => {
       });
     });
   }
+});
+
+describe("API_FUNCTIONS", () => {
+  it("serves no function by default, so they keep running on Supabase", () => {
+    const before = process.env.API_FUNCTIONS;
+    delete process.env.API_FUNCTIONS;
+    try {
+      expect(enabledFunctions()).toEqual(new Set());
+      expect(isPorted("send-email")).toBe(false);
+    } finally {
+      process.env.API_FUNCTIONS = before;
+    }
+    expect(enabledFunctions("")).toEqual(new Set());
+  });
+  it("serves the listed functions, or all with *", () => {
+    expect(enabledFunctions(" send-email, fx-rates ")).toEqual(new Set(["send-email", "fx-rates"]));
+    expect(enabledFunctions("*")).toBe("all");
+  });
+  it("answers not_ported for a function that isn't switched on", async () => {
+    const before = process.env.API_FUNCTIONS;
+    process.env.API_FUNCTIONS = "fx-rates";
+    try {
+      expect(isPorted("fx-rates")).toBe(true);
+      expect(isPorted("send-email")).toBe(false);
+      const { GET } = await import("../../api/v1/fn/[name].js");
+      const res = await GET(new Request("https://illuxus.com/api/v1/fn/send-email"));
+      expect([res.status, (await res.json()).error.code]).toEqual([404, "not_ported"]);
+    } finally {
+      process.env.API_FUNCTIONS = before;
+    }
+  });
 });
 
 describe("the gateway check (Supabase's verify_jwt)", () => {
