@@ -7,14 +7,18 @@ import { FeatureGate } from "@/components/plans/FeatureGate";
 import { useHasFeature } from "@/hooks/usePlanFeatures";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { toast } from "sonner";
-import { Radio, Square, Plus, Copy, Megaphone, LogOut, ArrowLeft, Minimize2, Maximize2, X, MessageSquare, Maximize, Minimize, Circle, CircleDot, StopCircle, PhoneOff, MapPinned, ExternalLink, Link2, Users, HelpCircle, BarChart2, Hand } from "lucide-react";
+import {
+  Radio, Square, Plus, Copy, Megaphone, MessageSquare, CircleDot, StopCircle, PhoneOff, MapPinned,
+  ExternalLink, Link2, Users, Eye, Loader2, ChevronLeft, ChevronRight,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  eventThemeColor, resolveRoomAccent, roomThemeStyle, ROOM_CTA, ROOM_ENTER, ROOM_ICON_BTN, ROOM_PANEL, ROOM_SHELL,
+} from "@/components/webinar/roomTheme";
+import { LiveRoomShell, OnAirChip, RoomHeaderButton } from "@/components/webinar/LiveRoomShell";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { useSessionBranding } from "@/components/webinar/StageOverlays";
 import { publicUrl } from "@/lib/publicUrl";
@@ -42,9 +46,6 @@ type AnnouncementInsertPayload = { new: Tables<"webinar_announcements"> };
 const WebinarStage = lazy(() =>
   import("@/components/webinar/WebinarStage").then((m) => ({ default: m.WebinarStage })),
 );
-const WebinarSidebar = lazy(() =>
-  import("@/components/webinar/WebinarSidebar").then((m) => ({ default: m.WebinarSidebar })),
-);
 const AnalyticsPanel = lazy(() =>
   import("@/components/webinar/AnalyticsPanel").then((m) => ({ default: m.AnalyticsPanel })),
 );
@@ -71,9 +72,6 @@ export default function BroadcastPage() {
     mic: boolean; cam: boolean; camId?: string; micId?: string; spkId?: string;
   } | null>(null);
   const [minimized, setMinimized] = useState(false);
-  const [focusMode, setFocusMode] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"chat" | "qa" | "polls" | "requests" | "participants" | null>(null);
   const [announcement, setAnnouncement] = useState("");
   // The select below only fetches a subset of columns, but the rest of the
   // page reads `event?.title`, `event?.event_format`, etc. via optional
@@ -82,8 +80,15 @@ export default function BroadcastPage() {
   const [event, setEvent] = useState<Partial<EventRow> | null>(null);
   const webinarAllowed = useHasFeature(event?.org_id ?? null, "webinar");
   const [orgBrandingDefault, setOrgBrandingDefault] = useState<boolean>(true);
+  const [org, setOrg] = useState<{ name: string | null; logo: string | null }>({ name: null, logo: null });
+  const [creating, setCreating] = useState(false);
   const branding = useSessionBranding(session?.id);
   const effectiveBranding = event?.webinar_branding_enabled ?? orgBrandingDefault ?? true;
+  const roomAccent = useMemo(
+    () => resolveRoomAccent({ eventColor: eventThemeColor(event?.page_config), branding, brandingEnabled: effectiveBranding }),
+    [event?.page_config, branding, effectiveBranding],
+  );
+  const roomStyle = useMemo(() => roomThemeStyle(roomAccent), [roomAccent]);
 
   // Resolve the URL param to a real event UUID. The route accepts both, so a
   // slug ("xyz") would otherwise be sent straight into a UUID column and fail
@@ -115,13 +120,20 @@ export default function BroadcastPage() {
 
   useEffect(() => {
     if (!eventId) return;
-    db.from("events").select("id, webinar_branding_enabled, org_id").eq("id", eventId).maybeSingle()
-      .then(async ({ data }) => {
+    db.from("events")
+      .select("id, title, event_format, banner_landscape_url, page_config, video_provider, webinar_branding_enabled, org_id")
+      .eq("id", eventId).maybeSingle()
+      .then(async ({ data: raw }) => {
+        // Generated types predate `video_provider`; see EventRow above.
+        const data = raw as unknown as Partial<EventRow> | null;
         if (!data) return;
         setEvent(data);
         if (data.org_id) {
-          const { data: o } = await db.from("organizations").select("webinar_branding_enabled").eq("id", data.org_id).maybeSingle();
-          if (o) setOrgBrandingDefault(o.webinar_branding_enabled ?? true);
+          const { data: o } = await db.from("organizations").select("name, logo_url, webinar_branding_enabled").eq("id", data.org_id).maybeSingle();
+          if (o) {
+            setOrgBrandingDefault(o.webinar_branding_enabled ?? true);
+            setOrg({ name: o.name ?? null, logo: o.logo_url ?? null });
+          }
         }
       });
   }, [eventId]);
@@ -174,6 +186,11 @@ export default function BroadcastPage() {
   }, [session?.id, eventId]);
 
   const createSession = async () => {
+    if (creating) return;
+    setCreating(true);
+    try { await createSessionImpl(); } finally { setCreating(false); }
+  };
+  const createSessionImpl = async () => {
     // Clean up old ended/error sessions for this event to prevent row accumulation.
     if (eventId) {
       await db
@@ -319,23 +336,8 @@ export default function BroadcastPage() {
 
   const leaveStage = useCallback(() => { setToken(null); toast.info("You left the stage"); }, []);
 
-  const toggleFullscreen = useCallback(async () => {
-    try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen?.();
-      } else {
-        await document.exitFullscreen?.();
-      }
-    } catch { /* ignore */ }
-  }, []);
-
   const speakerLink = (token: string) => publicUrl(`/e/${routeId}/live?speaker=${token}`);
 
-  const updateLayout = async (layout: string) => {
-    if (!session) return;
-    await db.from("webinar_sessions").update({ layout }).eq("id", session.id);
-    setSession({ ...session, layout });
-  };
   const updateLounge = async (enabled: boolean) => {
     if (!session) return;
     await db.from("webinar_sessions").update({ lounge_enabled: enabled }).eq("id", session.id);
@@ -377,22 +379,73 @@ export default function BroadcastPage() {
     );
   }
 
+  const eventHref = `/dashboard/events/${routeId}`;
+  const eventTitle = event?.title || "Webinar";
+  const attendeeUrl = publicUrl(`/e/${routeId}/live`);
+  const copy = (text: string, label: string) => { navigator.clipboard.writeText(text); toast.success(`${label} copied`); };
+
   if (!session) {
+    const features = [
+      { icon: Users, text: "Up to 10 speakers on stage" },
+      { icon: Eye, text: "Unlimited viewers" },
+      { icon: CircleDot, text: "Record any time while live" },
+      { icon: MessageSquare, text: "Chat, Q&A, polls and raised hands" },
+    ];
     return (
-      <div className="min-h-screen bg-background p-4 lg:p-6">
-      <div className="max-w-[1200px] space-y-5">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Webinar</h1>
-          <p className="text-[13px] text-muted-foreground">Set up a livestream room for this event.</p>
+      <StudioShell style={roomStyle} eventHref={eventHref} eventTitle={eventTitle} org={org}>
+        <div className={cn("grid items-center gap-10 lg:min-h-[calc(100vh-12rem)] lg:grid-cols-[1fr_1.1fr] lg:gap-16", ROOM_ENTER)}>
+          <div>
+            <p className="text-[13px] text-white/50 line-clamp-1">{eventTitle}</p>
+            <h1 className="mt-3 text-[32px] sm:text-[40px] font-medium leading-[1.1] tracking-[-0.02em] text-white">
+              Set up the live stream
+            </h1>
+            <p className="mt-4 max-w-md text-[15px] leading-relaxed text-white/55">
+              One room for this event. Speakers join with their invite links, attendees watch, chat and ask questions from the event page.
+            </p>
+            <ul className="mt-8 max-w-md divide-y divide-white/[0.06] border-y border-white/[0.06]">
+              {features.map((f) => (
+                <li key={f.text} className="flex items-center gap-3 py-3 text-[14px] text-white/80">
+                  <f.icon className="h-4 w-4 shrink-0 text-white/40" strokeWidth={1.5} />{f.text}
+                </li>
+              ))}
+            </ul>
+            <Button onClick={createSession} disabled={creating} className={cn("mt-8 h-11 gap-2 px-5 text-[14px]", ROOM_CTA)}>
+              {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              {creating ? "Creating…" : "Create webinar"}
+            </Button>
+          </div>
+
+          {/* What attendees will see: a quiet sketch of the real room */}
+          <figure aria-label="Attendee view preview" className={cn("rounded-[24px] p-3", ROOM_PANEL)}>
+            <div className="flex gap-3">
+              <div className="relative aspect-video min-w-0 flex-1 overflow-hidden rounded-[12px] bg-[#0B0B0C]">
+                {event?.banner_landscape_url ? (
+                  <img src={event.banner_landscape_url} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center px-8 text-center text-[18px] sm:text-[22px] font-medium leading-tight text-white/80 line-clamp-3">
+                    {eventTitle}
+                  </div>
+                )}
+                <OnAirChip live label="Live" className="absolute left-3 top-3" />
+              </div>
+              <div aria-hidden className="hidden w-[30%] flex-col gap-2 sm:flex">
+                <div className="flex gap-1 rounded-[10px] bg-white/[0.04] p-1">
+                  <span className="h-5 flex-1 rounded-[6px] bg-white/[0.09]" />
+                  <span className="h-5 flex-1" /><span className="h-5 flex-1" />
+                </div>
+                <span className="h-2 w-4/5 rounded-full bg-white/[0.08]" />
+                <span className="h-2 w-3/5 rounded-full bg-white/[0.06]" />
+                <span className="ml-auto mt-auto h-6 w-3/4 rounded-[8px] bg-[color:color-mix(in_srgb,var(--wb-accent)_22%,#161617)]" />
+                <span className="h-6 w-2/3 rounded-[8px] bg-white/[0.06]" />
+              </div>
+            </div>
+            <figcaption className="flex items-center justify-between px-1 pb-1 pt-3 text-[13px]">
+              <span className="text-white/70">Attendee view</span>
+              <span className="font-mono text-[12px] text-white/35">/e/…/live</span>
+            </figcaption>
+          </figure>
         </div>
-        <Card className="p-6 space-y-4">
-          <p className="text-[13px] text-muted-foreground">
-            Up to 10 on-stage speakers, unlimited viewers. You can start and stop recording at any time once the session is live.
-          </p>
-          <Button onClick={createSession}><Plus className="h-4 w-4 mr-2" />Create webinar</Button>
-        </Card>
-      </div>
-      </div>
+      </StudioShell>
     );
   }
 
@@ -401,6 +454,7 @@ export default function BroadcastPage() {
       <Suspense fallback={<FullPageLoader label="Preparing studio…" />}>
         <PreJoinCheck
           asPublisher
+          accent={roomAccent}
           onCancel={() => setShowPrejoin(false)}
           onJoin={async (opts) => {
             // Persist the chosen devices so WebinarStage can honour them
@@ -414,8 +468,7 @@ export default function BroadcastPage() {
   }
 
   if (token) {
-    // Stable stage element — rendered in one container regardless of `minimized`
-    // so LiveKit never unmounts on tab switch / minimize.
+    // Stable stage element — LiveRoomShell keeps it mounted across minimize.
     const stageEl = (
       <Suspense fallback={<FullPageLoader label="Connecting to studio…" />}>
         <WebinarStage
@@ -440,337 +493,281 @@ export default function BroadcastPage() {
       </Suspense>
     );
 
-    const sidebarEl = (
-      <Suspense fallback={<div className="p-4 text-[12px] text-muted-foreground">Loading panel…</div>}>
-        <WebinarSidebar
-          sessionId={session.id}
-          isHost
-          canPublish={canPublish}
-          userId={user.id}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          onClose={() => setActiveTab(null)}
-        />
-      </Suspense>
-    );
-
+    const live = session.status === "live";
     return (
-      <div
-        className={
-          minimized
-            ? "fixed bottom-4 right-4 w-[360px] h-[210px] rounded-lg overflow-hidden border border-border shadow-2xl bg-background z-50"
-            : "fixed inset-0 z-50 flex flex-col bg-zinc-950 overflow-hidden"
-        }
-      >
-        {!minimized && !focusMode && (
-          <header className="h-14 flex items-center justify-between px-3 sm:px-4 gap-2 bg-zinc-950 border-b border-white/5 shrink-0">
-            <div className="flex items-center gap-2 sm:gap-3 text-white min-w-0">
-              <Link to={`/dashboard/events/${routeId}`} className="flex items-center gap-1.5 text-white/70 hover:text-white text-[12px]">
-                <ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Back</span>
-              </Link>
-              <span className={`text-[11px] font-bold tracking-wider px-2.5 py-1 rounded ${session.status === "live" ? "bg-destructive text-destructive-foreground animate-pulse" : "bg-white/10 text-white/70"}`}>
-                {session.status === "live" ? "● LIVE" : "NOT LIVE"}
-              </span>
-              <span className="text-[13px] font-semibold truncate hidden sm:inline">{event?.title || "Webinar"}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {session.status !== "live" ? (
-                <Button onClick={goLive} className="bg-emerald-600 hover:bg-emerald-700 text-white h-9 text-[12px] px-3">
-                  <Radio className="h-4 w-4 sm:mr-1.5" /><span className="hidden sm:inline">Start Session</span>
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    onClick={toggleRecording}
-                    disabled={recBusy}
-                    variant={session.egress_id ? "destructive" : "secondary"}
-                    className="h-9 text-[12px] px-3"
-                    title={session.egress_id ? "Stop recording" : "Start recording"}
-                  >
-                    {session.egress_id
-                      ? <StopCircle className="h-4 w-4 sm:mr-1.5" />
-                      : <CircleDot className="h-4 w-4 sm:mr-1.5" />}
-                    <span className="hidden sm:inline">{session.egress_id ? "Stop rec" : "Record"}</span>
-                  </Button>
-                  <Button onClick={endLive} variant="destructive" className="h-9 text-[12px] px-3">
-                    <PhoneOff className="h-4 w-4 sm:mr-1.5" /><span className="hidden sm:inline">End Session</span>
-                  </Button>
-                </>
-              )}
-              {/* Mobile-only chat trigger */}
-              <Sheet open={chatOpen} onOpenChange={setChatOpen}>
-                <SheetTrigger asChild>
-                  <Button size="icon" variant="secondary" className="h-9 w-9 lg:hidden" aria-label="Open chat">
-                    <MessageSquare className="h-4 w-4" />
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="right" className="p-0 w-[min(420px,100vw)]">
-                  <div className="h-full">{sidebarEl}</div>
-                </SheetContent>
-              </Sheet>
-              <div className="bg-white/10 rounded-lg p-0.5 flex gap-0.5 border border-white/5 mr-2">
-                {([
-                  { key: "participants", icon: Users, title: "People" },
-                  { key: "chat", icon: MessageSquare, title: "Chat" },
-                  { key: "qa", icon: HelpCircle, title: "Q&A" },
-                  { key: "polls", icon: BarChart2, title: "Polls" },
-                ] as const).map((t) => {
-                  const Icon = t.icon;
-                  const active = activeTab === t.key;
-                  return (
-                    <Button
-                      key={t.key}
-                      size="icon"
-                      variant="ghost"
-                      className={`h-8 w-8 rounded-md text-white transition-colors ${
-                        active ? "bg-white/20 text-white" : "hover:bg-white/10 text-white/70"
-                      }`}
-                      onClick={() => setActiveTab(active ? null : t.key)}
-                      title={t.title}
-                    >
-                      <Icon className="h-4.5 w-4.5" />
-                    </Button>
-                  );
-                })}
-              </div>
-              <Button size="icon" variant="secondary" className="h-9 w-9" onClick={() => setFocusMode((v) => !v)} title={focusMode ? "Exit focus" : "Focus stage"}>
-                {focusMode ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
-              </Button>
-              <Button size="icon" variant="secondary" className="h-9 w-9 hidden sm:inline-flex" onClick={() => setMinimized(true)} title="Minimize">
-                <Minimize2 className="h-4 w-4" />
-              </Button>
-              <Button size="sm" variant="secondary" className="h-9 text-[12px] px-3" onClick={leaveStage}>
-                <LogOut className="h-4 w-4 sm:mr-1.5" /><span className="hidden sm:inline">Leave</span>
-              </Button>
-            </div>
-          </header>
+      <LiveRoomShell
+        style={roomStyle}
+        sessionId={session.id}
+        userId={user.id}
+        isHost
+        canPublish={canPublish}
+        isLive={live}
+        title={eventTitle}
+        org={org}
+        breadcrumbs={[
+          { label: "Events", href: "/dashboard/events" },
+          { label: eventTitle, href: eventHref },
+          { label: "Studio" },
+        ]}
+        backHref={eventHref}
+        backLabel="Event"
+        logoOnStage={effectiveBranding && !!branding?.logo_url}
+        stage={stageEl}
+        stageOverlays={<><ReactionFloats sessionId={session.id} /><AnnouncementBanner sessionId={session.id} /></>}
+        headerActions={live ? (
+          <>
+            <RoomHeaderButton
+              onClick={toggleRecording}
+              disabled={recBusy}
+              tone={session.egress_id ? "danger" : "neutral"}
+              title={session.egress_id ? "Stop recording" : "Start recording"}
+            >
+              {session.egress_id ? <StopCircle className="h-4 w-4" strokeWidth={1.5} /> : <CircleDot className="h-4 w-4" strokeWidth={1.5} />}
+              <span className="hidden sm:inline">{session.egress_id ? "Stop recording" : "Record"}</span>
+            </RoomHeaderButton>
+            <RoomHeaderButton onClick={endLive} tone="danger" title="End session for everyone">
+              <PhoneOff className="h-4 w-4" strokeWidth={1.5} /><span className="hidden sm:inline">End session</span>
+            </RoomHeaderButton>
+          </>
+        ) : (
+          <RoomHeaderButton onClick={goLive} tone="accent" title="Start session">
+            <Radio className="h-4 w-4" strokeWidth={1.5} /><span className="hidden sm:inline">Go live</span>
+          </RoomHeaderButton>
         )}
-
-        {/* Floating exit pill while in focus mode */}
-        {!minimized && focusMode && (
-          <button
-            onClick={() => setFocusMode(false)}
-            className="fixed top-3 right-3 z-50 bg-black/60 backdrop-blur text-white text-[11px] px-2.5 py-1.5 rounded-full flex items-center gap-1.5 hover:bg-black/80"
-          >
-            <Minimize className="h-3 w-3" />Exit focus
-          </button>
-        )}
-
-        <div className={minimized ? "h-full w-full relative" : "flex-1 flex min-h-0"}>
-          <div className={minimized ? "h-full w-full relative" : "flex-1 relative min-w-0 bg-black"}>
-            {stageEl}
-            {!minimized && (
-              <>
-                <ReactionFloats sessionId={session.id} />
-                <AnnouncementBanner sessionId={session.id} />
-              </>
-            )}
-            {minimized && (
-              <div className="absolute top-1 right-1 z-30 flex gap-1">
-                <Button size="icon" variant="secondary" className="h-6 w-6" onClick={() => setMinimized(false)}><Maximize2 className="h-3 w-3" /></Button>
-                <Button size="icon" variant="destructive" className="h-6 w-6" onClick={leaveStage}><X className="h-3 w-3" /></Button>
-              </div>
-            )}
-            {minimized && (
-              <span className="absolute top-1 left-1 z-30 bg-destructive text-destructive-foreground text-[10px] px-1.5 py-0.5 rounded animate-pulse">● LIVE</span>
-            )}
-          </div>
-          {!minimized && !focusMode && activeTab && (
-            <div className="hidden lg:block w-80 bg-zinc-950 border-l border-white/5 shrink-0">
-              {sidebarEl}
-            </div>
-          )}
-        </div>
-      </div>
+        minimized={minimized}
+        onMinimizedChange={setMinimized}
+        onLeave={leaveStage}
+      />
     );
   }
 
+  // ── Studio lobby: session exists, host not on stage ──
+  const primaryAction =
+    session.status === "live"
+      ? { label: "Join as host", onClick: () => setShowPrejoin(true) }
+      : session.status === "ended"
+        ? { label: "Restart session", onClick: restartSession }
+        : { label: "Go live", onClick: goLive };
+
   return (
-    <div className="min-h-screen bg-background p-4 lg:p-6">
-    <div className="max-w-[1200px] space-y-5">
-      <div className="space-y-3">
-        <Link
-          to={`/dashboard/events/${routeId}`}
-          className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back to event
-        </Link>
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-lg font-semibold tracking-tight">Webinar studio</h1>
+    <StudioShell
+      style={roomStyle}
+      eventHref={eventHref}
+      eventTitle={eventTitle}
+      org={org}
+      crumb="Studio"
+      actions={
+        <>
+          {session.status === "live" && (
+            <>
+              <RoomHeaderButton onClick={toggleRecording} disabled={recBusy} title={session.egress_id ? "Stop recording" : "Start recording"}>
+                {session.egress_id ? <StopCircle className="h-4 w-4" strokeWidth={1.5} /> : <CircleDot className="h-4 w-4" strokeWidth={1.5} />}
+                <span className="hidden sm:inline">{session.egress_id ? "Stop recording" : "Record"}</span>
+              </RoomHeaderButton>
+              <RoomHeaderButton onClick={endLive} tone="danger" title="End session for everyone">
+                <Square className="h-4 w-4" strokeWidth={1.5} /><span className="hidden sm:inline">End session</span>
+              </RoomHeaderButton>
+            </>
+          )}
+          {session.status === "ended" && (
+            <RoomHeaderButton onClick={createSession} disabled={creating}>
+              <Plus className="h-4 w-4" strokeWidth={1.5} /><span className="hidden sm:inline">New session</span>
+            </RoomHeaderButton>
+          )}
+        </>
+      }
+    >
+      <div className={cn("flex flex-col gap-4 lg:flex-row", ROOM_ENTER)}>
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
+          {/* Stage preview + primary action */}
+          <section aria-label="Stage" className={cn("rounded-[24px] p-3", ROOM_PANEL)}>
+            <div className="flex flex-wrap items-center gap-3 px-3 pb-4 pt-2">
+              <h1 className="mr-auto min-w-0 text-[18px] sm:text-[20px] font-medium leading-snug tracking-[-0.01em] text-white line-clamp-2">{eventTitle}</h1>
               <StatusPill status={session.status} />
-              {session.egress_id && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-destructive">
-                  <CircleDot className="h-3 w-3 animate-pulse" /> REC
-                </span>
+              {session.egress_id && <OnAirChip live label="Recording" className="bg-white/[0.06]" />}
+            </div>
+            <div className="relative aspect-video overflow-hidden rounded-[12px] bg-[#0B0B0C]">
+              {event?.banner_landscape_url && (
+                <img src={event.banner_landscape_url} alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" />
               )}
-            </div>
-            <p className="text-[13px] text-muted-foreground mt-1">
-              {event?.title ? <>Stream, speakers and analytics for <span className="text-foreground">{event.title}</span>.</> : "Manage stream, speakers, and analytics."}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {session.status === "scheduled" && (
-              <Button onClick={goLive} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                <Radio className="h-4 w-4 mr-2" />Go live
-              </Button>
-            )}
-            {session.status === "live" && (
-              <>
-                <Button
-                  onClick={toggleRecording}
-                  disabled={recBusy}
-                  variant={session.egress_id ? "destructive" : "outline"}
-                >
-                  {session.egress_id ? <StopCircle className="h-4 w-4 mr-2" /> : <CircleDot className="h-4 w-4 mr-2" />}
-                  {session.egress_id ? "Stop recording" : "Record"}
-                </Button>
-                <Button onClick={() => setShowPrejoin(true)} variant="secondary">
-                  <Radio className="h-4 w-4 mr-2" />Re-join as host
-                </Button>
-                <Button variant="destructive" onClick={endLive}>
-                  <Square className="h-4 w-4 mr-2" />End
-                </Button>
-              </>
-            )}
-            {session.status === "ended" && (
-              <>
-                <Button onClick={restartSession} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                  <Radio className="h-4 w-4 mr-2" />Restart session
-                </Button>
-                <Button onClick={createSession} variant="outline">
-                  <Plus className="h-4 w-4 mr-2" />New session
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <Card className="p-0 overflow-hidden">
-        <div className="grid grid-cols-2 divide-x divide-border">
-          {[
-            {
-              label: "Speakers",
-              value: (
-                <span className="flex items-baseline gap-1.5">
-                  <span className="text-2xl font-mono font-semibold tabular-nums leading-none">{speakers.length}</span>
-                  <span className="text-[12px] text-muted-foreground leading-none">/ 10</span>
-                </span>
-              ),
-            },
-            {
-              label: "Room",
-              value: (
-                <span className="font-mono text-[12px] text-muted-foreground truncate block leading-none" title={session.livekit_room}>
-                  {session.livekit_room}
-                </span>
-              ),
-            },
-          ].map((cell) => (
-            <div key={cell.label} className="px-5 py-4 min-w-0">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/80 mb-2">{cell.label}</div>
-              <div className="min-w-0">{cell.value}</div>
-            </div>
-          ))}
-        </div>
-        <div className="border-t border-border bg-muted/30 px-5 py-2.5 flex items-center justify-between gap-3">
-          <div className="text-[12px] text-muted-foreground flex items-center gap-2 min-w-0">
-            <Link2 className="h-3.5 w-3.5 shrink-0" />
-            <span className="font-mono truncate">{publicUrl(`/e/${routeId}/live`)}</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-[11px]"
-              onClick={() => { navigator.clipboard.writeText(publicUrl(`/e/${routeId}/live`)); toast.success("Attendee link copied"); }}
-            >
-              <Copy className="h-3 w-3 mr-1" />Copy
-            </Button>
-            <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" asChild>
-              <a href={publicUrl(`/e/${routeId}/live`)} target="_blank" rel="noreferrer">
-                <ExternalLink className="h-3 w-3 mr-1" />Open
-              </a>
-            </Button>
-          </div>
-        </div>
-        {session.recording_url && (
-          <div className="border-t border-border bg-emerald-500/5 px-4 py-2.5 text-[12px] flex items-center justify-between">
-            <span className="text-muted-foreground">Recording ready</span>
-            <a className="text-emerald-600 hover:underline font-medium inline-flex items-center gap-1" href={safeUrl(session.recording_url)} target="_blank" rel="noreferrer">
-              View recording <ExternalLink className="h-3 w-3" />
-            </a>
-          </div>
-        )}
-      </Card>
-
-      <Tabs defaultValue="setup" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="setup">Setup</TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="setup">
-          <Card className="p-4 space-y-3">
-            <h2 className="font-medium">Studio settings</h2>
-            <div className="flex items-center justify-between rounded-md border border-border p-3">
-              <div>
-                <p className="text-[13px] font-medium">Networking lounge</p>
-                <p className="text-[12px] text-muted-foreground">Small-group video tables for attendees.</p>
-              </div>
-              <Switch checked={!!session.lounge_enabled} onCheckedChange={updateLounge} />
-            </div>
-            <div className="flex items-center justify-between rounded-md border border-border p-3">
-              <div>
-                <p className="text-[13px] font-medium">Branding overlays</p>
-                <p className="text-[12px] text-muted-foreground">
-                  Show logo, lower-thirds and banners on stage. Org default: <span className="font-mono">{orgBrandingDefault ? "on" : "off"}</span>.
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center">
+                <p className="max-w-sm text-balance text-[14px] leading-relaxed text-white/60">
+                  {session.status === "live"
+                    ? "The session is live. Step back on stage to present or moderate"
+                    : session.status === "ended"
+                      ? "This session has ended. Restart it to go live again in the same room"
+                      : "The room is ready. Check your camera and mic, then go live"}
                 </p>
+                <Button onClick={primaryAction.onClick} className={cn("h-11 gap-2 px-5 text-[14px]", ROOM_CTA)}>
+                  <Radio className="h-4 w-4" strokeWidth={1.5} />{primaryAction.label}
+                </Button>
               </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={effectiveBranding}
-                  onCheckedChange={(v) => setEventBranding(v)}
-                />
+            </div>
+
+            <div className="mt-3 flex items-center gap-1 rounded-[12px] bg-white/[0.04] py-1 pl-3.5 pr-1">
+              <Link2 className="h-4 w-4 shrink-0 text-white/40" strokeWidth={1.5} />
+              <span className="ml-1.5 min-w-0 flex-1 truncate font-mono text-[12px] text-white/60">{attendeeUrl}</span>
+              <button className={cn(ROOM_ICON_BTN, "w-auto gap-1.5 px-2.5 text-[13px]")} onClick={() => copy(attendeeUrl, "Attendee link")}>
+                <Copy className="h-3.5 w-3.5" strokeWidth={1.5} />Copy
+              </button>
+              <a href={attendeeUrl} target="_blank" rel="noreferrer" className={cn(ROOM_ICON_BTN, "w-auto gap-1.5 px-2.5 text-[13px]")}>
+                <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.5} />Open
+              </a>
+            </div>
+            {session.recording_url && (
+              <div className="mt-2 flex items-center justify-between rounded-[12px] bg-white/[0.04] px-4 py-3 text-[13px]">
+                <span className="text-white/70">Recording ready</span>
+                <a className="inline-flex items-center gap-1 font-medium text-emerald-300 hover:underline" href={safeUrl(session.recording_url)} target="_blank" rel="noreferrer">
+                  View recording <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            )}
+          </section>
+
+          <section aria-label="Analytics" className={cn("rounded-[20px] p-5", ROOM_PANEL)}>
+            <h2 className="mb-4 text-[15px] font-medium text-white">Analytics</h2>
+            <Suspense fallback={<div className="py-10 text-center text-[13px] text-white/50">Loading analytics…</div>}>
+              <AnalyticsPanel sessionId={session.id} />
+            </Suspense>
+          </section>
+        </div>
+
+        <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-[380px]">
+          <section aria-label="Studio settings" className={cn("rounded-[20px] p-2", ROOM_PANEL)}>
+            <h2 className="px-3 pb-2 pt-2 text-[15px] font-medium text-white">Studio settings</h2>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-3 rounded-[12px] bg-white/[0.04] p-3">
+                <div>
+                  <p className="text-[14px] font-medium">Networking lounge</p>
+                  <p className="text-[12px] text-white/50">Small-group video tables for attendees</p>
+                </div>
+                <Switch checked={!!session.lounge_enabled} onCheckedChange={updateLounge} aria-label="Networking lounge" />
+              </div>
+              <div className="rounded-[12px] bg-white/[0.04] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[14px] font-medium">Branding overlays</p>
+                    <p className="text-[12px] text-white/50">Logo, lower-thirds and banners on stage · org default {orgBrandingDefault ? "on" : "off"}</p>
+                  </div>
+                  <Switch checked={effectiveBranding} onCheckedChange={(v) => setEventBranding(v)} aria-label="Branding overlays" />
+                </div>
                 {event?.webinar_branding_enabled !== null && event?.webinar_branding_enabled !== undefined && (
-                  <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setEventBranding(null)}>Use org default</Button>
+                  <button className="mt-2 text-[12px] text-[color:var(--wb-accent)] hover:underline" onClick={() => setEventBranding(null)}>
+                    Use org default
+                  </button>
                 )}
               </div>
+              <div className="rounded-[12px] bg-white/[0.04] p-3">
+                <Label htmlFor="studio-announce" className="text-[14px] font-medium">Announcement</Label>
+                <p className="mb-2 text-[12px] text-white/50">Shown on every attendee's screen for a few seconds</p>
+                <div className="flex items-center gap-1 rounded-[10px] bg-black/20 py-1 pl-3 pr-1 ring-1 ring-white/[0.08] transition-shadow duration-150 focus-within:ring-[color:var(--wb-accent)]">
+                  <input
+                    id="studio-announce"
+                    value={announcement}
+                    onChange={(e) => setAnnouncement(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && sendAnnouncement()}
+                    placeholder="Announce something…"
+                    className="h-9 min-w-0 flex-1 bg-transparent text-[13.5px] text-white outline-none placeholder:text-white/40"
+                  />
+                  <button
+                    onClick={sendAnnouncement}
+                    disabled={!announcement.trim()}
+                    aria-label="Send announcement"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[color:var(--wb-accent)] text-[color:var(--wb-accent-fg)] transition-colors duration-150 disabled:bg-white/[0.06] disabled:text-white/30"
+                  >
+                    <Megaphone className="h-4 w-4" strokeWidth={1.5} />
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <Input placeholder="Announce something to all attendees…" value={announcement} onChange={(e) => setAnnouncement(e.target.value)} />
-              <Button variant="outline" onClick={sendAnnouncement}><Megaphone className="h-4 w-4 mr-1" />Send</Button>
-            </div>
-          </Card>
-        </TabsContent>
+          </section>
 
-        <TabsContent value="analytics">
-          <Suspense fallback={<FullPageLoader label="Loading analytics…" />}>
-            <AnalyticsPanel sessionId={session.id} />
-          </Suspense>
-        </TabsContent>
-      </Tabs>
-    </div>
+          <section aria-label="Speakers" className={cn("rounded-[20px] p-2", ROOM_PANEL)}>
+            <div className="flex items-baseline justify-between px-3 pb-2 pt-2">
+              <h2 className="text-[15px] font-medium text-white">Speakers</h2>
+              <span className="font-mono text-[12px] tabular-nums text-white/40">{speakers.length}/10</span>
+            </div>
+            {speakers.length === 0 ? (
+              <p className="px-3 pb-3 text-[13px] leading-relaxed text-white/50">
+                Add speakers to the event and their invite links appear here.{" "}
+                <Link to={eventHref} className="text-[color:var(--wb-accent)] hover:underline">Manage speakers</Link>
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {speakers.map((sp) => (
+                  <li key={sp.id} className="flex items-center gap-3 rounded-[12px] bg-white/[0.04] p-2 pl-3">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-[12px] font-medium text-white/80">
+                      {(sp.display_name || sp.email || "?").charAt(0).toUpperCase()}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[14px]">{sp.display_name || sp.email}</p>
+                      {sp.display_name && sp.email && <p className="truncate text-[12px] text-white/45">{sp.email}</p>}
+                    </div>
+                    {sp.invite_token && (
+                      <button
+                        className={cn(ROOM_ICON_BTN, "h-8 w-auto gap-1.5 px-2.5 text-[12px]")}
+                        onClick={() => copy(speakerLink(sp.invite_token!), "Invite link")}
+                      >
+                        <Copy className="h-3.5 w-3.5" strokeWidth={1.5} />Invite link
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="truncate px-3 pb-2 pt-3 font-mono text-[11px] text-white/30" title={session.livekit_room}>{session.livekit_room}</p>
+          </section>
+        </aside>
+      </div>
+    </StudioShell>
+  );
+}
+
+/** Dark page frame for the organizer's create / studio-lobby screens. */
+function StudioShell({
+  style, eventHref, eventTitle, org, crumb = "Webinar", actions, children,
+}: {
+  style: React.CSSProperties;
+  eventHref: string;
+  eventTitle: string;
+  org: { name: string | null; logo: string | null };
+  crumb?: string;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={style} className={cn(ROOM_SHELL, "min-h-screen")}>
+      <div className="mx-auto max-w-[1320px] px-4 py-5 sm:px-6 lg:px-8">
+        <header className="mb-6 flex h-9 items-center gap-2 lg:mb-8">
+          <Link to={eventHref} aria-label="Back to event" className={cn(ROOM_ICON_BTN, "-ml-2")}>
+            <ChevronLeft className="h-[18px] w-[18px]" strokeWidth={1.5} />
+          </Link>
+          <nav aria-label="Breadcrumb" className="min-w-0 flex-1">
+            <ol className="flex min-w-0 items-center gap-1.5 text-[14px]">
+              <li className="hidden shrink-0 sm:block"><Link to="/dashboard/events" className="text-white/40 transition-colors duration-150 hover:text-white/80">Events</Link></li>
+              <ChevronRight aria-hidden className="hidden h-3.5 w-3.5 shrink-0 text-white/25 sm:block" />
+              <li className="hidden min-w-0 sm:block"><Link to={eventHref} className="block max-w-[22rem] truncate text-white/40 transition-colors duration-150 hover:text-white/80">{eventTitle}</Link></li>
+              <ChevronRight aria-hidden className="hidden h-3.5 w-3.5 shrink-0 text-white/25 sm:block" />
+              <li aria-current="page" className="truncate text-white/85">{crumb}</li>
+            </ol>
+          </nav>
+          {actions}
+          {org.name && (
+            <span className="ml-2 hidden items-center gap-2 text-[13px] text-white/50 md:flex">
+              {org.logo && <img src={org.logo} alt="" className="h-6 w-6 rounded-full object-cover" />}
+              <span className="max-w-[10rem] truncate">{org.name}</span>
+            </span>
+          )}
+        </header>
+        {children}
+      </div>
     </div>
   );
 }
 
 function StatusPill({ status }: { status: string }) {
-  const map: Record<string, { label: string; cls: string; dot?: boolean }> = {
-    live: { label: "Live", cls: "bg-destructive/10 text-destructive border-destructive/20", dot: true },
-    scheduled: { label: "Ready", cls: "bg-muted text-muted-foreground border-border" },
-    ended: { label: "Ended", cls: "bg-muted text-muted-foreground border-border" },
-  };
-  const s = map[status] || { label: status, cls: "bg-muted text-muted-foreground border-border" };
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${s.cls}`}>
-      {s.dot && <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse" />}
-      {s.label}
-    </span>
-  );
+  const label = status === "live" ? "Live" : status === "scheduled" ? "Ready" : status === "ended" ? "Ended" : status;
+  return <OnAirChip live={status === "live"} label={label} className="bg-white/[0.06] capitalize" />;
 }
 
 function ReactionFloats({ sessionId }: { sessionId: string }) {

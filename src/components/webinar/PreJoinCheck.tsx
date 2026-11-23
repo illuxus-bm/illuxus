@@ -5,12 +5,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Mic, MicOff, Video, VideoOff, Loader2, CheckCircle2, Wifi, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { resolveRoomAccent, roomThemeStyle, ROOM_SHELL, ROOM_PANEL, ROOM_CTA, ROOM_BTN, ROOM_ENTER, type RoomAccent } from "./roomTheme";
 
-export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
+export function PreJoinCheck({ onJoin, onCancel, asPublisher, accent }: {
   onJoin: (opts?: { mic: boolean; cam: boolean; camId?: string; micId?: string; spkId?: string; headline?: string }) => void;
   onCancel?: () => void;
   asPublisher: boolean;
+  /** Organizer accent (falls back to the room default). */
+  accent?: RoomAccent;
 }) {
+  const roomStyle = roomThemeStyle(accent ?? resolveRoomAccent());
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -77,7 +81,7 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
         setResLabel(`${settings.width}×${settings.height}${settings.frameRate ? ` @ ${Math.round(settings.frameRate)}fps` : ""}`);
       }
       try {
-        audioCtxRef.current?.close();
+        audioCtxRef.current?.close().catch(() => {});
         const ctx = new AudioContext();
         audioCtxRef.current = ctx;
         const src = ctx.createMediaStreamSource(s);
@@ -120,7 +124,7 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
-      audioCtxRef.current?.close();
+      audioCtxRef.current?.close().catch(() => {});
       stream?.getTracks().forEach((t) => t.stop());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -149,7 +153,7 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
     stream?.getTracks().forEach((t) => t.stop());
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
-    audioCtxRef.current?.close();
+    audioCtxRef.current?.close().catch(() => {});
     onJoin({ mic, cam, camId: camId || undefined, micId: micId || undefined, spkId: spkId || undefined, headline: headline.trim() || undefined });
   };
 
@@ -165,12 +169,14 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
 
   if (!asPublisher) {
     return (
-      <div className="max-w-md mx-auto p-6 rounded-xl border border-border bg-card space-y-4">
-        <h2 className="text-lg font-semibold tracking-tight">Ready to join?</h2>
-        <p className="text-sm text-muted-foreground">You'll join as a viewer. You can chat, ask questions, react and raise your hand.</p>
-        <div className="flex gap-2">
-          <Button onClick={() => onJoin({ mic: false, cam: false })} className="flex-1">Join now</Button>
-          {onCancel && <Button variant="outline" onClick={onCancel}>Cancel</Button>}
+      <div style={roomStyle} className={cn(ROOM_SHELL, "fixed inset-0 z-50 flex items-center justify-center p-4")}>
+        <div className={cn("w-full max-w-sm rounded-[20px] p-6 space-y-4", ROOM_PANEL, ROOM_ENTER)}>
+          <h2 className="text-[20px] font-medium tracking-[-0.01em] text-white">Join as a viewer</h2>
+          <p className="text-[14px] text-white/55 leading-relaxed">You can chat, ask questions, react and raise your hand to speak.</p>
+          <div className="flex gap-2 pt-2">
+            <Button onClick={() => onJoin({ mic: false, cam: false })} className={cn("h-10 flex-1", ROOM_CTA)}>Join now</Button>
+            {onCancel && <Button onClick={onCancel} className={cn("h-10 px-4", ROOM_BTN)}>Cancel</Button>}
+          </div>
         </div>
       </div>
     );
@@ -178,7 +184,6 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
 
   const camOk = !!stream?.getVideoTracks()[0]?.enabled && !err;
   const micOk = !!stream?.getAudioTracks()[0]?.enabled && !err;
-  const allOk = camOk && micOk && !err && !!resLabel;
   const bars = 5;
 
   const deviceRows = [
@@ -188,11 +193,11 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-background p-6 sm:p-10">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 max-w-6xl mx-auto">
+    <div style={roomStyle} className={cn(ROOM_SHELL, "fixed inset-0 z-50 overflow-y-auto p-4 sm:p-8 lg:p-12")}>
+      <div className={cn("grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-8 lg:gap-12 max-w-6xl mx-auto", ROOM_ENTER)}>
         {/* LEFT — preview + device row */}
         <div className="space-y-5">
-          <div className="aspect-video bg-zinc-900 rounded-xl overflow-hidden relative ring-1 ring-border">
+          <div className="aspect-video bg-black rounded-[16px] overflow-hidden relative ring-1 ring-white/[0.06]">
             {err ? (
               <div className="h-full flex items-center justify-center text-sm text-foreground/70 p-4 text-center">{err}</div>
             ) : stream && cam ? (
@@ -271,10 +276,10 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
                   {row.ok && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}
                 </div>
                 <Select value={row.value} onValueChange={row.set}>
-                  <SelectTrigger className="h-9 text-[12px]">
+                  <SelectTrigger className="h-10 rounded-[10px] border-white/[0.08] bg-white/[0.04] px-3 text-[13px]">
                     <SelectValue placeholder={row.opts[0]?.label?.slice(0, 18) || "Default"} />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="dark">
                     {row.opts.map((d) => <SelectItem key={d.deviceId} value={d.deviceId}>{d.label || row.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
@@ -284,12 +289,12 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
 
           <button
             onClick={() => startMedia(camId, micId)}
-            className="text-[13px] text-primary hover:underline flex items-center gap-1.5"
+            className="text-[13px] text-[color:var(--wb-accent)] hover:underline flex items-center gap-1.5"
           >
             <Wifi className="h-3.5 w-3.5" /> Test audio & video
           </button>
 
-          <details className="rounded-md border border-border p-3 bg-muted/30 text-[12px]">
+          <details className={cn("rounded-[12px] p-4 text-[13px]", ROOM_PANEL)}>
             <summary className="cursor-pointer font-medium select-none">Pre-join checklist</summary>
             <div className="mt-3 space-y-2">
               <ChecklistRow ok={perm.cam !== "denied" && camOk} label="Camera permission" hint={perm.cam} />
@@ -305,10 +310,9 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
         {/* RIGHT — test setup + Join */}
         <div className="space-y-6">
           <div>
-            <h2 className="text-2xl font-semibold tracking-tight">Test your setup</h2>
+            <h2 className="text-[24px] font-medium tracking-[-0.01em] text-white">Check your camera and mic</h2>
             <p className="text-[13px] text-muted-foreground mt-2">
-              Check your appearance and audio on the left before entering the venue.<br />
-              <span className="text-amber-500/90">Your device selection will be used when you join the stage.</span>
+              The devices you pick here are the ones you go on stage with.
             </p>
           </div>
 
@@ -320,13 +324,13 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
               value={headline}
               onChange={(e) => setHeadline(e.target.value.slice(0, 50))}
               placeholder="e.g. CEO at Acme Inc."
-              className="mt-1.5"
+              className="mt-1.5 h-10 rounded-[10px] border-white/[0.08] bg-white/[0.04] px-3"
             />
             <div className="text-[11px] text-muted-foreground text-right font-mono">{headline.length}/50</div>
           </div>
 
           {/* Device summary */}
-          <div className="rounded-lg border border-border p-4 space-y-2 bg-muted/20">
+          <div className={cn("rounded-[12px] p-4 space-y-2", ROOM_PANEL)}>
             <p className="text-[13px] font-medium">Ready to join with:</p>
             <div className="grid grid-cols-2 gap-2 text-[12px] text-muted-foreground">
               <div className="flex items-center gap-2">
@@ -345,9 +349,9 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher }: {
             size="lg"
             onClick={join}
             disabled={!!err}
-            className={cn("w-full h-12 text-base font-semibold", allOk && "bg-primary hover:bg-primary/90")}
+            className={cn("w-full h-11 text-[15px]", ROOM_CTA)}
           >
-            Join Event
+            Join the stage
           </Button>
 
           {onCancel && (

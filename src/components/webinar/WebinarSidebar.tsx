@@ -58,25 +58,9 @@ function timeAgo(iso: string) {
   return `${Math.floor(h / 24)}d`;
 }
 
-export function WebinarSidebar({ sessionId, isHost, canPublish, userId, activeTab, setActiveTab, onClose }: Props) {
-  const [localTab, setLocalTab] = useState<Tab>("chat");
-  const tab = activeTab !== undefined ? activeTab : localTab;
-  const setTab = (t: Tab) => {
-    if (setActiveTab) setActiveTab(t);
-    else setLocalTab(t);
-  };
-  const [counts, setCounts] = useState({ chat: 0, qa: 0, polls: 0, requests: 0, participants: 0 });
-  const lastReact = useRef(0);
-  const [participants, setParticipants] = useState<SidebarParticipant[]>([]);
-
-  useEffect(() => {
-    return subscribeSessionParticipants(sessionId, (list) => {
-      setParticipants(list);
-      setCounts((c) => ({ ...c, participants: list.length }));
-    });
-  }, [sessionId]);
-
-  // Lightweight live counts for tab badges
+/** Live counts for chat / Q&A / open polls / pending stage requests. */
+export function useSidebarCounts(sessionId: string, isHost: boolean) {
+  const [counts, setCounts] = useState({ chat: 0, qa: 0, polls: 0, requests: 0 });
   useEffect(() => {
     let mounted = true;
     const load = async () => {
@@ -89,13 +73,7 @@ export function WebinarSidebar({ sessionId, isHost, canPublish, userId, activeTa
           : Promise.resolve({ count: 0 } as { count: number | null }),
       ]);
       if (!mounted) return;
-      setCounts((prev) => ({
-        ...prev,
-        chat: c.count || 0,
-        qa: q.count || 0,
-        polls: p.count || 0,
-        requests: r.count || 0,
-      }));
+      setCounts({ chat: c.count || 0, qa: q.count || 0, polls: p.count || 0, requests: r.count || 0 });
     };
     load();
     const ch = supabase.channel(`sidebar-counts-${sessionId}`)
@@ -106,6 +84,21 @@ export function WebinarSidebar({ sessionId, isHost, canPublish, userId, activeTa
       .subscribe();
     return () => { mounted = false; supabase.removeChannel(ch); };
   }, [sessionId, isHost]);
+  return counts;
+}
+
+export function WebinarSidebar({ sessionId, isHost, canPublish, userId, activeTab, setActiveTab, onClose }: Props) {
+  const [localTab, setLocalTab] = useState<Tab>("chat");
+  const tab = activeTab !== undefined ? activeTab : localTab;
+  const setTab = (t: Tab) => {
+    if (setActiveTab) setActiveTab(t);
+    else setLocalTab(t);
+  };
+  const [participants, setParticipants] = useState<SidebarParticipant[]>([]);
+  const lastReact = useRef(0);
+
+  useEffect(() => subscribeSessionParticipants(sessionId, setParticipants), [sessionId]);
+  const counts = { ...useSidebarCounts(sessionId, isHost), participants: participants.length };
 
   const sendReaction = useCallback((emoji: string) => {
     const now = Date.now();
@@ -191,7 +184,11 @@ export function WebinarSidebar({ sessionId, isHost, canPublish, userId, activeTa
 
 /* ---------------------- Chat ---------------------- */
 
-const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost }: { sessionId: string; userId: string; isHost: boolean }) {
+export const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost, variant = "default" }: {
+  sessionId: string; userId: string; isHost: boolean;
+  /** "bubbles" = live-room chat (accent bubbles, pill composer). */
+  variant?: "default" | "bubbles";
+}) {
   type ChatRow = Tables<"webinar_chat">;
   const [msgs, setMsgs] = useState<ChatRow[]>([]);
   const [text, setText] = useState("");
@@ -241,7 +238,42 @@ const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost }: { sessi
         {visible.length === 0 && (
           <EmptyState icon={MessageSquare} title="No messages yet" body="Say hi to break the ice — your message will appear here in real time." />
         )}
-        {visible.map((m) => {
+        {variant === "bubbles" ? visible.map((m) => {
+          const isSelf = m.user_id === userId;
+          return (
+            <div key={m.id} className={cn("group flex items-end gap-2", isSelf && "flex-row-reverse")}>
+              <Avatar className="h-7 w-7 shrink-0">
+                <AvatarFallback className={cn("text-[10px] font-semibold", hashColor(m.user_id))}>
+                  {shortName(m.user_id)}
+                </AvatarFallback>
+              </Avatar>
+              <div className={cn("min-w-0 max-w-[80%] flex flex-col", isSelf && "items-end")}>
+                <span className="mb-1 px-1 text-[11px] text-white/40">
+                  {isSelf ? "You" : `User ${m.user_id.slice(0, 6)}`} · {timeAgo(m.created_at)}
+                </span>
+                <p
+                  className={cn(
+                    "rounded-[14px] px-3 py-2 text-[13.5px] leading-snug break-words text-white/90",
+                    isSelf
+                      ? "rounded-br-[4px] bg-[color:color-mix(in_srgb,var(--wb-accent)_22%,#161617)]"
+                      : "rounded-bl-[4px] bg-white/[0.06]",
+                  )}
+                >
+                  {m.message}
+                </p>
+              </div>
+              {isHost && (
+                <button
+                  onClick={async () => { await supabase.from("webinar_chat").update({ deleted: true }).eq("id", m.id); }}
+                  className="self-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity p-1 rounded hover:bg-white/10"
+                  aria-label="Delete message"
+                >
+                  <Trash2 className="h-3 w-3 text-white/50" />
+                </button>
+              )}
+            </div>
+          );
+        }) : visible.map((m) => {
           const isSelf = m.user_id === userId;
           return (
             <div key={m.id} className="group flex items-start gap-2.5">
@@ -278,6 +310,29 @@ const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost }: { sessi
           <ChevronDown className="h-3 w-3" /> New messages
         </button>
       )}
+      {variant === "bubbles" ? (
+        <div className="px-3 pb-3 pt-1">
+          <div className="flex items-center gap-1 rounded-[12px] bg-white/[0.04] ring-1 ring-white/[0.08] pl-3.5 pr-1 py-1 transition-shadow duration-150 focus-within:ring-[color:var(--wb-accent)]">
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), send())}
+              placeholder="Message"
+              aria-label="Chat message"
+              className="flex-1 min-w-0 bg-transparent text-[13.5px] text-white placeholder:text-white/40 outline-none h-9"
+              maxLength={500}
+            />
+            <button
+              onClick={send}
+              disabled={!text.trim()}
+              aria-label="Send message"
+              className="h-8 w-8 shrink-0 rounded-[8px] flex items-center justify-center bg-[color:var(--wb-accent)] text-[color:var(--wb-accent-fg)] transition-opacity duration-150 disabled:bg-white/[0.06] disabled:text-white/30"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      ) : (
       <div className="p-2 border-t border-border/60 flex gap-1.5">
         <Input
           value={text}
@@ -291,6 +346,7 @@ const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost }: { sessi
           <Send className="h-4 w-4" />
         </Button>
       </div>
+      )}
     </div>
   );
 });
@@ -299,7 +355,7 @@ const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost }: { sessi
 
 type QASort = "top" | "newest" | "answered";
 
-const QAPanel = memo(function QAPanel({ sessionId, userId, isHost }: { sessionId: string; userId: string; isHost: boolean }) {
+export const QAPanel = memo(function QAPanel({ sessionId, userId, isHost }: { sessionId: string; userId: string; isHost: boolean }) {
   const [qs, setQs] = useState<Tables<"webinar_qa">[]>([]);
   const [text, setText] = useState("");
   const [sort, setSort] = useState<QASort>("top");
@@ -371,7 +427,7 @@ const QAPanel = memo(function QAPanel({ sessionId, userId, isHost }: { sessionId
               <p className="text-[13px] leading-snug break-words">{q.question}</p>
               <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                 <span className="text-[10px] text-muted-foreground font-mono">User {q.user_id.slice(0, 6)} · {timeAgo(q.created_at)}</span>
-                {q.pinned && <Badge variant="outline" className="h-4 px-1 text-[9px] border-primary/40 text-primary">PINNED</Badge>}
+                {q.pinned && <span className="text-[11px] font-medium text-primary">Pinned</span>}
                 {q.answered && <Badge variant="outline" className="h-4 px-1 text-[9px] text-emerald-600 border-emerald-600/40">ANSWERED</Badge>}
               </div>
               {isHost && (
@@ -421,7 +477,7 @@ const QAPanel = memo(function QAPanel({ sessionId, userId, isHost }: { sessionId
 
 type Poll = { id: string; question: string; options: string[]; open: boolean; created_at: string };
 
-const PollsPanel = memo(function PollsPanel({ sessionId, userId, isHost }: { sessionId: string; userId: string; isHost: boolean }) {
+export const PollsPanel = memo(function PollsPanel({ sessionId, userId, isHost }: { sessionId: string; userId: string; isHost: boolean }) {
   const [polls, setPolls] = useState<Poll[]>([]);
   const [votes, setVotes] = useState<Record<string, { my?: number; counts: number[] }>>({});
   const [composing, setComposing] = useState(false);
@@ -641,7 +697,7 @@ function PollComposer({ sessionId, onClose }: { sessionId: string; onClose: () =
 
 /* ---------------------- Stage requests ---------------------- */
 
-const RequestsPanel = memo(function RequestsPanel({ sessionId, userId, isHost, canPublish }: { sessionId: string; userId: string; isHost: boolean; canPublish: boolean }) {
+export const RequestsPanel = memo(function RequestsPanel({ sessionId, userId, isHost, canPublish }: { sessionId: string; userId: string; isHost: boolean; canPublish: boolean }) {
   // Hosts see all pending requests; attendees see their own request controls.
   if (isHost) return <HostRequestsList sessionId={sessionId} />;
   if (!canPublish) return <AttendeeRaiseHand sessionId={sessionId} userId={userId} />;
@@ -723,7 +779,7 @@ function AttendeeRaiseHand({ sessionId, userId }: { sessionId: string; userId: s
 
   return (
     <div className="flex flex-col h-full items-center justify-center px-6 text-center space-y-3">
-      <div className={cn("h-14 w-14 rounded-full flex items-center justify-center", pending ? "bg-amber-500/10 text-amber-600 animate-pulse" : "bg-foreground/5 text-foreground/60")}>
+      <div className={cn("h-14 w-14 rounded-full flex items-center justify-center", pending ? "bg-amber-500/10 text-amber-600" : "bg-foreground/5 text-foreground/60")}>
         <Hand className="h-7 w-7" />
       </div>
       <div className="space-y-1">
@@ -757,7 +813,7 @@ function EmptyState({ icon: Icon, title, body }: { icon: typeof MessageSquare; t
 
 /* ---------------------- Participants (Airmeet-style) ---------------------- */
 
-function ParticipantsPanel({ participants }: { participants: SidebarParticipant[] }) {
+export function ParticipantsPanel({ participants }: { participants: SidebarParticipant[] }) {
   const [q, setQ] = useState("");
   const norm = q.trim().toLowerCase();
   const filtered = useMemo(
@@ -809,9 +865,9 @@ function ParticipantsPanel({ participants }: { participants: SidebarParticipant[
 function ParticipantGroup({ label, count, items }: { label: string; count: number; items: SidebarParticipant[] }) {
   return (
     <div className="py-2">
-      <p className="px-3 pb-1 text-[10px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-2">
+      <p className="px-3 pb-1 text-[12px] font-medium text-muted-foreground flex items-center gap-2">
         {label}
-        <span className="font-mono normal-case tracking-normal text-muted-foreground/70">· {count}</span>
+        <span className="font-mono tabular-nums text-muted-foreground/70">{count}</span>
       </p>
       <ul>
         {items.map((p) => (
@@ -830,14 +886,12 @@ function ParticipantGroup({ label, count, items }: { label: string; count: numbe
                   {p.name}{p.isLocal && <span className="text-muted-foreground font-normal"> (you)</span>}
                 </span>
                 {p.isHost && (
-                  <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300">
-                    <Crown className="h-2.5 w-2.5" /> Host
+                  <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-300/90">
+                    <Crown className="h-3 w-3" strokeWidth={1.5} />Host
                   </span>
                 )}
                 {!p.isHost && p.canPublish && (
-                  <span className="text-[9px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded bg-foreground/5 text-muted-foreground">
-                    Speaker
-                  </span>
+                  <span className="text-[11px] text-muted-foreground">Speaker</span>
                 )}
               </div>
             </div>

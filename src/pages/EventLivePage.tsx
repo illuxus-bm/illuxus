@@ -6,8 +6,6 @@ import { supabaseRpc } from "@/lib/observability";
 import type { Tables } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { ArrowLeft, Minimize2, Maximize2, X, LogOut, Users, MessageSquare, HelpCircle, BarChart2, Hand } from "lucide-react";
 import { FullPageLoader } from "@/components/FullPageLoader";
 import { useSessionBranding } from "@/components/webinar/StageOverlays";
 import { WaitingLobby } from "@/components/webinar/WaitingLobby";
@@ -16,12 +14,11 @@ import { getWebinarProvider, type WebinarProvider } from "@/lib/webinar/provider
 import { toast } from "sonner";
 import { loginPath } from "@/lib/safe-redirect";
 import { toStageLayout } from "@/lib/webinar/stage-layout";
+import { eventThemeColor, resolveRoomAccent, roomThemeStyle } from "@/components/webinar/roomTheme";
+import { LiveRoomShell } from "@/components/webinar/LiveRoomShell";
 
 const WebinarStage = lazy(() =>
   import("@/components/webinar/WebinarStage").then((m) => ({ default: m.WebinarStage })),
-);
-const WebinarSidebar = lazy(() =>
-  import("@/components/webinar/WebinarSidebar").then((m) => ({ default: m.WebinarSidebar })),
 );
 const PreJoinCheck = lazy(() =>
   import("@/components/webinar/PreJoinCheck").then((m) => ({ default: m.PreJoinCheck })),
@@ -46,7 +43,6 @@ export default function EventLivePage() {
   const [canPublish, setCanPublish] = useState(false);
   const [showPrejoin, setShowPrejoin] = useState(false);
   const [minimized, setMinimized] = useState(false);
-  const [activeTab, setActiveTab] = useState<"chat" | "qa" | "polls" | "requests" | "participants" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [registrationId, setRegistrationId] = useState<string | null>(null);
   // Persist a stable browser session id per join token / user so tab switches,
@@ -76,7 +72,9 @@ export default function EventLivePage() {
     title: string | null;
     banner: string | null;
     videoProvider: string | null;
-  }>({ title: null, banner: null, videoProvider: null });
+    color: string | null;
+  }>({ title: null, banner: null, videoProvider: null, color: null });
+  const [org, setOrg] = useState<{ name: string | null; logo: string | null }>({ name: null, logo: null });
   const branding = useSessionBranding(session?.id);
 
   // Stable, low-entropy device fingerprint used as a server-side fallback when
@@ -121,16 +119,28 @@ export default function EventLivePage() {
   useEffect(() => {
     if (!eventId) return;
     (async () => {
-      const { data } = await db
+      const { data: raw } = await db
         .from("events")
-        .select("title, banner_landscape_url, video_provider")
+        .select("title, banner_landscape_url, video_provider, org_id, page_config")
         .eq("id", eventId)
         .maybeSingle();
-      if (data) setEventMeta({
+      // Generated types predate `video_provider`, so type the row by hand.
+      const data = raw as unknown as {
+        title: string | null; banner_landscape_url: string | null;
+        video_provider?: string | null; org_id: string | null; page_config: unknown;
+      } | null;
+      if (!data) return;
+      setEventMeta({
         title: data.title ?? null,
         banner: data.banner_landscape_url ?? null,
-        videoProvider: (data as { video_provider?: string | null }).video_provider ?? null,
+        videoProvider: data.video_provider ?? null,
+        color: eventThemeColor(data.page_config),
       });
+      if (data.org_id) {
+        const { data: brief } = await supabaseRpc("get_public_org_brief", { _oid: data.org_id });
+        const row = Array.isArray(brief) ? brief[0] : brief;
+        if (row) setOrg({ name: row.name ?? null, logo: row.logo_url ?? null });
+      }
     })();
   }, [eventId]);
 
@@ -198,6 +208,12 @@ export default function EventLivePage() {
       }
     })();
   }, [user, joinToken, speakerToken, session?.id, eventId, linkVisitor]);
+
+  const roomAccent = useMemo(
+    () => resolveRoomAccent({ eventColor: eventMeta.color, branding, brandingEnabled }),
+    [eventMeta.color, branding, brandingEnabled],
+  );
+  const roomStyle = useMemo(() => roomThemeStyle(roomAccent), [roomAccent]);
 
   const requestToken = async () => {
     setError(null);
@@ -333,6 +349,7 @@ export default function EventLivePage() {
         role={visitorRole}
         sessionStatus={null}
         onJoin={handleJoinClick}
+        accent={roomAccent}
       />
     );
   }
@@ -362,7 +379,7 @@ export default function EventLivePage() {
   if (showPrejoin && !token) {
     return (
       <Suspense fallback={<FullPageLoader label="Preparing your setup…" />}>
-        <PreJoinCheck asPublisher={canPublish} onCancel={() => setShowPrejoin(false)} onJoin={confirmJoin} />
+        <PreJoinCheck asPublisher={canPublish} onCancel={() => setShowPrejoin(false)} onJoin={confirmJoin} accent={roomAccent} />
       </Suspense>
     );
   }
@@ -394,98 +411,29 @@ export default function EventLivePage() {
       </Suspense>
     );
     return (
-      <>
-        {/* Minimized "shell" — only rendered when minimized, kept separate from stage */}
-        {minimized && (
-          <div className="p-6 max-w-2xl mx-auto space-y-4">
-            <Button variant="ghost" size="sm" asChild>
-              <Link to={`/events/${eventId}`}><ArrowLeft className="h-4 w-4 mr-1" />Back to event</Link>
-            </Button>
-            <Card className="p-4">
-              <p className="text-[13px] text-muted-foreground">Webinar minimized — still connected.</p>
-              <Button size="sm" className="mt-2" onClick={() => setMinimized(false)}>
-                <Maximize2 className="h-3 w-3 mr-1" />Return to webinar
-              </Button>
-            </Card>
-          </div>
-        )}
-
-        {/* Stable stage container — same React node for full + minimized.
-            We swap class names instead of remounting. */}
-        <div
-          className={
-            minimized
-              ? "fixed bottom-4 right-4 w-[340px] h-[200px] rounded-lg overflow-hidden border border-border shadow-2xl bg-background z-50"
-              : "fixed inset-0 flex bg-background z-40"
-          }
-        >
-          <div className="flex-1 relative min-w-0">
-            {stageEl}
-            {!minimized && (
-              <>
-                <LiveReactions sessionId={session.id} />
-                <LiveAnnouncement sessionId={session.id} />
-                <div className="absolute top-3 left-3 flex gap-2 z-20">
-                  <Button size="sm" variant="secondary" asChild>
-                    <Link to={`/events/${eventId}`}><ArrowLeft className="h-4 w-4 mr-1.5" />Back</Link>
-                  </Button>
-                  <span className="bg-destructive text-destructive-foreground text-[11px] px-2 py-1 rounded-md animate-pulse font-medium">● LIVE</span>
-                </div>
-                <div className="absolute top-3 right-3 flex gap-2 z-20">
-                  <div className="bg-black/45 backdrop-blur-md rounded-lg p-0.5 flex gap-0.5 border border-white/10 mr-2">
-                    {([
-                      { key: "participants", icon: Users, title: "People" },
-                      { key: "chat", icon: MessageSquare, title: "Chat" },
-                      { key: "qa", icon: HelpCircle, title: "Q&A" },
-                      { key: "polls", icon: BarChart2, title: "Polls" },
-                    ] as const).map((t) => {
-                      const Icon = t.icon;
-                      const active = activeTab === t.key;
-                      return (
-                        <Button
-                          key={t.key}
-                          size="icon"
-                          variant="ghost"
-                          className={`h-8 w-8 rounded-md text-white transition-colors ${
-                            active ? "bg-white/20 text-white" : "hover:bg-white/10 text-white/70"
-                          }`}
-                          onClick={() => setActiveTab(active ? null : t.key)}
-                          title={t.title}
-                        >
-                          <Icon className="h-4.5 w-4.5" />
-                        </Button>
-                      );
-                    })}
-                  </div>
-                  <Button size="sm" variant="secondary" onClick={() => setMinimized(true)}><Minimize2 className="h-4 w-4 mr-1.5" />Minimize</Button>
-                  <Button size="sm" variant="secondary" onClick={() => setToken(null)}><LogOut className="h-4 w-4 mr-1.5" />Leave</Button>
-                </div>
-              </>
-            )}
-            {minimized && (
-              <div className="absolute top-1 right-1 z-30 flex gap-1">
-                <Button size="icon" variant="secondary" className="h-6 w-6" onClick={() => setMinimized(false)}><Maximize2 className="h-3 w-3" /></Button>
-                <Button size="icon" variant="destructive" className="h-6 w-6" onClick={() => setToken(null)}><X className="h-3 w-3" /></Button>
-              </div>
-            )}
-          </div>
-          {!minimized && activeTab && (
-            <div className="w-80 bg-background border-l border-border h-full flex flex-col shrink-0">
-              <Suspense fallback={<div className="p-4 text-[12px] text-muted-foreground">Loading chat…</div>}>
-                <WebinarSidebar
-                  sessionId={session.id}
-                  isHost={false}
-                  canPublish={canPublish}
-                  userId={user?.id ?? `guest-${registrationId ?? "anon"}`}
-                  activeTab={activeTab}
-                  setActiveTab={setActiveTab}
-                  onClose={() => setActiveTab(null)}
-                />
-              </Suspense>
-            </div>
-          )}
-        </div>
-      </>
+      <LiveRoomShell
+        style={roomStyle}
+        sessionId={session.id}
+        userId={user?.id ?? `guest-${registrationId ?? "anon"}`}
+        isHost={false}
+        canPublish={canPublish}
+        isLive={session.status === "live"}
+        title={eventMeta.title ?? "Live session"}
+        org={org}
+        breadcrumbs={[
+          { label: "Events", href: "/events" },
+          ...(org.name ? [{ label: org.name }] : []),
+          { label: eventMeta.title ?? "Live session" },
+        ]}
+        backHref={`/events/${eventId}`}
+        backLabel="Back"
+        logoOnStage={brandingEnabled && !!branding?.logo_url}
+        stage={stageEl}
+        stageOverlays={<><LiveReactions sessionId={session.id} /><LiveAnnouncement sessionId={session.id} /></>}
+        minimized={minimized}
+        onMinimizedChange={setMinimized}
+        onLeave={() => setToken(null)}
+      />
     );
   }
 
@@ -497,6 +445,7 @@ export default function EventLivePage() {
       sessionStatus={session.status}
       onJoin={handleJoinClick}
       error={error}
+      accent={roomAccent}
     />
   );
 }
