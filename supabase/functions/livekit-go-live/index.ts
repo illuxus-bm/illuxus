@@ -3,6 +3,7 @@ import { AccessToken } from "../_vendor/esm.sh/livekit-server-sdk@2.9.7/_entry.m
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { sessionMeetsTwoFactor } from "../_shared/auth.ts";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
+import { hlsEnabled, startHlsEgress } from "../_shared/webinar-hls.ts";
 
 const log = createEdgeLogger("livekit-go-live");
 
@@ -32,7 +33,19 @@ Deno.serve(async (req) => {
       status: "live",
       started_at: new Date().toISOString(),
     }).eq("id", session_id);
-    return j({ ok: true });
+
+    // Viewers watch over HLS, not in the room: start their stream now. The
+    // session is live either way; `hls.started` tells the studio whether
+    // the audience has something to watch.
+    let hls: { started: boolean } | null = null;
+    if (hlsEnabled()) {
+      const at = new AccessToken(Deno.env.get("LIVEKIT_API_KEY")!, Deno.env.get("LIVEKIT_API_SECRET")!, { identity: "server" });
+      at.addGrant({ roomRecord: true, room: session.livekit_room });
+      const started = await startHlsEgress(session.livekit_room, await at.toJwt());
+      if (started.error) log.error("hls egress start failed", { error_message: started.error });
+      hls = { started: !!started.egress_id };
+    }
+    return j({ ok: true, hls });
   } catch (e) {
     // Details stay in the logs; callers get a generic message.
     log.error("unhandled error", toErrorFields(e));

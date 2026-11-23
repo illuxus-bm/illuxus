@@ -40,14 +40,23 @@ Deno.serve(async (req) => {
       await supabase.from("webinar_sessions").update({
         status: "ended", ended_at: new Date().toISOString(),
       }).eq("livekit_room", room);
-      // Close any open attendance rows for this session
-      const { data: s } = await supabase.from("webinar_sessions").select("id").eq("livekit_room", room).maybeSingle();
+      // Close any open attendance rows for this session. HLS viewers aren't
+      // in the room, so nothing closed theirs: their last heartbeat
+      // (duration_seconds, set by livekit-token) is when they were last seen.
+      const { data: s } = await supabase.from("webinar_sessions").select("id, attendance_minutes").eq("livekit_room", room).maybeSingle();
       if (s) {
         const now = new Date().toISOString();
-        const { data: open } = await supabase.from("webinar_attendance").select("id, joined_at").eq("session_id", s.id).is("left_at", null);
+        const { data: open } = await supabase.from("webinar_attendance").select("id, joined_at, duration_seconds").eq("session_id", s.id).is("left_at", null);
+        let hlsMinutes = 0;
         for (const row of open || []) {
-          const dur = Math.max(0, Math.round((Date.parse(now) - Date.parse(row.joined_at)) / 1000));
-          await supabase.from("webinar_attendance").update({ left_at: now, duration_seconds: dur }).eq("id", row.id);
+          const beat = typeof row.duration_seconds === "number" ? row.duration_seconds : null;
+          const dur = beat ?? Math.max(0, Math.round((Date.parse(now) - Date.parse(row.joined_at)) / 1000));
+          const leftAt = beat === null ? now : new Date(Date.parse(row.joined_at) + beat * 1000).toISOString();
+          await supabase.from("webinar_attendance").update({ left_at: leftAt, duration_seconds: dur }).eq("id", row.id);
+          if (beat !== null) hlsMinutes += Math.round(dur / 60);
+        }
+        if (hlsMinutes) {
+          await supabase.from("webinar_sessions").update({ attendance_minutes: (s.attendance_minutes || 0) + hlsMinutes }).eq("id", s.id);
         }
       }
     } else if (event.event === "egress_ended") {

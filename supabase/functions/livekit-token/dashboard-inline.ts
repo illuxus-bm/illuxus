@@ -10258,9 +10258,23 @@ function featureNotIncluded(feature, label) {
   };
 }
 
+// supabase/functions/_shared/webinar-hls.ts
+var LIVE_PLAYLIST = "live.m3u8";
+function hlsPublicBase() {
+  const base = (Deno.env.get("WEBINAR_HLS_PUBLIC_BASE") || "").trim().replace(/\/+$/, "");
+  return /^https:\/\//.test(base) ? base : null;
+}
+function hlsPrefix(room) {
+  return `${room}/hls`;
+}
+function hlsPlaybackUrl(room) {
+  const base = hlsPublicBase();
+  return base ? `${base}/${hlsPrefix(room)}/${LIVE_PLAYLIST}` : null;
+}
+
 // supabase/functions/livekit-token/index.ts
 var log = createEdgeLogger("livekit-token");
-var MAX_PUBLISHERS = 10;
+var MAX_PUBLISHERS = 15;
 function cleanName(raw) {
   if (!raw) return "Guest";
   const s8 = String(raw).trim();
@@ -10375,7 +10389,25 @@ Deno.serve(async (req) => {
       const { data: reg } = await supabase.from("registrations").select("id").eq("event_id", session.event_id).eq("user_id", userId).eq("approval_status", "approved").maybeSingle();
       if (!reg && !isOwner) return json({ error: "Not registered or not approved" }, 403);
     }
+    if (!canPublish && userId) {
+      const { data: accepted } = await supabase.from("webinar_stage_requests").select("id").eq("session_id", session_id).eq("user_id", userId).eq("status", "accepted").maybeSingle();
+      if (accepted && await getPublisherCount(session.livekit_room) < MAX_PUBLISHERS) canPublish = true;
+    }
     displayName = cleanName(displayName ?? userEmail);
+    const playbackUrl = canPublish ? null : hlsPlaybackUrl(session.livekit_room);
+    if (playbackUrl) {
+      if (session.status === "live") {
+        await recordHlsViewer(supabase, session.id, userId ?? guestIdentity, userId, displayName);
+      }
+      return json({
+        mode: "hls",
+        playback_url: playbackUrl,
+        role,
+        can_publish: false,
+        room: session.livekit_room,
+        registration_id: registrationId
+      });
+    }
     const at4 = new v5(
       Deno.env.get("LIVEKIT_API_KEY"),
       Deno.env.get("LIVEKIT_API_SECRET"),
@@ -10395,8 +10427,9 @@ Deno.serve(async (req) => {
     });
     const token = await at4.toJwt();
     return json({
+      mode: "rtc",
       token,
-      ws_url: Deno.env.get("LIVEKIT_WS_URL"),
+      ws_url: Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL"),
       role,
       can_publish: canPublish,
       room: session.livekit_room,
@@ -10415,7 +10448,7 @@ Deno.serve(async (req) => {
 });
 async function getPublisherCount(room) {
   try {
-    const url = Deno.env.get("LIVEKIT_WS_URL").replace(/^wss?:\/\//, "https://");
+    const url = (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL")).replace(/^wss?:\/\//, "https://");
     const at4 = new v5(
       Deno.env.get("LIVEKIT_API_KEY"),
       Deno.env.get("LIVEKIT_API_SECRET"),
@@ -10434,5 +10467,27 @@ async function getPublisherCount(room) {
     return participants.filter((p9) => p9.permission?.canPublish).length;
   } catch {
     return 0;
+  }
+}
+async function recordHlsViewer(supabase, sessionId, identity, userId, displayName) {
+  try {
+    const { data: open } = await supabase.from("webinar_attendance").select("id, joined_at").eq("session_id", sessionId).eq("identity", identity).is("left_at", null).order("joined_at", { ascending: false }).limit(1).maybeSingle();
+    if (open) {
+      const seconds = Math.max(0, Math.round((Date.now() - Date.parse(open.joined_at)) / 1e3));
+      await supabase.from("webinar_attendance").update({ duration_seconds: seconds }).eq("id", open.id);
+      return;
+    }
+    await supabase.from("webinar_attendance").insert({
+      session_id: sessionId,
+      identity,
+      user_id: userId,
+      display_name: displayName,
+      role: "viewer",
+      duration_seconds: 0
+    });
+    const { data: s8 } = await supabase.from("webinar_sessions").select("viewer_peak").eq("id", sessionId).maybeSingle();
+    if (s8) await supabase.from("webinar_sessions").update({ viewer_peak: (s8.viewer_peak || 0) + 1 }).eq("id", sessionId);
+  } catch (e4) {
+    log.error("hls attendance failed", toErrorFields(e4));
   }
 }

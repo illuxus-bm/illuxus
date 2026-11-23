@@ -9,7 +9,7 @@ import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.js";
 
 const log = createEdgeLogger("livekit-promote");
 
-const MAX = 10;
+const MAX = 15;
 
 export default defineHandler(async (req) => {
   const corsHeaders = buildCorsHeaders(req);
@@ -46,7 +46,7 @@ export default defineHandler(async (req) => {
       return j({ error: "Forbidden" }, 403);
     }
 
-    const url = Deno.env.get("LIVEKIT_WS_URL")!.replace(/^wss?:\/\//, "https://");
+    const url = (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL"))!.replace(/^wss?:\/\//, "https://");
     const at = new AccessToken(Deno.env.get("LIVEKIT_API_KEY")!, Deno.env.get("LIVEKIT_API_SECRET")!, { identity: "server" });
     at.addGrant({ roomAdmin: true, room: session.livekit_room });
     const jwt = await at.toJwt();
@@ -58,7 +58,7 @@ export default defineHandler(async (req) => {
         body: JSON.stringify({ room: session.livekit_room }),
       }).then(r => r.json()).catch(() => ({ participants: [] }));
       const pubCount = ((list.participants || []) as { permission?: { canPublish?: boolean } }[]).filter((p) => p.permission?.canPublish).length;
-      if (pubCount >= MAX) return j({ error: "Stage is full (10/10)" }, 409);
+      if (pubCount >= MAX) return j({ error: "Stage is full (15/15)" }, 409);
       if (!self) {
         await supabase.from("webinar_stage_requests").update({ status: "accepted" })
           .eq("session_id", session_id).eq("user_id", target_user_id);

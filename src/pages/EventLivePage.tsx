@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { db } from "@/lib/data/db";
@@ -20,9 +20,15 @@ import { LiveRoomShell } from "@/components/webinar/LiveRoomShell";
 const WebinarStage = lazy(() =>
   import("@/components/webinar/WebinarStage").then((m) => ({ default: m.WebinarStage })),
 );
+const HlsStage = lazy(() =>
+  import("@/components/webinar/HlsStage").then((m) => ({ default: m.HlsStage })),
+);
 const PreJoinCheck = lazy(() =>
   import("@/components/webinar/PreJoinCheck").then((m) => ({ default: m.PreJoinCheck })),
 );
+
+/** How often an HLS viewer reports that they're still watching. */
+const HLS_HEARTBEAT_MS = 120_000;
 
 /** What webinar_link_access returns for a valid join or speaker link (migration 088). */
 interface WebinarLinkAccess {
@@ -41,6 +47,9 @@ export default function EventLivePage() {
   const [token, setToken] = useState<string | null>(null);
   const [wsUrl, setWsUrl] = useState<string | null>(null);
   const [canPublish, setCanPublish] = useState(false);
+  // Set once a viewer has joined over HLS: they watch the composed stream
+  // from the CDN and only get a room token when brought on stage.
+  const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
   const [showPrejoin, setShowPrejoin] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -215,12 +224,19 @@ export default function EventLivePage() {
   );
   const roomStyle = useMemo(() => roomThemeStyle(roomAccent), [roomAccent]);
 
-  const requestToken = async () => {
+  const requestToken = async (opts: { quiet?: boolean } = {}) => {
+    if (opts.quiet) {
+      // Heartbeat: never surface an error or touch the join state.
+      const { data } = await db.functions.invoke("livekit-token", {
+        body: { session_id: session!.id, speaker_token: speakerToken || undefined, join_token: joinToken || undefined, browser_session_id: browserSessionId, fingerprint },
+      }).catch(() => ({ data: null }));
+      return data ?? null;
+    }
     setError(null);
     const { data, error } = await db.functions.invoke("livekit-token", {
       body: { session_id: session.id, speaker_token: speakerToken || undefined, join_token: joinToken || undefined, browser_session_id: browserSessionId, fingerprint },
     });
-    if (error || !data?.token) { setError(error?.message || data?.error || "Failed"); return null; }
+    if (error || !(data?.token || data?.mode === "hls")) { setError(error?.message || data?.error || "Failed"); return null; }
     if (data.registration_id) setRegistrationId(data.registration_id);
     return data;
   };
@@ -263,6 +279,35 @@ export default function EventLivePage() {
     return () => { supabase.removeChannel(ch); };
   }, [registrationId, browserSessionId]);
 
+  // Brought on stage from the HLS stream: the accepted request lets
+  // livekit-token issue a publishing token, then the usual device check.
+  const joinStage = async () => {
+    const data = await requestToken();
+    if (!data?.token || !data.can_publish) return;
+    setWsUrl(data.ws_url);
+    setCanPublish(true);
+    sessionStorage.setItem(`lk-token-${session!.id}`, data.token);
+    setShowPrejoin(true);
+  };
+  // The realtime listener below outlives renders; give it the current values.
+  const joinStageRef = useRef(joinStage);
+  joinStageRef.current = joinStage;
+  const hlsViewerRef = useRef(false);
+  hlsViewerRef.current = !!playbackUrl;
+
+  // Attendance heartbeat for HLS viewers, who never appear in the room:
+  // each livekit-token request moves their watch time forward.
+  const watchingHls = !!playbackUrl && !token && session?.status === "live";
+  const requestTokenRef = useRef(requestToken);
+  requestTokenRef.current = requestToken;
+  useEffect(() => {
+    if (!watchingHls) return;
+    const beat = () => { void requestTokenRef.current({ quiet: true }); };
+    beat();
+    const timer = window.setInterval(beat, HLS_HEARTBEAT_MS);
+    return () => window.clearInterval(timer);
+  }, [watchingHls]);
+
   // Listen for stage request promotions (raise hand approval)
   useEffect(() => {
     if (!session?.id) return;
@@ -276,10 +321,13 @@ export default function EventLivePage() {
         const next = p.new as { session_id?: string; user_id?: string; status?: string } | null;
         if (next && next.session_id === session.id && next.user_id === clientUserId) {
           if (next.status === "accepted") {
-            setCanPublish(true);
             toast.success("You have been promoted to the stage!");
+            if (hlsViewerRef.current) void joinStageRef.current();
+            else setCanPublish(true);
           } else if (next.status === "cancelled" || next.status === "demoted") {
             setCanPublish(false);
+            // An HLS viewer leaves the room and goes back to the stream.
+            if (hlsViewerRef.current) { setShowPrejoin(false); setToken(null); }
             toast.success("You have been moved back to the audience.");
           }
         }
@@ -316,6 +364,11 @@ export default function EventLivePage() {
     // Pre-fetch token to know if we can publish, then show prejoin
     const data = await requestToken();
     if (!data) return;
+    if (data.mode === "hls") {
+      setCanPublish(false);
+      setPlaybackUrl(data.playback_url);
+      return;
+    }
     setWsUrl(data.ws_url); setCanPublish(data.can_publish);
     if (data.can_publish) {
       // Show prejoin check, but keep token until user confirms
@@ -384,12 +437,21 @@ export default function EventLivePage() {
     );
   }
 
-  if (token) {
+  if (token || playbackUrl) {
     // Keep-alive: the WebinarStage element is rendered in ONE stable container
     // regardless of `minimized`. We only swap CSS positioning so the underlying
     // <LiveKitRoom>, media tracks, and React tree never unmount — switching
     // tabs, minimizing, or transient reconnects will not remount the stage.
-    const stageEl = (
+    const stageEl = !token ? (
+      <Suspense fallback={<FullPageLoader label="Connecting…" />}>
+        <HlsStage
+          src={playbackUrl!}
+          isLive={session.status === "live"}
+          eventBannerUrl={eventMeta.banner}
+          eventTitle={eventMeta.title}
+        />
+      </Suspense>
+    ) : (
       <Suspense fallback={<FullPageLoader label="Connecting…" />}>
         <WebinarStage
           provider={getWebinarProvider({
@@ -432,7 +494,7 @@ export default function EventLivePage() {
         stageOverlays={<><LiveReactions sessionId={session.id} /><LiveAnnouncement sessionId={session.id} /></>}
         minimized={minimized}
         onMinimizedChange={setMinimized}
-        onLeave={() => setToken(null)}
+        onLeave={() => { setToken(null); setPlaybackUrl(null); }}
       />
     );
   }

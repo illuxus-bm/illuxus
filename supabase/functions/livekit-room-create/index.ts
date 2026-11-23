@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
     const room = `event-${event_id.slice(0, 8)}-${Date.now().toString(36)}`;
 
     // Create room via LiveKit
-    const url = Deno.env.get("LIVEKIT_WS_URL")!.replace(/^wss?:\/\//, "https://");
+    const url = (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL"))!.replace(/^wss?:\/\//, "https://");
     const at = new AccessToken(
       Deno.env.get("LIVEKIT_API_KEY")!,
       Deno.env.get("LIVEKIT_API_SECRET")!,
@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
     await fetch(`${url}/twirp/livekit.RoomService/CreateRoom`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${adminJwt}` },
-      body: JSON.stringify({ name: room, empty_timeout: 600, max_participants: 10000, metadata: JSON.stringify({ mode: "livestream", max_publishers: 10 }) }),
+      body: JSON.stringify({ name: room, empty_timeout: 600, max_participants: 10000, metadata: JSON.stringify({ mode: "livestream", max_publishers: 15 }) }),
     });
 
     const { data: session, error } = await supabase.from("webinar_sessions").insert({

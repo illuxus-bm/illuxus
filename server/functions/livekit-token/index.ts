@@ -7,10 +7,11 @@ import { buildCorsHeaders, handlePreflight } from "../_shared/cors.js";
 import { sessionMeetsTwoFactor } from "../_shared/auth.js";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.js";
 import { eventHasFeature, featureNotIncluded } from "../_shared/entitlements.js";
+import { hlsPlaybackUrl } from "../_shared/webinar-hls.js";
 
 const log = createEdgeLogger("livekit-token");
 
-const MAX_PUBLISHERS = 10;
+const MAX_PUBLISHERS = 15;
 
 function cleanName(raw: string | null | undefined): string {
   if (!raw) return "Guest";
@@ -184,8 +185,35 @@ export default defineHandler(async (req) => {
       if (!reg && !isOwner) return json({ error: "Not registered or not approved" }, 403);
     }
 
+    // A viewer the host brought on stage (an accepted raise-hand) publishes
+    // too. HLS viewers aren't in the room, so this token is how they get on
+    // stage; the role stays "viewer".
+    if (!canPublish && userId) {
+      const { data: accepted } = await supabase
+        .from("webinar_stage_requests").select("id")
+        .eq("session_id", session_id).eq("user_id", userId).eq("status", "accepted").maybeSingle();
+      if (accepted && (await getPublisherCount(session.livekit_room)) < MAX_PUBLISHERS) canPublish = true;
+    }
+
     // Final safety net — never let an email appear as a participant name.
     displayName = cleanName(displayName ?? userEmail);
+
+    // Viewers watch the composed stream from the CDN instead of joining the
+    // room. Each request doubles as an attendance heartbeat.
+    const playbackUrl = canPublish ? null : hlsPlaybackUrl(session.livekit_room);
+    if (playbackUrl) {
+      if (session.status === "live") {
+        await recordHlsViewer(supabase, session.id, userId ?? guestIdentity!, userId, displayName);
+      }
+      return json({
+        mode: "hls",
+        playback_url: playbackUrl,
+        role,
+        can_publish: false,
+        room: session.livekit_room,
+        registration_id: registrationId,
+      });
+    }
 
     const at = new AccessToken(
       Deno.env.get("LIVEKIT_API_KEY")!,
@@ -206,8 +234,9 @@ export default defineHandler(async (req) => {
     });
     const token = await at.toJwt();
     return json({
+      mode: "rtc",
       token,
-      ws_url: Deno.env.get("LIVEKIT_WS_URL"),
+      ws_url: Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL"),
       role,
       can_publish: canPublish,
       room: session.livekit_room,
@@ -227,7 +256,7 @@ export default defineHandler(async (req) => {
 
 async function getPublisherCount(room: string): Promise<number> {
   try {
-    const url = Deno.env.get("LIVEKIT_WS_URL")!.replace(/^wss?:\/\//, "https://");
+    const url = (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL"))!.replace(/^wss?:\/\//, "https://");
     const at = new AccessToken(
       Deno.env.get("LIVEKIT_API_KEY")!,
       Deno.env.get("LIVEKIT_API_SECRET")!,
@@ -245,4 +274,37 @@ async function getPublisherCount(room: string): Promise<number> {
     const participants = (data.participants || []) as Array<{ permission?: { canPublish?: boolean } }>;
     return participants.filter(p => p.permission?.canPublish).length;
   } catch { return 0; }
+}
+
+/**
+ * Attendance for HLS viewers, who never appear in LiveKit's webhooks. The
+ * first request opens a row; later ones (the player's heartbeat) move
+ * `duration_seconds` forward. livekit-webhook closes the row at that mark
+ * when the room finishes.
+ */
+async function recordHlsViewer(
+  supabase: ReturnType<typeof createClient>,
+  sessionId: string,
+  identity: string,
+  userId: string | null,
+  displayName: string,
+): Promise<void> {
+  try {
+    const { data: open } = await supabase.from("webinar_attendance")
+      .select("id, joined_at").eq("session_id", sessionId).eq("identity", identity).is("left_at", null)
+      .order("joined_at", { ascending: false }).limit(1).maybeSingle();
+    if (open) {
+      const seconds = Math.max(0, Math.round((Date.now() - Date.parse(open.joined_at)) / 1000));
+      await supabase.from("webinar_attendance").update({ duration_seconds: seconds }).eq("id", open.id);
+      return;
+    }
+    await supabase.from("webinar_attendance").insert({
+      session_id: sessionId, identity, user_id: userId, display_name: displayName,
+      role: "viewer", duration_seconds: 0,
+    });
+    const { data: s } = await supabase.from("webinar_sessions").select("viewer_peak").eq("id", sessionId).maybeSingle();
+    if (s) await supabase.from("webinar_sessions").update({ viewer_peak: (s.viewer_peak || 0) + 1 }).eq("id", sessionId);
+  } catch (e) {
+    log.error("hls attendance failed", toErrorFields(e));
+  }
 }

@@ -6,6 +6,7 @@ import { AccessToken } from "livekit-server-sdk";
 import { buildCorsHeaders, handlePreflight } from "../_shared/cors.js";
 import { sessionMeetsTwoFactor } from "../_shared/auth.js";
 import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.js";
+import { stopRoomEgress } from "../_shared/webinar-hls.js";
 
 const log = createEdgeLogger("livekit-room-end");
 
@@ -29,9 +30,9 @@ export default defineHandler(async (req) => {
       if (!r) return j({ error: "Forbidden" }, 403);
     }
 
-    const url = Deno.env.get("LIVEKIT_WS_URL")!.replace(/^wss?:\/\//, "https://");
+    const url = (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL"))!.replace(/^wss?:\/\//, "https://");
     const at = new AccessToken(Deno.env.get("LIVEKIT_API_KEY")!, Deno.env.get("LIVEKIT_API_SECRET")!, { identity: "server" });
-    at.addGrant({ roomAdmin: true, room: session.livekit_room });
+    at.addGrant({ roomAdmin: true, roomRecord: true, room: session.livekit_room });
     const jwt = await at.toJwt();
 
     if (session.egress_id) {
@@ -40,6 +41,8 @@ export default defineHandler(async (req) => {
         body: JSON.stringify({ egress_id: session.egress_id }),
       }).catch(() => {});
     }
+    // The viewers' HLS stream, and anything else still running for the room.
+    await stopRoomEgress(session.livekit_room, jwt);
     await fetch(`${url}/twirp/livekit.RoomService/DeleteRoom`, {
       method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${jwt}` },
       body: JSON.stringify({ room: session.livekit_room }),

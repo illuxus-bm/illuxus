@@ -10259,7 +10259,7 @@ Deno.serve(async (req) => {
       if (!r10) return j10({ error: "Forbidden" }, 403);
     }
     if (session.egress_id) {
-      const url = Deno.env.get("LIVEKIT_WS_URL").replace(/^wss?:\/\//, "https://");
+      const url = (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL")).replace(/^wss?:\/\//, "https://");
       const at4 = new v5(Deno.env.get("LIVEKIT_API_KEY"), Deno.env.get("LIVEKIT_API_SECRET"), { identity: "server" });
       at4.addGrant({ roomRecord: true });
       const jwt = await at4.toJwt();
