@@ -1,26 +1,21 @@
 /**
  * Webinar provider switch.
  *
- * Resolves which video transport the live event UI should use. Defaults
- * to the legacy LiveKit stack so existing events keep working unchanged.
+ * Resolves which video transport the live event UI should use. LiveKit,
+ * on our own server, is the stage: hosts and speakers meet in its room and
+ * viewers watch the composed stream over HLS (see HlsStage). Agora is the
+ * earlier hosted stage, kept selectable until it is removed.
  *
  * Resolution order:
  *   1. Per-event override on `events.video_provider` (handled by callers
- *      via `getWebinarProvider({ eventOverride })`). This is the canary
- *      knob — flip a single event to Agora to validate before flipping
- *      the platform default.
+ *      via `getWebinarProvider({ eventOverride })`).
  *   2. `import.meta.env.VITE_WEBINAR_PROVIDER` env var.
  *   3. Fallback: 'livekit'.
- *
- * Until the Agora migration is feature-complete, callers should treat
- * 'agora' as feature-flagged and gate every Agora-only code path through
- * this helper so a misconfigured env doesn't accidentally swap a
- * production event onto an unfinished pipeline.
  */
 
 export type WebinarProvider = "livekit" | "agora";
 
-const DEFAULT_PROVIDER: WebinarProvider = "agora";
+const DEFAULT_PROVIDER: WebinarProvider = "livekit";
 
 function isProvider(v: unknown): v is WebinarProvider {
   return v === "livekit" || v === "agora";

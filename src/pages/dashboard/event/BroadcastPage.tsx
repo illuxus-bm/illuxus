@@ -270,7 +270,11 @@ export default function BroadcastPage() {
 
   const goLive = async () => {
     try {
-      const { error } = await db.functions.invoke("livekit-go-live", { body: { session_id: session.id } });
+      const { data, error } = await db.functions.invoke("livekit-go-live", { body: { session_id: session.id } });
+      // Viewers watch over HLS; say so if their stream didn't start.
+      if (data?.hls && !data.hls.started) {
+        toast.error("You're live, but the audience stream didn't start. Check the streaming server.");
+      }
       if (error) {
         // Edge function failed — just update status directly in DB
         await db.from("webinar_sessions").update({ status: "live" }).eq("id", session.id);

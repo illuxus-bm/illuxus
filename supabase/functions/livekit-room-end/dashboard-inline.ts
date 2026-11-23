@@ -10237,6 +10237,39 @@ function toErrorFields(err) {
   return { error_message: String(err) };
 }
 
+// supabase/functions/_shared/webinar-hls.ts
+function livekitHttpUrl() {
+  return Deno.env.get("LIVEKIT_WS_URL").replace(/^wss?:\/\//, "https://");
+}
+function egressId(e4) {
+  return e4.egress_id || e4.egressId || null;
+}
+async function twirp(method, adminJwt, body) {
+  return await fetch(`${livekitHttpUrl()}/twirp/livekit.Egress/${method}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${adminJwt}` },
+    body: JSON.stringify(body)
+  });
+}
+async function listActiveEgress(room, adminJwt) {
+  try {
+    const res = await twirp("ListEgress", adminJwt, { room_name: room, active: true });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.items || [];
+  } catch {
+    return [];
+  }
+}
+async function stopRoomEgress(room, adminJwt) {
+  for (const e4 of await listActiveEgress(room, adminJwt)) {
+    const id2 = egressId(e4);
+    if (!id2) continue;
+    await twirp("StopEgress", adminJwt, { egress_id: id2 }).catch(() => {
+    });
+  }
+}
+
 // supabase/functions/livekit-room-end/index.ts
 var log = createEdgeLogger("livekit-room-end");
 Deno.serve(async (req) => {
@@ -10259,7 +10292,7 @@ Deno.serve(async (req) => {
     }
     const url = Deno.env.get("LIVEKIT_WS_URL").replace(/^wss?:\/\//, "https://");
     const at4 = new v5(Deno.env.get("LIVEKIT_API_KEY"), Deno.env.get("LIVEKIT_API_SECRET"), { identity: "server" });
-    at4.addGrant({ roomAdmin: true, room: session.livekit_room });
+    at4.addGrant({ roomAdmin: true, roomRecord: true, room: session.livekit_room });
     const jwt = await at4.toJwt();
     if (session.egress_id) {
       await fetch(`${url}/twirp/livekit.Egress/StopEgress`, {
@@ -10269,6 +10302,7 @@ Deno.serve(async (req) => {
       }).catch(() => {
       });
     }
+    await stopRoomEgress(session.livekit_room, jwt);
     await fetch(`${url}/twirp/livekit.RoomService/DeleteRoom`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${jwt}` },
