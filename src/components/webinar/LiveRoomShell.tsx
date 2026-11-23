@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import {
   ArrowLeft, BarChart2, ChevronLeft, ChevronRight, Eye, Hand, HelpCircle, Home, LogOut,
@@ -71,6 +72,10 @@ type Props = {
  * are toggled with `&&`, so the stage keeps the same position in the tree and
  * the video room never remounts. No ancestor may set transform / filter /
  * backdrop-filter / animation — that would trap the minimized `position: fixed` PiP.
+ *
+ * The room is portalled to <body> so it sits above the host page's chrome
+ * (the dashboard's sticky top bar is z-50) whatever page embeds it. The
+ * portal target never changes, so the stage still never remounts.
  */
 export function LiveRoomShell({
   style, sessionId, userId, isHost, canPublish, isLive, title, org, breadcrumbs, backHref,
@@ -90,25 +95,10 @@ export function LiveRoomShell({
     ...(isHost ? [{ key: "requests" as RoomTab, icon: Hand, label: "Raised hands" }] : []),
   ];
 
-  return (
-    <>
-      {minimized && (
-        <div className="p-6 max-w-2xl mx-auto space-y-4">
-          <Button variant="ghost" size="sm" asChild>
-            <Link to={backHref}><ArrowLeft className="h-4 w-4 mr-1" />{backLabel}</Link>
-          </Button>
-          <Card className="p-4">
-            <p className="text-[13px] text-muted-foreground">Webinar minimized — still connected</p>
-            <Button size="sm" className="mt-2" onClick={() => onMinimizedChange(false)}>
-              <Maximize2 className="h-3 w-3 mr-1" />Return to webinar
-            </Button>
-          </Card>
-        </div>
-      )}
-
+  const room = (
       <div
         style={style}
-        className={cn(ROOM_SHELL, minimized ? "contents" : "fixed inset-0 z-40 flex overflow-y-auto lg:overflow-hidden")}
+        className={cn(ROOM_SHELL, minimized ? "contents" : "fixed inset-0 z-[60] flex overflow-y-auto lg:overflow-hidden")}
       >
         {!minimized && (
           <nav aria-label="Room" className="hidden lg:flex w-[72px] shrink-0 flex-col items-center border-r border-white/[0.06] py-5">
@@ -208,7 +198,7 @@ export function LiveRoomShell({
               <div
                 className={
                   minimized
-                    ? "fixed bottom-4 right-4 w-[340px] h-[200px] rounded-[12px] overflow-hidden ring-1 ring-white/10 shadow-xl bg-black z-50"
+                    ? "fixed bottom-4 right-4 w-[340px] h-[200px] rounded-[12px] overflow-hidden ring-1 ring-white/10 shadow-xl bg-black z-[60]"
                     : "relative h-[62vw] min-h-[300px] overflow-hidden rounded-[12px] bg-black lg:h-auto lg:min-h-0 lg:flex-1"
                 }
               >
@@ -266,6 +256,24 @@ export function LiveRoomShell({
           </div>
         </div>
       </div>
+  );
+
+  return (
+    <>
+      {minimized && (
+        <div className="p-6 max-w-2xl mx-auto space-y-4">
+          <Button variant="ghost" size="sm" asChild>
+            <Link to={backHref}><ArrowLeft className="h-4 w-4 mr-1" />{backLabel}</Link>
+          </Button>
+          <Card className="p-4">
+            <p className="text-[13px] text-muted-foreground">Webinar minimized — still connected</p>
+            <Button size="sm" className="mt-2" onClick={() => onMinimizedChange(false)}>
+              <Maximize2 className="h-3 w-3 mr-1" />Return to webinar
+            </Button>
+          </Card>
+        </div>
+      )}
+      {typeof document !== "undefined" ? createPortal(room, document.body) : room}
     </>
   );
 }

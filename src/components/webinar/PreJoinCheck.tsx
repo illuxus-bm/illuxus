@@ -169,7 +169,7 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher, accent }: {
 
   if (!asPublisher) {
     return (
-      <div style={roomStyle} className={cn(ROOM_SHELL, "fixed inset-0 z-50 flex items-center justify-center p-4")}>
+      <div style={roomStyle} className={cn(ROOM_SHELL, "fixed inset-0 z-[60] flex items-center justify-center p-4")}>
         <div className={cn("w-full max-w-sm rounded-[20px] p-6 space-y-4", ROOM_PANEL, ROOM_ENTER)}>
           <h2 className="text-[20px] font-medium tracking-[-0.01em] text-white">Join as a viewer</h2>
           <p className="text-[14px] text-white/55 leading-relaxed">You can chat, ask questions, react and raise your hand to speak.</p>
@@ -193,7 +193,7 @@ export function PreJoinCheck({ onJoin, onCancel, asPublisher, accent }: {
   ];
 
   return (
-    <div style={roomStyle} className={cn(ROOM_SHELL, "fixed inset-0 z-50 overflow-y-auto p-4 sm:p-8 lg:p-12")}>
+    <div style={roomStyle} className={cn(ROOM_SHELL, "fixed inset-0 z-[60] overflow-y-auto p-4 sm:p-8 lg:p-12")}>
       <div className={cn("grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-8 lg:gap-12 max-w-6xl mx-auto", ROOM_ENTER)}>
         {/* LEFT — preview + device row */}
         <div className="space-y-5">
