@@ -35,7 +35,7 @@ export function hlsPlaybackUrl(room: string): string | null {
 }
 
 export function livekitHttpUrl(): string {
-  return Deno.env.get("LIVEKIT_WS_URL")!.replace(/^wss?:\/\//, "https://");
+  return (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL"))!.replace(/^wss?:\/\//, "https://");
 }
 
 type EgressInfo = {

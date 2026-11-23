@@ -10239,7 +10239,7 @@ function toErrorFields(err) {
 
 // supabase/functions/_shared/webinar-hls.ts
 function livekitHttpUrl() {
-  return Deno.env.get("LIVEKIT_WS_URL").replace(/^wss?:\/\//, "https://");
+  return (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL")).replace(/^wss?:\/\//, "https://");
 }
 function egressId(e4) {
   return e4.egress_id || e4.egressId || null;
@@ -10290,7 +10290,7 @@ Deno.serve(async (req) => {
       const { data: r10 } = await supabase.from("user_roles").select("role").eq("user_id", user.id).eq("role", "admin").maybeSingle();
       if (!r10) return j10({ error: "Forbidden" }, 403);
     }
-    const url = Deno.env.get("LIVEKIT_WS_URL").replace(/^wss?:\/\//, "https://");
+    const url = (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL")).replace(/^wss?:\/\//, "https://");
     const at4 = new v5(Deno.env.get("LIVEKIT_API_KEY"), Deno.env.get("LIVEKIT_API_SECRET"), { identity: "server" });
     at4.addGrant({ roomAdmin: true, roomRecord: true, room: session.livekit_room });
     const jwt = await at4.toJwt();

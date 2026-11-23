@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
     }
 
     if (session.egress_id) {
-      const url = Deno.env.get("LIVEKIT_WS_URL")!.replace(/^wss?:\/\//, "https://");
+      const url = (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL"))!.replace(/^wss?:\/\//, "https://");
       const at = new AccessToken(Deno.env.get("LIVEKIT_API_KEY")!, Deno.env.get("LIVEKIT_API_SECRET")!, { identity: "server" });
       at.addGrant({ roomRecord: true });
       const jwt = await at.toJwt();

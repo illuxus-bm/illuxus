@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
     const room = `event-${event_id.slice(0, 8)}-${Date.now().toString(36)}`;
 
     // Create room via LiveKit
-    const url = Deno.env.get("LIVEKIT_WS_URL")!.replace(/^wss?:\/\//, "https://");
+    const url = (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL"))!.replace(/^wss?:\/\//, "https://");
     const at = new AccessToken(
       Deno.env.get("LIVEKIT_API_KEY")!,
       Deno.env.get("LIVEKIT_API_SECRET")!,

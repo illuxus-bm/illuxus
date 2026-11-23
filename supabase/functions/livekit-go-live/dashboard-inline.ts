@@ -10251,7 +10251,7 @@ function hlsPrefix(room) {
   return `${room}/hls`;
 }
 function livekitHttpUrl() {
-  return Deno.env.get("LIVEKIT_WS_URL").replace(/^wss?:\/\//, "https://");
+  return (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL")).replace(/^wss?:\/\//, "https://");
 }
 function egressId(e4) {
   return e4.egress_id || e4.egressId || null;

@@ -10429,7 +10429,7 @@ Deno.serve(async (req) => {
     return json({
       mode: "rtc",
       token,
-      ws_url: Deno.env.get("LIVEKIT_WS_URL"),
+      ws_url: Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL"),
       role,
       can_publish: canPublish,
       room: session.livekit_room,
@@ -10448,7 +10448,7 @@ Deno.serve(async (req) => {
 });
 async function getPublisherCount(room) {
   try {
-    const url = Deno.env.get("LIVEKIT_WS_URL").replace(/^wss?:\/\//, "https://");
+    const url = (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL")).replace(/^wss?:\/\//, "https://");
     const at4 = new v5(
       Deno.env.get("LIVEKIT_API_KEY"),
       Deno.env.get("LIVEKIT_API_SECRET"),
