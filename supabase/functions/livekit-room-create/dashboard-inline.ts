@@ -10297,7 +10297,7 @@ Deno.serve(async (req) => {
     await fetch(`${url}/twirp/livekit.RoomService/CreateRoom`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${adminJwt}` },
-      body: JSON.stringify({ name: room, empty_timeout: 600, max_participants: 1e4, metadata: JSON.stringify({ mode: "livestream", max_publishers: 10 }) })
+      body: JSON.stringify({ name: room, empty_timeout: 600, max_participants: 1e4, metadata: JSON.stringify({ mode: "livestream", max_publishers: 15 }) })
     });
     const { data: session, error } = await supabase.from("webinar_sessions").insert({
       event_id,

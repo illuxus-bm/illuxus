@@ -8,7 +8,7 @@ import { hlsPlaybackUrl } from "../_shared/webinar-hls.ts";
 
 const log = createEdgeLogger("livekit-token");
 
-const MAX_PUBLISHERS = 10;
+const MAX_PUBLISHERS = 15;
 
 function cleanName(raw: string | null | undefined): string {
   if (!raw) return "Guest";

@@ -6,7 +6,7 @@ import { createEdgeLogger, toErrorFields } from "../_shared/edge-logger.ts";
 
 const log = createEdgeLogger("livekit-promote");
 
-const MAX = 10;
+const MAX = 15;
 
 Deno.serve(async (req) => {
   const corsHeaders = buildCorsHeaders(req);
@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
         body: JSON.stringify({ room: session.livekit_room }),
       }).then(r => r.json()).catch(() => ({ participants: [] }));
       const pubCount = ((list.participants || []) as { permission?: { canPublish?: boolean } }[]).filter((p) => p.permission?.canPublish).length;
-      if (pubCount >= MAX) return j({ error: "Stage is full (10/10)" }, 409);
+      if (pubCount >= MAX) return j({ error: "Stage is full (15/15)" }, 409);
       if (!self) {
         await supabase.from("webinar_stage_requests").update({ status: "accepted" })
           .eq("session_id", session_id).eq("user_id", target_user_id);

@@ -45,7 +45,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "How does the webinar/livestream feature work?",
-    a: "Open an event → Webinar (sidebar). Create a webinar room, then click 'Go live'. Up to 10 speakers can publish video. Attendees join via the public event URL. You can record sessions, send announcements, manage Q&A, and run polls — all from the webinar studio.",
+    a: "Open an event → Webinar (sidebar). Create a webinar room, then click 'Go live'. Up to 15 speakers can publish video. Attendees join via the public event URL. You can record sessions, send announcements, manage Q&A, and run polls — all from the webinar studio.",
   },
   {
     q: "How do I add sponsors to my event?",

@@ -10239,7 +10239,7 @@ function toErrorFields(err) {
 
 // supabase/functions/livekit-promote/index.ts
 var log = createEdgeLogger("livekit-promote");
-var MAX = 10;
+var MAX = 15;
 Deno.serve(async (req) => {
   const corsHeaders = buildCorsHeaders(req);
   const preflight = handlePreflight(req, corsHeaders);
@@ -10281,7 +10281,7 @@ Deno.serve(async (req) => {
         body: JSON.stringify({ room: session.livekit_room })
       }).then((r10) => r10.json()).catch(() => ({ participants: [] }));
       const pubCount = (list.participants || []).filter((p9) => p9.permission?.canPublish).length;
-      if (pubCount >= MAX) return j10({ error: "Stage is full (10/10)" }, 409);
+      if (pubCount >= MAX) return j10({ error: "Stage is full (15/15)" }, 409);
       if (!self2) {
         await supabase.from("webinar_stage_requests").update({ status: "accepted" }).eq("session_id", session_id).eq("user_id", target_user_id);
       }

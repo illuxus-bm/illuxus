@@ -389,7 +389,7 @@ export default function BroadcastPage() {
 
   if (!session) {
     const features = [
-      { icon: Users, text: "Up to 10 speakers on stage" },
+      { icon: Users, text: "Up to 15 speakers on stage" },
       { icon: Eye, text: "Unlimited viewers" },
       { icon: CircleDot, text: "Record any time while live" },
       { icon: MessageSquare, text: "Chat, Q&A, polls and raised hands" },

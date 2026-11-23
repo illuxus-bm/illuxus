@@ -10274,7 +10274,7 @@ function hlsPlaybackUrl(room) {
 
 // supabase/functions/livekit-token/index.ts
 var log = createEdgeLogger("livekit-token");
-var MAX_PUBLISHERS = 10;
+var MAX_PUBLISHERS = 15;
 function cleanName(raw) {
   if (!raw) return "Guest";
   const s8 = String(raw).trim();

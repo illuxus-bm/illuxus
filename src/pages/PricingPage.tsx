@@ -76,7 +76,7 @@ const plans = [
       { text: "Priority email & chat support", included: true },
       { text: "Advanced analytics & exports", included: true },
       { text: "Speaker & sponsor management", included: true },
-      { text: "Webinar studio (up to 10 speakers)", included: true },
+      { text: "Webinar studio (up to 15 speakers)", included: true },
       { text: "WhatsApp messaging", included: true },
       { text: "Promo codes & early-bird pricing", included: true },
     ],
