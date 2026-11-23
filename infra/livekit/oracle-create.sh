@@ -26,7 +26,7 @@ if [ ! -f "$KEYS" ]; then
 fi
 # shellcheck disable=SC1090
 . "$KEYS"
-[ -f ~/.ssh/illuxus_live ] || ssh-keygen -t ed25519 -N "" -f ~/.ssh/illuxus_live -q
+[ -f ~/.ssh/illuxus_live ] || ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/illuxus_live -q
 
 existing=$(oci compute instance list -c "$C" --display-name "$NAME" --lifecycle-state RUNNING --query 'data[0].id' --raw-output 2>/dev/null || true)
 if [ -n "$existing" ] && [ "$existing" != "null" ]; then
