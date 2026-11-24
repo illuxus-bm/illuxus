@@ -28794,6 +28794,331 @@ ALTER ROLE illuxus_api SET statement_timeout = '15s';
 -- <<< END SOURCE MIGRATION: 090_api_login_role.sql <<<
 
 
+-- >>> BEGIN SOURCE MIGRATION: 091_webinar_fixes.sql >>>
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 091_webinar_fixes.sql
+--
+-- Webinar fixes from the November 2026 review. Safe to run more than once.
+--
+--   1. webinar_member(): who a caller is in a live session — a signed-in
+--      attendee, organiser or speaker, or a guest holding a join / speaker
+--      link — the same rules webinar_react() uses. Internal: not callable
+--      through the API.
+--   2. Q&A upvotes. Attendees could not upvote (only the organiser may edit a
+--      question), and the counter had no record of who voted. Votes now go
+--      through webinar_qa_vote(), one vote per person, pressed again to undo.
+--   3. Attendance on every video provider. webinar_heartbeat() is called by
+--      the live page about once a minute and keeps one attendance row per
+--      stretch of watching, so analytics work on Agora too.
+--   4. get_webinar_analytics() returns the fields the dashboard reads
+--      (peak_viewers, unique_viewers, avg_watch_minutes, …) and a viewer
+--      timeline. It used to return pk / uv / aw, so every figure showed 0.
+--      Event team members (not only the owner) may read it.
+--   5. webinar_participant_names(): display names for the ids shown in chat,
+--      Q&A, raised hands and video tiles, for people in the same session.
+--      Never returns email addresses.
+--
+-- Tests: supabase/tests/091_webinar_fixes.test.mjs
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- 1. Who is calling ─────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.webinar_member(
+  _session_id    uuid,
+  _join_token    text DEFAULT NULL,
+  _speaker_token text DEFAULT NULL
+)
+RETURNS TABLE (who uuid, identity text, is_team boolean, event_id uuid)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  _event uuid;
+  _id    uuid;
+BEGIN
+  SELECT s.event_id INTO _event FROM webinar_sessions s WHERE s.id = _session_id;
+  IF _event IS NULL THEN RETURN; END IF;
+
+  IF auth.uid() IS NOT NULL THEN
+    IF EXISTS (
+         SELECT 1 FROM events e
+          WHERE e.id = _event
+            AND (e.user_id = auth.uid()
+                 OR public.has_role(auth.uid(), 'admin')
+                 OR (e.org_id IS NOT NULL AND public.is_org_member(auth.uid(), e.org_id)))
+       ) THEN
+      RETURN QUERY SELECT auth.uid(), auth.uid()::text, true, _event;
+      RETURN;
+    END IF;
+    IF public.is_event_approved_attendee(auth.uid(), _event)
+       OR public.is_event_speaker(auth.uid(), _event)
+       OR EXISTS (SELECT 1 FROM webinar_speakers ws WHERE ws.session_id = _session_id AND ws.user_id = auth.uid()) THEN
+      RETURN QUERY SELECT auth.uid(), auth.uid()::text, false, _event;
+      RETURN;
+    END IF;
+  END IF;
+
+  IF _join_token IS NOT NULL THEN
+    SELECT r.id INTO _id
+      FROM registrations r
+     WHERE r.join_token = _join_token AND r.event_id = _event
+       AND r.status <> 'cancelled' AND r.approval_status = 'approved';
+    IF _id IS NOT NULL THEN
+      RETURN QUERY SELECT _id, 'guest-' || _id::text, false, _event;
+      RETURN;
+    END IF;
+  END IF;
+  IF _speaker_token IS NOT NULL THEN
+    SELECT ws.id INTO _id
+      FROM webinar_speakers ws
+     WHERE ws.invite_token = _speaker_token AND ws.session_id = _session_id;
+    IF _id IS NOT NULL THEN
+      RETURN QUERY SELECT _id, 'guest-' || _id::text, false, _event;
+      RETURN;
+    END IF;
+  END IF;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.webinar_member(uuid, text, text) FROM PUBLIC, anon, authenticated;
+
+-- 2. Q&A votes ──────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.webinar_qa_votes (
+  qa_id      uuid NOT NULL REFERENCES public.webinar_qa(id) ON DELETE CASCADE,
+  voter_id   uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (qa_id, voter_id)
+);
+ALTER TABLE public.webinar_qa_votes ENABLE ROW LEVEL SECURITY;
+-- No policies: rows are written only by webinar_qa_vote().
+REVOKE ALL ON public.webinar_qa_votes FROM anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.webinar_qa_vote(
+  _qa_id         uuid,
+  _join_token    text DEFAULT NULL,
+  _speaker_token text DEFAULT NULL
+)
+RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  _session uuid;
+  _who     uuid;
+  _count   integer;
+BEGIN
+  SELECT q.session_id INTO _session FROM webinar_qa q WHERE q.id = _qa_id;
+  IF _session IS NULL THEN
+    RAISE EXCEPTION 'Question not found' USING ERRCODE = 'P0002';
+  END IF;
+  SELECT m.who INTO _who FROM public.webinar_member(_session, _join_token, _speaker_token) m;
+  IF _who IS NULL THEN
+    RAISE EXCEPTION 'Only this session''s attendees can vote' USING ERRCODE = '42501';
+  END IF;
+
+  DELETE FROM webinar_qa_votes WHERE qa_id = _qa_id AND voter_id = _who;
+  IF NOT FOUND THEN
+    INSERT INTO webinar_qa_votes (qa_id, voter_id) VALUES (_qa_id, _who);
+  END IF;
+  SELECT count(*) INTO _count FROM webinar_qa_votes WHERE qa_id = _qa_id;
+  UPDATE webinar_qa SET upvotes = _count WHERE id = _qa_id;
+  RETURN _count;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.webinar_qa_vote(uuid, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.webinar_qa_vote(uuid, text, text) TO anon, authenticated, service_role;
+
+-- Which questions the caller has voted for, so the button shows it.
+CREATE OR REPLACE FUNCTION public.webinar_my_qa_votes(
+  _session_id    uuid,
+  _join_token    text DEFAULT NULL,
+  _speaker_token text DEFAULT NULL
+)
+RETURNS SETOF uuid
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT v.qa_id
+    FROM webinar_qa_votes v
+    JOIN webinar_qa q ON q.id = v.qa_id
+   WHERE q.session_id = _session_id
+     AND v.voter_id = (SELECT m.who FROM public.webinar_member(_session_id, _join_token, _speaker_token) m);
+$$;
+REVOKE ALL ON FUNCTION public.webinar_my_qa_votes(uuid, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.webinar_my_qa_votes(uuid, text, text) TO anon, authenticated, service_role;
+
+-- 3. Attendance heartbeat ───────────────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_webinar_attendance_session_identity
+  ON public.webinar_attendance (session_id, identity, left_at DESC);
+
+CREATE OR REPLACE FUNCTION public.webinar_heartbeat(
+  _session_id    uuid,
+  _join_token    text DEFAULT NULL,
+  _speaker_token text DEFAULT NULL,
+  _on_stage      boolean DEFAULT false
+)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  _m      record;
+  _row    uuid;
+  _status text;
+  _live   integer;
+BEGIN
+  SELECT s.status INTO _status FROM webinar_sessions s WHERE s.id = _session_id;
+  -- Only a running session counts as watching.
+  IF _status IS DISTINCT FROM 'live' AND _status IS DISTINCT FROM 'recording' THEN RETURN; END IF;
+
+  SELECT * INTO _m FROM public.webinar_member(_session_id, _join_token, _speaker_token);
+  IF _m.who IS NULL THEN
+    RAISE EXCEPTION 'Only this session''s attendees can join' USING ERRCODE = '42501';
+  END IF;
+
+  -- Extend the current stretch if the last beat was under 3 minutes ago,
+  -- otherwise start a new one (they left and came back).
+  SELECT a.id INTO _row
+    FROM webinar_attendance a
+   WHERE a.session_id = _session_id AND a.identity = _m.identity
+     AND a.left_at > now() - interval '3 minutes'
+   ORDER BY a.left_at DESC
+   LIMIT 1;
+  IF _row IS NOT NULL THEN
+    UPDATE webinar_attendance
+       SET left_at = now(),
+           duration_seconds = EXTRACT(EPOCH FROM (now() - joined_at))::integer,
+           role = CASE WHEN _on_stage OR _m.is_team THEN 'speaker' ELSE role END
+     WHERE id = _row;
+  ELSE
+    INSERT INTO webinar_attendance (session_id, user_id, identity, display_name, role, joined_at, left_at, duration_seconds)
+    VALUES (
+      _session_id,
+      CASE WHEN _m.identity = auth.uid()::text THEN auth.uid() END,
+      _m.identity,
+      (SELECT n.name FROM public.webinar_names_for(_session_id, ARRAY[_m.identity]) n LIMIT 1),
+      CASE WHEN _on_stage OR _m.is_team THEN 'speaker' ELSE 'viewer' END,
+      now(), now(), 0
+    );
+  END IF;
+
+  SELECT count(DISTINCT a.identity) INTO _live
+    FROM webinar_attendance a
+   WHERE a.session_id = _session_id
+     AND (a.left_at IS NULL OR a.left_at > now() - interval '3 minutes');
+  UPDATE webinar_sessions SET viewer_peak = GREATEST(viewer_peak, _live) WHERE id = _session_id;
+END;
+$$;
+
+-- 5 (used by 3). Names ──────────────────────────────────────────────────────────
+-- Internal: resolves ids without checking the caller.
+CREATE OR REPLACE FUNCTION public.webinar_names_for(_session_id uuid, _ids text[])
+RETURNS TABLE (id text, name text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  WITH ev AS (SELECT s.event_id FROM webinar_sessions s WHERE s.id = _session_id),
+  ids AS (
+    SELECT DISTINCT raw,
+           CASE WHEN regexp_replace(raw, '^guest-', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                THEN regexp_replace(raw, '^guest-', '')::uuid END AS u
+      FROM unnest(_ids[1:500]) AS raw
+  )
+  SELECT ids.raw,
+         COALESCE(
+           (SELECT NULLIF(trim(concat_ws(' ', p.first_name, p.last_name)), '') FROM profiles p WHERE p.user_id = ids.u),
+           (SELECT NULLIF(p.display_name, '') FROM profiles p WHERE p.user_id = ids.u),
+           (SELECT NULLIF(ws.display_name, '') FROM webinar_speakers ws
+             WHERE ws.session_id = _session_id AND (ws.id = ids.u OR ws.user_id = ids.u) LIMIT 1),
+           (SELECT NULLIF(trim(r.name), '') FROM registrations r, ev
+             WHERE r.event_id = ev.event_id AND (r.id = ids.u OR r.user_id = ids.u) LIMIT 1),
+           (SELECT NULLIF(p.username, '') FROM profiles p WHERE p.user_id = ids.u)
+         )
+    FROM ids
+   WHERE ids.u IS NOT NULL;
+$$;
+REVOKE ALL ON FUNCTION public.webinar_names_for(uuid, text[]) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.webinar_participant_names(
+  _session_id    uuid,
+  _ids           text[],
+  _join_token    text DEFAULT NULL,
+  _speaker_token text DEFAULT NULL
+)
+RETURNS TABLE (id text, name text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.webinar_member(_session_id, _join_token, _speaker_token)) THEN
+    RAISE EXCEPTION 'Only this session''s attendees can see names' USING ERRCODE = '42501';
+  END IF;
+  RETURN QUERY SELECT n.id, n.name FROM public.webinar_names_for(_session_id, _ids) n WHERE n.name IS NOT NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.webinar_participant_names(uuid, text[], text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.webinar_participant_names(uuid, text[], text, text) TO anon, authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.webinar_heartbeat(uuid, text, text, boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.webinar_heartbeat(uuid, text, text, boolean) TO anon, authenticated, service_role;
+
+-- 4. Analytics ──────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.get_webinar_analytics(_sid uuid)
+RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  _team  boolean;
+  _start timestamptz;
+  _end   timestamptz;
+  _step  interval;
+  _r     jsonb;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM webinar_sessions WHERE id = _sid) THEN
+    RAISE EXCEPTION 'Not found' USING ERRCODE = 'P0002';
+  END IF;
+  SELECT m.is_team INTO _team FROM public.webinar_member(_sid) m;
+  IF _team IS NOT TRUE THEN
+    RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT min(joined_at), max(COALESCE(left_at, now())) INTO _start, _end
+    FROM webinar_attendance WHERE session_id = _sid;
+  -- About 48 points whatever the length, never finer than one minute.
+  _step := GREATEST(interval '1 minute', COALESCE((_end - _start) / 48, interval '1 minute'));
+
+  WITH a AS (
+    SELECT identity, user_id, display_name, joined_at, COALESCE(left_at, now()) AS until
+      FROM webinar_attendance WHERE session_id = _sid
+  ),
+  per_person AS (
+    SELECT identity, SUM(EXTRACT(EPOCH FROM (until - joined_at)) / 60) AS minutes
+      FROM a GROUP BY identity
+  ),
+  timeline AS (
+    SELECT t, (SELECT count(DISTINCT a.identity) FROM a WHERE a.joined_at <= t AND a.until >= t) AS v
+      FROM generate_series(_start, _end, _step) AS t
+     WHERE _start IS NOT NULL
+  ),
+  top AS (
+    SELECT pp.identity,
+           COALESCE(n.name, (SELECT a.display_name FROM a WHERE a.identity = pp.identity AND a.display_name IS NOT NULL LIMIT 1), 'Guest') AS name,
+           ROUND(pp.minutes::numeric, 1) AS minutes
+      FROM per_person pp
+      LEFT JOIN public.webinar_names_for(_sid, ARRAY(SELECT identity FROM per_person)) n ON n.id = pp.identity
+     ORDER BY pp.minutes DESC
+     LIMIT 50
+  )
+  SELECT jsonb_build_object(
+    'kpis', jsonb_build_object(
+      'peak_viewers', GREATEST(
+         COALESCE((SELECT viewer_peak FROM webinar_sessions WHERE id = _sid), 0),
+         COALESCE((SELECT max(v) FROM timeline), 0)),
+      'unique_viewers', (SELECT count(*) FROM per_person),
+      'avg_watch_minutes', COALESCE((SELECT ROUND(avg(minutes)::numeric, 1) FROM per_person), 0),
+      'chat_count', (SELECT count(*) FROM webinar_chat WHERE session_id = _sid AND deleted = false),
+      'qa_count', (SELECT count(*) FROM webinar_qa WHERE session_id = _sid),
+      'polls_count', (SELECT count(*) FROM webinar_polls WHERE session_id = _sid),
+      'reactions_count', (SELECT count(*) FROM webinar_reactions WHERE session_id = _sid),
+      'announcements_count', (SELECT count(*) FROM webinar_announcements WHERE session_id = _sid)
+    ),
+    'timeline', COALESCE((SELECT jsonb_agg(jsonb_build_object('t', t, 'v', v) ORDER BY t) FROM timeline), '[]'::jsonb),
+    'top_attendees', COALESCE((SELECT jsonb_agg(jsonb_build_object('identity', identity, 'name', name, 'minutes', minutes) ORDER BY minutes DESC) FROM top), '[]'::jsonb)
+  ) INTO _r;
+  RETURN _r;
+END;
+$$;
+
+-- Make the API see the changes immediately.
+NOTIFY pgrst, 'reload schema';
+-- <<< END SOURCE MIGRATION: 091_webinar_fixes.sql <<<
+
+
 -- >>> BEGIN ARCHIVED ROOT SCRIPT (disabled): RUN_ME_pending_updates.sql >>>
 -- The following source is commented out intentionally. Review and run
 -- it separately only if its original one-off/manual purpose is needed.

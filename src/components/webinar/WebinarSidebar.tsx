@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { subscribeSessionParticipants, type SidebarParticipant } from "./participantStore";
 import { REACTIONS, sendReaction as postReaction } from "@/lib/webinar-reactions";
 import { friendlyError } from "@/lib/friendly-error";
+import { initials, myQuestionVotes, useParticipantNames, voteOnQuestion } from "@/lib/webinar/live-rpc";
 
 type Tab = "chat" | "qa" | "polls" | "requests" | "participants";
 
@@ -197,11 +198,12 @@ export const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost, va
 
   useEffect(() => {
     let mounted = true;
-    db.from("webinar_chat").select("*").eq("session_id", sessionId).order("created_at").limit(200)
-      .then(({ data }) => { if (mounted) setMsgs(data ?? []); });
+    // The latest 200 messages, shown oldest first.
+    db.from("webinar_chat").select("*").eq("session_id", sessionId).order("created_at", { ascending: false }).limit(200)
+      .then(({ data }) => { if (mounted) setMsgs((data ?? []).reverse()); });
     const ch = supabase.channel(`chat-${sessionId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "webinar_chat", filter: `session_id=eq.${sessionId}` },
-        (p) => setMsgs((m) => [...m, p.new as ChatRow]))
+        (p) => setMsgs((m) => [...m, p.new as ChatRow].slice(-500)))
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "webinar_chat", filter: `session_id=eq.${sessionId}` },
         (p) => {
           const updated = p.new as ChatRow;
@@ -231,6 +233,7 @@ export const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost, va
   };
 
   const visible = msgs.filter((m) => !m.deleted);
+  const nameOf = useParticipantNames(sessionId, [...new Set(visible.map((m) => m.user_id))]);
 
   return (
     <div className="flex flex-col h-full relative">
@@ -244,12 +247,12 @@ export const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost, va
             <div key={m.id} className={cn("group flex items-end gap-2", isSelf && "flex-row-reverse")}>
               <Avatar className="h-7 w-7 shrink-0">
                 <AvatarFallback className={cn("text-[10px] font-semibold", hashColor(m.user_id))}>
-                  {shortName(m.user_id)}
+                  {initials(nameOf(m.user_id))}
                 </AvatarFallback>
               </Avatar>
               <div className={cn("min-w-0 max-w-[80%] flex flex-col", isSelf && "items-end")}>
                 <span className="mb-1 px-1 text-[11px] text-white/40">
-                  {isSelf ? "You" : `User ${m.user_id.slice(0, 6)}`} · {timeAgo(m.created_at)}
+                  {isSelf ? "You" : nameOf(m.user_id)} · {timeAgo(m.created_at)}
                 </span>
                 <p
                   className={cn(
@@ -279,12 +282,12 @@ export const ChatPanel = memo(function ChatPanel({ sessionId, userId, isHost, va
             <div key={m.id} className="group flex items-start gap-2.5">
               <Avatar className={cn("h-7 w-7 text-[10px] font-semibold", hashColor(m.user_id))}>
                 <AvatarFallback className={cn("text-[10px] font-semibold", hashColor(m.user_id))}>
-                  {shortName(m.user_id)}
+                  {initials(nameOf(m.user_id))}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-[12px] font-semibold truncate">{isSelf ? "You" : `User ${m.user_id.slice(0, 6)}`}</span>
+                  <span className="text-[12px] font-semibold truncate">{isSelf ? "You" : nameOf(m.user_id)}</span>
                   <span className="text-[10px] text-muted-foreground font-mono">{timeAgo(m.created_at)}</span>
                 </div>
                 <p className="text-[13px] leading-snug break-words">{m.message}</p>
@@ -359,6 +362,25 @@ export const QAPanel = memo(function QAPanel({ sessionId, userId, isHost }: { se
   const [qs, setQs] = useState<Tables<"webinar_qa">[]>([]);
   const [text, setText] = useState("");
   const [sort, setSort] = useState<QASort>("top");
+  const [myVotes, setMyVotes] = useState<Set<string>>(new Set());
+  const nameOf = useParticipantNames(sessionId, [...new Set(qs.map((q) => q.user_id))]);
+
+  useEffect(() => {
+    let mounted = true;
+    void myQuestionVotes(sessionId).then((v) => { if (mounted) setMyVotes(v); });
+    return () => { mounted = false; };
+  }, [sessionId]);
+
+  const vote = async (qaId: string) => {
+    const { count, error } = await voteOnQuestion(qaId);
+    if (error) { toast.error(error); return; }
+    setMyVotes((prev) => {
+      const next = new Set(prev);
+      if (next.has(qaId)) next.delete(qaId); else next.add(qaId);
+      return next;
+    });
+    if (count !== null) setQs((list) => list.map((q) => (q.id === qaId ? { ...q, upvotes: count } : q)));
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -416,9 +438,13 @@ export const QAPanel = memo(function QAPanel({ sessionId, userId, isHost }: { se
             )}
           >
             <button
-              onClick={async () => { await db.from("webinar_qa").update({ upvotes: (q.upvotes || 0) + 1 }).eq("id", q.id); }}
-              className="flex flex-col items-center justify-center w-9 shrink-0 rounded-md border border-border/60 hover:bg-foreground/5 py-1"
-              aria-label="Upvote"
+              onClick={() => { void vote(q.id); }}
+              className={cn(
+                "flex flex-col items-center justify-center w-9 shrink-0 rounded-md border py-1",
+                myVotes.has(q.id) ? "border-primary/60 bg-primary/10 text-primary" : "border-border/60 hover:bg-foreground/5",
+              )}
+              aria-label={myVotes.has(q.id) ? "Remove upvote" : "Upvote"}
+              aria-pressed={myVotes.has(q.id)}
             >
               <ThumbsUp className="h-3 w-3" />
               <span className="text-[11px] font-mono mt-0.5">{q.upvotes || 0}</span>
@@ -426,7 +452,7 @@ export const QAPanel = memo(function QAPanel({ sessionId, userId, isHost }: { se
             <div className="flex-1 min-w-0">
               <p className="text-[13px] leading-snug break-words">{q.question}</p>
               <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                <span className="text-[10px] text-muted-foreground font-mono">User {q.user_id.slice(0, 6)} · {timeAgo(q.created_at)}</span>
+                <span className="text-[10px] text-muted-foreground font-mono">{q.user_id === userId ? "You" : nameOf(q.user_id)} · {timeAgo(q.created_at)}</span>
                 {q.pinned && <span className="text-[11px] font-medium text-primary">Pinned</span>}
                 {q.answered && <Badge variant="outline" className="h-4 px-1 text-[9px] text-emerald-600 border-emerald-600/40">ANSWERED</Badge>}
               </div>
@@ -718,8 +744,11 @@ function HostRequestsList({ sessionId }: { sessionId: string }) {
     return () => { mounted = false; supabase.removeChannel(ch); };
   }, [sessionId]);
 
+  const nameOf = useParticipantNames(sessionId, reqs.map((r) => r.user_id));
   const act = async (uid: string, action: "promote" | "demote") => {
-    await db.functions.invoke("livekit-promote", { body: { session_id: sessionId, target_user_id: uid, action } });
+    const { error } = await db.functions.invoke("livekit-promote", { body: { session_id: sessionId, target_user_id: uid, action } });
+    if (error) toast.error(friendlyError(error, action === "promote" ? "Couldn't bring them on stage" : "Couldn't decline"));
+    else if (action === "promote") toast.success(`${nameOf(uid)} is on stage`);
   };
 
   return (
@@ -731,11 +760,11 @@ function HostRequestsList({ sessionId }: { sessionId: string }) {
         <div key={r.id} className="flex items-center gap-2 p-2 rounded-lg border border-border/60 bg-background/50">
           <Avatar className={cn("h-8 w-8", hashColor(r.user_id))}>
             <AvatarFallback className={cn("text-[10px] font-semibold", hashColor(r.user_id))}>
-              {shortName(r.user_id)}
+              {initials(nameOf(r.user_id))}
             </AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
-            <p className="text-[12px] font-medium truncate">User {r.user_id.slice(0, 8)}</p>
+            <p className="text-[12px] font-medium truncate">{nameOf(r.user_id)}</p>
             <p className="text-[10px] text-muted-foreground">waiting {timeAgo(r.created_at)}</p>
           </div>
           <Button size="sm" className="h-7 text-[11px]" onClick={() => act(r.user_id, "promote")}>

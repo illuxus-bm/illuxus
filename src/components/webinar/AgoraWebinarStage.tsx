@@ -35,10 +35,14 @@ import {
   type AgoraSessionRole,
   readAgoraAppId,
 } from "@/lib/webinar/useAgoraSessionToken";
-import { Mic, MicOff, Video, VideoOff, MonitorUp, MonitorOff, LogOut, Loader2, Wifi, WifiOff } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, MonitorUp, MonitorOff, LogOut, Loader2, Wifi, WifiOff, Smile, PhoneOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { toast } from "sonner";
+import { REACTIONS, sendReaction as postReaction } from "@/lib/webinar-reactions";
 import { logger } from "@/lib/observability";
 import { setSessionParticipants, type SidebarParticipant } from "./participantStore";
+import { useParticipantNames, webinarHeartbeat } from "@/lib/webinar/live-rpc";
 
 interface Props {
   sessionId: string;
@@ -46,6 +50,9 @@ interface Props {
   isHost: boolean;
   canPublish: boolean;
   onDisconnect?: () => void;
+  /** Host only: ends the session for everyone (marks it ended, so every
+   *  attendee page switches to the "ended" screen). */
+  onEnd?: () => void | Promise<void>;
   eventBannerUrl?: string | null;
   eventTitle?: string | null;
 }
@@ -56,6 +63,7 @@ export function AgoraWebinarStage({
   isHost,
   canPublish,
   onDisconnect,
+  onEnd,
   eventBannerUrl,
   eventTitle,
 }: Props) {
@@ -331,6 +339,19 @@ export function AgoraWebinarStage({
     });
   }, [canPublish, client]);
 
+  // Attendance: LiveKit reports joins and leaves through its webhook; Agora
+  // has no such hook here, so the page reports itself about once a minute.
+  useEffect(() => {
+    if (!sessionId || client.connectionState !== "CONNECTED") return;
+    const beat = () => { void webinarHeartbeat(sessionId, canPublish).catch(() => undefined); };
+    beat();
+    const timer = window.setInterval(beat, 60_000);
+    return () => window.clearInterval(timer);
+  }, [sessionId, canPublish, client.connectionState]);
+
+  const remoteIds = client.remoteUsers.map((u) => String(u.uid));
+  const nameOf = useParticipantNames(sessionId, remoteIds);
+
   // ── Participant bridge ────────────────────────────────────────────────────
   // Mirror Agora's local + remote users into the shared participantStore so
   // the WebinarSidebar's "People" tab (which lives outside this component
@@ -359,7 +380,7 @@ export function AgoraWebinarStage({
       const onStage = publishingAudio || publishingVideo;
       return {
         identity: uid,
-        name: `Participant ${uid.length > 6 ? uid.slice(0, 6) + "…" : uid}`,
+        name: nameOf(uid),
         isLocal: false,
         isHost: false,
         canPublish: onStage,
@@ -369,7 +390,7 @@ export function AgoraWebinarStage({
       };
     });
     setSessionParticipants(sessionId, [localEntry, ...remoteEntries]);
-  }, [sessionId, userId, isHost, canPublish, client.localAudio, client.localVideo, client.remoteUsers, micOn, camOn]);
+  }, [sessionId, userId, isHost, canPublish, client.localAudio, client.localVideo, client.remoteUsers, micOn, camOn, nameOf]);
 
   // Cleanup on unmount: clear the list so a stale "you" doesn't linger.
   useEffect(() => {
@@ -424,7 +445,7 @@ export function AgoraWebinarStage({
         )}
         {/* Remote tiles */}
         {client.remoteUsers.map((user) => (
-          <RemoteTile key={String(user.uid)} user={user} />
+          <RemoteTile key={String(user.uid)} user={user} label={nameOf(String(user.uid))} />
         ))}
       </div>
 
@@ -471,10 +492,12 @@ export function AgoraWebinarStage({
           setCamOn={setCamOn}
           screenOn={screenOn}
           onToggleScreen={toggleScreenShare}
+          sessionId={sessionId}
           onLeave={async () => {
             await client.leave();
             onDisconnect?.();
           }}
+          onEnd={isHost && onEnd ? onEnd : undefined}
           quality={connectionQualityLabel(client.networkQuality)}
         />
       </div>
@@ -530,7 +553,7 @@ function LocalTile({
   );
 }
 
-function RemoteTile({ user }: { user: IAgoraRTCRemoteUser }) {
+function RemoteTile({ user, label }: { user: IAgoraRTCRemoteUser; label: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [hasVideo, setHasVideo] = useState<boolean>(!!user.videoTrack);
 
@@ -578,7 +601,7 @@ function RemoteTile({ user }: { user: IAgoraRTCRemoteUser }) {
         </div>
       )}
       <TileLabel
-        label={`User ${shortUid(user.uid)}`}
+        label={label}
         muted={!user.hasAudio}
       />
     </div>
@@ -605,7 +628,9 @@ function ControlBar({
   setCamOn,
   screenOn,
   onToggleScreen,
+  sessionId,
   onLeave,
+  onEnd,
   quality,
 }: {
   canPublish: boolean;
@@ -616,9 +641,22 @@ function ControlBar({
   setCamOn: React.Dispatch<React.SetStateAction<boolean>>;
   screenOn: boolean;
   onToggleScreen: () => void;
+  sessionId: string;
   onLeave: () => void;
+  onEnd?: () => void | Promise<void>;
   quality: string | null;
 }) {
+  const [reactionOpen, setReactionOpen] = useState(false);
+  const lastReact = useRef(0);
+  const sendReaction = (emoji: string) => {
+    const now = Date.now();
+    if (now - lastReact.current < 400) return;
+    lastReact.current = now;
+    setReactionOpen(false);
+    void postReaction(sessionId, emoji).then((error) => {
+      if (error) toast.error(`Failed to send reaction: ${error}`);
+    });
+  };
 
   return (
     <div className="flex items-center gap-2 rounded-full bg-black/65 backdrop-blur-md ring-1 ring-white/10 px-2 py-1.5">
@@ -656,15 +694,51 @@ function ControlBar({
         </span>
       )}
 
+      <Popover open={reactionOpen} onOpenChange={setReactionOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label="React"
+            title="React"
+            className="h-9 w-9 rounded-full inline-flex items-center justify-center text-white bg-white/10 hover:bg-white/15 transition-colors"
+          >
+            <Smile className="h-4 w-4" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="center" side="top" sideOffset={12} className="w-auto p-1.5 flex gap-1 bg-zinc-900 border-white/10">
+          {REACTIONS.map((e) => (
+            <button
+              key={e}
+              type="button"
+              onClick={() => sendReaction(e)}
+              className="text-xl w-10 h-10 rounded-full hover:bg-white/10 active:scale-90 transition flex items-center justify-center"
+              aria-label={`react ${e}`}
+            >{e}</button>
+          ))}
+        </PopoverContent>
+      </Popover>
+
       <Button
         size="sm"
-        variant="destructive"
-        className="h-8 rounded-full text-[12px] px-3"
+        variant={onEnd ? "outline" : "destructive"}
+        className={onEnd ? "h-8 rounded-full text-[12px] px-3 bg-transparent text-white border-white/30 hover:bg-white/10 hover:text-white" : "h-8 rounded-full text-[12px] px-3"}
         onClick={onLeave}
       >
         <LogOut className="h-3.5 w-3.5 mr-1.5" />
-        {isHost ? "End" : "Leave"}
+        Leave
       </Button>
+      {onEnd && (
+        <Button
+          size="sm"
+          variant="destructive"
+          className="h-8 rounded-full text-[12px] px-3"
+          onClick={() => { void onEnd(); }}
+          title="End the session for everyone"
+        >
+          <PhoneOff className="h-3.5 w-3.5 mr-1.5" />
+          End for all
+        </Button>
+      )}
     </div>
   );
 }
@@ -712,11 +786,6 @@ function tileGridCols(n: number): string {
   return "repeat(4, 1fr)";
 }
 
-function shortUid(uid: string | number): string {
-  const s = String(uid);
-  if (s.length <= 6) return s;
-  return s.slice(0, 4) + "…" + s.slice(-2);
-}
 
 function connectionQualityLabel(q: { uplinkNetworkQuality: number; downlinkNetworkQuality: number } | null): string | null {
   if (!q) return null;

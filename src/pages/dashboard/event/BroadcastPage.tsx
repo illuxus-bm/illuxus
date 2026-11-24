@@ -48,6 +48,9 @@ const WebinarStage = lazy(() =>
 const AnalyticsPanel = lazy(() =>
   import("@/components/webinar/AnalyticsPanel").then((m) => ({ default: m.AnalyticsPanel })),
 );
+const BrandingPanel = lazy(() =>
+  import("@/components/webinar/BrandingPanel").then((m) => ({ default: m.BrandingPanel })),
+);
 const PreJoinCheck = lazy(() =>
   import("@/components/webinar/PreJoinCheck").then((m) => ({ default: m.PreJoinCheck })),
 );
@@ -190,15 +193,9 @@ export default function BroadcastPage() {
     try { await createSessionImpl(); } finally { setCreating(false); }
   };
   const createSessionImpl = async () => {
-    // Clean up old ended/error sessions for this event to prevent row accumulation.
-    if (eventId) {
-      await db
-        .from("webinar_sessions")
-        .delete()
-        .eq("event_id", eventId)
-        .in("status", ["ended", "error"]);
-    }
-
+    // Earlier sessions are kept: deleting them also deleted their chat, Q&A,
+    // polls, reactions, attendance and recording link. The studio and the
+    // live page always open the newest session.
     // Resolve which provider this event uses (per-event override > platform
     // default > 'livekit'). Agora doesn't need a room-create edge function —
     // tokens are minted on-demand by `agora-token` at stage-mount time. So
@@ -290,10 +287,10 @@ export default function BroadcastPage() {
     const fn = session.egress_id ? "recording-stop" : "recording-start";
     try {
       const { error } = await db.functions.invoke(fn, { body: { session_id: session.id } });
-      if (error) { setRecBusy(false); return toast.error("Recording requires LiveKit to be configured."); }
+      if (error) { setRecBusy(false); return toast.error("Recording isn't available on the current video provider yet."); }
     } catch {
       setRecBusy(false);
-      return toast.error("Recording requires LiveKit to be configured.");
+      return toast.error("Recording isn't available on the current video provider yet.");
     }
     setRecBusy(false);
     toast.success(session.egress_id ? "Recording stopped" : "Recording started");
@@ -337,11 +334,6 @@ export default function BroadcastPage() {
 
   const speakerLink = (token: string) => publicUrl(`/e/${routeId}/live?speaker=${token}`);
 
-  const updateLounge = async (enabled: boolean) => {
-    if (!session) return;
-    await db.from("webinar_sessions").update({ lounge_enabled: enabled }).eq("id", session.id);
-    setSession({ ...session, lounge_enabled: enabled });
-  };
   const sendAnnouncement = async () => {
     if (!announcement.trim() || !session) return;
     await db.from("webinar_announcements").insert({ session_id: session.id, message: announcement.trim() });
@@ -455,6 +447,7 @@ export default function BroadcastPage() {
           userId={user.id}
           isHost
           onDisconnect={leaveStage}
+          onEnd={endLive}
           micEnabled={deviceOpts?.mic ?? true}
           camEnabled={deviceOpts?.cam ?? true}
           camDeviceId={deviceOpts?.camId}
@@ -597,13 +590,6 @@ export default function BroadcastPage() {
         <div className="space-y-5">
           <Card className="p-4 space-y-3">
             <h2 className="text-[15px] font-semibold">Studio settings</h2>
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
-              <div>
-                <p className="text-[13px] font-medium">Networking lounge</p>
-                <p className="text-[12px] text-muted-foreground">Small-group video tables for attendees</p>
-              </div>
-              <Switch checked={!!session.lounge_enabled} onCheckedChange={updateLounge} aria-label="Networking lounge" />
-            </div>
             <div className="rounded-lg border border-border p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -616,6 +602,13 @@ export default function BroadcastPage() {
                 <button className="mt-1.5 text-[12px] font-medium text-primary hover:underline" onClick={() => setEventBranding(null)}>
                   Use org default
                 </button>
+              )}
+              {effectiveBranding && branding !== undefined && (
+                <div className="mt-3 border-t border-border pt-3">
+                  <Suspense fallback={null}>
+                    <BrandingPanel key={session.id} sessionId={session.id} initial={branding} />
+                  </Suspense>
+                </div>
               )}
             </div>
             <div className="rounded-lg border border-border p-3">

@@ -31,6 +31,8 @@ type Props = {
   wsUrl?: string;
   canPublish: boolean;
   onDisconnect?: () => void;
+  /** Host only: ends the session for everyone. */
+  onEnd?: () => void | Promise<void>;
   layout?: StageLayout;
   branding?: Branding;
   brandingEnabled?: boolean;
@@ -61,15 +63,19 @@ function WebinarStageImpl(props: Props) {
           Loading Agora studio…
         </div>
       }>
-        <AgoraWebinarStageLazy
-          sessionId={props.sessionId}
-          userId={props.userId}
-          isHost={!!props.isHost}
-          canPublish={props.canPublish}
-          onDisconnect={props.onDisconnect}
-          eventBannerUrl={props.eventBannerUrl}
-          eventTitle={props.eventTitle}
-        />
+        <div className="relative h-full w-full">
+          <AgoraWebinarStageLazy
+            sessionId={props.sessionId}
+            userId={props.userId}
+            isHost={!!props.isHost}
+            canPublish={props.canPublish}
+            onDisconnect={props.onDisconnect}
+            onEnd={props.onEnd}
+            eventBannerUrl={props.eventBannerUrl}
+            eventTitle={props.eventTitle}
+          />
+          {props.brandingEnabled !== false && props.branding && <StageOverlays branding={props.branding} />}
+        </div>
       </Suspense>
     );
   }
