@@ -520,20 +520,20 @@ https://illuxus.com/checkout/<event-id>`}</code></pre>
             </p>
             <ul className="list-disc pl-5 space-y-1 text-sm text-muted-foreground">
               <li><strong className="text-foreground">Reactions</strong> — floating emoji feedback, throttled for performance.</li>
-              <li><strong className="text-foreground">Q&amp;A</strong> — moderated queue; upvote, dismiss, mark as answered.</li>
-              <li><strong className="text-foreground">Polls</strong> — single/multi-select with live result charts.</li>
+              <li><strong className="text-foreground">Q&amp;A</strong> — attendees upvote questions (one vote each); hosts pin, delete or mark them answered.</li>
+              <li><strong className="text-foreground">Polls</strong> — single-choice polls with live results.</li>
             </ul>
           </>
         ),
       },
       {
-        heading: "Recording, transcripts, replay",
+        heading: "Recording",
         body: (
           <>
             <p>
-              Toggle <em>Record</em> at any time. We capture the full mixed feed (MP4) plus a per-speaker raw track.
-              After the session, a speech-to-text job produces a chaptered transcript and a replay link you can gate
-              by ticket type.
+              On the LiveKit stage, toggle <em>Record</em> at any time to capture the mixed feed as an MP4. A link
+              to the recording appears in the studio when it's ready. Transcripts and ticket-gated replay pages
+              are planned but not available yet.
             </p>
           </>
         ),

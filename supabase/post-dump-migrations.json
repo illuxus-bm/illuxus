@@ -4,6 +4,7 @@
     "087_security_hardening.sql",
     "088_audit_followups.sql",
     "089_advisor_fixes.sql",
-    "090_api_login_role.sql"
+    "090_api_login_role.sql",
+    "091_webinar_fixes.sql"
   ]
 }

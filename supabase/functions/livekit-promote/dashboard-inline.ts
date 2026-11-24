@@ -10270,35 +10270,46 @@ Deno.serve(async (req) => {
     } else if (!isHost && !isPlatformAdmin) {
       return j10({ error: "Forbidden" }, 403);
     }
-    const url = Deno.env.get("LIVEKIT_WS_URL").replace(/^wss?:\/\//, "https://");
-    const at4 = new v5(Deno.env.get("LIVEKIT_API_KEY"), Deno.env.get("LIVEKIT_API_SECRET"), { identity: "server" });
-    at4.addGrant({ roomAdmin: true, room: session.livekit_room });
-    const jwt = await at4.toJwt();
+    const lkBase = (Deno.env.get("LIVEKIT_WS_URL") || Deno.env.get("LIVEKIT_URL") || "").replace(/^wss?:\/\//, "https://");
+    const lkKey = Deno.env.get("LIVEKIT_API_KEY");
+    const lkSecret = Deno.env.get("LIVEKIT_API_SECRET");
+    let jwt = null;
+    if (lkBase && lkKey && lkSecret) {
+      const at4 = new v5(lkKey, lkSecret, { identity: "server" });
+      at4.addGrant({ roomAdmin: true, room: session.livekit_room });
+      jwt = await at4.toJwt();
+    }
+    const twirp = async (method, body) => {
+      if (!jwt) return null;
+      try {
+        const r10 = await fetch(`${lkBase}/twirp/livekit.RoomService/${method}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${jwt}` },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(5e3)
+        });
+        return r10.ok ? await r10.json() : null;
+      } catch (e4) {
+        log.warn("livekit unreachable", { method, ...toErrorFields(e4) });
+        return null;
+      }
+    };
     if (action === "promote") {
-      const list = await fetch(`${url}/twirp/livekit.RoomService/ListParticipants`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${jwt}` },
-        body: JSON.stringify({ room: session.livekit_room })
-      }).then((r10) => r10.json()).catch(() => ({ participants: [] }));
-      const pubCount = (list.participants || []).filter((p9) => p9.permission?.canPublish).length;
-      if (pubCount >= MAX) return j10({ error: "Stage is full (10/10)" }, 409);
+      const { count } = await supabase.from("webinar_stage_requests").select("id", { count: "exact", head: true }).eq("session_id", session_id).eq("status", "accepted");
+      const list = await twirp("ListParticipants", { room: session.livekit_room });
+      const lkCount = (list?.participants ?? []).filter((p9) => p9.permission?.canPublish).length;
+      if (!self2 && Math.max(count ?? 0, lkCount) >= MAX) return j10({ error: `Stage is full (${MAX}/${MAX})` }, 409);
       if (!self2) {
         await supabase.from("webinar_stage_requests").update({ status: "accepted" }).eq("session_id", session_id).eq("user_id", target_user_id);
       }
-    } else {
-      if (!self2) {
-        await supabase.from("webinar_stage_requests").update({ status: "cancelled" }).eq("session_id", session_id).eq("user_id", target_user_id);
-      }
+    } else if (!self2) {
+      await supabase.from("webinar_stage_requests").update({ status: "cancelled" }).eq("session_id", session_id).eq("user_id", target_user_id);
     }
     const can = action === "promote";
-    await fetch(`${url}/twirp/livekit.RoomService/UpdateParticipant`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${jwt}` },
-      body: JSON.stringify({
-        room: session.livekit_room,
-        identity: target_user_id,
-        permission: { can_publish: can, can_subscribe: true, can_publish_data: true }
-      })
+    await twirp("UpdateParticipant", {
+      room: session.livekit_room,
+      identity: target_user_id,
+      permission: { can_publish: can, can_subscribe: true, can_publish_data: true }
     });
     return j10({ ok: true });
   } catch (e4) {

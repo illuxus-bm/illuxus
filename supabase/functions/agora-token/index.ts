@@ -16,8 +16,13 @@
  *   • VIEW (role "subscriber"): anyone who may publish, a signed-in user with
  *     an approved registration for the event, or a guest holding that event's
  *     join token.
- *   • Signed-in callers get a token for their own user id only; guests must
- *     use a "guest-…" id, so nobody can join under another user's identity.
+ *   • An attendee whose raised hand the host accepted may also publish.
+ *   • Join links work only while the registration is approved and not
+ *     cancelled, and viewers can't join a session that has ended.
+ *   • Signed-in callers get a token for their own user id only. Guests get an
+ *     id assigned here from their link ("guest-<registration or speaker id>"),
+ *     returned as `rtc.uid`: each link is a distinct participant, and opening
+ *     the same link on a second device takes over from the first.
  * Previously any caller could mint a publisher token for any channel.
  *
  * Required Supabase secrets:
@@ -62,7 +67,14 @@ interface TokenRequest {
   join_token?: string;
 }
 
-type Access = "publish" | "view" | "none" | "no-session";
+type Access = "publish" | "view" | "none" | "no-session" | "ended";
+
+interface AccessResult {
+  access: Access;
+  /** Agora id for a caller without an account, derived from their link. */
+  guestUid?: string;
+  eventId?: string;
+}
 
 /** What the caller may do in the webinar session behind `sessionId`. */
 async function sessionAccess(
@@ -71,37 +83,56 @@ async function sessionAccess(
   sessionId: string,
   speakerToken: string | undefined,
   joinToken: string | undefined,
-): Promise<Access> {
-  if (!isUuid(sessionId)) return "no-session";
+): Promise<AccessResult> {
+  if (!isUuid(sessionId)) return { access: "no-session" };
   const { data: s } = await admin
-    .from("webinar_sessions").select("id, event_id, created_by").eq("id", sessionId).maybeSingle();
-  const session = s as { id: string; event_id: string; created_by: string | null } | null;
-  if (!session) return "no-session";
+    .from("webinar_sessions").select("id, event_id, created_by, status").eq("id", sessionId).maybeSingle();
+  const session = s as { id: string; event_id: string; created_by: string | null; status: string } | null;
+  if (!session) return { access: "no-session" };
+  const eventId = session.event_id;
 
   if (callerId) {
-    if (session.created_by === callerId) return "publish";
-    if (await getManagedEvent(admin, callerId, session.event_id)) return "publish";
+    if (session.created_by === callerId) return { access: "publish", eventId };
+    if (await getManagedEvent(admin, callerId, eventId)) return { access: "publish", eventId };
     const { data: sp } = await admin
       .from("webinar_speakers").select("id").eq("session_id", sessionId).eq("user_id", callerId).limit(1);
-    if (sp?.length) return "publish";
+    if (sp?.length) return { access: "publish", eventId };
   }
   if (speakerToken) {
     const { data: sp } = await admin
       .from("webinar_speakers").select("id").eq("session_id", sessionId).eq("invite_token", speakerToken).limit(1);
-    if (sp?.length) return "publish";
+    const row = (sp as { id: string }[] | null)?.[0];
+    if (row) return { access: "publish", guestUid: `guest-${row.id}`, eventId };
   }
+
+  // Everyone below is an attendee.
+  let viewer: AccessResult | null = null;
   if (joinToken) {
     const { data: reg } = await admin
-      .from("registrations").select("id").eq("join_token", joinToken).eq("event_id", session.event_id).limit(1);
-    if (reg?.length) return "view";
+      .from("registrations").select("id")
+      .eq("join_token", joinToken).eq("event_id", eventId)
+      .eq("approval_status", "approved").neq("status", "cancelled").limit(1);
+    const row = (reg as { id: string }[] | null)?.[0];
+    if (row) viewer = { access: "view", guestUid: `guest-${row.id}`, eventId };
   }
-  if (callerId) {
+  if (!viewer && callerId) {
     const { data: reg } = await admin
       .from("registrations").select("id")
-      .eq("event_id", session.event_id).eq("user_id", callerId).eq("approval_status", "approved").limit(1);
-    if (reg?.length) return "view";
+      .eq("event_id", eventId).eq("user_id", callerId)
+      .eq("approval_status", "approved").neq("status", "cancelled").limit(1);
+    if (reg?.length) viewer = { access: "view", eventId };
   }
-  return "none";
+  if (!viewer) return { access: "none" };
+  if (session.status === "ended") return { access: "ended" };
+
+  // A raised hand the host accepted puts the attendee on stage.
+  if (callerId) {
+    const { data: req } = await admin
+      .from("webinar_stage_requests").select("id")
+      .eq("session_id", sessionId).eq("user_id", callerId).eq("status", "accepted").limit(1);
+    if (req?.length) return { ...viewer, access: "publish" };
+  }
+  return viewer;
 }
 
 Deno.serve(async (req: Request) => {
@@ -154,33 +185,37 @@ Deno.serve(async (req: Request) => {
   const joinToken = typeof body.join_token === "string" && body.join_token ? body.join_token : undefined;
 
   let access: Access = "none";
+  let guestUid: string | undefined;
   if (typeof body.channel === "string" && body.channel) {
+    let result: AccessResult;
     try {
-      access = await sessionAccess(admin, caller?.id ?? null, body.channel, speakerToken, joinToken);
+      result = await sessionAccess(admin, caller?.id ?? null, body.channel, speakerToken, joinToken);
     } catch (err) {
       return jsonResponse(500, { error: "access check failed", detail: err instanceof Error ? err.message : String(err) });
     }
-    if (access !== "no-session" && access !== "none") {
-      const { data: s } = await admin.from("webinar_sessions").select("event_id").eq("id", body.channel).maybeSingle();
-      const eventId = (s as { event_id: string } | null)?.event_id;
-      if (!(await eventHasFeature(admin, eventId, "webinar"))) {
+    access = result.access;
+    guestUid = result.guestUid;
+    if (access === "publish" || access === "view") {
+      if (!(await eventHasFeature(admin, result.eventId, "webinar"))) {
         return jsonResponse(403, featureNotIncluded("webinar", "the webinar studio"));
       }
     }
   }
 
-  // Bind the Agora identity to the caller so one participant can't join as another.
+  // Bind the Agora identity to the caller so one participant can't join as
+  // another. Guests are given the id of their link (below) whatever they ask for.
   const identityError = (id: unknown): string | null => {
     if (caller) return String(id) === caller.id ? null : "uid must be your own user id";
     return typeof id === "string" && id.startsWith("guest-") ? null : "guests must use a guest- uid";
   };
+  const effectiveUid = (requested: unknown): unknown => (!caller && guestUid ? guestUid : requested);
 
   const out: Record<string, unknown> = {};
 
   // ── RTC token ────────────────────────────────────────────────────────────
   if (type === "rtc" || type === "both") {
     const channel = body.channel;
-    const uid = body.uid;
+    const uid = effectiveUid(body.uid);
     const role = body.role;
     if (!channel || typeof channel !== "string") {
       return jsonResponse(400, { error: "channel required for rtc token" });
@@ -192,6 +227,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse(400, { error: "role must be 'publisher' | 'subscriber'" });
     }
     if (access === "no-session") return jsonResponse(404, { error: "Session not found" });
+    if (access === "ended") return jsonResponse(410, { error: "This session has ended" });
     if (access === "none") {
       return jsonResponse(caller || speakerToken || joinToken ? 403 : 401, {
         error: caller || speakerToken || joinToken ? "You don't have access to this session" : "Sign in or use your join link",
@@ -235,7 +271,8 @@ Deno.serve(async (req: Request) => {
 
   // ── RTM token ────────────────────────────────────────────────────────────
   if (type === "rtm" || type === "both") {
-    const userId = body.rtmUserId ?? (body.uid !== undefined ? String(body.uid) : undefined);
+    const requestedRtm = body.rtmUserId ?? (body.uid !== undefined ? String(body.uid) : undefined);
+    const userId = requestedRtm === undefined ? undefined : String(effectiveUid(requestedRtm));
     if (!userId) {
       return jsonResponse(400, { error: "rtmUserId (or uid) required for rtm token" });
     }
