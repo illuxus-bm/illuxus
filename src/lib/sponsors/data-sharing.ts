@@ -20,7 +20,7 @@ export interface SharePreview {
   sponsor: { id: string; name: string; title: string | null; title_label: string | null };
   eligible: number; speakers?: number; attendees?: number;
   with_email: number; with_mobile: number; with_both: number; without_contact: number;
-  /** People who haven't agreed to share contact details with sponsors (migration 079); absent before it. */
+  /** Always 0 since migration 092 (contact details are shared for everyone); kept for older shares. */
   without_permission?: number;
   fields: ShareField[]; not_collected: string[];
   current: ShareSummary | null;

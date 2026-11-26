@@ -115,7 +115,11 @@ const ATTENDEE_FILES = [
     // Bumped again the same day: `supabase.functions.invoke` (the ticket
     // email) became `db.functions.invoke`, which is the same call unless
     // VITE_DATA_BACKEND=api. Re-audited: no UTM line changed.
-    hash: "85dabd562809d22567258ec7b4c848b85966f7873639bef6f8b26e105debe6ac",
+    // Bumped 2026-11-26 for sharing with sponsors as part of registering
+    // (migration 092): the optional sponsor checkbox is gone, the agreement
+    // wording names contact details, and `sponsor_share_consent` is always
+    // true. Re-audited: no UTM line changed.
+    hash: "9e675b62a1eb9556c591ede40bf4b740249362c20aca6dd6a9013eb60ab21edc",
   },
   {
     path: "src/components/event/RegistrationsSection.tsx",
