@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { ConsentCheckbox, CONSENT_REQUIRED_MESSAGE, LegalLink } from "@/components/ConsentCheckbox";
-import { SponsorShareChoice } from "@/components/sponsor-data/SponsorShareChoice";
 import { supabase } from "@/integrations/supabase/client";
 import { db } from "@/lib/data/db";
 import { supabaseRpc } from "@/lib/observability";
@@ -78,7 +77,6 @@ export default function EventRsvpCard({
   const [agreed, setAgreed] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
   // The separate, optional answer: may the event's sponsors have my contact details?
-  const [shareWithSponsors, setShareWithSponsors] = useState(false);
   // Phones: once the card has scrolled off the top, a bar at the bottom of
   // the screen keeps the status and the main action in reach.
   const cardRef = useRef<HTMLElement>(null);
@@ -281,8 +279,9 @@ export default function EventRsvpCard({
         utm_campaign: utmParams.utm_campaign ?? null,
         utm_content:  utmParams.utm_content  ?? null,
         utm_term:     utmParams.utm_term     ?? null,
-        // The database records when, and to which wording (migration 079).
-        sponsor_share_consent: shareWithSponsors,
+        // Part of the agreement above; the database records when, and to
+        // which wording (migrations 079 and 092).
+        sponsor_share_consent: true,
       } as never)
       .select("id, approval_status, join_token")
       .single();
@@ -612,11 +611,9 @@ export default function EventRsvpCard({
             >
               I agree to the <LegalLink to="/terms">Terms</LegalLink>, <LegalLink to="/refunds">Refund Policy</LegalLink>{" "}
               and <LegalLink to="/privacy">Privacy Policy</LegalLink>, to my registration details being shared with
-              the event organiser, and to my name, company and attendance being shared with the event's sponsors.
+              the event organiser, and to my registration and contact details (including email, mobile and LinkedIn)
+              being shared with the event's sponsors.
             </ConsentCheckbox>
-          )}
-          {user && !isFull && (
-            <SponsorShareChoice checked={shareWithSponsors} onCheckedChange={setShareWithSponsors} />
           )}
           <Button
             onClick={handleRsvp}

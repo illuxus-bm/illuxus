@@ -28794,6 +28794,76 @@ ALTER ROLE illuxus_api SET statement_timeout = '15s';
 -- <<< END SOURCE MIGRATION: 090_api_login_role.sql <<<
 
 
+-- >>> BEGIN SOURCE MIGRATION: 092_sponsor_share_all_contacts.sql >>>
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- 092_sponsor_share_all_contacts.sql
+--
+-- Sponsor shares carry everyone's contact details again, as they did before
+-- migration 079.
+--
+-- Registering now means agreeing to the Terms and Privacy Policy, which say
+-- that registration and contact details (email, mobile, LinkedIn) go to the
+-- event's sponsors. There is no separate tick box and no opt-out on the
+-- ticket any more, so:
+--
+--   • _sponsor_share_people() includes contact details for every registrant
+--     and for listed speakers (the 072 behaviour).
+--   • _sponsor_share_without_permission() is always 0.
+--   • Turning the old setting off no longer strips details from shares
+--     already made, and the ticket-page function is no longer callable.
+--   • The recorded wording version moves to 2026-11-26 for new registrations.
+--
+-- The sponsor_share_consent columns stay as a record of earlier answers.
+-- Shares already made are snapshots: use "Share updated data" to send the
+-- contact details to a sponsor that already has a list.
+--
+-- Safe to run more than once. Tests: supabase/tests/092_sponsor_share_all_contacts.test.mjs
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION public._sponsor_share_notice_version()
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path = '' AS $$ SELECT '2026-11-26'::text $$;
+
+CREATE OR REPLACE FUNCTION public._sponsor_share_people(_event uuid, _ended boolean)
+RETURNS TABLE (person_id uuid, data jsonb) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT r.id, public._sponsor_share_row(r, _ended) FROM public._sponsor_share_eligible(_event) r
+  UNION ALL
+  SELECT sp.id, jsonb_strip_nulls(jsonb_build_object(
+    'participant_type', 'Speaker',
+    'full_name', COALESCE(NULLIF(btrim(COALESCE(sp.first_name, '') || ' ' || COALESCE(sp.last_name, '')), ''), sp.name),
+    'title', NULLIF(NULLIF(btrim(sp.title), ''), 'Prefer not to say'),
+    'first_name', NULLIF(btrim(sp.first_name), ''),
+    'last_name', NULLIF(btrim(sp.last_name), ''),
+    'designation', NULLIF(btrim(sp.designation), ''),
+    'company', NULLIF(btrim(sp.company), ''),
+    'email', NULLIF(btrim(sp.email), ''),
+    'mobile', CASE WHEN NULLIF(btrim(sp.mobile_number), '') IS NOT NULL THEN btrim(COALESCE(sp.mobile_country_code, '') || ' ' || sp.mobile_number) END,
+    'mobile_country_code', CASE WHEN NULLIF(btrim(sp.mobile_number), '') IS NOT NULL THEN NULLIF(btrim(sp.mobile_country_code), '') END,
+    'mobile_number', NULLIF(btrim(sp.mobile_number), ''),
+    'linkedin_url', NULLIF(btrim(sp.linkedin_url), ''),
+    'company_website', NULLIF(btrim(sp.company_website), ''),
+    'company_employee_count', NULLIF(btrim(sp.company_employee_count), ''),
+    'industry', NULLIF(btrim(sp.industry), ''),
+    'attendance', CASE WHEN _ended THEN 'Did not attend' ELSE 'Not yet' END))
+    FROM event_speakers es JOIN speakers sp ON sp.id = es.speaker_id
+   WHERE es.event_id = _event
+     AND NOT EXISTS (SELECT 1 FROM public._sponsor_share_eligible(_event) r
+                      WHERE NULLIF(btrim(sp.email), '') IS NOT NULL AND lower(r.email) = lower(btrim(sp.email)))
+     AND COALESCE(lower(btrim(sp.email)), '') NOT IN (SELECT public._event_sponsor_emails(_event));
+$$;
+REVOKE ALL ON FUNCTION public._sponsor_share_people(uuid, boolean) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public._sponsor_share_without_permission(_event uuid)
+RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$ SELECT 0::bigint $$;
+REVOKE ALL ON FUNCTION public._sponsor_share_without_permission(uuid) FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS registrations_sponsor_share_withdraw ON public.registrations;
+
+REVOKE ALL ON FUNCTION public.set_my_sponsor_share_consent(uuid, boolean) FROM PUBLIC, anon, authenticated;
+
+NOTIFY pgrst, 'reload schema';
+-- <<< END SOURCE MIGRATION: 092_sponsor_share_all_contacts.sql <<<
+
+
 -- >>> BEGIN ARCHIVED ROOT SCRIPT (disabled): RUN_ME_pending_updates.sql >>>
 -- The following source is commented out intentionally. Review and run
 -- it separately only if its original one-off/manual purpose is needed.

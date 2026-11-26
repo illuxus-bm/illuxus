@@ -78,7 +78,7 @@ export async function registerGuest(args: {
   utm: UtmParams;
   /** Hidden field; real visitors leave it empty. */
   website: string;
-  /** The optional answer: share my contact details with the event's sponsors. */
+  /** Sharing with the event's sponsors; part of the registration agreement. */
   shareWithSponsors?: boolean;
 }): Promise<{ ok: true; confirmation: GuestConfirmation } | { ok: false; error: string; fieldErrors?: GuestFieldErrors }> {
   const reply = await callGuestRegistration({

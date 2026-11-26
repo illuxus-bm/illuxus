@@ -98,7 +98,7 @@ We share personal data with the following categories of recipients, each bound b
 
 (a) Event organisers — when you register for an event, the organiser receives the data necessary to manage your registration (name, email, ticket type, custom-question answers, dietary/accessibility flags you provide, check-in status).
 
-(b) Event sponsors — when you register for an event, the organiser may share your name, company, designation, company details you provide, registration date and attendance with that event's sponsors. Your email address, mobile number and LinkedIn profile are shared with sponsors only if you choose to when you register. You can change that choice at any time on your ticket; withdrawing it also removes your contact details from the lists already shared with sponsors on Illuxus (a copy a sponsor has already downloaded is that sponsor's responsibility). Sponsors receive this only for the events they sponsor, to follow up with you about the event and their offerings. Shared lists are kept only while in use: when an organiser shares an updated list or withdraws one, the earlier copy is deleted. Each sponsor is responsible for how it uses the data it receives; you can ask a sponsor to stop contacting you, and ask the organiser or Illuxus to stop sharing your details with sponsors of future events.
+(b) Event sponsors — when you register for an event, you agree that the organiser may share your registration and contact details with that event's sponsors: your name, email address, mobile number, LinkedIn profile, company, designation, company details you provide, registration date and attendance. Speakers listed on an event are shared with the same details. Sponsors receive this only for the events they sponsor, to follow up with you about the event and their offerings; we also remind you of this in event emails and messages. Shared lists are kept only while in use: when an organiser shares an updated list or withdraws one, the earlier copy is deleted. A copy a sponsor has downloaded, and how a sponsor uses the data it receives, is that sponsor's responsibility; you can ask a sponsor to stop contacting you at any time.
 
 (c) Sub-processors — Illuxus's current list of material sub-processors is:
    • Stripe Payments India Private Limited (India) and Stripe Inc. (USA / Ireland) — international card payments.
@@ -366,6 +366,7 @@ Date last reviewed: 20 June 2026.
 Next scheduled review: 20 June 2027 (annual review cycle).
 
 Version history:
+• v3.3 — 26 November 2026 — Registration and contact details are shared with event sponsors as part of registering; the separate sponsor-sharing choice is removed.
 • v3.0 — 20 June 2026 — Comprehensive rewrite for DPDPA 2023, CERT-In 2022 directive, GDPR cross-references, sub-processor disclosures.
 • v2.0 — 14 March 2025 — Added cookie consent flow, expanded retention table.
 • v1.0 — 01 February 2024 — Initial publication.`,
@@ -439,7 +440,7 @@ export default function PrivacyPage() {
         <p className="text-sm font-medium text-primary mb-3 uppercase tracking-widest">Legal</p>
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-3">Privacy Policy</h1>
         <p className="text-muted-foreground text-[14px]">
-          Last updated: 7 November 2026 · Effective: 7 November 2026 · Version 3.2
+          Last updated: 26 November 2026 · Effective: 26 November 2026 · Version 3.3
         </p>
       </section>
 

@@ -8,7 +8,6 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { CheckCircle2, Hourglass, Loader2, MailCheck, MailWarning } from "lucide-react";
 import { ConsentCheckbox, LegalLink } from "@/components/ConsentCheckbox";
-import { SponsorShareChoice } from "@/components/sponsor-data/SponsorShareChoice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,7 +48,6 @@ export function GuestRegistrationForm({
   }));
   const [agreed, setAgreed] = useState(false);
   // The separate, optional answer: may the event's sponsors have my contact details?
-  const [shareWithSponsors, setShareWithSponsors] = useState(false);
   const [website, setWebsite] = useState("");
   const [errors, setErrors] = useState<GuestFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -83,7 +81,7 @@ export function GuestRegistrationForm({
     if (Object.keys(found).length > 0) return;
 
     setSubmitting(true);
-    const send = () => registerGuest({ eventId, fields, utm: utmParams, website, shareWithSponsors });
+    const send = () => registerGuest({ eventId, fields, utm: utmParams, website, shareWithSponsors: true });
     const result = await send();
     setSubmitting(false);
     if ("error" in result) {
@@ -141,9 +139,9 @@ export function GuestRegistrationForm({
       >
         I agree to the <LegalLink to="/terms">Terms</LegalLink>, <LegalLink to="/refunds">Refund Policy</LegalLink>{" "}
         and <LegalLink to="/privacy">Privacy Policy</LegalLink>, to my registration details being shared with
-        the event organiser, and to my name, company and attendance being shared with the event's sponsors.
+        the event organiser, and to my registration and contact details (including email, mobile and LinkedIn)
+        being shared with the event's sponsors.
       </ConsentCheckbox>
-      <SponsorShareChoice checked={shareWithSponsors} onCheckedChange={setShareWithSponsors} />
 
       {formError && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[12.5px] text-destructive">{formError}</p>}
 

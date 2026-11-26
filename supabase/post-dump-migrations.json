@@ -4,6 +4,7 @@
     "087_security_hardening.sql",
     "088_audit_followups.sql",
     "089_advisor_fixes.sql",
-    "090_api_login_role.sql"
+    "090_api_login_role.sql",
+    "092_sponsor_share_all_contacts.sql"
   ]
 }

@@ -134,7 +134,7 @@ export function SharedDataTable({ shareId, canExport, fileName }: { shareId: str
       )}
       <Pager pager={pager} total={query.data?.total ?? 0} updating={query.isFetching} label="participants" />
       <p className="text-[12px] text-muted-foreground">
-        Contact details appear only for participants who agreed to share them with sponsors. Use them for this event's follow-up, as agreed with the organiser.
+        Contact details are included where participants gave them. Use them for this event's follow-up, as agreed with the organiser.
       </p>
       <Sheet open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
